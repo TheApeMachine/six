@@ -49,46 +49,6 @@ func (dataset *promptDataset) GeneratePrompts() iter.Seq[data.Prompt] {
 	}
 }
 
-func TestMachineRunPublishesPromptSequences(t *testing.T) {
-	Convey("Given a machine with a prompt-aware dataset", t, func() {
-		dataset := &promptDataset{
-			prompts: []data.Prompt{
-				{
-					Text:     "blue cab",
-					Label:    "Truck",
-					HasLabel: true,
-				},
-				{
-					Text: "red cab",
-				},
-			},
-		}
-		node := kadabra.NewKadabraNode(7)
-
-		machine, err := NewMachine(
-			t.Context(),
-			MachineWithDataset(dataset),
-			MachineWithKadabraNode(node),
-			MachineWithKadabraLabel("Corpus"),
-		)
-
-		Convey("Run should publish prompt sequences into Kadabra with labels preserved", func() {
-			So(err, ShouldBeNil)
-			So(machine.Run(), ShouldBeNil)
-			So(dataset.closed, ShouldBeTrue)
-			So(node.Store.CurrentStep(), ShouldEqual, 2)
-			So(node.HasRecord(kadabra.HashSequenceRecord("blue cab", "Truck")), ShouldBeTrue)
-			So(node.HasRecord(kadabra.HashSequenceRecord("red cab", "Corpus")), ShouldBeTrue)
-
-			blueScores := node.Store.Classify("blue cab")
-			redScores := node.Store.Classify("red cab")
-
-			So(blueScores["Truck"], ShouldBeGreaterThan, blueScores["Corpus"])
-			So(redScores["Corpus"], ShouldBeGreaterThan, redScores["Truck"])
-		})
-	})
-}
-
 func TestMachineRunPublishesBufferedChunks(t *testing.T) {
 	Convey("Given a machine with a raw byte dataset", t, func() {
 		payload := bytes.Repeat([]byte("a"), defaultMachineChunkBytes+6)

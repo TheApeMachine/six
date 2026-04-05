@@ -37,31 +37,22 @@ system:
   projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
   batchSize: 10000
   batchWindow: 500
-  # gatherBatch waits at least this long (µs) so a second frame can arrive after
-  # prompt settle (Machine.Read waitForPrompt ~50ms). Compared with batchWindow.
-  evolutionBatchWindow: 75000
-  holisticChunkBits: 512
-  holisticHammingMax: 0.45
-  mapElitesInjectionRate: 0.08
-  mapElitesGridShift: 8
-  tokenSettleMaxPasses: 4
-  tokenSettleEpsilonBits: 0
-  thermodynamicEnergyWord: -1
-  thermodynamicBirthEnergy: 256
-  thermodynamicDecayDelta: 1
-  thermodynamicEmitGain: 8
-  sleepMaxPairs: 4
-  # When true, seed frames collocate with K-bucket peers; disposable witness
-  # clones carry the high ID bit so Move/crossover/decay skip them.
-  kBucketCoLocatedBatch: true
   queueSize: 20000
 
-controlplane:
-  k: 20
+kadabra:
+  bits: 64
+  bucketSize: 20
+  replicationFactor: 3
   alpha: 3
-  affinity:
-    start: 63
-    bits: 64
+  epochQueries: 100
+  penalty: 0.1
+  securityThreshold: 0.5
+  bucketSecurityThresholds:
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
 
 value:
   words: 128

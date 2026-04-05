@@ -94,7 +94,8 @@ var valuePool = sync.Pool{
 /*
 NewValue should only be used to create the initial Value.
 This method should not be used to create temporary Values.
-The returned pointer is owned by the caller until Close returns it to valuePool.
+The returned pointer is owned by the caller until Close
+returns it to valuePool.
 */
 func NewValue(p []byte) (*Value, error) {
 	raw := valuePool.Get()
@@ -102,14 +103,12 @@ func NewValue(p []byte) (*Value, error) {
 	*v = Value{}
 
 	byteLen := core.Cfg.Value.Bytes
+
 	if byteLen <= 0 || len(p) == 0 {
 		return v, nil
 	}
 
-	n := len(p)
-	if n > byteLen {
-		n = byteLen
-	}
+	n := min(len(p), byteLen)
 
 	if byteLen <= valueScratchCap {
 		var scratch [valueScratchCap]byte
@@ -128,11 +127,8 @@ func NewValue(p []byte) (*Value, error) {
 }
 
 /*
-Read implements io.Reader, which serves two main purposes.
- 1. It contributes to the High Compatibility core concept.
- 2. It allows Values to pass through Values, which is the
-    closest equivalent of an instruction-pointer.
-
+Read implements io.Reader, which prepares the Value for
+transmission over the wire.
 It is important to understand that we do not pay any
 traditional serialization tax, because the Value is already
 serialized in memory.
@@ -147,9 +143,11 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
+Write implements io.Writer, which convert the Value from
+its wire format into a Value type.
 It is important to understand that we do not pay any
 traditional serialization tax, because the Value is already
-serialized in memory.
+serialized in memory. This is the same as Read, but in reverse.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
@@ -163,17 +161,38 @@ func (value *Value) Write(p []byte) (int, error) {
 /*
 Close implements io.Closer, and must be called when a Value
 is discarded. It guarantees a sane exit from the substrate
-and returns the value to the value pool. This is not meant
-as a quick-and-dirty way to discard a Value, that has to
-be done by loading the tombstone firmware.
+and returns the value to the value pool.
 */
 func (value *Value) Close() error {
 	if value == nil {
 		return nil
 	}
 
+	// Wipe the Value, this is important to ensure 
+	// that the Value is not leaked to the heap.
 	*value = Value{}
 	valuePool.Put(value)
 
 	return nil
+}
+
+/*
+ID returns the ID of the Value.
+*/
+func (value *Value) ID() uint64 {
+	return value.ID()
+}
+
+/*
+String returns the string representation of the
+Value's token region, which stores the original
+bytes of the data that was used to create the Value.
+*/
+func (value *Value) String() string {
+	return string(
+		unsafe.Slice(
+			(*byte)(unsafe.Pointer(&value[0])),
+			core.Cfg.Value.Region.Tokens.Bits,
+		),
+	)
 }

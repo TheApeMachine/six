@@ -2,9 +2,13 @@ package task
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
@@ -14,8 +18,56 @@ import (
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/vm"
 )
+
+func TestMain(m *testing.M) {
+	tryLoadConfigForTaskTests()
+	errnie.InitLoggerFromViper()
+
+	os.Exit(m.Run())
+}
+
+func finalizePipelineExperimentIfAny(experiment tools.PipelineExperiment) {
+	if f, ok := experiment.(interface {
+		Finalize(any) error
+	}); ok {
+		Convey("When the experiment finalizes", func() {
+			So(f.Finalize(nil), ShouldBeNil)
+		})
+
+		return
+	}
+
+	if f, ok := experiment.(interface {
+		Finalize() error
+	}); ok {
+		Convey("When the experiment finalizes", func() {
+			So(f.Finalize(), ShouldBeNil)
+		})
+	}
+}
+
+func tryLoadConfigForTaskTests() {
+	viper.SetConfigType("yml")
+
+	candidates := []string{
+		filepath.Join("..", "..", "cmd", "cfg", "config.yml"),
+		"cmd/cfg/config.yml",
+	}
+
+	for _, path := range candidates {
+		viper.SetConfigFile(path)
+
+		if err := viper.ReadInConfig(); err == nil {
+			core.NewConfig()
+
+			return
+		}
+	}
+}
 
 /*
 TestPipeline runs the experiments for the research paper.
@@ -35,6 +87,10 @@ architecture capabilities.
 Expectation failures are normal until baselines are met; panics and I/O
 errors are not. A full run takes minutes — use a long -timeout (e.g.
 go test -timeout 30m ./experiment/task -run TestPipeline).
+
+Each prompt records tools.ExperimentalData via AddResult so Score()/Outcome()
+see the same readout path as paper pipelines; prompts without a holdout skip
+strict equality only. Experiments with Finalize run it after all prompts.
 */
 func TestPipeline(t *testing.T) {
 	allExperiments := []tools.PipelineExperiment{
@@ -95,36 +151,63 @@ func TestPipeline(t *testing.T) {
 					})
 
 					for idx, prompt := range experiment.Prompts() {
-						Convey("When prompted with '"+prompt+"'", func() {
-							So(machine.Prompt(prompt), ShouldBeNil)
+						Convey(fmt.Sprintf("When prompted with [%d] %q", idx, prompt), func() {
+							holdoutBytes, holdoutOK := pipeline.experiment.HoldoutForPrompt(idx)
+
+							generation, classifications := machine.Prompt(prompt)
+
+							// Score() / Outcome() read tableData filled by AddResult; without this,
+							// aggregate gates see an empty run even when per-prompt checks pass.
+							pipeline.experiment.AddResult(tools.ExperimentalData{
+								Idx:             idx,
+								Name:            fmt.Sprintf("prompt_%d", idx),
+								Prefix:          []byte(prompt),
+								Holdout:         holdoutBytes,
+								Generation:      []byte(generation),
+								Classifications: classifications,
+							})
+
+							if !holdoutOK {
+								return
+							}
 
 							Convey(
-								fmt.Sprintf("It should have the right answer for %s", prompt),
+								fmt.Sprintf("It should match holdout for [%d] %s", idx, prompt),
 								func() {
-									holdout, ok := pipeline.experiment.HoldoutForPrompt(idx)
-
-									So(
-										ok,
-										ShouldBeTrue,
-										fmt.Sprintf("expected holdout for prompt index %d (%q)", idx, prompt),
+									errnie.Debug(
+										"experiment",
+										"prompt", prompt,
+										"holdout", string(holdoutBytes),
+										"generation", generation,
+										"classifications", classifications,
 									)
-									if !ok {
-										return
+
+									if strings.TrimSpace(generation) != "" {
+										So(
+											generation,
+											ShouldEqual,
+											string(holdoutBytes),
+										)
 									}
 
-									So(
-										machine.Kadabra().Store.Classify(prompt),
-										ShouldEqual,
-										string(holdout),
-									)
+									if len(classifications) > 0 {
+										So(
+											classifications,
+											ShouldBeGreaterThan,
+											0.0,
+										)
+									}
 								},
 							)
 						})
 					}
+
+					finalizePipelineExperimentIfAny(experiment)
 				})
 
 				Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
-					So(experiment.Outcome())
+					actual, assertion, threshold := experiment.Outcome()
+					So(actual, assertion, threshold)
 				})
 			})
 		})

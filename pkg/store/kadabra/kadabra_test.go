@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/frankentrie"
 )
 
@@ -87,11 +89,11 @@ func TestNewKadabraNode(t *testing.T) {
 		Convey("It should initialize DHT defaults and bucket state", func() {
 			So(node.ID, ShouldEqual, 7)
 			So(node.Store, ShouldNotBeNil)
-			So(node.BucketSize, ShouldEqual, defaultKadabraBucketSize)
-			So(node.ReplicationFactor, ShouldEqual, defaultKadabraReplication)
-			So(node.LookupParallelism, ShouldEqual, defaultKadabraAlpha)
-			So(node.EpochQueries, ShouldEqual, defaultKadabraEpochQueries)
-			So(len(node.buckets), ShouldEqual, dhtIDBits)
+			So(node.BucketSize, ShouldEqual, core.Cfg.Kadabra.BucketSize)
+			So(node.ReplicationFactor, ShouldEqual, core.Cfg.Kadabra.ReplicationFactor)
+			So(node.LookupParallelism, ShouldEqual, core.Cfg.Kadabra.Alpha)
+			So(node.EpochQueries, ShouldEqual, core.Cfg.Kadabra.EpochQueries)
+			So(len(node.buckets), ShouldEqual, core.Cfg.Kadabra.Bits)
 			So(node.buckets[0], ShouldNotBeNil)
 			So(math.IsInf(node.buckets[0].PreviousScore, -1), ShouldBeTrue)
 		})
@@ -222,12 +224,18 @@ func TestPublish(t *testing.T) {
 		connectFully(nodes...)
 
 		Convey("Publish should replicate onto the closest nodes to the record key", func() {
-			record, err := nodes[0].Publish("blue_cab", "Truck")
+			value, err := primitive.NewValue([]byte("blue_cab"))
+			So(err, ShouldBeNil)
+
+			record, err := nodes[0].Publish(*value, "Truck")
+			defer value.Close()
+
 			So(err, ShouldBeNil)
 			expected := expectedClosestNodeIDs(nodes, NodeID(record.Key), 2)
 
 			for _, node := range nodes {
 				shouldStore := false
+
 				for _, expectedID := range expected {
 					if node.ID == expectedID {
 						shouldStore = true
@@ -251,12 +259,19 @@ func TestFindRecord(t *testing.T) {
 		}
 
 		connectFully(nodes...)
-		record, err := nodes[0].Publish("blue_cab", "Truck")
+
+		value, err := primitive.NewValue([]byte("blue_cab"))
 		So(err, ShouldBeNil)
+
+		record, err := nodes[0].Publish(*value, "Truck")
+		defer value.Close()
+		So(err, ShouldBeNil)
+
 		ordered := expectedClosestNodeIDs(nodes, NodeID(record.Key), len(nodes))
 		seekerID := ordered[len(ordered)-1]
 
 		var seeker *KadabraNode
+
 		for _, node := range nodes {
 			if node.ID == seekerID {
 				seeker = node
@@ -352,9 +367,13 @@ func BenchmarkKadabraNode_Publish(b *testing.B) {
 
 	sequenceIndex := 0
 	for b.Loop() {
-		if _, err := nodes[0].Publish("blue_cab_"+strconv.Itoa(sequenceIndex), "Truck"); err != nil {
+		value, err := primitive.NewValue([]byte("blue_cab_" + strconv.Itoa(sequenceIndex)))
+		So(err, ShouldBeNil)
+
+		if _, err := nodes[0].Publish(*value, "Truck"); err != nil {
 			b.Fatal(err)
 		}
+
 		sequenceIndex++
 	}
 }
@@ -368,10 +387,17 @@ func BenchmarkKadabraNode_FindRecord(b *testing.B) {
 	}
 
 	connectFully(nodes...)
-	record, err := nodes[0].Publish("blue_cab", "Truck")
+
+	value, err := primitive.NewValue([]byte("blue_cab"))
+	So(err, ShouldBeNil)
+
+	record, err := nodes[0].Publish(*value, "Truck")
+	defer value.Close()
+
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	b.ReportAllocs()
 	b.ResetTimer()
 

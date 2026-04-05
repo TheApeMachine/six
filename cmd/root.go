@@ -142,6 +142,7 @@ func initConfig() {
 		io.ErrShortBuffer forever.
 	*/
 	core.NewConfig()
+	errnie.InitLoggerFromViper()
 }
 
 const roottxt = `

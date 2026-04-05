@@ -95,8 +95,8 @@ func zapLevelFromViper() zapcore.Level {
 }
 
 /*
-InitLogger rebuilds the global zap logger from cfg (loaded via core.LoadLoggingConfig
-and the "logging" section of config.yml). Call after Viper config is loaded.
+InitLogger rebuilds the global zap logger from cfg (the "logging" section of config.yml).
+Call InitLoggerFromViper after viper.ReadInConfig, or pass cfg built manually.
 */
 func InitLogger(cfg LoggingConfig) {
 	loggingCfg.Store(cfg)
@@ -134,6 +134,43 @@ func InitLogger(cfg LoggingConfig) {
 			}
 			fmt.Fprintf(os.Stderr, "errnie: elasticsearch indexing enabled (index=%q)\n", idx)
 		}
+	}
+}
+
+/*
+InitLoggerFromViper unmarshals the "logging" key from viper and calls InitLogger.
+Call after viper has loaded config.yml (e.g. cmd initConfig).
+
+Environment overrides when non-empty: ELASTIC_PASSWORD, ELASTICSEARCH_API_KEY.
+ELASTICSEARCH_ENABLED accepts true/false/1/0 to force shipping on or off.
+*/
+func InitLoggerFromViper() {
+	var cfg LoggingConfig
+
+	if err := viper.UnmarshalKey("logging", &cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "errnie: logging unmarshal: %v\n", err)
+
+		return
+	}
+
+	applyElasticsearchEnvOverrides(&cfg.Elasticsearch)
+	InitLogger(cfg)
+}
+
+func applyElasticsearchEnvOverrides(es *ElasticsearchConfig) {
+	if p := strings.TrimSpace(os.Getenv("ELASTIC_PASSWORD")); p != "" {
+		es.Password = p
+	}
+
+	if k := strings.TrimSpace(os.Getenv("ELASTICSEARCH_API_KEY")); k != "" {
+		es.APIKey = k
+	}
+
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ELASTICSEARCH_ENABLED"))) {
+	case "1", "true", "yes", "on":
+		es.Enabled = true
+	case "0", "false", "no", "off":
+		es.Enabled = false
 	}
 }
 

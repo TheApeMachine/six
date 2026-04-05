@@ -51,7 +51,9 @@ func NewMachine(
 	}
 
 	if machine.kadabra == nil {
-		machine.kadabra = kadabra.NewKadabraNode(machine.defaultNodeID())
+		machine.kadabra = kadabra.NewKadabraNode(
+			machine.defaultNodeID(),
+		)
 	}
 
 	return machine, validate.Require(map[string]any{
@@ -60,6 +62,10 @@ func NewMachine(
 	})
 }
 
+/*
+Run starts the machine and ingests the dataset into the Kadabra node.
+Before we can prompt the machine, we need to have the full dataset.
+*/
 func (machine *Machine) Run() error {
 	if err := validate.Require(map[string]any{
 		"machine": machine,
@@ -68,7 +74,7 @@ func (machine *Machine) Run() error {
 		"dataset": machine.dataset,
 		"kadabra": machine.kadabra,
 	}); err != nil {
-		return err
+		return errnie.Error(err)
 	}
 
 	defer func() {
@@ -76,21 +82,6 @@ func (machine *Machine) Run() error {
 			machine.dataset.Close(),
 		)
 	}()
-
-	if promptDataset, ok := machine.dataset.(data.PromptProvider); ok {
-		for prompt := range promptDataset.GeneratePrompts() {
-			label := machine.label
-			if prompt.HasLabel && strings.TrimSpace(prompt.Label) != "" {
-				label = strings.TrimSpace(prompt.Label)
-			}
-
-			if err := machine.publishSequence(prompt.Text, label); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
 
 	buffer := bytes.NewBuffer(make([]byte, 0, defaultMachineChunkBytes))
 
@@ -101,63 +92,45 @@ func (machine *Machine) Run() error {
 			continue
 		}
 
-		if err := machine.publishChunk(buffer.Bytes()); err != nil {
-			return err
+		value, err := primitive.NewValue(buffer.Bytes())
+
+		if err != nil {
+			return errnie.Error(
+				NewVmError(ErrVmInvalidValue, err, "NewValue"),
+				"buffer", buffer.Bytes(),
+			)
+		}
+
+		if _, err := machine.kadabra.Publish(*value, machine.label); err != nil {
+			return errnie.Error(
+				NewVmError(ErrVmInvalidSequence, err, "publishSequence"),
+				"buffer", buffer.Bytes(),
+			)
 		}
 
 		buffer.Reset()
 	}
 
-	if buffer.Len() == 0 {
-		return nil
-	}
-
-	return machine.publishSequence(buffer.String(), machine.label)
-}
-
-func (machine *Machine) Prompt(prompt string) error {
-	return machine.publishSequence(prompt, machine.label)
-}
-
-/*
-Kadabra returns the local Kadabra DHT node used by the machine.
-*/
-func (machine *Machine) Kadabra() *kadabra.KadabraNode {
-	if machine == nil {
-		return nil
-	}
-
-	return machine.kadabra
-}
-
-func (machine *Machine) publishChunk(chunk []byte) error {
-	return machine.publishSequence(string(chunk), machine.label)
-}
-
-func (machine *Machine) publishSequence(sequence string, label string) error {
-	if sequence == "" {
-		return nil
-	}
-
-	val, err := primitive.NewValue([]byte(sequence))
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		errnie.Error(val.Close())
-	}()
-
-	if _, err := machine.kadabra.Publish(sequence, label); err != nil {
-		return err
-	}
-
 	return nil
 }
 
+/*
+Prompt the machine and retrieve both a prediction and a classification.
+*/
+func (machine *Machine) Prompt(prompt string) (
+	generation string, classification map[string]float64,
+) {
+	return machine.kadabra.Store.Generate(
+			prompt, machine.label, 0.5, 100,
+		),
+		machine.kadabra.Store.Classify(
+			prompt,
+		)
+}
+
 func (machine *Machine) defaultNodeID() kadabra.NodeID {
-	if core.Cfg != nil && core.Cfg.ControlPlane.NodeID != 0 {
-		return kadabra.NodeID(core.Cfg.ControlPlane.NodeID)
+	if core.Cfg != nil && core.Cfg.Kadabra.Bits != 0 {
+		return kadabra.NodeID(core.Cfg.Kadabra.Bits)
 	}
 
 	hostname, err := os.Hostname()

@@ -167,20 +167,25 @@ func (experiment *ProteinStructureExperiment) Artifacts() []tools.Artifact {
 	}
 
 	maxPos := 60 // cap at 60 positions for readability
-	predBytes := best.Observed
+	predBytes := best.Generation
 	trueBytes := best.Holdout
+
 	if len(predBytes) > maxPos {
 		predBytes = predBytes[:maxPos]
 	}
+
 	if len(trueBytes) > maxPos {
 		trueBytes = trueBytes[:maxPos]
 	}
+
 	nPos := len(trueBytes)
+
 	if len(predBytes) > nPos {
 		nPos = len(predBytes)
 	}
 
 	posLabels := make([]string, nPos)
+
 	for i := range posLabels {
 		if i%5 == 0 {
 			posLabels[i] = fmt.Sprintf("%d", i+1)

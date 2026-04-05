@@ -213,7 +213,9 @@ func (exp *ConstraintResolutionExperiment) AddResult(result tools.ExperimentalDa
 	bestSuspect, bestScore := 0, -1.0
 	for si := range crSuspects {
 		if clueIdx < len(exp.expected[si]) {
-			alignments[si] = tools.ByteScores(exp.expected[si][clueIdx], result.Observed).Fuzzy
+			alignments[si] = tools.ByteScores(
+				exp.expected[si][clueIdx], result.Generation,
+			).Fuzzy
 		}
 		if alignments[si] > bestScore {
 			bestScore = alignments[si]

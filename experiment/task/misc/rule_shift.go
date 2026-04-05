@@ -157,7 +157,11 @@ func (exp *RuleShiftExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
 		return nil, false
 	}
 
-	return tools.HoldoutSuffixFromSample([]byte(exp.pipelinePrompts[idx]), ruleShiftHoldoutPct, ruleShiftSampleLen)
+	return tools.HoldoutSuffixFromSample(
+		[]byte(exp.pipelinePrompts[idx]),
+		ruleShiftHoldoutPct,
+		ruleShiftSampleLen,
+	)
 }
 
 /*
@@ -169,11 +173,17 @@ func (exp *RuleShiftExperiment) AddResult(result tools.ExperimentalData) {
 	step := result.Idx
 
 	kA, kB := 0.0, 0.0
+
 	if step < len(exp.expectedA) {
-		kA = tools.ByteScores(exp.expectedA[step], result.Observed).Fuzzy
+		kA = tools.ByteScores(
+			exp.expectedA[step], result.Generation,
+		).Fuzzy
 	}
+
 	if step < len(exp.expectedB) {
-		kB = tools.ByteScores(exp.expectedB[step], result.Observed).Fuzzy
+		kB = tools.ByteScores(
+			exp.expectedB[step], result.Generation,
+		).Fuzzy
 	}
 
 	w := "A"
@@ -241,6 +251,7 @@ func (exp *RuleShiftExperiment) Artifacts() []tools.Artifact {
 	// Recovery step: first step after the shift where K_B > K_A by more
 	// than 0.1 and stays so.
 	recoveryStep := -1
+
 	for i := shiftStep; i < steps; i++ {
 		if exp.kB[i]-exp.kA[i] > 0.05 {
 			if recoveryStep == -1 {
@@ -249,6 +260,7 @@ func (exp *RuleShiftExperiment) Artifacts() []tools.Artifact {
 		} else {
 			recoveryStep = -1
 		}
+
 		if recoveryStep != -1 && i-recoveryStep >= 2 {
 			break
 		}
@@ -256,6 +268,7 @@ func (exp *RuleShiftExperiment) Artifacts() []tools.Artifact {
 
 	// Winner bar data as numeric (A=1, B=0) for the bottom panel.
 	winnerVals := make([]float64, steps)
+	
 	for i, w := range exp.winner {
 		if w == "A" {
 			winnerVals[i] = 1.0

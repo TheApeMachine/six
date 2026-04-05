@@ -1,12 +1,16 @@
 package kadabra
 
 import (
+	"encoding/binary"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"math/rand"
-	"sort"
+	"strings"
 	"sync"
 
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/frankentrie"
 )
 
@@ -37,7 +41,7 @@ type KadabraNode struct {
 	random                   *rand.Rand
 	recordsMu                sync.RWMutex
 	records                  map[uint64]SequenceRecord
-	buckets                  [dhtIDBits]*kadabraBucket
+	buckets                  [64]*kadabraBucket
 }
 
 /*
@@ -46,10 +50,10 @@ NewKadabraNode constructs a Kadabra DHT node backed by a SequenceStore.
 func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 	node := &KadabraNode{
 		ID:                id,
-		BucketSize:        defaultKadabraBucketSize,
-		ReplicationFactor: defaultKadabraReplication,
-		LookupParallelism: defaultKadabraAlpha,
-		EpochQueries:      defaultKadabraEpochQueries,
+		BucketSize:        core.Cfg.Kadabra.BucketSize,
+		ReplicationFactor: core.Cfg.Kadabra.ReplicationFactor,
+		LookupParallelism: core.Cfg.Kadabra.Alpha,
+		EpochQueries:      core.Cfg.Kadabra.EpochQueries,
 		records:           make(map[uint64]SequenceRecord),
 	}
 
@@ -78,18 +82,23 @@ func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 }
 
 /*
-Publish stores a labeled sequence on the replicationFactor closest DHT nodes and
-trains the local frankentrie.Store on each replica.
+Publish stores a labeled sequence on the replicationFactor closest
+DHT nodes and trains the local frankentrie.Store on each replica.
 */
-func (node *KadabraNode) Publish(sequence string, label string) (SequenceRecord, error) {
+func (node *KadabraNode) Publish(
+	value primitive.Value, label string,
+) (SequenceRecord, error) {
 	record := SequenceRecord{
-		Key:       HashSequenceRecord(sequence, label),
-		Sequence:  sequence,
+		Key:       HashSequenceRecord(value.String(), label),
+		Sequence:  value.String(),
 		Label:     label,
 		Publisher: node.ID,
 	}
 
-	replicas := node.lookupNodes(NodeID(record.Key), node.ReplicationFactor)
+	replicas := node.lookupNodes(
+		NodeID(record.Key), node.ReplicationFactor,
+	)
+
 	if len(replicas) == 0 {
 		replicas = []*KadabraNode{node}
 	}
@@ -104,8 +113,8 @@ func (node *KadabraNode) Publish(sequence string, label string) (SequenceRecord,
 }
 
 /*
-StoreRecord stores a replicated sequence record locally and trains the backing
-frankentrie.Store on each replica once per key.
+StoreRecord stores a replicated sequence record locally and trains
+the backing frankentrie.Store on each replica once per key.
 */
 func (node *KadabraNode) StoreRecord(record SequenceRecord) error {
 	node.recordsMu.Lock()
@@ -145,152 +154,21 @@ func (node *KadabraNode) HasRecord(key uint64) bool {
 }
 
 /*
-FindRecord performs an iterative Kadabra lookup for the given key.
+NodeIDFromBytes derives a 64-bit node identifier from up to eight bytes.
 */
-func (node *KadabraNode) FindRecord(key uint64) (SequenceRecord, bool, LookupTrace) {
-	trace := LookupTrace{
-		Key:   key,
-		Nodes: []NodeID{node.ID},
-	}
-
-	node.recordsMu.RLock()
-	if record, exists := node.records[key]; exists {
-		node.recordsMu.RUnlock()
-		trace.Found = true
-		return record, true, trace
-	}
-	node.recordsMu.RUnlock()
-
-	target := NodeID(key)
-	seen := map[NodeID]struct{}{node.ID: {}}
-	shortlist := node.closestLookupPeers(target)
-
-	for {
-		batch := nextLookupBatch(shortlist, seen, node.LookupParallelism)
-		if len(batch) == 0 {
-			break
-		}
-
-		progress := false
-		for _, peer := range batch {
-			progress = true
-			seen[peer.ID] = struct{}{}
-			trace.Nodes = append(trace.Nodes, peer.ID)
-			trace.Latency += peer.RTT
-			node.observePeerQuery(peer)
-
-			peer.Node.recordsMu.RLock()
-			record, exists := peer.Node.records[key]
-			peer.Node.recordsMu.RUnlock()
-			if exists {
-				trace.Found = true
-				return record, true, trace
-			}
-
-			shortlist = mergeLookupPeers(shortlist, peer.Node.closestLookupPeers(target), target)
-		}
-
-		if !progress {
-			break
-		}
-	}
-
-	return SequenceRecord{}, false, trace
+func NodeIDFromBytes(value []byte) NodeID {
+	var buffer [8]byte
+	copy(buffer[:], value)
+	return NodeID(binary.BigEndian.Uint64(buffer[:]))
 }
 
 /*
-LookupNodes returns up to limit closest node ids discovered by iterative lookup.
+NodeIDFromString hashes an arbitrary string into a 64-bit node identifier.
 */
-func (node *KadabraNode) LookupNodes(target uint64, limit int) []PeerInfo {
-	nodes := node.lookupNodes(NodeID(target), limit)
-	targetID := NodeID(target)
-	out := make([]PeerInfo, 0, len(nodes)+1)
-
-	for _, candidate := range nodes {
-		if candidate == nil || candidate.ID == node.ID {
-			continue
-		}
-
-		rtt := node.peerRTT(candidate.ID)
-		out = append(out, PeerInfo{
-			ID:     candidate.ID,
-			RTT:    rtt,
-			Bucket: kadabraBucketIndex(node.ID, candidate.ID),
-		})
-	}
-
-	out = append(out, PeerInfo{
-		ID:     node.ID,
-		RTT:    0,
-		Bucket: dhtIDBits - 1,
-	})
-
-	sort.Slice(out, func(leftIndex int, rightIndex int) bool {
-		leftDistance := xorDistance(out[leftIndex].ID, targetID)
-		rightDistance := xorDistance(out[rightIndex].ID, targetID)
-		if leftDistance == rightDistance {
-			return out[leftIndex].ID < out[rightIndex].ID
-		}
-
-		return leftDistance < rightDistance
-	})
-
-	return out
-}
-
-func (node *KadabraNode) lookupNodes(target NodeID, limit int) []*KadabraNode {
-	if limit <= 0 {
-		return nil
-	}
-
-	shortlist := node.closestLookupPeers(target)
-	seen := map[NodeID]struct{}{node.ID: {}}
-	discovered := map[NodeID]*KadabraNode{
-		node.ID: node,
-	}
-
-	for {
-		batch := nextLookupBatch(shortlist, seen, node.LookupParallelism)
-		if len(batch) == 0 {
-			break
-		}
-
-		progress := false
-		for _, peer := range batch {
-			progress = true
-			seen[peer.ID] = struct{}{}
-			discovered[peer.ID] = peer.Node
-			node.observePeerQuery(peer)
-			shortlist = mergeLookupPeers(shortlist, peer.Node.closestLookupPeers(target), target)
-		}
-
-		if !progress {
-			break
-		}
-	}
-
-	nodes := make([]*KadabraNode, 0, len(discovered))
-	for _, candidate := range discovered {
-		nodes = append(nodes, candidate)
-	}
-
-	sort.Slice(nodes, func(leftIndex int, rightIndex int) bool {
-		left := nodes[leftIndex]
-		right := nodes[rightIndex]
-		leftDistance := xorDistance(left.ID, target)
-		rightDistance := xorDistance(right.ID, target)
-		if leftDistance == rightDistance {
-			return left.ID < right.ID
-		}
-
-		return leftDistance < rightDistance
-	})
-
-	if len(nodes) > limit {
-		nodes = nodes[:limit]
-	}
-
-	return nodes
+func NodeIDFromString(value string) NodeID {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(strings.TrimSpace(value)))
+	return NodeID(hasher.Sum64())
 }
 
 /*

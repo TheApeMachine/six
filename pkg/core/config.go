@@ -58,76 +58,21 @@ const (
 	FirmwareTypePrompt
 )
 
-type ControlPlaneConfig struct {
-	K        int               `mapstructure:"k"`
-	Alpha    int               `mapstructure:"alpha"`
-	Affinity ValueOffsetConfig `mapstructure:"affinity"`
-	// NodeID is the stable identity for this node in the Kademlia DHT.
-	// When zero (default), a deterministic ID is derived from the host
-	// identity (hostname + PID) so the node doesn't inherit its position
-	// in the routing table from the first transient workload frame.
-	NodeID uint64 `mapstructure:"nodeId"`
+type KadabraConfig struct {
+	Bits                     int       `mapstructure:"bits"`
+	BucketSize               int       `mapstructure:"bucketSize"`
+	ReplicationFactor        int       `mapstructure:"replicationFactor"`
+	Alpha                    int       `mapstructure:"alpha"`
+	EpochQueries             int       `mapstructure:"epochQueries"`
+	Penalty                  float64   `mapstructure:"penalty"`
+	SecurityThreshold        float64   `mapstructure:"securityThreshold"`
+	BucketSecurityThresholds []float64 `mapstructure:"bucketSecurityThresholds"`
 }
 
 type SystemConfig struct {
 	BatchSize   int           `mapstructure:"batchSize"`
 	BatchWindow time.Duration `mapstructure:"batchWindow"`
 	QueueSize   int           `mapstructure:"queueSize"`
-
-	// EvolutionBatchWindow is a lower bound on ingress coalescing time
-	// (see pkg/compute.Backend.gatherCoalesceDuration). Prompt Values block
-	// Machine.Read on settle polling; sub-millisecond BatchWindow alone can
-	// close the batch before a mate is queued. Set this above
-	// vm.promptSettleDeadline (e.g. 75ms) for eval / paper runs.
-	EvolutionBatchWindow time.Duration `mapstructure:"evolutionBatchWindow"`
-
-	// HolisticChunkBits is the chunk size in bits for chunked Hamming similarity
-	// (holistic emission path and exploit scoring).
-	HolisticChunkBits int `mapstructure:"holisticChunkBits"`
-
-	// HolisticHammingMax is the maximum normalized Hamming distance per chunk
-	// (0–1) that still counts as a strong holistic match for emission.
-	HolisticHammingMax float64 `mapstructure:"holisticHammingMax"`
-
-	// MapElitesInjectionRate is the probability [0,1] of copying the program
-	// band from a sampled elite bin before crossover. Zero disables injection;
-	// negative values at load time are replaced with 0.08 (default-on bootstrap).
-	MapElitesInjectionRate float64 `mapstructure:"mapElitesInjectionRate"`
-
-	// MapElitesGridShift number of high bits of Affinity XOR-folded into a bin.
-	MapElitesGridShift uint `mapstructure:"mapElitesGridShift"`
-
-	// TokenSettleMaxPasses bounds extra UniversalBitwise sweeps until the token
-	// region stabilizes. Non-positive values are replaced with
-	// DefaultTokenSettleMaxPasses at load time.
-	TokenSettleMaxPasses int `mapstructure:"tokenSettleMaxPasses"`
-
-	// TokenSettleEpsilonBits: max Hamming distance in the token region across
-	// two consecutive passes to treat the frame as settled (0 = exact).
-	TokenSettleEpsilonBits int `mapstructure:"tokenSettleEpsilonBits"`
-
-	// ThermodynamicEnergyWord is the Value word index holding uint16-like energy
-	// (low 16 bits). -1 defaults to registers.r9 from config.
-	ThermodynamicEnergyWord int `mapstructure:"thermodynamicEnergyWord"`
-
-	// ThermodynamicBirthEnergy seeds new Values and emitted children.
-	ThermodynamicBirthEnergy int `mapstructure:"thermodynamicBirthEnergy"`
-
-	// ThermodynamicDecayDelta subtracted from energy each batch touch.
-	ThermodynamicDecayDelta int `mapstructure:"thermodynamicDecayDelta"`
-
-	// ThermodynamicEmitGain adds energy to parents when signal emission succeeds.
-	ThermodynamicEmitGain int `mapstructure:"thermodynamicEmitGain"`
-
-	// SleepMaxPairs caps how many random frame pairs sleep consolidation tries
-	// per tick. Non-positive values default to 4 at load time.
-	SleepMaxPairs int `mapstructure:"sleepMaxPairs"`
-
-	// KBucketCoLocatedBatch builds compute batches from one Kademlia bucket
-	// (seed + peers sampled in that bucket). The backend wraps sampled peers
-	// in witness clones (see primitive.WitnessCloneFromPeer) so routing and
-	// crossover skip disposable copies.
-	KBucketCoLocatedBatch bool `mapstructure:"kBucketCoLocatedBatch"`
 }
 
 /*
@@ -223,9 +168,9 @@ Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
-	System       SystemConfig
-	Value        ValueConfig
-	ControlPlane ControlPlaneConfig
+	System  SystemConfig
+	Value   ValueConfig
+	Kadabra KadabraConfig
 
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
@@ -254,34 +199,15 @@ func NewConfig() *Config {
 			BatchSize:   viper.GetInt("system.batchSize"),
 			BatchWindow: time.Duration(viper.GetInt("system.batchWindow")) * time.Microsecond,
 			QueueSize:   viper.GetInt("system.queueSize"),
-			EvolutionBatchWindow: time.Duration(
-				viper.GetInt("system.evolutionBatchWindow"),
-			) * time.Microsecond,
-			HolisticChunkBits:       viper.GetInt("system.holisticChunkBits"),
-			HolisticHammingMax:      viper.GetFloat64("system.holisticHammingMax"),
-			MapElitesInjectionRate:  viper.GetFloat64("system.mapElitesInjectionRate"),
-			MapElitesGridShift:      uint(viper.GetInt("system.mapElitesGridShift")),
-			TokenSettleMaxPasses:    viper.GetInt("system.tokenSettleMaxPasses"),
-			TokenSettleEpsilonBits:  viper.GetInt("system.tokenSettleEpsilonBits"),
-			ThermodynamicEnergyWord: viper.GetInt("system.thermodynamicEnergyWord"),
-			ThermodynamicBirthEnergy: viper.GetInt(
-				"system.thermodynamicBirthEnergy",
-			),
-			ThermodynamicDecayDelta: viper.GetInt("system.thermodynamicDecayDelta"),
-			ThermodynamicEmitGain:   viper.GetInt("system.thermodynamicEmitGain"),
-			SleepMaxPairs:           viper.GetInt("system.sleepMaxPairs"),
-			KBucketCoLocatedBatch: viper.GetBool(
-				"system.kBucketCoLocatedBatch",
-			),
 		},
-		ControlPlane: ControlPlaneConfig{
-			K:      viper.GetInt("controlplane.k"),
-			Alpha:  viper.GetInt("controlplane.alpha"),
-			NodeID: viper.GetUint64("controlplane.nodeId"),
-			Affinity: ValueOffsetConfig{
-				Start: viper.GetInt("controlplane.affinity.start"),
-				Bits:  viper.GetUint64("controlplane.affinity.bits"),
-			},
+		Kadabra: KadabraConfig{
+			Bits:              viper.GetInt("kadabra.bits"),
+			BucketSize:        viper.GetInt("kadabra.bucketSize"),
+			ReplicationFactor: viper.GetInt("kadabra.replicationFactor"),
+			Alpha:             viper.GetInt("kadabra.alpha"),
+			EpochQueries:      viper.GetInt("kadabra.epochQueries"),
+			Penalty:           viper.GetFloat64("kadabra.penalty"),
+			SecurityThreshold: viper.GetFloat64("kadabra.securityThreshold"),
 		},
 		Value: ValueConfig{
 			Words: viper.GetInt("value.words"),

@@ -121,7 +121,7 @@ func (evaluator *Evaluator) ComputePredictions(data []ExperimentalData) {
 	for idx := range data {
 		data[idx].PredLabel = nil
 
-		generated := string(data[idx].Observed)
+		generated := string(data[idx].Generation)
 
 		if len(generated) == 0 {
 			continue
@@ -136,7 +136,7 @@ func (evaluator *Evaluator) ComputePredictions(data []ExperimentalData) {
 		}
 
 		if len(found) == 1 {
-			data[idx].PredLabel = OptionalLabel(found[0])
+			data[idx].PredLabel = new(found[0])
 		}
 	}
 }
@@ -282,16 +282,17 @@ func calculateRandomBaseline() float64 {
 		var scores []float64
 		var sum float64
 
-		for i := 0; i < samples; i++ {
+		for range samples {
 			obs := make([]byte, core.Cfg.Value.Bytes)
 			hold := make([]byte, core.Cfg.Value.Bytes)
 			_, _ = rand.Read(obs)
 			_, _ = rand.Read(hold)
 
 			data := ExperimentalData{
-				Observed: obs,
-				Holdout:  hold,
+				Generation: obs,
+				Holdout:    hold,
 			}
+			
 			scorer.Enrich(&data)
 			sum += data.WeightedTotal
 			scores = append(scores, data.WeightedTotal)
@@ -299,10 +300,12 @@ func calculateRandomBaseline() float64 {
 
 		mean := sum / float64(samples)
 		var varianceSum float64
+
 		for _, s := range scores {
 			diff := s - mean
 			varianceSum += diff * diff
 		}
+
 		variance := varianceSum / float64(samples)
 		stddev := math.Sqrt(variance)
 

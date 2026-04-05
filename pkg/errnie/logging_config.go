@@ -1,7 +1,7 @@
 package errnie
 
 // LoggingConfig is loaded from the config file key "logging" (see cmd/cfg/config.yml).
-// core.LoadLoggingConfig unmarshals it via Viper and passes it to InitLogger.
+// Unmarshaled by errnie.InitLoggerFromViper after viper.ReadInConfig.
 type LoggingConfig struct {
 	Logfile       bool                `mapstructure:"logfile"`
 	Trace         TraceLoggingConfig  `mapstructure:"trace"`

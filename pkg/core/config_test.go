@@ -59,9 +59,9 @@ func TestNewConfig(t *testing.T) {
 
 			cfg := NewConfig()
 
-			So(cfg.ControlPlane.K, ShouldEqual, 20)
-			So(cfg.ControlPlane.Alpha, ShouldEqual, 3)
-			So(cfg.ControlPlane.Affinity.Bits, ShouldEqual, 1)
+			So(cfg.Kadabra.BucketSize, ShouldEqual, 20)
+			So(cfg.Kadabra.Alpha, ShouldEqual, 3)
+			So(cfg.Kadabra.Bits, ShouldEqual, 64)
 		})
 
 		Convey("loads telemetry settings from viper", func() {

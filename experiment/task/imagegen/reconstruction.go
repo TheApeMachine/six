@@ -220,7 +220,7 @@ func (e *ReconstructionExperiment) Artifacts() []tools.Artifact {
 		expected := px[splitIdx:]
 		var retrieved []byte
 		if matchRow != nil {
-			retrieved = matchRow.Observed
+			retrieved = matchRow.Generation
 		}
 
 		full := append(append([]byte{}, px[:splitIdx]...), expected...)

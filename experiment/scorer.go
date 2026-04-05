@@ -11,11 +11,15 @@ type ExtractionScorer struct{}
 
 func (scorer *ExtractionScorer) Enrich(data *ExperimentalData) {
 	exp := strings.TrimSpace(strings.ToLower(string(data.Holdout)))
-	obs := strings.TrimSpace(strings.ToLower(string(data.Observed)))
+
+	obs := strings.TrimSpace(strings.ToLower(string(data.Generation)))
+
 	var exact float64
+
 	if exp != "" && obs == exp {
 		exact = 1.0
 	}
+
 	data.Scores = Scores{Exact: exact, Partial: exact, Fuzzy: exact}
 	data.WeightedTotal = exact
 }
@@ -65,7 +69,7 @@ type HoldoutScorer struct{}
 Enrich computes byte-level scores from Holdout vs Observed.
 */
 func (scorer *HoldoutScorer) Enrich(data *ExperimentalData) {
-	data.Scores = ByteScores(data.Holdout, data.Observed)
+	data.Scores = ByteScores(data.Holdout, data.Generation)
 
 	data.WeightedTotal = WeightedTotal(
 		data.Scores.Exact,

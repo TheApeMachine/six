@@ -91,7 +91,7 @@ func WriteSummaryTable(
 	// that actually have Prefix/Holdout/Observed data.
 	var genRows []tools.ExperimentalData
 	hasGen := func(r tools.ExperimentalData) bool {
-		return len(r.Holdout) > 0 || len(r.Observed) > 0
+		return len(r.Holdout) > 0 || len(r.Generation) > 0
 	}
 
 	added := make(map[int]bool)
@@ -129,45 +129,42 @@ func WriteSummaryTable(
 
 	sb.WriteString("\\begin{table}[htbp]\n")
 	sb.WriteString("\\centering\n")
-	sb.WriteString(fmt.Sprintf("\\caption{%s — standardised result summary (N=%d).}\n",
-		LaTeXEscape(name), len(rows)))
-	sb.WriteString(fmt.Sprintf("\\label{tab:%s_summary}\n", tools.Slugify(name)))
+	fmt.Fprintf(&sb, "\\caption{%s — standardised result summary (N=%d).}\n",
+		LaTeXEscape(name), len(rows))
+	fmt.Fprintf(&sb, "\\label{tab:%s_summary}\n", tools.Slugify(name))
 	sb.WriteString("\\begin{adjustbox}{max width=\\textwidth}\n")
 	sb.WriteString("\\begin{tabular}{r p{5cm} r r r r}\n")
 	sb.WriteString("\\toprule\n")
 
 	// ── Top results ──────────────────────────────────────────────────────────
-	sb.WriteString(fmt.Sprintf(
-		"\\multicolumn{6}{l}{\\textbf{Top %d results (highest weighted score)}} \\\\\n", topN))
+	fmt.Fprintf(&sb, "\\multicolumn{6}{l}{\\textbf{Top %d results (highest weighted score)}} \\\\\n", topN)
 	sb.WriteString("\\midrule\n")
 	sb.WriteString("\\# & Name & Exact & Partial & Fuzzy & Weighted \\\\\n")
 	sb.WriteString("\\midrule\n")
 	for _, r := range top {
-		sb.WriteString(fmt.Sprintf("%d & %s & %.4f & %.4f & %.4f & %.4f \\\\\n",
+		fmt.Fprintf(&sb, "%d & %s & %.4f & %.4f & %.4f & %.4f \\\\\n",
 			r.Idx, LaTeXEscape(r.Name),
-			r.Scores.Exact, r.Scores.Partial, r.Scores.Fuzzy, r.WeightedTotal))
+			r.Scores.Exact, r.Scores.Partial, r.Scores.Fuzzy, r.WeightedTotal)
 	}
 
 	// ── Bottom results (only if distinct) ────────────────────────────────────
 	if len(bottom) > 0 {
 		sb.WriteString("\\midrule\n")
-		sb.WriteString(fmt.Sprintf(
-			"\\multicolumn{6}{l}{\\textbf{Bottom %d results (lowest weighted score)}} \\\\\n", len(bottom)))
+		fmt.Fprintf(&sb, "\\multicolumn{6}{l}{\\textbf{Bottom %d results (lowest weighted score)}} \\\\\n", len(bottom))
 		sb.WriteString("\\midrule\n")
 		sb.WriteString("\\# & Name & Exact & Partial & Fuzzy & Weighted \\\\\n")
 		sb.WriteString("\\midrule\n")
 		for _, r := range bottom {
-			sb.WriteString(fmt.Sprintf("%d & %s & %.4f & %.4f & %.4f & %.4f \\\\\n",
+			fmt.Fprintf(&sb, "%d & %s & %.4f & %.4f & %.4f & %.4f \\\\\n",
 				r.Idx, LaTeXEscape(r.Name),
-				r.Scores.Exact, r.Scores.Partial, r.Scores.Fuzzy, r.WeightedTotal))
+				r.Scores.Exact, r.Scores.Partial, r.Scores.Fuzzy, r.WeightedTotal)
 		}
 	}
 
 	// ── Generation examples ─────────────────────────────────────────────────────
 	if len(genRows) > 0 {
 		sb.WriteString("\\midrule\n")
-		sb.WriteString(fmt.Sprintf(
-			"\\multicolumn{6}{l}{\\textbf{Generation examples (%d curated)}} \\\\\n", len(genRows)))
+		fmt.Fprintf(&sb, "\\multicolumn{6}{l}{\\textbf{Generation examples (%d curated)}} \\\\\n", len(genRows))
 		sb.WriteString("\\midrule\n")
 		sb.WriteString("\\multicolumn{2}{l}{\\textit{Prefix (truncated)}} & \\multicolumn{2}{l}{\\textit{Expected}} & \\multicolumn{2}{l}{\\textit{Observed}} \\\\\n")
 		sb.WriteString("\\midrule\n")
@@ -177,7 +174,7 @@ func WriteSummaryTable(
 			// add \ldots AFTER escaping so it is not re-escaped.
 			prefix := sampleCell(r.Prefix)
 			expected := sampleCell(r.Holdout)
-			observed := sampleCell(r.Observed)
+			observed := sampleCell(r.Generation)
 			sb.WriteString(fmt.Sprintf(
 				"\\multicolumn{2}{l}{\\texttt{%s}} & \\multicolumn{2}{l}{\\texttt{%s}} & \\multicolumn{2}{l}{\\texttt{%s}} \\\\\n",
 				prefix, expected, observed))
@@ -211,9 +208,8 @@ func WriteSummaryTable(
 				fmtDur(timing.LoadDur)))
 		}
 		if timing.PromptDur > 0 {
-			sb.WriteString(fmt.Sprintf(
-				"\\multicolumn{3}{l}{Inference loop:} & \\multicolumn{3}{l}{%s} \\\\\n",
-				fmtDur(timing.PromptDur)))
+			fmt.Fprintf(&sb, "\\multicolumn{3}{l}{Inference loop:} & \\multicolumn{3}{l}{%s} \\\\\n",
+				fmtDur(timing.PromptDur))
 			if timing.N > 0 {
 				meanPred := timing.PromptDur / time.Duration(timing.N)
 				sb.WriteString(fmt.Sprintf(

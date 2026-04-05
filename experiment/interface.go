@@ -16,16 +16,17 @@ type Scores struct {
 }
 
 type ExperimentalData struct {
-	Idx           int
-	Name          string
-	Prefix        []byte
-	Holdout       []byte
-	Observed      []byte
-	ErrorRatio    []byte
-	Scores        Scores
-	WeightedTotal float64
-	TrueLabel     *int
-	PredLabel     *int
+	Idx             int
+	Name            string
+	Prefix          []byte
+	Holdout         []byte
+	Generation      []byte
+	Classifications map[string]float64
+	ErrorRatio      []byte
+	Scores          Scores
+	WeightedTotal   float64
+	TrueLabel       *int
+	PredLabel       *int
 }
 
 type ScoreWeights struct {
@@ -62,6 +63,22 @@ type Result interface {
 	Score() float64
 }
 
+/*
+PipelineExperiment is the contract for paper/eval pipelines.
+
+Validation is intentionally two-tier:
+
+ 1. Per-prompt (optional): HoldoutForPrompt(idx) may return (nil, false). That
+    means there is no byte-level target for that prompt — the harness still runs
+    the prompt and appends a scored row via AddResult so aggregate Score() is
+    meaningful. When it returns (bytes, true), callers may assert exact readout
+    against those bytes in addition to recording AddResult.
+
+ 2. Aggregate: Score() / Outcome() are driven by table rows accumulated in
+    AddResult (and optionally Finalize on experiments that implement it). Tests
+    must record one ExperimentalData row per prompt (Observed = substrate
+    readout) or Outcome() stays at zero from an empty table.
+*/
 type PipelineExperiment interface {
 	Name() string
 	Section() string

@@ -156,7 +156,7 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 				Idx:      row.Idx,
 				Entity:   entity,
 				Expected: string(row.Holdout),
-				Observed: string(row.Observed),
+				Observed: string(row.Generation),
 			})
 		}
 	}
