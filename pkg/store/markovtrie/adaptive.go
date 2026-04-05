@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 import "math"
 
@@ -36,6 +36,12 @@ type adaptiveState struct {
 	lastPruneStep   int
 	growthRateEMA   float64
 	pruneThreshold  float64
+
+	// Field pressure: external modulation applied by the distributed field.
+	// These shift the trie's behavior without the trie "deciding" anything.
+	fieldDecayPressure    float64 // positive = decay faster, negative = retain more
+	fieldLearningPressure float64 // positive = learn more aggressively
+	fieldPrunePressure    float64 // positive = prune more aggressively
 
 	enabled bool
 }
@@ -153,6 +159,10 @@ func (state *adaptiveState) adaptiveDecayFactor(base float64) float64 {
 	// High surprisal (>8 bits) → decay faster (factor -= 0.01).
 	// Low surprisal (<2 bits) → decay slower (factor += 0.003).
 	adjustment := (4.0 - state.surprisalEMA) * 0.003
+
+	// Field pressure: external force shifts decay without local consent.
+	adjustment -= state.fieldDecayPressure * 0.005
+
 	result := base + adjustment
 
 	return math.Max(0.95, math.Min(0.999, result))
@@ -304,6 +314,10 @@ func (state *adaptiveState) adaptivePruneThreshold(base float64) float64 {
 	// More growth → higher threshold → prune more aggressively.
 	// growthRateEMA of ~10 nodes/step is "normal", scale around that.
 	scale := 1.0 + (state.growthRateEMA-10.0)*0.01
+
+	// Field pressure: positive prune pressure amplifies the scale.
+	scale += state.fieldPrunePressure * 0.1
+
 	result := base * math.Max(0.5, math.Min(2.0, scale))
 
 	return math.Max(0.01, result)
@@ -324,7 +338,11 @@ func (state *adaptiveState) adaptiveSurprisalScale() float64 {
 	// learning rates below 0.6, keeping headroom for truly novel inputs.
 	stddev := math.Sqrt(state.surprisalVar)
 
-	return math.Max(1.0, state.surprisalEMA+stddev)
+	// Field pressure: positive learning pressure lowers the scale,
+	// which makes the same surprisal produce a higher learning rate.
+	scale := state.surprisalEMA + stddev - state.fieldLearningPressure*0.5
+
+	return math.Max(1.0, scale)
 }
 
 /*

@@ -92,6 +92,7 @@ type ValueRegionConfig struct {
 	Tokens   ValueOffsetConfig      `mapstructure:"tokens"`
 	Affinity ValueOffsetConfig      `mapstructure:"affinity"`
 	Program  ValueOffsetConfig      `mapstructure:"program"`
+	Signals  ValueOffsetConfig      `mapstructure:"signals"`
 	Reserved ValueOffsetConfig      `mapstructure:"reserved"`
 	Prev     ValueOffsetConfig      `mapstructure:"prev"`
 	Next     ValueOffsetConfig      `mapstructure:"next"`
@@ -271,6 +272,10 @@ func NewConfig() *Config {
 				Program: ValueOffsetConfig{
 					Start: viper.GetInt("value.region.program.start"),
 					Bits:  viper.GetUint64("value.region.program.bits"),
+				},
+				Signals: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.signals.start"),
+					Bits:  viper.GetUint64("value.region.signals.bits"),
 				},
 			},
 			Opcodes: ValueOpcodesConfig{

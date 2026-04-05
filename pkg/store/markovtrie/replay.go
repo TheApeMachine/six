@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 /*
 ReplayOne samples one label, generates a candidate continuation, and reinserts

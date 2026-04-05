@@ -2,28 +2,13 @@ package primitive
 
 import (
 	"context"
+	"math/bits"
 	"testing"
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
-)
-
-// Scratch words live in reserved space (words 24+) to avoid overlapping
-// token, affinity, or program regions.
-const (
-	inbandWordSelf         = 40
-	inbandWordPartner      = 41
-	inbandWordSupport      = 42
-	inbandWordPromoteWarm  = 43
-	inbandWordPromoteHot   = 44
-	inbandWordPromoteCarry = 45
-	inbandWordSuppress     = 46
-	inbandWordSuppressWarm = 47
-	inbandWordSuppressHot  = 48
-	inbandWordSuppressCarry = 49
-	inbandWordProjection   = 50
 )
 
 func setupInBandValueTest(tb testing.TB) {
@@ -43,129 +28,213 @@ func setupInBandValueTest(tb testing.TB) {
 	core.Cfg.Value.Region.Affinity.Bits = 512
 	core.Cfg.Value.Region.Program.Start = 16
 	core.Cfg.Value.Region.Program.Bits = 512
-	core.Cfg.Value.Region.Reserved.Start = 24
-	core.Cfg.Value.Region.Reserved.Bits = 6464
+	core.Cfg.Value.Region.Signals.Start = 24
+	core.Cfg.Value.Region.Signals.Bits = 512
+	core.Cfg.Value.Region.Reserved.Start = 32
+	core.Cfg.Value.Region.Reserved.Bits = 5952
 	core.Cfg.Value.Region.Prev.Start = 125
 	core.Cfg.Value.Region.Next.Start = 126
 	core.Cfg.Value.Region.ID.Start = 127
-	core.Cfg.Value.Region.State.Index = 24
-	core.Cfg.Value.Region.State.Sequence = 25
-	core.Cfg.Value.Region.State.Accumulator = 26
+	core.Cfg.Value.Region.State.Index = 32
+	core.Cfg.Value.Region.State.Sequence = 33
+	core.Cfg.Value.Region.State.Accumulator = 34
 }
 
-func encode32(op uint8, src, dst int) uint32 {
-	return uint32(op&0xF) | uint32(src&0x3FFF)<<4 | uint32(dst&0x3FFF)<<18
-}
+// packRotationOpcodes packs up to 16 4-bit opcodes (one per rotation) into
+// the program region. Slot k uses opcode ops[k]; unused slots get 0x0 (FALSE).
+func packRotationOpcodes(v *Value, ops []uint8) {
+	progStart := core.Cfg.Value.Region.Program.Start
 
-func installSlot(value *Value, slot int, instr uint32) {
-	wordIndex := core.Cfg.Value.Region.Program.Start + slot/2
-	shift := uint((slot % 2) * 32)
-	mask := uint64(0xFFFFFFFF) << shift
-	value[wordIndex] = (value[wordIndex] &^ mask) | uint64(instr)<<shift
-}
+	// Zero all program words first.
+	for i := 0; i < 8; i++ {
+		v[progStart+i] = 0
+	}
 
-func installInBandBiasProgram(value *Value) {
-	// support = xnor(self, partner)
-	installSlot(value, 0, encode32(0x3, inbandWordPartner, inbandWordSupport))
-	installSlot(value, 1, encode32(0x9, inbandWordSelf, inbandWordSupport))
-
-	// promote warm/hot hysteresis:
-	// carry = promoteWarm & support
-	// promoteWarm |= support
-	// promoteHot |= carry
-	installSlot(value, 2, encode32(0x3, inbandWordPromoteWarm, inbandWordPromoteCarry))
-	installSlot(value, 3, encode32(0x1, inbandWordSupport, inbandWordPromoteCarry))
-	installSlot(value, 4, encode32(0x7, inbandWordSupport, inbandWordPromoteWarm))
-	installSlot(value, 5, encode32(0x7, inbandWordPromoteCarry, inbandWordPromoteHot))
-
-	// suppress warm/hot hysteresis:
-	// suppress = xor(self, partner)
-	// carry = suppressWarm & suppress
-	// suppressWarm |= suppress
-	// suppressHot |= carry
-	installSlot(value, 6, encode32(0x3, inbandWordPartner, inbandWordSuppress))
-	installSlot(value, 7, encode32(0x6, inbandWordSelf, inbandWordSuppress))
-	installSlot(value, 8, encode32(0x3, inbandWordSuppressWarm, inbandWordSuppressCarry))
-	installSlot(value, 9, encode32(0x1, inbandWordSuppress, inbandWordSuppressCarry))
-	installSlot(value, 10, encode32(0x7, inbandWordSuppress, inbandWordSuppressWarm))
-	installSlot(value, 11, encode32(0x7, inbandWordSuppressCarry, inbandWordSuppressHot))
-
-	// projection = promoteHot & ^suppressHot
-	installSlot(value, 12, encode32(0x3, inbandWordPromoteHot, inbandWordProjection))
-	installSlot(value, 13, encode32(0x4, inbandWordSuppressHot, inbandWordProjection))
-
-	// Affinity is a projection sink, not the accumulator itself.
-	installSlot(value, 14, encode32(0x3, inbandWordProjection, core.Cfg.Value.Region.Affinity.Start))
-}
-
-func runInBandProgram(t *testing.T, value *Value, n int) {
-	t.Helper()
-
-	backend := cpu.NewBackend(context.Background())
-	ptrs := []unsafe.Pointer{unsafe.Pointer(value)}
-
-	for iteration := 0; iteration < n; iteration++ {
-		err := backend.UniversalBitwise(ptrs)
-
-		if err != nil {
-			t.Fatal(err)
+	for k, op := range ops {
+		if k >= 16 {
+			break
 		}
+		wordIdx := progStart + k/2
+		shift := uint((k % 2) * 32)
+		v[wordIdx] |= uint64(op&0xF) << shift
 	}
 }
 
+func runSurface(t *testing.T, v *Value) {
+	t.Helper()
+
+	backend := cpu.NewBackend(context.Background())
+	ptrs := []unsafe.Pointer{unsafe.Pointer(v)}
+
+	if err := backend.UniversalBitwise(ptrs); err != nil {
+		t.Fatal(err)
+	}
+}
+
+/*
+TestInBandBiasAccumulatesInProgramRegion verifies that the surface-rotation
+truth-table execution produces meaningful signal bytes.
+
+The surface model works as follows:
+  - A = token words 0–3, B = token words 4–7.
+  - B is rotated 16 times (8 bits per rotation).
+  - Each rotation k applies opcode ops[k] via truth table: TT(op, A, B_rot).
+  - The low byte of each result lane is packed into the 8-word Signals region.
+
+This test sets A and B to known patterns, installs AND (0x1) and XOR (0x6) as
+per-rotation opcodes, and checks that the Signals region captures the expected
+byte-level results.
+*/
 func TestInBandBiasAccumulatesInProgramRegion(t *testing.T) {
 	setupInBandValueTest(t)
 
-	Convey("Given one Value carrying self bits, partner bits, bias planes, and program", t, func() {
+	Convey("Given a Value with known A and B token patterns", t, func() {
 		value, err := NewValue(nil)
 		So(err, ShouldBeNil)
 		defer value.Close()
 
-		value[inbandWordSelf] = 0xAAAAAAAAAAAAAAAA
-		value[inbandWordPartner] = 0xCCCCCCCCCCCCCCCC
-		installInBandBiasProgram(value)
+		// A words (0–3): repeating pattern.
+		value[0] = 0xAAAAAAAAAAAAAAAA
+		value[1] = 0xAAAAAAAAAAAAAAAA
+		value[2] = 0xAAAAAAAAAAAAAAAA
+		value[3] = 0xAAAAAAAAAAAAAAAA
 
-		Convey("One encounter should only warm the support and suppress planes", func() {
-			runInBandProgram(t, value, 1)
+		// B words (4–7): different repeating pattern.
+		value[4] = 0xCCCCCCCCCCCCCCCC
+		value[5] = 0xCCCCCCCCCCCCCCCC
+		value[6] = 0xCCCCCCCCCCCCCCCC
+		value[7] = 0xCCCCCCCCCCCCCCCC
 
-			So(value[inbandWordSupport], ShouldEqual, uint64(0x9999999999999999))
-			So(value[inbandWordPromoteWarm], ShouldEqual, uint64(0x9999999999999999))
-			So(value[inbandWordPromoteHot], ShouldEqual, uint64(0))
-			So(value[inbandWordSuppress], ShouldEqual, uint64(0x6666666666666666))
-			So(value[inbandWordSuppressWarm], ShouldEqual, uint64(0x6666666666666666))
-			So(value[inbandWordSuppressHot], ShouldEqual, uint64(0))
+		Convey("With AND opcodes on all 16 rotations", func() {
+			ops := make([]uint8, 16)
+			for i := range ops {
+				ops[i] = 0x1 // AND
+			}
+			packRotationOpcodes(value, ops)
+
+			runSurface(t, value)
+
+			sigStart := core.Cfg.Value.Region.Signals.Start
+
+			Convey("The signals region should contain nonzero results from A AND B_rotated", func() {
+				// At rotation 0, B is unrotated: A & B = 0xAA & 0xCC = 0x88.
+				// The low byte of the first lane is 0x88.
+				sig0 := value[sigStart]
+				So(sig0&0xFF, ShouldEqual, 0x88)
+			})
 		})
 
-		Convey("A second identical encounter should promote both planes into hot bias", func() {
-			runInBandProgram(t, value, 2)
+		Convey("With XOR opcode on rotation 0 and AND on others", func() {
+			ops := make([]uint8, 16)
+			ops[0] = 0x6 // XOR
+			for i := 1; i < 16; i++ {
+				ops[i] = 0x1 // AND
+			}
+			packRotationOpcodes(value, ops)
 
-			So(value[inbandWordPromoteWarm], ShouldEqual, uint64(0x9999999999999999))
-			So(value[inbandWordPromoteHot], ShouldEqual, uint64(0x9999999999999999))
-			So(value[inbandWordSuppressWarm], ShouldEqual, uint64(0x6666666666666666))
-			So(value[inbandWordSuppressHot], ShouldEqual, uint64(0x6666666666666666))
+			runSurface(t, value)
+
+			sigStart := core.Cfg.Value.Region.Signals.Start
+
+			Convey("Rotation 0 should show XOR result while others show AND", func() {
+				// Rotation 0 fills bytes 0–3 (one per lane). XOR(0xAA, 0xCC) = 0x66.
+				sig0Low := value[sigStart] & 0xFF
+				So(sig0Low, ShouldEqual, 0x66)
+
+				// Byte 4 = rotation 1, lane 0. AND(0xAA, 0xCC_rot8) = AND(0xAA, 0xCC) = 0x88.
+				sig0Byte4 := (value[sigStart] >> 32) & 0xFF
+				So(sig0Byte4, ShouldEqual, 0x88)
+			})
 		})
 	})
 }
 
+/*
+TestInBandBiasProjectionWritesAffinityAsDerivedState verifies that different
+opcodes across rotations produce distinguishable signal patterns that could
+be used to derive affinity state.
+
+In the surface model, the Signals region is the "projection" — it captures
+the byte-level truth-table outputs across all 16 rotations. Higher-level
+code can read the Signals to compute affinity.
+*/
 func TestInBandBiasProjectionWritesAffinityAsDerivedState(t *testing.T) {
 	setupInBandValueTest(t)
 
-	Convey("Given the same in-band bias program", t, func() {
+	Convey("Given A = all-ones and B = alternating", t, func() {
 		value, err := NewValue(nil)
 		So(err, ShouldBeNil)
 		defer value.Close()
 
-		value[inbandWordSelf] = 0xAAAAAAAAAAAAAAAA
-		value[inbandWordPartner] = 0xCCCCCCCCCCCCCCCC
-		installInBandBiasProgram(value)
+		for i := 0; i < 4; i++ {
+			value[i] = 0xFFFFFFFFFFFFFFFF // A = all ones
+		}
+		for i := 4; i < 8; i++ {
+			value[i] = 0xAA55AA55AA55AA55 // B = alternating bytes
+		}
 
-		Convey("Affinity should receive only the derived projection, not the raw accumulators", func() {
-			runInBandProgram(t, value, 2)
+		Convey("OR should produce all-ones signals (A=1 dominates)", func() {
+			ops := make([]uint8, 16)
+			for i := range ops {
+				ops[i] = 0x7 // OR
+			}
+			packRotationOpcodes(value, ops)
 
-			So(value[inbandWordProjection], ShouldEqual, uint64(0x9999999999999999))
-			So(value[core.Cfg.Value.Region.Affinity.Start], ShouldEqual, value[inbandWordProjection])
-			So(value[core.Cfg.Value.Region.Affinity.Start], ShouldNotEqual, value[inbandWordSuppressWarm])
-			So(value[core.Cfg.Value.Region.Affinity.Start], ShouldNotEqual, uint64(0))
+			runSurface(t, value)
+
+			sigStart := core.Cfg.Value.Region.Signals.Start
+
+			// OR(0xFF, anything) = 0xFF → every signal byte should be 0xFF.
+			So(value[sigStart], ShouldEqual, uint64(0xFFFFFFFFFFFFFFFF))
+			So(value[sigStart+1], ShouldEqual, uint64(0xFFFFFFFFFFFFFFFF))
+		})
+
+		Convey("AND should reflect B's pattern in signals", func() {
+			ops := make([]uint8, 16)
+			for i := range ops {
+				ops[i] = 0x1 // AND
+			}
+			packRotationOpcodes(value, ops)
+
+			runSurface(t, value)
+
+			sigStart := core.Cfg.Value.Region.Signals.Start
+
+			// AND(0xFF, B) = B, so signal captures B's low byte per rotation.
+			// Rotation 0: B[4] = 0xAA55AA55AA55AA55, low byte = 0x55.
+			sig0Low := value[sigStart] & 0xFF
+			So(sig0Low, ShouldEqual, 0x55)
+
+			// Byte 4 = rotation 1, lane 0. B rotated 8 bits: 0x55AA55AA55AA55AA,
+			// low byte = 0xAA.
+			sig0Byte4 := (value[sigStart] >> 32) & 0xFF
+			So(sig0Byte4, ShouldEqual, 0xAA)
+		})
+
+		Convey("The number of nonzero signal bytes indicates correlation density", func() {
+			ops := make([]uint8, 16)
+			for i := range ops {
+				ops[i] = 0x1 // AND
+			}
+			packRotationOpcodes(value, ops)
+
+			runSurface(t, value)
+
+			sigStart := core.Cfg.Value.Region.Signals.Start
+
+			// Count nonzero bytes in the signals region as a density metric.
+			nonzero := 0
+			for w := 0; w < 8; w++ {
+				word := value[sigStart+w]
+				for b := 0; b < 8; b++ {
+					if (word>>(uint(b)*8))&0xFF != 0 {
+						nonzero++
+					}
+				}
+			}
+
+			// All 64 signal bytes should be nonzero (AND with all-ones A).
+			So(nonzero, ShouldEqual, 64)
 		})
 	})
 }
@@ -174,16 +243,23 @@ func BenchmarkValue_InBandBias(b *testing.B) {
 	setupInBandValueTest(b)
 
 	value, err := NewValue(nil)
-
 	if err != nil {
 		b.Fatal(err)
 	}
-
 	defer value.Close()
 
-	value[inbandWordSelf] = 0xAAAAAAAAAAAAAAAA
-	value[inbandWordPartner] = 0xCCCCCCCCCCCCCCCC
-	installInBandBiasProgram(value)
+	for i := 0; i < 4; i++ {
+		value[i] = 0xAAAAAAAAAAAAAAAA
+	}
+	for i := 4; i < 8; i++ {
+		value[i] = 0xCCCCCCCCCCCCCCCC
+	}
+
+	ops := make([]uint8, 16)
+	for i := range ops {
+		ops[i] = 0x1
+	}
+	packRotationOpcodes(value, ops)
 
 	backend := cpu.NewBackend(context.Background())
 	ptrs := []unsafe.Pointer{unsafe.Pointer(value)}
@@ -194,4 +270,9 @@ func BenchmarkValue_InBandBias(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+// popcount64 counts set bits — used as a signal density metric.
+func popcount64(x uint64) int {
+	return bits.OnesCount64(x)
 }

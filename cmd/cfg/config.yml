@@ -67,9 +67,12 @@ value:
     program:
       start: 16
       bits: 512
-    reserved:
+    signals:
       start: 24
-      bits: 6464
+      bits: 512
+    reserved:
+      start: 32
+      bits: 5952
     prev:
       start: 125
       bits: 64

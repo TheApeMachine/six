@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 import (
 	"math/rand"
@@ -307,6 +307,73 @@ parameters use their configured or default fixed values.
 func WithAdaptive(enabled bool) Option {
 	return func(store *Store) {
 		store.adaptive.enabled = enabled
+	}
+}
+
+/*
+ApplyFieldPressure sets external field forces that modulate the trie's
+adaptive behavior. The trie does not decide to look at these — they act
+on it directly, like a physical field acts on a particle.
+
+decay: positive = forget faster (volatile neighborhood), negative = retain more (stable).
+learning: positive = learn more aggressively (field is novel nearby).
+prune: positive = prune harder (field is growing fast nearby).
+*/
+func (store *Store) ApplyFieldPressure(decay, learning, prune float64) {
+	if store == nil || store.adaptive == nil {
+		return
+	}
+
+	store.adaptive.fieldDecayPressure = decay
+	store.adaptive.fieldLearningPressure = learning
+	store.adaptive.fieldPrunePressure = prune
+}
+
+/*
+AdaptiveSignals holds the trie's current adaptive state summary, exported
+for consumption by higher layers (e.g. Kadabra field gossip).
+*/
+type AdaptiveSignals struct {
+	SurprisalMean   float64
+	SurprisalVar    float64
+	ClassEntropy    float64
+	GrowthRate      float64
+	EffectiveDepth  float64
+	EpisodicQuality float64
+}
+
+/*
+AdaptiveDigest returns a snapshot of the trie's adaptive signals.
+*/
+func (store *Store) AdaptiveDigest() AdaptiveSignals {
+	if store == nil || store.adaptive == nil || !store.adaptive.enabled {
+		return AdaptiveSignals{}
+	}
+
+	a := store.adaptive
+
+	// Effective depth: weighted average of depth indices by hit rate.
+	var depthSum, depthWeight float64
+	if a.depthTotal >= adaptiveMinSamples {
+		for i := range a.depthHits {
+			rate := a.depthHits[i] / a.depthTotal
+			depthSum += float64(i) * rate
+			depthWeight += rate
+		}
+	}
+
+	effectiveDepth := 0.0
+	if depthWeight > 0 {
+		effectiveDepth = depthSum / depthWeight
+	}
+
+	return AdaptiveSignals{
+		SurprisalMean:   a.surprisalEMA,
+		SurprisalVar:    a.surprisalVar,
+		ClassEntropy:    a.entropyEMA,
+		GrowthRate:      a.growthRateEMA,
+		EffectiveDepth:  effectiveDepth,
+		EpisodicQuality: a.episodicQualityEMA,
 	}
 }
 

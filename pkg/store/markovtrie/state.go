@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 /*
 Surprisal holds one token surprisal in bits.

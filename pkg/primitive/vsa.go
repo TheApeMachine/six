@@ -70,6 +70,34 @@ func (value *Value) ComputeAffinityLSH() error {
 		value[affStart+proj] = word
 	}
 
+	// If the majority-vote LSH produced all-zero affinity (possible for
+	// low-entropy inputs where fewer than half the token bits are set),
+	// fall back to Bloom-filter hashing so the Value still has a usable
+	// non-zero fingerprint.
+	allZero := true
+	for i := 0; i < affWords && i < 8; i++ {
+		if value[affStart+i] != 0 {
+			allZero = false
+			break
+		}
+	}
+
+	if allZero {
+		// Extract token bytes for Bloom fallback.
+		tokenByteLen := (tokenBits + 7) / 8
+		buf := make([]byte, tokenByteLen)
+		for i := 0; i < nWords && i < tokenByteLen/8; i++ {
+			w := value[tokStart+i]
+			for b := 0; b < 8 && i*8+b < tokenByteLen; b++ {
+				buf[i*8+b] = byte(w >> uint(b*8))
+			}
+		}
+		bloom := ComputeAffinityBloom(buf)
+		if bloom != 0 {
+			value[affStart] = bloom
+		}
+	}
+
 	return nil
 }
 

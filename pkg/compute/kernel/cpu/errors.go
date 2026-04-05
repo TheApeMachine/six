@@ -9,11 +9,7 @@ import (
 type BackendErrorType string
 
 const (
-	ErrNilValuePointer     BackendErrorType = "nil value pointer"
-	ErrInvalidInstruction  BackendErrorType = "invalid instruction"
-	ErrInvalidMemoryAccess BackendErrorType = "invalid memory access"
-	ErrInvalidControlFlow  BackendErrorType = "invalid control flow"
-	ErrInvalidRegister     BackendErrorType = "invalid register"
+	ErrNilValuePointer BackendErrorType = "nil value pointer"
 )
 
 type BackendError struct {

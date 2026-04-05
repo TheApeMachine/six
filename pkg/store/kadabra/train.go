@@ -96,4 +96,7 @@ func (node *KadabraNode) finishEpoch(bucket *kadabraBucket) {
 
 	bucket.QueryCount = 0
 	bucket.Samples = make(map[NodeID]*kadabraPeerSample)
+
+	// Propagate field state at each epoch boundary.
+	go node.Gossip()
 }

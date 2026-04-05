@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 /*
 ReplayResult reports one accepted replay sequence.

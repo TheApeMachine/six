@@ -2,140 +2,84 @@
 #include "../shared/primitives.h"
 using namespace metal;
 
-inline ulong rotl64(ulong x, int r) {
-    r &= 63;
-    return (x << r) | (x >> (64 - r));
-}
+/*
+UniversalBitwise kernel — Metal implementation.
 
-inline ulong majority_u64(ulong a, ulong b, ulong c) {
-    return (a & b) | (b & c) | (a & c);
-}
+Per thread (one Value):
+  1. Copy A (4 words) and B (4 words) from Tokens region.
+  2. Expand B into 16 rotations × 4 words = 64-word surface.
+     A is tiled 16 times to match.
+  3. Extract one 4-bit opcode per rotation from Program region.
+  4. Apply truth table across the full 64-element surface.
+  5. Pack low 8 bits of each result into 8-word Signals region.
 
-void execute_extended_slot(thread ulong* ctx, uint instr) {
-    if ((instr & 0x80000000u) == 0u) {
-        return;
-    }
-    uint op = instr & 0x7Fu;
-    int argA = (int)((instr >> 7) & 0x7Fu);
-    int argB = (int)((instr >> 14) & 0x7Fu);
-    int argC = (int)((instr >> 21) & 0x7Fu);
-
-    switch (op) {
-    case 1u:
-        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
-            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
-            break;
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int wi = TOKENS_START_WORD + i;
-            int ai = argA + i;
-            ctx[wi] ^= ctx[ai];
-        }
-        break;
-    case 2u:
-        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
-            argB < 0 || argB + TOKEN_WORDS > WORDS ||
-            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
-            break;
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int wi = TOKENS_START_WORD + i;
-            int ai = argA + i;
-            int bi = argB + i;
-            ctx[wi] = majority_u64(ctx[wi], ctx[ai], ctx[bi]);
-        }
-        break;
-    case 3u: {
-        int rot = argC & 63;
-        if (rot == 0) {
-            break;
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int wi = TOKENS_START_WORD + i;
-            ctx[wi] = rotl64(ctx[wi], rot);
-        }
-        break;
-    }
-    case 4u: {
-        if (TOKEN_WORDS <= 1) {
-            break;
-        }
-        int sh = argC % TOKEN_WORDS;
-        if (sh == 0) {
-            break;
-        }
-        if (TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
-            break;
-        }
-        ulong buf[TOKEN_WORDS];
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            buf[i] = ctx[TOKENS_START_WORD + i];
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int target = (i + sh) % TOKEN_WORDS;
-            ctx[TOKENS_START_WORD + target] = buf[i];
-        }
-        break;
-    }
-    case 5u:
-        ctx[STATE_INDEX_WORD] = 0x4D4D4C44UL;
-        ctx[STATE_ACCUM_WORD] =
-            (ulong)(argA & 0x7F) | ((ulong)(argB & 0x7F) << 8);
-        break;
-    case 6u:
-        break;
-    default:
-        break;
-    }
-}
+Token and Program regions are never mutated.
+*/
 
 kernel void unified_bitwise_kernel(
-    device ulong* A         [[buffer(0)]],
+    device ulong* A [[buffer(0)]],
     uint id [[thread_position_in_grid]]
 ) {
     uint base = id * WORDS;
-    ulong ctx[WORDS];
-    for (int i = 0; i < WORDS; i++) {
-        ctx[i] = A[base + i];
+
+    // Load A (steady) and B (will be rotated).
+    ulong a[A_WORDS];
+    ulong b[B_WORDS];
+    for (int i = 0; i < A_WORDS; i++) {
+        a[i] = A[base + TOKENS_START_WORD + i];
+    }
+    for (int i = 0; i < B_WORDS; i++) {
+        b[i] = A[base + TOKENS_START_WORD + A_WORDS + i];
     }
 
-    for (uint slot = 0; slot < MAX_PC; slot++) {
-        uint wordPos = PROGRAM_INDEX_WORD + (slot / 2);
-        if (wordPos >= WORDS) {
-            break;
-        }
-
-        uint shift = (slot % 2) * 32;
-        uint instr = (uint)(ctx[wordPos] >> shift);
-        if (instr == 0) {
-            continue;
-        }
-
-        if (instr & 0x80000000u) {
-            execute_extended_slot(ctx, instr);
-            continue;
-        }
-
-        uchar op = instr & 0xF;
-        uint srcWord = ((instr >> 4) & 0x3FFF) & 127;
-        uint dstWord = ((instr >> 18) & 0x3FFF) & 127;
-
-        ulong src = ctx[srcWord];
-        ulong dst = ctx[dstWord];
-
-        ulong m0 = 0 - (ulong)((op >> 3) & 1);
-        ulong m1 = 0 - (ulong)((op >> 2) & 1);
-        ulong m2 = 0 - (ulong)((op >> 1) & 1);
-        ulong m3 = 0 - (ulong)(op & 1);
-
-        ctx[dstWord] = m0 ^
-            ((m0 ^ m2) & src) ^
-            ((m0 ^ m1) & dst) ^
-            ((m0 ^ m1 ^ m2 ^ m3) & (src & dst));
+    // Load program region.
+    ulong prog[PROGRAM_WORDS];
+    for (int i = 0; i < PROGRAM_WORDS; i++) {
+        prog[i] = A[base + PROGRAM_START_WORD + i];
     }
 
-    for (int i = 0; i < WORDS; i++) {
-        A[base + i] = ctx[i];
+    // Expand surfaces, apply truth table, pack signals.
+    ulong signals[SIGNALS_WORDS];
+    for (int i = 0; i < SIGNALS_WORDS; i++) {
+        signals[i] = 0;
+    }
+
+    for (int rot = 0; rot < NUM_ROTATIONS; rot++) {
+        // Extract 4-bit opcode for this rotation.
+        uint wordIdx = rot / 2;
+        uint shift = (rot % 2) * 32;
+        uchar op = (uchar)((prog[wordIdx] >> shift) & 0xF);
+
+        // Build masks from truth table bits.
+        ulong m0 = 0 - (ulong)(op & 1);         // bit 0: a=0,b=0
+        ulong m1 = 0 - (ulong)((op >> 1) & 1);  // bit 1: a=1,b=0
+        ulong m2 = 0 - (ulong)((op >> 2) & 1);  // bit 2: a=0,b=1
+        ulong m3 = 0 - (ulong)((op >> 3) & 1);  // bit 3: a=1,b=1
+
+        for (int w = 0; w < A_WORDS; w++) {
+            // Apply truth table: result = (~a&~b&m0) | (a&~b&m1) | (~a&b&m2) | (a&b&m3)
+            ulong av = a[w];
+            ulong bv = b[w];
+            ulong result = (~av & ~bv & m0) |
+                           ( av & ~bv & m1) |
+                           (~av &  bv & m2) |
+                           ( av &  bv & m3);
+
+            // Pack low 8 bits into signals.
+            int sigIdx = rot * A_WORDS + w;  // 0..63
+            int sigWord = sigIdx / 8;
+            int sigShift = (sigIdx % 8) * 8;
+            signals[sigWord] |= ((result & 0xFF) << sigShift);
+        }
+
+        // Rotate B left by 8 bits for next rotation.
+        for (int w = 0; w < B_WORDS; w++) {
+            b[w] = (b[w] << 8) | (b[w] >> 56);
+        }
+    }
+
+    // Write only the Signals region.
+    for (int i = 0; i < SIGNALS_WORDS; i++) {
+        A[base + SIGNALS_START_WORD + i] = signals[i];
     }
 }
-

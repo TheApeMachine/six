@@ -3,141 +3,85 @@
 #include <stdio.h>
 #include "../shared/primitives.h"
 
-__device__ static uint64_t rotl64(uint64_t x, int r) {
-    r &= 63;
-    return (x << r) | (x >> (64 - r));
-}
+/*
+UniversalBitwise kernel — CUDA implementation.
 
-__device__ static uint64_t majority_u64(uint64_t a, uint64_t b, uint64_t c) {
-    return (a & b) | (b & c) | (a & c);
-}
+Per thread (one Value):
+  1. Copy A (4 words) and B (4 words) from Tokens region.
+  2. Expand B into 16 rotations × 4 words = 64-word surface.
+     A is tiled 16 times to match.
+  3. Extract one 4-bit opcode per rotation from Program region.
+  4. Apply truth table across the full 64-element surface.
+  5. Pack low 8 bits of each result into 8-word Signals region.
 
-__device__ static void execute_extended_slot(uint64_t* ctx, uint32_t instr) {
-    if ((instr & 0x80000000u) == 0u) {
-        return;
-    }
-    uint32_t op = instr & 0x7Fu;
-    int argA = (int)((instr >> 7) & 0x7Fu);
-    int argB = (int)((instr >> 14) & 0x7Fu);
-    int argC = (int)((instr >> 21) & 0x7Fu);
-
-    switch (op) {
-    case 1u:
-        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
-            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
-            break;
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int wi = TOKENS_START_WORD + i;
-            int ai = argA + i;
-            ctx[wi] ^= ctx[ai];
-        }
-        break;
-    case 2u:
-        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
-            argB < 0 || argB + TOKEN_WORDS > WORDS ||
-            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
-            break;
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int wi = TOKENS_START_WORD + i;
-            int ai = argA + i;
-            int bi = argB + i;
-            ctx[wi] = majority_u64(ctx[wi], ctx[ai], ctx[bi]);
-        }
-        break;
-    case 3u: {
-        int rot = argC & 63;
-        if (rot == 0) {
-            break;
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int wi = TOKENS_START_WORD + i;
-            ctx[wi] = rotl64(ctx[wi], rot);
-        }
-        break;
-    }
-    case 4u: {
-        if (TOKEN_WORDS <= 1) {
-            break;
-        }
-        int sh = argC % TOKEN_WORDS;
-        if (sh == 0) {
-            break;
-        }
-        if (TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
-            break;
-        }
-        uint64_t buf[TOKEN_WORDS];
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            buf[i] = ctx[TOKENS_START_WORD + i];
-        }
-        for (int i = 0; i < TOKEN_WORDS; i++) {
-            int target = (i + sh) % TOKEN_WORDS;
-            ctx[TOKENS_START_WORD + target] = buf[i];
-        }
-        break;
-    }
-    case 5u:
-        ctx[STATE_INDEX_WORD] = 0x4D4D4C44ULL;
-        ctx[STATE_ACCUM_WORD] =
-            (uint64_t)(argA & 0x7F) | ((uint64_t)(argB & 0x7F) << 8);
-        break;
-    case 6u:
-        /* RESONATOR_UNBIND: macro graph lives on host; GPU path is a no-op. */
-        break;
-    default:
-        break;
-    }
-}
+Token and Program regions are never mutated.
+*/
 
 __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_values) return;
 
     uint32_t base = id * WORDS;
-    uint64_t ctx[WORDS];
-    for (int i = 0; i < WORDS; i++) {
-        ctx[i] = A[base + i];
+
+    // Load A (steady) and B (will be rotated).
+    uint64_t a[A_WORDS];
+    uint64_t b[B_WORDS];
+    for (int i = 0; i < A_WORDS; i++) {
+        a[i] = A[base + TOKENS_START_WORD + i];
+    }
+    for (int i = 0; i < B_WORDS; i++) {
+        b[i] = A[base + TOKENS_START_WORD + A_WORDS + i];
     }
 
-    for (uint32_t slot = 0; slot < MAX_PC; slot++) {
-        uint32_t word_pos = PROGRAM_INDEX_WORD + (slot / 2);
-        if (word_pos >= WORDS) {
-            break;
-        }
-
-        uint32_t shift = (slot % 2) * 32;
-        uint32_t instr = (uint32_t)(ctx[word_pos] >> shift);
-        if (instr == 0) {
-            continue;
-        }
-
-        if (instr & 0x80000000u) {
-            execute_extended_slot(ctx, instr);
-            continue;
-        }
-
-        uint8_t op = instr & 0xF;
-        uint32_t src_word = ((instr >> 4) & 0x3FFF) & 127;
-        uint32_t dst_word = ((instr >> 18) & 0x3FFF) & 127;
-
-        uint64_t src = ctx[src_word];
-        uint64_t dst = ctx[dst_word];
-
-        uint64_t m0 = 0 - (uint64_t)((op >> 3) & 1);
-        uint64_t m1 = 0 - (uint64_t)((op >> 2) & 1);
-        uint64_t m2 = 0 - (uint64_t)((op >> 1) & 1);
-        uint64_t m3 = 0 - (uint64_t)(op & 1);
-
-        ctx[dst_word] = m0 ^
-            ((m0 ^ m2) & src) ^
-            ((m0 ^ m1) & dst) ^
-            ((m0 ^ m1 ^ m2 ^ m3) & (src & dst));
+    // Load program region.
+    uint64_t prog[PROGRAM_WORDS];
+    for (int i = 0; i < PROGRAM_WORDS; i++) {
+        prog[i] = A[base + PROGRAM_START_WORD + i];
     }
 
-    for (int i = 0; i < WORDS; i++) {
-        A[base + i] = ctx[i];
+    // Expand surfaces, apply truth table, pack signals.
+    uint64_t signals[SIGNALS_WORDS];
+    for (int i = 0; i < SIGNALS_WORDS; i++) {
+        signals[i] = 0;
+    }
+
+    for (int rot = 0; rot < NUM_ROTATIONS; rot++) {
+        // Extract 4-bit opcode for this rotation.
+        int wordIdx = rot / 2;
+        int shift = (rot % 2) * 32;
+        uint8_t op = (uint8_t)((prog[wordIdx] >> shift) & 0xF);
+
+        // Build masks from truth table bits.
+        uint64_t m0 = 0 - (uint64_t)(op & 1);         // bit 0: a=0,b=0
+        uint64_t m1 = 0 - (uint64_t)((op >> 1) & 1);  // bit 1: a=1,b=0
+        uint64_t m2 = 0 - (uint64_t)((op >> 2) & 1);  // bit 2: a=0,b=1
+        uint64_t m3 = 0 - (uint64_t)((op >> 3) & 1);  // bit 3: a=1,b=1
+
+        for (int w = 0; w < A_WORDS; w++) {
+            // Apply truth table: result = (~a&~b&m0) | (a&~b&m1) | (~a&b&m2) | (a&b&m3)
+            uint64_t av = a[w];
+            uint64_t bv = b[w];
+            uint64_t result = (~av & ~bv & m0) |
+                              ( av & ~bv & m1) |
+                              (~av &  bv & m2) |
+                              ( av &  bv & m3);
+
+            // Pack low 8 bits into signals.
+            int sigIdx = rot * A_WORDS + w;  // 0..63
+            int sigWord = sigIdx / 8;
+            int sigShift = (sigIdx % 8) * 8;
+            signals[sigWord] |= ((result & 0xFFULL) << sigShift);
+        }
+
+        // Rotate B left by 8 bits for next rotation.
+        for (int w = 0; w < B_WORDS; w++) {
+            b[w] = (b[w] << 8) | (b[w] >> 56);
+        }
+    }
+
+    // Write only the Signals region.
+    for (int i = 0; i < SIGNALS_WORDS; i++) {
+        A[base + SIGNALS_START_WORD + i] = signals[i];
     }
 }
 
@@ -152,7 +96,7 @@ static int ensure_pool(uint32_t num_values) {
     uint32_t cap = num_values * 2;
     if (cap < 1024) cap = 1024;
 
-    size_t bytes = cap * 1024; // 1024 bytes per Value
+    size_t bytes = (size_t)cap * WORDS * sizeof(uint64_t);
     if (cudaMalloc((void**)&d_pool_A, bytes) != cudaSuccess) return -1;
 
     pool_capacity = cap;
@@ -181,11 +125,11 @@ extern "C" {
         if (cudaSetDevice(device_id) != cudaSuccess) return -1;
         if (ensure_pool(num_values) != 0) return -1;
 
-        size_t bytes = (size_t)num_values * 1024;
+        size_t bytes = (size_t)num_values * WORDS * sizeof(uint64_t);
 
         cudaError_t cpyErr = cudaMemcpy(d_pool_A, a_host, bytes, cudaMemcpyHostToDevice);
         if (cpyErr != cudaSuccess) {
-            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy H->D d_pool_A failed: %s\n",
+            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy H->D failed: %s\n",
                     cudaGetErrorString(cpyErr));
             return -4;
         }
@@ -196,16 +140,15 @@ extern "C" {
 
         unified_bitwise_kernel<<<blocks, threadsPerBlock>>>((uint64_t*)d_pool_A, num_values);
 
-        if (cudaGetLastError()    != cudaSuccess) return -2;
+        if (cudaGetLastError()      != cudaSuccess) return -2;
         if (cudaDeviceSynchronize() != cudaSuccess) return -3;
 
         cpyErr = cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
         if (cpyErr != cudaSuccess) {
-            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy D->H d_pool_A failed: %s\n",
+            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy D->H failed: %s\n",
                     cudaGetErrorString(cpyErr));
             return -6;
         }
         return 0;
     }
 }
-

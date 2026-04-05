@@ -5,20 +5,16 @@
 #define SUBSTRATE_PRIMITIVES_H
 
 #define WORDS                                    128
-#define REG_PC                                   75
-#define FW_WORD                                  74
-#define PROGRAM_INDEX_WORD                       76
-#define PAYLOAD_PROGRAM_WORD_OFFSET              4
-#define USER_PROGRAM_PC_START                    8
-#define MAX_PC                                   104
 #define TOKENS_START_WORD                        0
-#define TOKEN_WORDS                              57
-#define STATE_INDEX_WORD                         60
-#define STATE_ACCUM_WORD                         62
-#define EXEC_STATUS_WORD                         63
-#define EXEC_STATUS_SHIFT                        48
-#define EXEC_EXIT_EXHAUSTED                      1
-#define EXEC_EXIT_HALT                           2
-#define EXEC_EXIT_BAD_WORD                       3
+#define TOKEN_WORDS                              8
+#define A_WORDS                                  4
+#define B_WORDS                                  4
+#define PROGRAM_START_WORD                       16
+#define PROGRAM_WORDS                            8
+#define SIGNALS_START_WORD                       24
+#define SIGNALS_WORDS                            8
+#define NUM_ROTATIONS                            16
+#define SURFACE_ELEMENTS                         64
+#define AFFINITY_START_WORD                      8
 
 #endif // SUBSTRATE_PRIMITIVES_H

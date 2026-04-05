@@ -11,7 +11,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/store/frankentrie"
+	"github.com/theapemachine/six/pkg/store/markovtrie"
 )
 
 /*
@@ -42,7 +42,7 @@ adaptive peer selection inspired by Kadabra.
 */
 type KadabraNode struct {
 	ID                       NodeID
-	Store                    *frankentrie.Store
+	Store                    *markovtrie.Store
 	Affinity                 [AffinityWords]uint64
 	affinityCount            uint64
 	BucketSize               int
@@ -57,6 +57,8 @@ type KadabraNode struct {
 	records                  map[uint64]SequenceRecord
 	routingBits              int
 	buckets                  []*kadabraBucket
+	epoch                    uint64
+	Field                    *FieldView
 }
 
 /*
@@ -125,6 +127,7 @@ func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 		routingBits:       bits,
 		records:           make(map[uint64]SequenceRecord),
 		buckets:           make([]*kadabraBucket, bits),
+		Field:             nil, // set after node is constructed
 	}
 
 	for bucketIndex := range node.buckets {
@@ -141,19 +144,21 @@ func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 	}
 
 	if node.Store == nil {
-		node.Store = frankentrie.NewStore()
+		node.Store = markovtrie.NewStore()
 	}
 
 	if node.random == nil {
 		node.random = rand.New(rand.NewSource(int64(id) + 1))
 	}
 
+	node.Field = newFieldView(node)
+
 	return node
 }
 
 /*
 Publish stores a labeled sequence on the closest DHT nodes by affinity
-and trains each replica's frankentrie.Store. If the Value has a computed
+and trains each replica's markovtrie.Store. If the Value has a computed
 affinity, routing uses affinity distance; otherwise it falls back to
 XOR distance on the record key.
 */
@@ -176,18 +181,13 @@ func (node *KadabraNode) Publish(
 		}
 	}
 
-	var replicas []*KadabraNode
-	if hasAffinity {
-		replicas = node.closestNodesByAffinity(valueAff, node.ReplicationFactor)
-	} else {
-		replicas = node.lookupNodes(
-			NodeID(record.Key), node.ReplicationFactor,
+	if !hasAffinity {
+		return record, fmt.Errorf(
+			"kadabra: refusing to publish Value with zero affinity — call ComputeAffinityLSH first",
 		)
 	}
 
-	if len(replicas) == 0 {
-		replicas = []*KadabraNode{node}
-	}
+	replicas := node.closestNodesByAffinity(valueAff, node.ReplicationFactor)
 
 	for _, replica := range replicas {
 		if err := replica.storeRecordWithAffinity(record, valueAff); err != nil {
@@ -200,7 +200,7 @@ func (node *KadabraNode) Publish(
 
 /*
 StoreRecord stores a replicated sequence record locally and trains
-the backing frankentrie.Store on each replica once per key.
+the backing markovtrie.Store on each replica once per key.
 */
 func (node *KadabraNode) StoreRecord(record SequenceRecord) error {
 	return node.storeRecordWithAffinity(record, [AffinityWords]uint64{})
@@ -274,9 +274,9 @@ func NodeIDFromString(value string) NodeID {
 }
 
 /*
-WithLocalStore installs the local frankentrie.Store backing the node.
+WithLocalStore installs the local markovtrie.Store backing the node.
 */
-func WithLocalStore(store *frankentrie.Store) NodeOption {
+func WithLocalStore(store *markovtrie.Store) NodeOption {
 	return func(node *KadabraNode) {
 		node.Store = store
 	}

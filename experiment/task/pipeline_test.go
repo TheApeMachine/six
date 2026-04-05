@@ -227,7 +227,20 @@ func TestPipeline(t *testing.T) {
 					actual, assertion, threshold := experiment.Outcome()
 					So(actual, assertion, threshold)
 				})
+
+				Convey("When paper artifacts are emitted for "+experiment.Name(), func() {
+					So(pipeline.writeStandardSummary(), ShouldBeNil)
+					So(pipeline.reporter.WriteResults(experiment), ShouldBeNil)
+
+					for _, artifact := range experiment.Artifacts() {
+						So(pipeline.reporter.WriteArtifact(experiment, artifact), ShouldBeNil)
+					}
+				})
 			})
 		})
 	}
+
+	Convey("When the experiments index is written", t, func() {
+		So(WriteExperimentsIndex(), ShouldBeNil)
+	})
 }

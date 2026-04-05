@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 import (
 	"fmt"

@@ -3,314 +3,16 @@
 #include "textflag.h"
 
 // =========================================================================
-// AVX2 bulk bitwise operations over []uint64 slices.
+// AMD64 / AVX2 SIMD kernels for Six CPU backend.
 //
-// All functions share the signature: func(dst, src *uint64, n int)
-//   dst+0(FP)  — pointer to destination words
-//   src+8(FP)  — pointer to source words
-//   n+16(FP)   — number of uint64 words to process
-//
-// Strategy: 4× YMM unroll (16 words = 128 bytes = 1024 bits per iteration),
-// then a 1× YMM middle pass (4 words), then a scalar tail (0–3 words).
-//
-// A full 128-word Value span completes the hot loop in 8 iterations.
-// The 4 independent YMM chains (Y0–Y3 / Y4–Y7) let the CPU pipeline
-// loads, ops, and stores across execution ports simultaneously.
+// Three functions:
+//   popcount          — popcount(dst[i] ^ src[i]) per word
+//   hammingMatch        — early-exit Hamming distance scan
+//   universalBitwise    — truth table across 64-word A×B surface
 // =========================================================================
 
 
-TEXT ·simdXor(SB), NOSPLIT, $0-24
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
-
-	// Hot loop: 16 words per iteration (4× YMM).
-	MOVQ	CX, DX
-	SHRQ	$4, CX			// CX = n / 16
-	JZ	xor_mid_setup
-xor_hot:
-	VMOVDQU	0*32(SI), Y0
-	VMOVDQU	1*32(SI), Y1
-	VMOVDQU	2*32(SI), Y2
-	VMOVDQU	3*32(SI), Y3
-	VPXOR	0*32(DI), Y0, Y0
-	VPXOR	1*32(DI), Y1, Y1
-	VPXOR	2*32(DI), Y2, Y2
-	VPXOR	3*32(DI), Y3, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	xor_hot
-
-	// Middle: 4 words at a time from remainder.
-xor_mid_setup:
-	ANDQ	$15, DX			// DX = n % 16
-	MOVQ	DX, CX
-	SHRQ	$2, CX			// CX = remainder / 4
-	JZ	xor_tail
-xor_mid:
-	VMOVDQU	(SI), Y0
-	VPXOR	(DI), Y0, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	xor_mid
-
-	// Scalar tail: 0–3 words.
-xor_tail:
-	ANDQ	$3, DX
-	JZ	xor_done
-xor_scalar:
-	MOVQ	(SI), AX
-	XORQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	xor_scalar
-xor_done:
-	VZEROUPPER
-	RET
-
-
-TEXT ·simdAnd(SB), NOSPLIT, $0-24
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
-
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	and_mid_setup
-and_hot:
-	VMOVDQU	0*32(SI), Y0
-	VMOVDQU	1*32(SI), Y1
-	VMOVDQU	2*32(SI), Y2
-	VMOVDQU	3*32(SI), Y3
-	VPAND	0*32(DI), Y0, Y0
-	VPAND	1*32(DI), Y1, Y1
-	VPAND	2*32(DI), Y2, Y2
-	VPAND	3*32(DI), Y3, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	and_hot
-
-and_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	and_tail
-and_mid:
-	VMOVDQU	(SI), Y0
-	VPAND	(DI), Y0, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	and_mid
-
-and_tail:
-	ANDQ	$3, DX
-	JZ	and_done
-and_scalar:
-	MOVQ	(SI), AX
-	ANDQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	and_scalar
-and_done:
-	VZEROUPPER
-	RET
-
-
-TEXT ·simdOr(SB), NOSPLIT, $0-24
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
-
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	or_mid_setup
-or_hot:
-	VMOVDQU	0*32(SI), Y0
-	VMOVDQU	1*32(SI), Y1
-	VMOVDQU	2*32(SI), Y2
-	VMOVDQU	3*32(SI), Y3
-	VPOR	0*32(DI), Y0, Y0
-	VPOR	1*32(DI), Y1, Y1
-	VPOR	2*32(DI), Y2, Y2
-	VPOR	3*32(DI), Y3, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	or_hot
-
-or_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	or_tail
-or_mid:
-	VMOVDQU	(SI), Y0
-	VPOR	(DI), Y0, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	or_mid
-
-or_tail:
-	ANDQ	$3, DX
-	JZ	or_done
-or_scalar:
-	MOVQ	(SI), AX
-	ORQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	or_scalar
-or_done:
-	VZEROUPPER
-	RET
-
-
-TEXT ·simdSrcAndNotDst(SB), NOSPLIT, $0-24
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
-
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	sandn_mid_setup
-sandn_hot:
-	VMOVDQU	0*32(DI), Y0		// dst (complemented by VPANDN)
-	VMOVDQU	1*32(DI), Y1
-	VMOVDQU	2*32(DI), Y2
-	VMOVDQU	3*32(DI), Y3
-	VMOVDQU	0*32(SI), Y4		// src
-	VMOVDQU	1*32(SI), Y5
-	VMOVDQU	2*32(SI), Y6
-	VMOVDQU	3*32(SI), Y7
-	VPANDN	Y0, Y4, Y0		// ~dst & src
-	VPANDN	Y1, Y5, Y1
-	VPANDN	Y2, Y6, Y2
-	VPANDN	Y3, Y7, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	sandn_hot
-
-sandn_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	sandn_tail
-sandn_mid:
-	VMOVDQU	(DI), Y0
-	VMOVDQU	(SI), Y1
-	VPANDN	Y0, Y1, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	sandn_mid
-
-sandn_tail:
-	ANDQ	$3, DX
-	JZ	sandn_done
-sandn_scalar:
-	MOVQ	(DI), AX
-	MOVQ	(SI), BX
-	NOTQ	AX
-	ANDQ	BX, AX
-	MOVQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	sandn_scalar
-sandn_done:
-	VZEROUPPER
-	RET
-
-
-TEXT ·simdDstAndNotSrc(SB), NOSPLIT, $0-24
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
-
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	dandn_mid_setup
-dandn_hot:
-	VMOVDQU	0*32(SI), Y0		// src (complemented by VPANDN)
-	VMOVDQU	1*32(SI), Y1
-	VMOVDQU	2*32(SI), Y2
-	VMOVDQU	3*32(SI), Y3
-	VMOVDQU	0*32(DI), Y4		// dst
-	VMOVDQU	1*32(DI), Y5
-	VMOVDQU	2*32(DI), Y6
-	VMOVDQU	3*32(DI), Y7
-	VPANDN	Y0, Y4, Y0		// ~src & dst
-	VPANDN	Y1, Y5, Y1
-	VPANDN	Y2, Y6, Y2
-	VPANDN	Y3, Y7, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	dandn_hot
-
-dandn_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	dandn_tail
-dandn_mid:
-	VMOVDQU	(SI), Y0
-	VMOVDQU	(DI), Y1
-	VPANDN	Y0, Y1, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	dandn_mid
-
-dandn_tail:
-	ANDQ	$3, DX
-	JZ	dandn_done
-dandn_scalar:
-	MOVQ	(SI), AX
-	NOTQ	AX
-	ANDQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	dandn_scalar
-dandn_done:
-	VZEROUPPER
-	RET
-
-
+// Lookup tables for nibble-level popcount (Harley-Seal).
 DATA popcnt_lut<>+0(SB)/8,  $0x0403030203020201
 DATA popcnt_lut<>+8(SB)/8,  $0x0504040304030302
 DATA popcnt_lut<>+16(SB)/8, $0x0403030203020201
@@ -324,23 +26,24 @@ DATA mask_0f<>+24(SB)/8, $0x0F0F0F0F0F0F0F0F
 GLOBL mask_0f<>(SB), RODATA, $32
 
 
-// simdPopcnt computes per-word Hamming distances: dst[i] = popcount(src[i] ^ dst[i]).
-// 4× YMM unrolled to match the throughput structure of simdXor/simdAnd.
-TEXT ·simdPopcnt(SB), NOSPLIT, $0-24
+// -------------------------------------------------------------------------
+// dst[i] = popcount(dst[i] ^ src[i])
+// func(dst, src *uint64, n int)
+// -------------------------------------------------------------------------
+TEXT ·popcount(SB), NOSPLIT, $0-24
 	MOVQ	dst+0(FP), DI
 	MOVQ	src+8(FP), SI
 	MOVQ	n+16(FP), CX
 
-	VPXOR		Y15, Y15, Y15		// zero accumulator
+	VPXOR		Y15, Y15, Y15
 	VMOVDQU		popcnt_lut<>(SB), Y14
 	VMOVDQU		mask_0f<>(SB), Y13
 
 	MOVQ	CX, DX
-	SHRQ	$4, CX			// CX = n / 16  (4× YMM = 16 words per iter)
+	SHRQ	$4, CX
 	JZ	popcnt_mid_setup
 
 popcnt_hot:
-	// Load 4 pairs and XOR them into Y0..Y3 (does not touch SI/DI data beyond reads).
 	VMOVDQU	0*32(SI), Y0
 	VMOVDQU	1*32(SI), Y1
 	VMOVDQU	2*32(SI), Y2
@@ -350,7 +53,6 @@ popcnt_hot:
 	VPXOR	2*32(DI), Y2, Y2
 	VPXOR	3*32(DI), Y3, Y3
 
-	// Harley-Seal nibble popcount on Y0.
 	VMOVDQU	Y0, Y8
 	VPSRLW	$4, Y8, Y8
 	VPAND	Y13, Y8, Y8
@@ -360,7 +62,6 @@ popcnt_hot:
 	VPADDB	Y8,  Y0, Y0
 	VPSADBW	Y15, Y0, Y0
 
-	// Harley-Seal on Y1.
 	VMOVDQU	Y1, Y9
 	VPSRLW	$4, Y9, Y9
 	VPAND	Y13, Y9, Y9
@@ -370,7 +71,6 @@ popcnt_hot:
 	VPADDB	Y9,  Y1, Y1
 	VPSADBW	Y15, Y1, Y1
 
-	// Harley-Seal on Y2.
 	VMOVDQU	Y2, Y10
 	VPSRLW	$4, Y10, Y10
 	VPAND	Y13, Y10, Y10
@@ -380,7 +80,6 @@ popcnt_hot:
 	VPADDB	Y10, Y2,  Y2
 	VPSADBW	Y15, Y2,  Y2
 
-	// Harley-Seal on Y3.
 	VMOVDQU	Y3, Y11
 	VPSRLW	$4, Y11, Y11
 	VPAND	Y13, Y11, Y11
@@ -402,7 +101,7 @@ popcnt_hot:
 popcnt_mid_setup:
 	ANDQ	$15, DX
 	MOVQ	DX, CX
-	SHRQ	$2, CX			// CX = remainder / 4
+	SHRQ	$2, CX
 	JZ	popcnt_tail
 popcnt_mid:
 	VMOVDQU	(SI), Y0
@@ -438,21 +137,16 @@ popcnt_done:
 	RET
 
 
-// simdHasHammingMatch returns 1 in AX if any word in the n-word frame at src
-// has popcount(word ^ target) <= maxDist, 0 otherwise.
-// Signature: func(frame *uint64, n int, target uint64, maxDist uint64) bool
-//   frame+0(FP)   — pointer to first word of the frame
-//   n+8(FP)       — number of words in the frame
-//   target+16(FP) — the target affinity word
-//   maxDist+24(FP)— maximum Hamming distance (inclusive)
-//   ret+32(FP)    — bool result
-TEXT ·simdHasHammingMatch(SB), NOSPLIT, $0-33
+// -------------------------------------------------------------------------
+// func(frame *uint64, n int, target uint64, maxDist uint64) bool
+// Returns true if any word has popcount(word ^ target) <= maxDist.
+// -------------------------------------------------------------------------
+TEXT ·hammingMatch(SB), NOSPLIT, $0-33
 	MOVQ	frame+0(FP), SI
 	MOVQ	n+8(FP), CX
 	MOVQ	target+16(FP), R8
 	MOVQ	maxDist+24(FP), R9
 
-	// Broadcast target into Y2, maxDist into Y3.
 	VMOVQ		R8, X2
 	VPBROADCASTQ	X2, Y2
 	VMOVQ		R9, X3
@@ -462,16 +156,14 @@ TEXT ·simdHasHammingMatch(SB), NOSPLIT, $0-33
 	VMOVDQU		mask_0f<>(SB), Y13
 	VPXOR		Y15, Y15, Y15
 
-	// Hot loop: 4 words per iteration (1× YMM).
 	MOVQ	CX, DX
 	SHRQ	$2, CX
 	JZ	hmatch_tail
 
 hmatch_hot:
 	VMOVDQU	(SI), Y0
-	VPXOR	Y2, Y0, Y0		// XOR with broadcast target
+	VPXOR	Y2, Y0, Y0
 
-	// Nibble popcount.
 	VMOVDQU	Y0, Y1
 	VPSRLW	$4, Y1, Y1
 	VPAND	Y13, Y1, Y1
@@ -479,16 +171,12 @@ hmatch_hot:
 	VPSHUFB	Y1,  Y14, Y1
 	VPSHUFB	Y0,  Y14, Y0
 	VPADDB	Y1,  Y0, Y0
-	VPSADBW	Y15, Y0, Y0		// Y0 = [cnt3, cnt2, cnt1, cnt0] as uint64 lanes
+	VPSADBW	Y15, Y0, Y0
 
-	// Y1[i] = 0xFF..FF if cnt[i] > maxDist (no match), 0x00..00 if cnt[i] <= maxDist (match).
 	VPCMPGTQ	Y3, Y0, Y1
-	// Extract MSB of every byte into a 32-bit mask.
-	// If all lanes were no-match (all 0xFF..FF bytes), AX == 0xFFFFFFFF.
 	VPMOVMSKB	Y1, AX
 	CMPL		AX, $-1
-	JE		hmatch_next		// all lanes > maxDist, no match here
-	// At least one lane had cnt <= maxDist.
+	JE		hmatch_next
 	MOVB	$1, ret+32(FP)
 	VZEROUPPER
 	RET
@@ -523,325 +211,138 @@ hmatch_done:
 	RET
 
 
-TEXT ·simdShl(SB), NOSPLIT, $0-24
+// =========================================================================
+// universalBitwise: AVX2 SIMD truth table across 64-word A×B surface.
+//
+// Signature: func(dst, a, b, m0, m1, m2, m3 *uint64)
+//   dst+0(FP)  — pointer to 8 uint64s (output signals)
+//   a+8(FP)    — pointer to 64 uint64s (A surface)
+//   b+16(FP)   — pointer to 64 uint64s (B surface)
+//   m0+24(FP)  — pointer to 64 uint64s (mask for truth table bit 0)
+//   m1+32(FP)  — pointer to 64 uint64s (mask for truth table bit 1)
+//   m2+40(FP)  — pointer to 64 uint64s (mask for truth table bit 2)
+//   m3+48(FP)  — pointer to 64 uint64s (mask for truth table bit 3)
+//
+// Processes 4 uint64s per YMM register, 16 iterations for 64 elements.
+// =========================================================================
+TEXT ·universalBitwise(SB), NOSPLIT, $0-56
 	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
+	MOVQ	a+8(FP), SI
+	MOVQ	b+16(FP), DX
+	MOVQ	m0+24(FP), R8
+	MOVQ	m1+32(FP), R9
+	MOVQ	m2+40(FP), R10
+	MOVQ	m3+48(FP), R11
 
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	shl_mid_setup
-shl_hot:
-	VMOVDQU	0*32(SI), Y0
-	VMOVDQU	1*32(SI), Y1
-	VMOVDQU	2*32(SI), Y2
-	VMOVDQU	3*32(SI), Y3
-	VMOVDQU	0*32(DI), Y4
-	VMOVDQU	1*32(DI), Y5
-	VMOVDQU	2*32(DI), Y6
-	VMOVDQU	3*32(DI), Y7
-	VPSLLVQ	Y0, Y4, Y0
-	VPSLLVQ	Y1, Y5, Y1
-	VPSLLVQ	Y2, Y6, Y2
-	VPSLLVQ	Y3, Y7, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	shl_hot
-shl_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	shl_tail
-shl_mid:
-	VMOVDQU	(SI), Y0
-	VMOVDQU	(DI), Y1
-	VPSLLVQ	Y0, Y1, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	shl_mid
-shl_tail:
-	ANDQ	$3, DX
-	JZ	shl_done
-shl_scalar:
-	MOVQ	(SI), CX
-	ANDQ	$63, CX
-	MOVQ	(DI), AX
-	SHLQ	CX, AX
-	MOVQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	shl_scalar
-shl_done:
-	VZEROUPPER
-	RET
+	// Zero the 8 output words.
+	MOVQ	$0, 0*8(DI)
+	MOVQ	$0, 1*8(DI)
+	MOVQ	$0, 2*8(DI)
+	MOVQ	$0, 3*8(DI)
+	MOVQ	$0, 4*8(DI)
+	MOVQ	$0, 5*8(DI)
+	MOVQ	$0, 6*8(DI)
+	MOVQ	$0, 7*8(DI)
 
+	// Y15 = all ones for NOT.
+	VPCMPEQD	Y15, Y15, Y15
 
-TEXT ·simdShr(SB), NOSPLIT, $0-24
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
+	// CX = group index (0..15).
+	XORQ	CX, CX
 
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	shr_mid_setup
-shr_hot:
-	VMOVDQU	0*32(SI), Y0
-	VMOVDQU	1*32(SI), Y1
-	VMOVDQU	2*32(SI), Y2
-	VMOVDQU	3*32(SI), Y3
-	VMOVDQU	0*32(DI), Y4
-	VMOVDQU	1*32(DI), Y5
-	VMOVDQU	2*32(DI), Y6
-	VMOVDQU	3*32(DI), Y7
-	VPSRLVQ	Y0, Y4, Y0
-	VPSRLVQ	Y1, Y5, Y1
-	VPSRLVQ	Y2, Y6, Y2
-	VPSRLVQ	Y3, Y7, Y3
-	VMOVDQU	Y0, 0*32(DI)
-	VMOVDQU	Y1, 1*32(DI)
-	VMOVDQU	Y2, 2*32(DI)
-	VMOVDQU	Y3, 3*32(DI)
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	shr_hot
-shr_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	shr_tail
-shr_mid:
-	VMOVDQU	(SI), Y0
-	VMOVDQU	(DI), Y1
-	VPSRLVQ	Y0, Y1, Y0
-	VMOVDQU	Y0, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	shr_mid
-shr_tail:
-	ANDQ	$3, DX
-	JZ	shr_done
-shr_scalar:
-	MOVQ	(SI), CX
-	ANDQ	$63, CX
-	MOVQ	(DI), AX
-	SHRQ	CX, AX
-	MOVQ	AX, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	shr_scalar
-shr_done:
-	VZEROUPPER
-	RET
+ub_avx_loop:
+	MOVQ	CX, AX
+	SHLQ	$5, AX			// AX = CX * 32
 
+	VMOVDQU	(SI)(AX*1), Y0		// a
+	VMOVDQU	(DX)(AX*1), Y1		// b
+	VMOVDQU	(R8)(AX*1), Y8		// m0
+	VMOVDQU	(R9)(AX*1), Y9		// m1
+	VMOVDQU	(R10)(AX*1), Y10	// m2
+	VMOVDQU	(R11)(AX*1), Y11	// m3
 
-// simdTruthTable applies a branchless 4-bit truth table to dst and src.
-// For each word: result = (a & b & m0) | (a & ~b & m1) | (~a & b & m2) | (~a & ~b & m3)
-// where a = src[i], b = dst[i], and m0..m3 are broadcast masks derived from op bits 0..3.
-// Signature: func(dst, src *uint64, n int, op uint8)
-//   dst+0(FP)  — pointer to destination words (also "b" operand)
-//   src+8(FP)  — pointer to source words ("a" operand)
-//   n+16(FP)   — number of uint64 words to process
-//   op+24(FP)  — 4-bit opcode (0–15)
-TEXT ·simdTruthTable(SB), NOSPLIT, $0-25
-	MOVQ	dst+0(FP), DI
-	MOVQ	src+8(FP), SI
-	MOVQ	n+16(FP), CX
-	MOVBQZX	op+24(FP), AX
+	VPXOR	Y15, Y0, Y2		// ~a
+	VPXOR	Y15, Y1, Y3		// ~b
 
-	// Build m0..m3 from op bits: m_k = -uint64((op>>k) & 1).
-	// bit 0 → m0
-	MOVQ	AX, R8
-	ANDQ	$1, R8
-	NEGQ	R8			// R8 = m0
+	VPAND	Y0, Y1, Y4
+	VPAND	Y8, Y4, Y4		// a & b & m0
 
-	// bit 1 → m1
-	MOVQ	AX, R9
-	SHRQ	$1, R9
-	ANDQ	$1, R9
-	NEGQ	R9			// R9 = m1
-
-	// bit 2 → m2
-	MOVQ	AX, R10
-	SHRQ	$2, R10
-	ANDQ	$1, R10
-	NEGQ	R10			// R10 = m2
-
-	// bit 3 → m3
-	MOVQ	AX, R11
-	SHRQ	$3, R11
-	ANDQ	$1, R11
-	NEGQ	R11			// R11 = m3
-
-	// Broadcast masks into YMM registers: Y12=m0, Y13=m1, Y14=m2, Y15=m3.
-	VMOVQ		R8, X12
-	VPBROADCASTQ	X12, Y12
-	VMOVQ		R9, X13
-	VPBROADCASTQ	X13, Y13
-	VMOVQ		R10, X14
-	VPBROADCASTQ	X14, Y14
-	VMOVQ		R11, X15
-	VPBROADCASTQ	X15, Y15
-
-	// Y11 = all ones (for NOT via VPXOR).
-	VPCMPEQD	Y11, Y11, Y11
-
-	// Hot loop: 16 words per iteration (4× YMM).
-	MOVQ	CX, DX
-	SHRQ	$4, CX
-	JZ	tt_mid_setup
-
-tt_hot:
-	// --- lane 0 (words 0..3) ---
-	VMOVDQU	0*32(SI), Y0		// a
-	VMOVDQU	0*32(DI), Y1		// b
-	VPXOR	Y11, Y0, Y2		// ~a
-	VPXOR	Y11, Y1, Y3		// ~b
-	VPAND	Y2, Y3, Y4		// ~a & ~b
-	VPAND	Y0, Y3, Y5		// a & ~b
-	VPAND	Y13, Y5, Y5		// & m1
-	VPAND	Y2, Y1, Y6		// ~a & b
-	VPAND	Y14, Y6, Y6		// & m2
-	VPAND	Y0, Y1, Y7		// a & b
-	VPAND	Y12, Y7, Y7		// & m0
-	VPAND	Y15, Y4, Y4		// & m3
-	VPOR	Y4, Y5, Y4
-	VPOR	Y4, Y6, Y4
-	VPOR	Y4, Y7, Y4
-	VMOVDQU	Y4, 0*32(DI)
-
-	// --- lane 1 (words 4..7) ---
-	VMOVDQU	1*32(SI), Y0
-	VMOVDQU	1*32(DI), Y1
-	VPXOR	Y11, Y0, Y2
-	VPXOR	Y11, Y1, Y3
-	VPAND	Y2, Y3, Y4
 	VPAND	Y0, Y3, Y5
-	VPAND	Y13, Y5, Y5
+	VPAND	Y9, Y5, Y5		// a & ~b & m1
+
 	VPAND	Y2, Y1, Y6
-	VPAND	Y14, Y6, Y6
-	VPAND	Y0, Y1, Y7
-	VPAND	Y12, Y7, Y7
-	VPAND	Y15, Y4, Y4
+	VPAND	Y10, Y6, Y6		// ~a & b & m2
+
+	VPAND	Y2, Y3, Y7
+	VPAND	Y11, Y7, Y7		// ~a & ~b & m3
+
 	VPOR	Y4, Y5, Y4
-	VPOR	Y4, Y6, Y4
-	VPOR	Y4, Y7, Y4
-	VMOVDQU	Y4, 1*32(DI)
+	VPOR	Y6, Y7, Y6
+	VPOR	Y4, Y6, Y4		// Y4 = result
 
-	// --- lane 2 (words 8..11) ---
-	VMOVDQU	2*32(SI), Y0
-	VMOVDQU	2*32(DI), Y1
-	VPXOR	Y11, Y0, Y2
-	VPXOR	Y11, Y1, Y3
-	VPAND	Y2, Y3, Y4
-	VPAND	Y0, Y3, Y5
-	VPAND	Y13, Y5, Y5
-	VPAND	Y2, Y1, Y6
-	VPAND	Y14, Y6, Y6
-	VPAND	Y0, Y1, Y7
-	VPAND	Y12, Y7, Y7
-	VPAND	Y15, Y4, Y4
-	VPOR	Y4, Y5, Y4
-	VPOR	Y4, Y6, Y4
-	VPOR	Y4, Y7, Y4
-	VMOVDQU	Y4, 2*32(DI)
+	// Extract low byte from each of 4 uint64 lanes.
+	VEXTRACTI128	$1, Y4, X5
 
-	// --- lane 3 (words 12..15) ---
-	VMOVDQU	3*32(SI), Y0
-	VMOVDQU	3*32(DI), Y1
-	VPXOR	Y11, Y0, Y2
-	VPXOR	Y11, Y1, Y3
-	VPAND	Y2, Y3, Y4
-	VPAND	Y0, Y3, Y5
-	VPAND	Y13, Y5, Y5
-	VPAND	Y2, Y1, Y6
-	VPAND	Y14, Y6, Y6
-	VPAND	Y0, Y1, Y7
-	VPAND	Y12, Y7, Y7
-	VPAND	Y15, Y4, Y4
-	VPOR	Y4, Y5, Y4
-	VPOR	Y4, Y6, Y4
-	VPOR	Y4, Y7, Y4
-	VMOVDQU	Y4, 3*32(DI)
+	// Element 0
+	MOVQ	X4, AX
+	ANDQ	$0xFF, AX
+	MOVQ	CX, R12
+	SHLQ	$2, R12
+	MOVQ	R12, R13
+	ANDQ	$7, R13
+	SHLQ	$3, R13
+	XCHGQ	CX, R13
+	SHLQ	CL, AX
+	XCHGQ	CX, R13
+	MOVQ	R12, R14
+	SHRQ	$3, R14
+	ORQ	AX, (DI)(R14*8)
 
-	ADDQ	$128, SI
-	ADDQ	$128, DI
-	DECQ	CX
-	JNZ	tt_hot
+	// Element 1
+	VPEXTRQ	$1, X4, AX
+	ANDQ	$0xFF, AX
+	ADDQ	$1, R12
+	MOVQ	R12, R13
+	ANDQ	$7, R13
+	SHLQ	$3, R13
+	XCHGQ	CX, R13
+	SHLQ	CL, AX
+	XCHGQ	CX, R13
+	MOVQ	R12, R14
+	SHRQ	$3, R14
+	ORQ	AX, (DI)(R14*8)
 
-	// Middle: 4 words at a time from remainder.
-tt_mid_setup:
-	ANDQ	$15, DX
-	MOVQ	DX, CX
-	SHRQ	$2, CX
-	JZ	tt_tail
-tt_mid:
-	VMOVDQU	(SI), Y0
-	VMOVDQU	(DI), Y1
-	VPXOR	Y11, Y0, Y2
-	VPXOR	Y11, Y1, Y3
-	VPAND	Y2, Y3, Y4
-	VPAND	Y0, Y3, Y5
-	VPAND	Y13, Y5, Y5
-	VPAND	Y2, Y1, Y6
-	VPAND	Y14, Y6, Y6
-	VPAND	Y0, Y1, Y7
-	VPAND	Y12, Y7, Y7
-	VPAND	Y15, Y4, Y4
-	VPOR	Y4, Y5, Y4
-	VPOR	Y4, Y6, Y4
-	VPOR	Y4, Y7, Y4
-	VMOVDQU	Y4, (DI)
-	ADDQ	$32, SI
-	ADDQ	$32, DI
-	DECQ	CX
-	JNZ	tt_mid
+	// Element 2
+	MOVQ	X5, AX
+	ANDQ	$0xFF, AX
+	ADDQ	$1, R12
+	MOVQ	R12, R13
+	ANDQ	$7, R13
+	SHLQ	$3, R13
+	XCHGQ	CX, R13
+	SHLQ	CL, AX
+	XCHGQ	CX, R13
+	MOVQ	R12, R14
+	SHRQ	$3, R14
+	ORQ	AX, (DI)(R14*8)
 
-	// Scalar tail: 0–3 words.
-tt_tail:
-	ANDQ	$3, DX
-	JZ	tt_done
-tt_scalar:
-	MOVQ	(SI), AX		// a
-	MOVQ	(DI), BX		// b
-	MOVQ	AX, R12
-	NOTQ	R12			// ~a
-	MOVQ	BX, R13
-	NOTQ	R13			// ~b
-	// minterm 0: a & b & m0
-	MOVQ	AX, R14
-	ANDQ	BX, R14
-	ANDQ	R8, R14
-	// minterm 1: a & ~b & m1
-	MOVQ	AX, R15
-	ANDQ	R13, R15
-	ANDQ	R9, R15
-	ORQ	R15, R14
-	// minterm 2: ~a & b & m2
-	MOVQ	R12, R15
-	ANDQ	BX, R15
-	ANDQ	R10, R15
-	ORQ	R15, R14
-	// minterm 3: ~a & ~b & m3
-	MOVQ	R12, R15
-	ANDQ	R13, R15
-	ANDQ	R11, R15
-	ORQ	R15, R14
-	MOVQ	R14, (DI)
-	ADDQ	$8, SI
-	ADDQ	$8, DI
-	DECQ	DX
-	JNZ	tt_scalar
-tt_done:
+	// Element 3
+	VPEXTRQ	$1, X5, AX
+	ANDQ	$0xFF, AX
+	ADDQ	$1, R12
+	MOVQ	R12, R13
+	ANDQ	$7, R13
+	SHLQ	$3, R13
+	XCHGQ	CX, R13
+	SHLQ	CL, AX
+	XCHGQ	CX, R13
+	MOVQ	R12, R14
+	SHRQ	$3, R14
+	ORQ	AX, (DI)(R14*8)
+
+	INCQ	CX
+	CMPQ	CX, $16
+	JB	ub_avx_loop
+
 	VZEROUPPER
 	RET

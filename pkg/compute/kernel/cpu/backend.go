@@ -14,8 +14,6 @@ type Backend struct {
 	cancel context.CancelFunc
 }
 
-const universalBitwiseTileFrames = 64
-
 type backendOption func(*Backend)
 
 func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
@@ -36,209 +34,90 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int { return runtime.NumCPU() }
 
 /*
-UniversalBitwiseSlotInfo is passed to UniversalBitwiseSlotHook once per LGP slot,
-before that slot is executed. Instr is taken from frames[0] (representative).
-Homogeneous is true when every frame in the tile shares the same instruction word
-for this slot (SIMD tile fast path).
-*/
-type UniversalBitwiseSlotInfo struct {
-	Slot        int
-	TotalSlots  int
-	Instr       uint32
-	FrameCount  int
-	Homogeneous bool
-}
+UniversalBitwise executes the in-band program carried by each Value.
 
-// UniversalBitwiseSlotHook is optional; cmd wires pkg/telemetry when enabled.
-var UniversalBitwiseSlotHook func(UniversalBitwiseSlotInfo)
+A (4 words) is held steady. B (4 words) is expanded into all 16
+rotations (8 bits apart), producing a 64-word A surface and 64-word
+B surface. The 8-word program region supplies one 4-bit opcode per
+rotation. The truth table is applied across the entire 64-word
+surface in a single SIMD pass. Results are written to the 8-word
+Signals region (64 bytes, one per surface element).
 
-/*
-UniversalBitwise executes the in-band 32-bit slot program carried by each Value.
-The CPU path follows the same self-only execution contract as CUDA and Metal,
-but it opportunistically uses SIMD across tiles of Values when a slot decodes
-to the same instruction across the tile.
+The Value's Token and Program regions are never mutated.
 */
-func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
-	if len(frames) == 0 {
+func (backend *Backend) UniversalBitwise(values []unsafe.Pointer) error {
+	if len(values) == 0 {
 		return nil
 	}
 
-	for index := range frames {
-		if frames[index] == nil {
-			return NewBackendError(ErrNilValuePointer,
-				"frame", frames[index], "i", index,
-			)
+	for i := range values {
+		if values[i] == nil {
+			return NewBackendError(ErrNilValuePointer, "value", values[i], "i", i)
 		}
 	}
 
-	progStart := core.Cfg.Value.Region.Program.Start
-	nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
-	totalSlots := nProgWords * 2
-	tileSize := min(len(frames), universalBitwiseTileFrames)
-	srcScratch := make([]uint64, tileSize)
-	dstScratch := make([]uint64, tileSize)
-
-	for start := 0; start < len(frames); start += tileSize {
-		end := min(start+tileSize, len(frames))
-		executeFrameTile(
-			frames[start:end],
-			progStart,
-			totalSlots,
-			srcScratch[:end-start],
-			dstScratch[:end-start],
-		)
+	for _, ptr := range values {
+		execute((*[128]uint64)(ptr))
 	}
 
 	return nil
 }
 
-func executeFrameTile(
-	frames []unsafe.Pointer,
-	progStart int,
-	totalSlots int,
-	srcScratch []uint64,
-	dstScratch []uint64,
-) {
-	if len(frames) == 0 || totalSlots <= 0 {
-		return
+func execute(v *[128]uint64) {
+	tokStart := core.Cfg.Value.Region.Tokens.Start
+	progStart := core.Cfg.Value.Region.Program.Start
+	sigStart := core.Cfg.Value.Region.Signals.Start
+
+	a := v[tokStart : tokStart+4]
+
+	// Expand B into 16 rotations × 4 words.
+	var aSurface, bSurface [64]uint64
+	var b [4]uint64
+	b[0] = v[tokStart+4]
+	b[1] = v[tokStart+5]
+	b[2] = v[tokStart+6]
+	b[3] = v[tokStart+7]
+
+	for rot := range 16 {
+		off := rot * 4
+		aSurface[off] = a[0]
+		aSurface[off+1] = a[1]
+		aSurface[off+2] = a[2]
+		aSurface[off+3] = a[3]
+		bSurface[off] = b[0]
+		bSurface[off+1] = b[1]
+		bSurface[off+2] = b[2]
+		bSurface[off+3] = b[3]
+
+		b[0] = bits.RotateLeft64(b[0], 8)
+		b[1] = bits.RotateLeft64(b[1], 8)
+		b[2] = bits.RotateLeft64(b[2], 8)
+		b[3] = bits.RotateLeft64(b[3], 8)
 	}
 
-	for slot := range totalSlots {
-		instr, homogeneous := tileInstruction(frames, progStart, slot)
+	// Build per-element opcode masks from the program region.
+	var m0, m1, m2, m3 [64]uint64
+	prog := v[progStart : progStart+8]
 
-		if UniversalBitwiseSlotHook != nil {
-			firstInstr := uint32(0)
-
-			if len(frames) > 0 {
-				firstInstr = instructionAtSlot((*[128]uint64)(frames[0]), progStart, slot)
-			}
-
-			UniversalBitwiseSlotHook(UniversalBitwiseSlotInfo{
-				Slot:        slot,
-				TotalSlots:  totalSlots,
-				Instr:       firstInstr,
-				FrameCount:  len(frames),
-				Homogeneous: homogeneous,
-			})
-		}
-
-		if homogeneous {
-			if instr == 0 {
-				continue
-			}
-
-			executeTileInstruction(frames, instr, srcScratch, dstScratch)
-			continue
-		}
-
-		for index := range frames {
-			executeScalarInstruction((*[128]uint64)(frames[index]), progStart, slot)
-		}
-	}
-}
-
-func tileInstruction(frames []unsafe.Pointer, progStart int, slot int) (uint32, bool) {
-	first := instructionAtSlot((*[128]uint64)(frames[0]), progStart, slot)
-
-	for index := 1; index < len(frames); index++ {
-		frame := (*[128]uint64)(frames[index])
-		if instructionAtSlot(frame, progStart, slot) != first {
-			return first, false
-		}
+	for rot := range 16 {
+		op := uint8((prog[rot/2] >> uint((rot%2)*32)) & 0xF)
+		mask0 := -uint64(op & 1)
+		mask1 := -uint64((op >> 1) & 1)
+		mask2 := -uint64((op >> 2) & 1)
+		mask3 := -uint64((op >> 3) & 1)
+		off := rot * 4
+		m0[off], m0[off+1], m0[off+2], m0[off+3] = mask0, mask0, mask0, mask0
+		m1[off], m1[off+1], m1[off+2], m1[off+3] = mask1, mask1, mask1, mask1
+		m2[off], m2[off+1], m2[off+2], m2[off+3] = mask2, mask2, mask2, mask2
+		m3[off], m3[off+1], m3[off+2], m3[off+3] = mask3, mask3, mask3, mask3
 	}
 
-	return first, true
-}
-
-func executeTileInstruction(
-	frames []unsafe.Pointer,
-	instr uint32,
-	srcScratch []uint64,
-	dstScratch []uint64,
-) {
-	op := uint8(instr & 0xF)
-	srcWord := int((instr>>4)&0x3FFF) & 127
-	dstWord := int((instr>>18)&0x3FFF) & 127
-
-	for index := range frames {
-		frame := (*[128]uint64)(frames[index])
-		srcScratch[index] = frame[srcWord]
-		dstScratch[index] = frame[dstWord]
-	}
-
-	execWordBlock(dstScratch, srcScratch, op)
-
-	for index := range frames {
-		frame := (*[128]uint64)(frames[index])
-		frame[dstWord] = dstScratch[index]
-	}
-}
-
-func executeScalarInstruction(frame *[128]uint64, progStart int, slot int) {
-	if frame == nil {
-		return
-	}
-
-	instr := instructionAtSlot(frame, progStart, slot)
-	if instr == 0 {
-		return
-	}
-
-	op := uint8(instr & 0xF)
-	srcWord := int((instr>>4)&0x3FFF) & 127
-	dstWord := int((instr>>18)&0x3FFF) & 127
-	frame[dstWord] = ExecWord(op, frame[srcWord], frame[dstWord])
-}
-
-func instructionAtSlot(frame *[128]uint64, progStart int, slot int) uint32 {
-	if frame == nil {
-		return 0
-	}
-
-	wordIdx := progStart + slot/2
-	if wordIdx < 0 || wordIdx >= len(frame) {
-		return 0
-	}
-
-	shift := uint((slot % 2) * 32)
-	return uint32(frame[wordIdx] >> shift)
-}
-
-/*
-TruthTable applies a 4-bit opcode as the truth table it literally encodes.
-Bit 0 is the output for (a=1, b=1), bit 1 for (1,0), bit 2 for (0,1),
-and bit 3 for (0,0), matching cmd/cfg/config.yml.
-Branchless so the compiler can emit SIMD for loops over []uint64.
-*/
-func TruthTable(op uint8, a, b uint64) uint64 {
-	return (a & b & -uint64(op&1)) |
-		(a & ^b & -uint64((op>>1)&1)) |
-		(^a & b & -uint64((op>>2)&1)) |
-		(^a & ^b & -uint64((op>>3)&1))
-}
-
-/*
-ExecWord executes one opcode on a single lane.
-Opcodes 0x0..0xF use the canonical truth-table fallback in TruthTable.
-Extended opcodes are:
-0x10 = popcount(x ^ y)
-0x11 = logical left shift of y by (x & 63)
-0x12 = logical right shift of y by (x & 63)
-0x13 = x + y
-*/
-func ExecWord(op uint8, x, y uint64) uint64 {
-	switch op {
-	case 0x10:
-		return uint64(bits.OnesCount64(x ^ y))
-	case 0x11:
-		return y << (x & 63)
-	case 0x12:
-		return y >> (x & 63)
-	case 0x13:
-		return x + y
-	}
-
-	return TruthTable(op, x, y)
+	// Apply truth table across the full surface via SIMD.
+	universalBitwise(
+		&v[sigStart],
+		&aSurface[0], &bSurface[0],
+		&m0[0], &m1[0], &m2[0], &m3[0],
+	)
 }
 
 func (backend *Backend) Shutdown() error {
@@ -253,7 +132,7 @@ func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 func (backend *Backend) Name() string { return "cpu" }
 
 func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
-	contexts := (*[128]uint64)(value)
+	v := (*[128]uint64)(value)
 
 	if bitLen <= 0 {
 		return 0
@@ -269,12 +148,10 @@ func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
 	for remaining > 0 {
 		chunk := min(64-shift, remaining)
 
-		var lane uint64
-		lane = contexts[word] >> uint(shift)
+		lane := v[word] >> uint(shift)
 
 		if shift > 0 && word+1 < 128 {
-			val := contexts[word+1]
-			lane |= val << uint(64-shift)
+			lane |= v[word+1] << uint(64-shift)
 		}
 
 		mask := uint64(1<<chunk) - 1

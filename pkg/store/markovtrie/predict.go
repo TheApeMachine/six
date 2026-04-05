@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 /*
 Predict is the unified entry point for inference. The caller passes data and

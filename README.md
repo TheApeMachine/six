@@ -1,271 +1,335 @@
-![image](infographic.png)
+# Six
 
-# six
-
-> This is a research project under active development. Certain code architectural decisions are built for speed, not for comfort. Proper systems engineering is considered deferred until the architecture stabilizes.
+> This is a research project under active development. 
+> Certain code architectural decisions are built for speed, not for comfort. 
+> Proper systems engineering is considered deferred until the architecture stabilizes. 
 > Feedback is highly appreciated, ideally focused on the architecture as an alternative research model for machine intelligence.
 
-This research project started from a simple question: *"Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?"*
+This research project started from a simple question: "Can we reject gradient descent and back-propagation long enough to convince ourselves that we may not need them?"
+
+---
 
 ## Motivations
 
-1. I got tired of waiting on training runs.
-2. I feel that the barrier to entry for testing large scale models is too high, and the hardware requirements prohibitly expensive.
-3. I disagree with the cost (financial, environmental, societal) versus benefit of current state of the art models.
+1. I can't afford a $20k+ GPU, so the only realistic option is to attempt to side-step that obstacle.
+2. If you reject the 1847 origin of gradient-descent, at best the algortithm is over 70 years old, let's try something else.
+3. I like to explore interesting problems, and this is by far the most interesting problem of our time.
 
-## Assumptions
+---
 
-There is no denying that this work is experimental, and relies on highly personal assumptions to drive the work forwards, so it seems prudent to explicitely state what these assumptions are.
+## Architecture
 
-1. **Intelligence is compression** Of course it is recognized that most questions on intelligence have not been answered yet, however one must take a stance on this to effectively research along a coherent direction. So this project operates under the clear assumption that intelligence is the ability to compress information.
-2. **Entropy is overstated** I find enough truth in work done by people such as [George Kingsley Zipf](https://en.wikipedia.org/wiki/George_Kingsley_Zipf) to believe that structure exists everywhere, so I want to investigate an idea where I move the battlefield by not fighting the natural structures within data, no matter how chaotic it might seem to my own eyes. In other words, I question wether or not the fault lies with my own ability to perceive the structure, rather than assume the data is not structured.
-
-## F.R.C. (Frequently Raised Critiques)
-
-1. **The entropy of natural language** I would suggest this discussion is better with [George Kingsley Zipf](https://en.wikipedia.org/wiki/George_Kingsley_Zipf). I propose we agree that on either side of this argument we are operating purely on assumtion. I am just testing the other side, there are no guarantees, until there are.
-2. **Rigid bitwise operations are too brittle** Agreed, if you are considering the `Value` type in isolation. But in the substrate the `Value` type is not by itself, the gradient you may be looking for is still there, it is in the field.
-3. **Unstructured data** Disagree, it is unstructured only if you feel the need to force the data into a structure that works for your architecture. This architecture accepts the natural structure of the data as already perfectly conditioned.
-4. **The Gemma reliance** That is a misreading of why the experiment exists in the first place. This is the only experiment that uses a large language model, and its origin is a direct answer to the first thing most people say when first taking a look at this architecture: "Is it a transformer killer? No." This has never been relevant to the motivation behind this architecture, however, I figured I would show some early value to the traditional machine learning field and investigate what is possible (and what is not possible) by integrating multiple architectures. I think the early results, while limited in scope and scale, reveal interesting signals.
-
-## Types
-
-This section provides a high-level overview of the main types that play a structural role in the architecture.
-
-### Value
-
-The Value is a 1024-byte (128 × uint64) fixed-size frame that serves as the fundamental unit of computation, memory, and structure. Every piece of data in the system is a Value. Every instruction that runs is stored inside a Value. The graph that emerges from computation is made of Values pointing to other Values.
-
-A Value's 128 words are divided into regions:
-
-| Region    | Words  | Purpose                                                                                                                                                                                                                             |
-|-----------|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Tokens    | 0–56   | Data payload. Raw content is encoded here using a hyperdimensional shift-and-XOR scheme, where each byte is bound with a position-dependent signature. This produces a distributed representation that supports bitwise comparison. |
-| Identity  | 57–59  | ValueID (unique), PrevID, and NextID. These form the linked-list pointers that let Values chain into sequences and graphs.                                                                                                          |
-| State     | 60–62  | StateIndex, StateSequence, and StateAccumulator. These track the Value's computational progress across execution cycles.                                                                                                            |
-| Affinity  | 63     | A combined Bloom filter and SimHash locality-sensitive hash over the token region. Used for fast approximate nearest-neighbor lookup without scanning the full token payload.                                                       |
-| Registers | 64–75  | General-purpose registers r0–r9 plus `fw` and `pc`. These remain in-band state words; the backend does not mutate them out-of-band after execution.                                                                                 |
-| Program   | 76–127 | 52 words of instruction memory holding 32-bit slot instructions, packed two per word. This region is where the bootstrap program and evolved payload programs live.                                                                  |
-
-Values implement `io.Reader` and `io.Writer`, which means they can be piped through standard Go I/O infrastructure (files, network connections, streams) without any serialization overhead. The in-memory layout *is* the wire format.
-
-Values are pooled and reference-counted. A Value must be tombstoned before it can be released back to the pool. The long-term substrate model is still an in-band tombstone program that zeros the token, affinity, and program regions while propagating through the stream to clean up dangling PrevID/NextID references. The current host-side `Value.InstallTombstone` path wipes the frame eagerly before release so prompt-evaluation and test cleanup remain deterministic on the self-only backend.
-
-### Backend
-
-The Backend executes self-only bitwise programs over Value frames. It is the system's ALU. The current live instruction format is a 32-bit slot packed into the program region:
-
-- bits `[3:0]`: 4-bit truth-table opcode (`FALSE`, `AND`, `A ∧ ¬B`, `A`, `¬A ∧ B`, `B`, `XOR`, `OR`, `NOR`, `XNOR`, `¬B`, `A ∨ ¬B`, `¬A`, `¬A ∨ B`, `NAND`, `TRUE`)
-- bits `[17:4]`: source word index
-- bits `[31:18]`: destination word index
-
-Execution is a straight sweep across the configured program region, two slots per `uint64` word. A zero slot is a NOP, not a halt. There is no partner Value, no `c1` context, and no host-side post-run rewrite of `fw`, `pc`, `accumulator`, or the program band. If those bits move, they move because the in-band program wrote them.
-
-The Backend operates on raw `unsafe.Pointer` frames, processing batches in a tight loop. The CPU path groups homogeneous programs for a gather/scatter word kernel, while CUDA and Metal execute the same self-only slot sweep on packed slabs so all three backends share one runtime contract.
-
-**PRIORITY spill.** Follow-ups and active-fetch clones use a bounded PRIORITY channel first; when it is full, overflow frames go into an in-process **bounded lock-free MPMC ring** (Vyukov-style cells + head/tail; `pushPrioritySpill` spins on a full ring instead of dropping) so **`runUnifiedQueue` never drops work** to avoid self-deadlock on the inline-Schedule path. Spill is drained with the same strict preference as the PRIORITY channel before NORMAL coalescing.
-
-**Extended VSA slots (bit 31 set).** When `[31]=1`, the slot is *not* a truth table. Fields are: `[6:0]` extended opcode, `[13:7]` argA, `[20:14]` argB, `[27:21]` argC, `[28]` **meta** (opcode-specific), `[30:29]` reserved. Opcodes: `1` token-region XOR strip with frame words starting at argA (bind/unbind), `2` three-way majority per word (argA/argB strips), `3` rotate each token `uint64` left by `argC & 63`, `4` cyclic roll of token words by `argC mod 57`, `5` **memory load** — default: pending in `State.Index` / `State.Accumulator` for inline neighbor resolution (`compute.WithMemoryLoad` + `primitive.ProcessMemoryLoadRequests`); **meta set**: **active fetch** — `compute.WithMemoryEnqueue` returns LSM neighbors that are **cloned** and pushed on the **PRIORITY** queue (`primitive.MemoryLoadEnqueueMagic`), `6` **resonator unbind**: XOR a rotated macro-graph strip into tokens; **meta clear**: `argC` is immediate rotation (`& 63`); **meta set**: `argC` is a **register index** and rotation is `frame[argC] & 63`. `argB != 0` still selects **PrevID** as pivot key instead of ValueID. Opcode `6` is a **no-op on GPU** kernels (macro lives on host). Helpers: `cpu.PackExtendedInstruction`, `PackExtendedInstructionMeta`, `cpu.DecodeExtendedInstruction`.
-
-**BSP control (`fw` after `FirmwareTypePrompt`).** Values with `fw` **greater than** `core.FirmwareTypePrompt` (6) are interpreted on the Go follow-up path as **MAP-Elites host keys**: `EliteBinFromHostKey` selects a bin, the elite program band is copied onto the frame when present, then `fw` resets to `FirmwareRegisterLearn` and `pc` to the program start so the next sweep runs the injected skill without any branching inside the kernel.
-
-**Token attention (R0–R3).** `ScanSignals`, run-path scoring, and chunked holistic Hamming apply **per-word masks** tiled from the configured general registers: when any of R0–R3 is non-zero on either operand, token XOR/AND in signal scan uses `(token & mask)`; when masks are all zero on both frames, behavior matches the legacy full-word path (`primitive.TokenAttentionMaskForWord`).
-
-**Substrate tuning (`system` in `config.yml`).** There is a single runtime shape: emission tries longest-run signals first, then holistic chunked Hamming; exploit scoring takes the stronger of the two. `NewValue` always applies temporal rotation, per-byte bind, and trigram superposition. Post-batch work always includes MAP-Elites archive + injection (`mapElitesInjectionRate`, `mapElitesGridShift`), XOR-bind `HolographicCrossoverXORBind`, thermodynamic decay/gain (`thermodynamicEnergyWord` — `-1` ⇒ `r9` — and the birth/decay/gain fields), semantic affinity refresh / control-plane reinsert, macro-graph accumulation, token settling (`tokenSettleMaxPasses` / `tokenSettleEpsilonBits`; non-positive passes are replaced with `core.DefaultTokenSettleMaxPasses` at load), and sleep consolidation on a **fixed** ticker (`core.SubstrateSleepIdle`, `sleepMaxPairs`). Holistic gating still uses `holisticChunkBits` and `holisticHammingMax`. Ingress coalescing uses `max(batchWindow, evolutionBatchWindow)`.
-
-## Concepts
-
-This section provides a description of some high-level concepts that underpin the direction this architecture takes to approach specific problems.
-
-### Signals
-
-When two Values are paired, their token regions are compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.
-
-Two operations produce two kinds of signal:
-
-**Cancel (XOR → longest zero-run)**
-
-XOR produces zeros wherever two Values encode the same information. The longest contiguous zero-run reveals the largest shared component.
-
-Given three sentences encoded as Values:
+Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
 
 ```
-Value A:  [Sandra] [is in the] [Garden]
-Value B:  [Roy]    [is in the] [Kitchen]
-Value C:  [Harold] [is in the] [Kitchen]
+┌────────────────────────────────┐
+│           The Field            │
+│  Emergent eigenmodes project   │
+│  top-down pressure onto tries  │
+└──────────────┬─────────────────┘
+               │ bias
+┌──────────────▼─────────────────┐
+│         Kadabra DHT            │
+│  Affinity-routed mesh of tries │
+│  Gossip propagates field state │
+└──────────────┬─────────────────┘
+               │ store / retrieve
+┌──────────────▼────────────────┐
+│         MarkovTrie           │
+│  Adaptive probabilistic trie  │
+│  Classification + generation  │
+└──────────────┬────────────────┘
+               │ data
+┌──────────────▼────────────────┐
+│           Values              │
+│  1KB programmable tokens      │
+│                               │
+└───────────────────────────────┘
 ```
 
-When Value A is paired with Value B, the XOR of their token regions produces zeros across the bit-span where `is in the` is encoded, because that substring is identical in both. Shorter zero-runs also appear for any incidentally shared bits, but the **longest run wins** and becomes the decisive signal.
+## Values: Programmable Data
 
-The cancel signal emits three new Values:
+The `Value` type comes from the idea that machine intelligence currently lacks its own distinct "language" and that, to me at least, it seems like a missed opportunity when we force machines to reason using human language. I believe that severely constrains a system, locking it in human-level semantics.
 
-- `{is in the}` — the shared component, extracted as a structural label
-- `[Sandra]` — left residue, linked forward through the label
-- `[Roy]` — right residue, linked forward through the label
-
-Repeating this across all pairs builds a graph:
+A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
 ```
-{is in the}   -points to→ [Sandra, Roy, Harold]
-[Sandra]      -points to→ [Garden]
-[Roy, Harold] -points to→ [Kitchen]
-[Kitchen]     -points to→ [Roy, Harold]
+┌───────────┬────────────┬────────────┬────────────┬─────────────┬──────┬──────┬─────┐
+│  Tokens   │  Affinity  │  Program   │  Signals   │  Reserved   │ Prev │ Next │ ID  │
+│ 512 bits  │  512 bits  │  512 bits  │  512 bits  │  6464 bits  │  64  │  64  │ 64  │
+│ words 0-7 │ words 8-15 │ words16-23 │ words24-31 │ words32-124 │  125 │  126 │ 127 │
+└───────────┴────────────┴────────────┴────────────┴─────────────┴──────┴──────┴─────┘
 ```
 
-This structure can now answer queries through the same mechanism. The prompt `"Where is Roy?"` cancels `{is}` against the existing `{is in the}` label, which points to `[Sandra, Roy, Harold]`. Then `[Roy]` cancels against that set, resolving to `[Kitchen]`.
+- **Token region**: Raw input data, encoded as bits across 8 words.
+- **Affinity region**: A 512-bit locality-sensitive hash (8 independent SimHash projections) that fingerprints the content. This determines where the Value lives in the network.
+- **Program region**: 32-bit instruction slots that execute on the Value's own bits. When Values encounter each other, their programs run — no external interpreter needed.
+- **Prev/Next**: Linked-list pointers for chaining Values into sequences and graphs.
+- **ID**: 64-bit unique identifier.
 
-**Merge (AND → longest one-run)**
+**RULES**
 
-AND produces ones only where both Values agree. The longest contiguous one-run reveals a convergence point, where two Values share dense overlapping structure. Merge emits Values that consolidate the shared region, linking the sources through it.
+- `Value` operates on itself. It uses its own `Token` region as data.
+- `Values` that encouter each other potentially modify the way they compute.
 
-In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both Values agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
+### The ALU
 
-**The longest sequential run is the decisive signal in `runs` mode.** Both operations produce multiple runs of varying lengths. `ScanSignals` detects all of them, sorts by length, and the longest of each kind becomes the local action. Shorter signals are published for inter-cluster exchange. In `holistic` / `both` modes, chunked Hamming similarity can also trigger emission (full-token AND consolidation) without requiring a long contiguous run; see `pkg/primitive/holistic_signal.go`.
+The `UniversalBitwise` method is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the opertations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
 
-**Implementation (stream ingest).** `pkg/vm.Machine` now pairs each dataset line with the **previous** line’s frame (the first line still pairs with itself). After learn, it registers the full XOR workspace via `StructureFromWorkspace` as before, then calls `EmitFromPairwiseSignals`: `SplitSignals` picks the decisive cancel and merge spans, and each cancel span expands into up to three `Structure` frames (shared bit-run from the agreement region, left residue, right residue), each Prev-linked to the parent canonical Value, HIE-blended, and inserted into the spatial index. Merge spans emit a consolidation frame from the AND row. Token-empty cuts still register under a synthetic spine key so every emission has an LSM row.
+Because alignment is important in this process the `Token` region and `Program` region are the same size, so the `A` part of the data can be held steady while the `B` part of the data is rotated. The "line number" of the `Program` acts as the "program counter" in this case. Rotations need to happen in steps of 8 positions at a time, given our data exists at byte-level granularity.
 
-**Query hook (tests).** `vm.ResolvePromptIntersection` takes prompt bytes and intersects LSM postings for each `Tokenize(byte, index)` key (same as `NewValue` indexing). After a `Machine` ingest, a shared prefix such as `X: ` should resolve all matching canonical rows (`Machine.IngestedCanonicalValueIDs` lists them). `vm.PrevChainBackward` follows `Prev` through stored frames so a signal cut can be traced to its canonical parent. Run `go test ./pkg/vm -run 'TestResolvePromptIntersection|TestPrevChainBackward' -count=1`. Full in-Value query firmware and `experiment/task.Pipeline` integration are still future work.
+Once the `Value` comes out of the `ALU` those `Signals` are used to emit new `Values` which are linked via the `PrevID`, `NextID`, and `ValueID` regions.
 
-### Firmware
+The linear sweep is a deliberate limitation in favor of having a system that includes loops and branching, as it is highly sympathetic to the hardware, eliminating thread-divergion on the GPU, and enabling parallelism via SIMD on the CPU.
 
-Values do not carry general-purpose programs from birth. Instead, they reference firmware: short, pre-compiled instruction sequences stored in a shared pool. A Value's `fw` register selects which firmware to install, and the bootloader copies it into the program region on the next execution cycle.
+To recover the ability for loops and branching, a final instruction can be written (need to take some of the reserved region) to mark a `Value` for a loop (re)cycle, or branch traversal. When the `Value` comes out of the `ALU` and is marked as such, it is then (re)placed onto a priority `Queue` in the orchestrator and fed back into the `ALU` for another run.
 
-There are four firmware types:
+## MarkovTrie: Learning Without Gradients
 
-| Firmware   | Register        | Purpose                                                                                                                                                      |
-|------------|-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Bootloader | (pre-installed) | Sets `fw=1` (Learn) and initializes registers. Every new Value starts here.                                                                                  |
-| Learn      | 1               | XORs self token words with partner token words using a DJNZ loop across all 57 data words. After execution, the token region contains the cancel signal map. |
-| Build      | 4               | ANDs self token words with partner token words across all 57 data words. After execution, the token region contains the merge signal map.                    |
-| Tombstone  | 2               | Zeros out the token region and affinity word, preparing the Value for pool recycling.                                                                        |
+This component quite naturally and very quickly spun out of control. It started at a way to store `Values`.
 
-Firmware is compiled from a small assembly language defined in `config.yml` and compiled by `CompileFunc`. The ISA supports `MEM` (load/store/immediate/indirect), `ALU` (any truth-table opcode), `CTL` (conditional skip, shift, loop), and `HALT`.
+MarkovTrie is a suffix trie that learns from every observation. No training epochs, no loss functions, no weight matrices. It sees data, it updates.
 
-### Linear Genetic Programming
+**Core loop:**
 
-The program region of a Value is not limited to firmware. After the firmware prefix (the first 4 words reserved for bootstrap logic), the remaining program slots are available for evolved code.
+1. **Tokenize** input (character-level, word-level, or BPE).
+2. **Walk** the trie, recording which paths exist and which don't.
+3. **Compute surprisal** — how unexpected this input is given what the trie already knows.
+4. **Learn** by inserting the sequence into the trie with a learning rate modulated by surprisal. Novel inputs are learned aggressively; familiar inputs reinforce gently.
+5. **Decay** all counts by a factor per step, so stale knowledge fades and the trie tracks the current distribution.
+6. **Prune** dead branches when their counts fall below threshold.
 
-The LGP subsystem provides three mechanisms to make this safe:
+**Classification** uses Naive Bayes over interpolated n-gram probabilities. The trie maintains per-label counts at every node, and classification is a walk through the trie accumulating log-evidence per label.
 
-**Introns.** Protective no-op instructions are inserted at regular intervals throughout the program region. These act as firebreaks during crossover: if a crossover boundary falls on an intron, no working code is damaged. An instruction is classified as an intron if it copies a register to itself (identity with src == dst) or is zero.
+**Generation** uses beam search with temperature-controlled sampling. The beam width, temperature, and generation length are not hyperparameters — they are derived from the trie's own adaptive state.
 
-**Execution tracing.** `TraceEffective` performs a simulated dependency analysis of the program, tracking which instruction slots ultimately influence the output register (r6). This produces a bitmask of "effective" instructions. Everything else is dead code that can be safely overwritten.
+**Adaptive self-tuning** replaces every fixed constant with an online estimator:
 
-**Homologous crossover.** When two Values are crossed, `HomologousCrossover` only copies effective instructions from the donor, and only into non-effective slots in the recipient. If both have effective code at the same slot, the donor wins with probability proportional to the instruction's bit complexity. This prevents catastrophic destruction of working logic while still allowing new behavior to be introduced.
+| Parameter              | Signal                    | Mechanism                                              |
+|------------------------|---------------------------|--------------------------------------------------------|
+| Decay factor           | Surprisal EMA             | High surprisal = volatile domain = faster decay        |
+| Learning rate          | Per-token surprisal       | Novel tokens learned more aggressively                 |
+| Prune threshold        | Node growth rate          | Fast growth = prune harder to control memory           |
+| Classification context | Classification entropy    | Confused classifier = widen context window             |
+| Temperature            | Surprisal EMA             | Familiar domain = explore more; novel domain = exploit |
+| Beam width             | Classification confidence | Low confidence = wider search                          |
+| Interpolation weights  | Depth hit rate            | Tracks which n-gram depths are most predictive         |
+| Episodic blend         | Episodic match quality    | Useful episodic memory = higher blend weight           |
+| Unsupervised threshold | Classification accuracy   | Maturing label space = require more confidence         |
 
-**Holographic instruction encoding (HIE).** `HolographicCrossover` (`pkg/compute/firmware/hie.go`) multiplexes each 32-bit LGP slot into eight disjoint 8-bit bands, majority-blends two donors with an affine-generated third parent, and decodes each band to the nearest valid nibble. The third parent is generated in instruction space, then HIE-encoded, so crossover keeps a structured opcode/src/dst orbit instead of raw random byte noise. The firmware bootstrap prefix is never overwritten.
+The unified entry point is `Predict(data) -> Prediction` — the caller passes data, the system returns a classification and continuations. Everything else is internal.
 
-**Substrate exploit score.** `SubstrateExploitScore` (`pkg/primitive/substrate_fitness.go`) is experiment-agnostic: it uses `ScanSignals` / `SplitSignals` on the parent vs workspace token regions and returns the longest local cancel or merge run normalized to `[0, 1]`. That value biases the affine third parent toward donor A (the canonical parent frame), so sharp token-level structure increases exploitation of the canonical program; weak structure keeps the third parent on a broader affine orbit instead of collapsing to white noise. `HolographicCrossoverTwoParent` takes the same `parentBias` argument for call sites that only have one donor.
+### Kadabra: Distributed Knowledge Routing
 
-**Local coherence revise (host-side falsification).** `NeighborChainCoherence` in `pkg/primitive/local_coherence.go` is a deliberately small harness: connect a short linear chain with `WireLinearChain`, score mean edge coherence with `SubstrateExploitScore`, corrupt only the middle node’s token band, then run `ReviseMiddleGreedy`. Each step tries a fixed menu of token edits and commits a single move only if the mean edge score strictly improves. No firmware or evolution: substrate-only local repair.
+Kadabra is a Kademlia-style distributed hash table where the nodes are MarkovTries. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges.
 
-**Operators.** `ReviseMiddleGreedyWithMask` disables operators for ablation. `LocalReviseOperatorNames` labels the **seven operators** for logs:
+**Affinity-based routing**: When a Value is published, its 512-bit affinity fingerprint determines which trie stores it. Values with similar content cluster on the same node. This is not a design choice imposed from outside — it follows from the LSH property: similar inputs produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
 
-- Bitwise majority against both neighbors.
-- Half-band copy from the previous neighbor.
-- Half-band copy from the next neighbor.
-- Full-band copy from the previous neighbor.
-- Full-band copy from the next neighbor.
-- Per-word rotation of the middle token band.
-- **Cancel strip:** `middle[i] ^= prev[i] ^ next[i]` (same shape as extended VSA bind-strip when the strip is neighbor XOR).
+**Replication**: Each Value is stored on the `k` closest nodes by affinity distance (Hamming distance over the 512-bit affinity vectors). This provides both redundancy and the ability for multiple tries to learn from the same data.
 
-`EdgeCoherenceSlice`, `TokenRegionHammingBits`, and `TokenRegionHammingAgainstSnapshot` support edge- and bit-level diagnostics.
+**Adaptive peer selection**: Each routing bucket tracks peer quality over epochs. Every `EpochQueries` queries, the bucket scores its peers by latency, explores alternatives, and swaps in better candidates. This is the Kadabra algorithm — a multi-armed bandit at the routing layer.
 
-**Corruptors.**
+**Zero-affinity rejection**: Values without a computed affinity fingerprint are invalid and rejected. Every Value must know what it is before entering the network.
 
-- `CorruptMiddleTokensWith` — full token-band replace.
-- `CorruptMiddleFractionFromSource` — random word substitution.
-- `CorruptMiddleRandomBitFlips` — uniform bit flips in the token span.
-- `CorruptMiddleZeroContiguousWords` — contiguous-word erasure run.
+### The Field: Emergent Attention
 
-**Monte Carlo testing.** `RunLocalCoherenceMonteCarlo` (`pkg/primitive/local_coherence_monte_carlo.go`) returns a **`MonteCarloSummary`** (globals plus **`PerKind`** breakdown) so tests, benchmarks, and one-off analysis share one loop. Neighbor mode is **`MonteCarloIdenticalNeighbors`** vs **`MonteCarloDivergentNeighbors`** (three payloads). `TestLocalCoherenceMonteCarloOperatorDistribution` exercises the identical regime with per-kind thresholds (smooth dominance on full/fraction, no full-copy-beats-majority on bit flips, majority+half floors on zero-span). `TestLocalCoherenceMonteCarloDivergentVsIdenticalCopyMix` (skipped under `-short`) checks divergent chains raise **copy-operator** win share vs the identical baseline. Defaults: 180 trials (32 with `-short`); **`SIX_COHERENCE_MONTE_CARLO_TRIALS`** overrides the trial count.
+The field is the mechanism that binds isolated tries into a coherent system. It is not a data structure that nodes query — it is a force that acts on them.
 
-**Reporting.** `ReviseReport` records `BestOperatorPerStep` and `OperatorWinCounts`, and includes **`InitialEdgeCoherence`** / **`FinalEdgeCoherence`**. **`EdgeCoherenceImbalance`** scores edge spread.
+**Gossip protocol**: At each epoch boundary, every node broadcasts a compact `FieldDigest` — its current surprisal, classification entropy, growth rate, and affinity vector — to all routing peers. The digest is small (a few floats and 8 uint64s) and propagation is automatic.
 
-### Token Encoding
+**Eigenmode detection**: When a node absorbs a digest, the field recomputes emergent eigenmodes — clusters of structurally aligned, phase-coherent tries. Structural alignment is measured by **affine coupling**: instead of raw Hamming distance, the field evaluates overlap across multiple affine rotations of the affinity vectors, capturing alignment at different scales. Phase coherence is measured by **surprisal velocity** — whether nodes are rising or falling in surprisal together.
 
-Raw bytes are not stored verbatim in the token region. Each byte is encoded using a hyperdimensional computing scheme:
+**Top-down projection**: The dominant eigenmode — the cluster with the most collective energy — is what the system is "attending to" right now. The field projects asymmetric pressure onto each trie:
 
-1. The token region is circular-left-shifted by one bit.
-2. The byte is XOR-bound with a pre-generated 3648-bit random signature unique to that byte value.
+|              | Aligned (in dominant mode)               | Misaligned (outside dominant mode)         |
+|--------------|------------------------------------------|--------------------------------------------|
+| **Decay**    | Suppressed — knowledge retained longer   | Amplified — stale knowledge pruned faster  |
+| **Learning** | Amplified — absorbs related input faster | Suppressed — doesn't waste effort on noise |
 
-This produces a distributed, position-sensitive representation. Two Values encoding the same string will have highly similar token regions (low Hamming distance). Two Values encoding different strings will have roughly 50% bit disagreement. This property is what makes XOR-based cancel detection work: shared substrings produce long zero-runs in the XOR because their encoded representations are nearly identical.
+This is attention without an attention mechanism. No query-key-value matrices, no softmax — the field *is* the attention. Tries don't decide to check the field. The field decides which tries matter and modulates their behavior accordingly, exactly as a physical field acts on particles within it.
 
-Affinity is derived from the token region in two ways: a Bloom filter over 3-byte n-grams for exact substring matching, and a SimHash LSH for approximate similarity. Both are OR'd into the single affinity word, giving a compact fingerprint for spatial indexing.
+**Phase dynamics**: In-phase nodes (both absorbing novelty or both consolidating) amplify each other's field pressure. Anti-phase nodes (one learning while the other is stable) dampen each other — they're already complementing each other naturally, so the field doesn't interfere.
 
-### Tombstoning
+---
 
-Deletion in this system is not passive. When a Value needs to be discarded, it is not simply dereferenced. Instead, the tombstone firmware is installed, which zeros out the token, affinity, and program regions. The Value's ID is written to a register, and the tombstone spreads virally through the stream: as it encounters other Values, it XORs the dead ValueID against their PrevID and NextID fields. Matches are cleared, effectively unlinking the dead node from the graph.
+## Compute Substrate
 
-This means garbage collection is eventually consistent and proportional to connectivity. A leaf node's tombstone clears quickly. A highly connected hub takes longer, but that is appropriate because there are more references to clean up.
+Values execute their programs on a multi-substrate backend that automatically selects the best available hardware:
 
-A Value cannot be returned to the pool until tombstoning is verified. Attempting to close a Value that still has non-zero data in its token, affinity, or program regions returns a `ValueErrorNotTombstoned` error.
+1. **CPU**: Universal bitwise executor with SIMD fast-paths. Processes Values in tiles of 64, detecting homogeneous instruction runs for vectorized execution. Supports all 16 boolean truth-table operations plus popcount, shifts, and addition.
 
-### Distributed Execution
+2. **Apple Metal**: GPU compute shaders for macOS. Compiled from Metal Shading Language at build time.
 
-Values are 1024 bytes. This is not an accident. It is the size of a single UDP payload that fits comfortably within typical MTU limits, allowing Values to be transmitted between nodes without fragmentation.
+3. **NVIDIA CUDA**: GPU kernels for NVIDIA hardware. Generated via cgo bindings.
 
-The distributed layer uses UDP multicast for peer discovery with heartbeats and TTL-based expiry. Each node advertises an affinity shard mask, allowing the cluster to partition the Value space by affinity region. Work is distributed through a scheduler that assigns Value pairs to workers based on available capacity and shard ownership.
+The `compute.Backend` load-balancer probes available substrates at startup and routes work to whichever has the least in-flight depth and lowest exponential moving average service time. When all accelerators are saturated, work overflows to CPU.
 
-`pkg/network.UniConn` is the topology-facing abstraction over the concrete transports. IPC is used for same-machine traffic, UDP multicast is used for LAN discovery, and QUIC is used for WAN point-to-point traffic. The abstraction now carries transport traits and a live health snapshot, including typed failure modes, systemic-failure marking, and an internal circuit breaker, so callers can reason about failure semantics without losing the specifics of the underlying transport.
+---
 
-QUIC connections handle reliable point-to-point transfer when Values need to move between nodes. IPC now runs over Unix domain sockets, and LAN discovery runs over native UDP multicast, so neither path depends on an external Aeron media driver. An S3 adapter provides durable storage for Values that need to survive node restarts.
+## Network Transport
 
-### Experiment pipeline
+Six provides pluggable transport for distributing Values across machines:
 
-`experiment/task.Pipeline` is the paper-facing execution path. It is expected to run the real system, not a stripped-down surrogate, because its generated `Artifacts` are compiled directly into the research paper. Dataset ingress, machine execution, prompt observation, and cleanup therefore belong to the same end-to-end path that the rest of the substrate uses.
+- **QUIC**: Reliable, encrypted WAN transport with congestion control. Single bidirectional stream per connection carrying Value frames. Built on `golang.org/x/net/quic`.
+- **UDP**: Lightweight datagram transport for local-network gossip.
+- **IPC**: Inter-process communication for co-located nodes.
 
-`Holdout` remains supervision metadata on the scoring side. It must not be copied into `Observed`, and it must not be allowed to leak into prompt execution through hidden shortcut wiring. If an experiment stages resident corpus data ahead of prompt evaluation, that staging is still part of the real system path. Any reduced execution mode is acceptable only when it is explicitly treated as an ablation, debugging aid, or microbenchmark, never as the default paper pipeline.
+Each transport implements `io.ReadWriteCloser` and carries Values as opaque 1KB frames.
 
-### Sequence Store
+---
 
-`pkg/store` now implements a labeled token-trie for online sequence storage together with a Kadabra-style DHT node wrapper for decentralized publish and lookup. The sequence layer records lazy-decayed per-label counts, trains suffix paths over tokenized sequences, learns a local co-occurrence vocabulary for edit distance and similarity-based token remapping, interpolates next-token probabilities across short suffix contexts, and exposes posterior traces, surprisal traces, beam search, label-scored repeated-symbol extraction, and replay-based self-training for novel high-confidence generations. The DHT layer places sequence records on the closest replicas in a 64-bit XOR space, performs iterative node and record lookups, and adapts per-bucket peer selections from observed RTT while enforcing a configurable minimum exploration latency floor. `pkg/vm.Machine` now publishes prompt-aware dataset samples, or raw 64-byte ingress chunks when prompt boundaries are unavailable, directly into a local Kadabra node so the Frankentrie-backed sequence path can be populated without a separate adapter.
+## Configuration
+
+Six is configured via YAML (default: `cmd/cfg/config.yml`, overridable via `$HOME/.six/config.yml`):
+
+```yaml
+system:
+  batchSize: 10000
+  batchWindow: 500        # microseconds
+  queueSize: 20000
+
+value:
+  words: 128
+  bytes: 1024
+  region:
+    tokens:   { start: 0,   bits: 512 }
+    affinity: { start: 8,   bits: 512 }
+    program:  { start: 16,  bits: 512 }
+    reserved: { start: 24,  bits: 6464 }
+    prev:     { start: 125, bits: 64 }
+    next:     { start: 126, bits: 64 }
+    id:       { start: 127, bits: 64 }
+
+kadabra:
+  bits: 64
+  bucketSize: 20
+  replicationFactor: 3
+  alpha: 3
+  epochQueries: 100
+```
+
+Firmware programs (LGP assembly for Value program regions) are also defined in config, enabling runtime-configurable computation without recompilation.
+
+---
+
+## Infrastructure
+
+The project includes a Docker Compose stack for observability and data management:
+
+| Service                          | Purpose                               | Port       |
+|----------------------------------|---------------------------------------|------------|
+| Elasticsearch (3-node cluster)   | Log aggregation, experiment telemetry | 9200       |
+| Elasticsearch ML nodes (3 nodes) | Machine-learning-capable ES nodes     | —          |
+| Kibana                           | Log visualization and dashboards      | 5601       |
+| MinIO                            | S3-compatible object storage          | 9000, 9001 |
+| LakeFS                           | Data versioning over MinIO            | 8000       |
+
+Structured logs are shipped to Elasticsearch via a bulk indexer with configurable flush intervals. Trace-level logging operates independently of the global log level, allowing production systems to emit detailed traces without noise in standard output.
+
+---
+
+## Building
+
+```bash
+# Full build (generates primitives, compiles Metal shader, generates CUDA bindings)
+make build
+
+# Run tests
+go test ./...
+
+# Generate experiment paper
+make paper
+
+# CPU profile an experiment
+make pprof EXP=Text_Classification
+```
+
+**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the CPU backend is always available.
+
+---
+
+## Usage
+
+```go
+// Create a Kadabra node backed by a MarkovTrie
+node := kadabra.NewKadabraNode(
+    kadabra.NodeIDFromString("node-alpha"),
+    kadabra.WithReplicationFactor(3),
+)
+
+// Create a Value, compute its affinity, publish to the DHT
+value, _ := primitive.NewValue([]byte("the cat sat on the mat"))
+value.ComputeAffinityLSH()
+node.Publish(*value, "Sentence")
+value.Close()
+
+// The trie learns automatically. Query it:
+prediction := node.Store.Predict("the cat sat")
+fmt.Println(prediction.Label)         // "Sentence"
+fmt.Println(prediction.Continuations) // [{Sequence: "on the mat" Score: 0.87} ...]
+```
+
+For distributed operation, connect nodes and let the field emerge:
+
+```go
+nodes := make([]*kadabra.KadabraNode, 10)
+for i := range nodes {
+    nodes[i] = kadabra.NewKadabraNode(kadabra.NodeID(i))
+}
+
+// Connect the mesh
+for i := range nodes {
+    for j := i + 1; j < len(nodes); j++ {
+        kadabra.Connect(nodes[i], nodes[j], 1.0)
+    }
+}
+
+// Publish data — Values route to affinity-similar tries automatically.
+// The field emerges from gossip and biases learning across the network.
+// No central coordinator. No global optimizer. Just local learning
+// shaped by emergent collective dynamics.
+```
+
+---
 
 ## Project Structure
 
 ```
 six/
-├── cmd/                    CLI entry points (init, mesh, worker, viz, paper)
-├── experiment/             Benchmark suite and paper generation
-│   ├── data/               Dataset loaders (HuggingFace, local)
-│   ├── projector/          LaTeX chart and figure rendering
-│   └── task/               Benchmark tasks (bAbI, classification, text generation, scaling)
+├── cmd/                    # CLI commands (root, init, paper)
+│   └── cfg/config.yml      # Default configuration
 ├── pkg/
-│   ├── primitive/          Value type, signal detection, VSA encoding
-│   ├── compute/
-│   │   ├── firmware/       Firmware loader, LGP crossover, intron management
-│   │   └── kernel/         CPU (AVX2 + scalar), CUDA, and Metal backends
-│   ├── core/               Config, ISA compiler, firmware definitions
-│   ├── vm/                 Stream processing machine
-│   ├── store/              Sequence storage, classification, and Kadabra-style DHT routing
-│   ├── network/            UDP multicast, QUIC, IPC transports
-│   ├── distributed/        Peer discovery, scheduling, worker management
-│   ├── transport/          Stream adapters (S3, emitter, gate)
-│   └── telemetry/          UDP event shipping, Elasticsearch integration
-└── visualizer/             Three.js real-time substrate visualization
+│   ├── primitive/           # Value type, VSA operations, affinity LSH
+│   ├── compute/             # Multi-substrate load balancer
+│   │   └── kernel/
+│   │       ├── cpu/         # SIMD-optimized bitwise executor
+│   │       ├── cuda/        # NVIDIA GPU kernels
+│   │       └── metal/       # Apple Metal GPU shaders
+│   ├── store/
+│   │   ├── markovtrie/     # Adaptive probabilistic trie
+│   │   └── kadabra/         # Kademlia DHT + field dynamics
+│   ├── network/             # QUIC, UDP, IPC transports
+│   ├── vm/                  # Machine orchestrator
+│   ├── core/                # Configuration management
+│   └── errnie/              # Structured logging + Elasticsearch
+├── docker-compose.yml       # Elasticsearch, Kibana, MinIO, LakeFS
+├── Makefile                 # Build targets
+└── main.go                  # Entry point
 ```
 
-## Running
+---
 
-```bash
-# Start a local worker node
-go run main.go worker
+## Status
 
-# Start the visualization server
-go run main.go viz
+Six is research software under active development. The core mechanisms work and are tested, but the system is not yet production-ready. Current focus areas:
 
-# Run the experiment/benchmark suite
-go run main.go paper
+- Field dynamics and eigenmode-driven attention
+- Multi-node distributed learning across network boundaries
+- GPU acceleration of Value program execution at scale
+- Episodic memory integration with field pressure
 
-# Start a mesh node for distributed execution
-go run main.go mesh
-```
-
-The full distributed stack (Elasticsearch for telemetry, MinIO for object storage) can be brought up with:
-
-```bash
-docker-compose up
-```
+---
 
 ## License
 
-This is a research project. License terms are pending.
+See repository for license details.

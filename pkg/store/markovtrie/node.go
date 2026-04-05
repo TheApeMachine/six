@@ -1,4 +1,4 @@
-package frankentrie
+package markovtrie
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 )
 
 /*
-TrieNode stores one token in the frankentrie
+TrieNode stores one token in the markovtrie
 and tracks decayed class counts.
 */
 type Node struct {

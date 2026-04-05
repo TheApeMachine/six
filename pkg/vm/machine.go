@@ -100,6 +100,14 @@ func (machine *Machine) Run() error {
 			)
 		}
 
+		if err := value.ComputeAffinityLSH(); err != nil {
+			_ = value.Close()
+			return errnie.Error(
+				NewVmError(ErrVmInvalidValue, err, "ComputeAffinityLSH"),
+				"buffer", buffer.Bytes(),
+			)
+		}
+
 		if _, err := machine.kadabra.Publish(*value, machine.label); err != nil {
 			return errnie.Error(
 				NewVmError(ErrVmInvalidSequence, err, "publishSequence"),
@@ -117,6 +125,14 @@ func (machine *Machine) Run() error {
 		if err != nil {
 			return errnie.Error(
 				NewVmError(ErrVmInvalidValue, err, "NewValue"),
+				"buffer", buffer.Bytes(),
+			)
+		}
+
+		if err := value.ComputeAffinityLSH(); err != nil {
+			_ = value.Close()
+			return errnie.Error(
+				NewVmError(ErrVmInvalidValue, err, "ComputeAffinityLSH"),
 				"buffer", buffer.Bytes(),
 			)
 		}
