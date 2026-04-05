@@ -21,6 +21,7 @@ func NewKadabraError(
 	errType KadabraErrorType, keyvals ...any,
 ) *KadabraError {
 	return &KadabraError{
+		Type: errType,
 		ErrnieError: errnie.NewErrnieError(
 			errors.New(string(errType)),
 			keyvals...,

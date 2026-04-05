@@ -200,15 +200,25 @@ func NewConfig() *Config {
 			BatchWindow: time.Duration(viper.GetInt("system.batchWindow")) * time.Microsecond,
 			QueueSize:   viper.GetInt("system.queueSize"),
 		},
-		Kadabra: KadabraConfig{
-			Bits:              viper.GetInt("kadabra.bits"),
-			BucketSize:        viper.GetInt("kadabra.bucketSize"),
-			ReplicationFactor: viper.GetInt("kadabra.replicationFactor"),
-			Alpha:             viper.GetInt("kadabra.alpha"),
-			EpochQueries:      viper.GetInt("kadabra.epochQueries"),
-			Penalty:           viper.GetFloat64("kadabra.penalty"),
-			SecurityThreshold: viper.GetFloat64("kadabra.securityThreshold"),
-		},
+		Kadabra: func() KadabraConfig {
+			kadabraCfg := KadabraConfig{
+				Bits:              viper.GetInt("kadabra.bits"),
+				BucketSize:        viper.GetInt("kadabra.bucketSize"),
+				ReplicationFactor: viper.GetInt("kadabra.replicationFactor"),
+				Alpha:             viper.GetInt("kadabra.alpha"),
+				EpochQueries:      viper.GetInt("kadabra.epochQueries"),
+				Penalty:           viper.GetFloat64("kadabra.penalty"),
+				SecurityThreshold: viper.GetFloat64("kadabra.securityThreshold"),
+			}
+
+			var bucketThresholds []float64
+
+			if err := viper.UnmarshalKey("kadabra.bucketSecurityThresholds", &bucketThresholds); err == nil {
+				kadabraCfg.BucketSecurityThresholds = bucketThresholds
+			}
+
+			return kadabraCfg
+		}(),
 		Value: ValueConfig{
 			Words: viper.GetInt("value.words"),
 			Bytes: viper.GetInt("value.bytes"),

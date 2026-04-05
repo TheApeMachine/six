@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -108,7 +107,28 @@ func (machine *Machine) Run() error {
 			)
 		}
 
+		_ = value.Close()
 		buffer.Reset()
+	}
+
+	if buffer.Len() > 0 {
+		value, err := primitive.NewValue(buffer.Bytes())
+
+		if err != nil {
+			return errnie.Error(
+				NewVmError(ErrVmInvalidValue, err, "NewValue"),
+				"buffer", buffer.Bytes(),
+			)
+		}
+
+		if _, err := machine.kadabra.Publish(*value, machine.label); err != nil {
+			return errnie.Error(
+				NewVmError(ErrVmInvalidSequence, err, "publishSequence"),
+				"buffer", buffer.Bytes(),
+			)
+		}
+
+		_ = value.Close()
 	}
 
 	return nil
@@ -120,6 +140,10 @@ Prompt the machine and retrieve both a prediction and a classification.
 func (machine *Machine) Prompt(prompt string) (
 	generation string, classification map[string]float64,
 ) {
+	if machine == nil || machine.kadabra == nil || machine.kadabra.Store == nil {
+		return "", nil
+	}
+
 	return machine.kadabra.Store.Generate(
 			prompt, machine.label, 0.5, 100,
 		),
@@ -129,10 +153,6 @@ func (machine *Machine) Prompt(prompt string) (
 }
 
 func (machine *Machine) defaultNodeID() kadabra.NodeID {
-	if core.Cfg != nil && core.Cfg.Kadabra.Bits != 0 {
-		return kadabra.NodeID(core.Cfg.Kadabra.Bits)
-	}
-
 	hostname, err := os.Hostname()
 
 	if err == nil && hostname != "" {

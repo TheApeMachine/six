@@ -24,8 +24,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	tryLoadConfigForTaskTests()
-	errnie.InitLoggerFromViper()
+	_ = tryLoadConfigForTaskTests()
+
+	if err := errnie.InitLoggerFromViper(); err != nil {
+		fmt.Fprintf(os.Stderr, "experiment/task tests: errnie.InitLoggerFromViper: %v\n", err)
+		os.Exit(1)
+	}
 
 	os.Exit(m.Run())
 }
@@ -50,7 +54,7 @@ func finalizePipelineExperimentIfAny(experiment tools.PipelineExperiment) {
 	}
 }
 
-func tryLoadConfigForTaskTests() {
+func tryLoadConfigForTaskTests() error {
 	viper.SetConfigType("yml")
 
 	candidates := []string{
@@ -58,15 +62,29 @@ func tryLoadConfigForTaskTests() {
 		"cmd/cfg/config.yml",
 	}
 
+	var lastErr error
+
 	for _, path := range candidates {
 		viper.SetConfigFile(path)
 
-		if err := viper.ReadInConfig(); err == nil {
+		readErr := viper.ReadInConfig()
+		if readErr == nil {
 			core.NewConfig()
 
-			return
+			return nil
 		}
+
+		lastErr = readErr
 	}
+
+	fmt.Fprintf(
+		os.Stderr,
+		"experiment/task tests: no config loaded from candidate paths; last viper.ReadInConfig error: %v\n",
+		lastErr,
+	)
+	core.NewConfig()
+
+	return lastErr
 }
 
 /*
@@ -191,11 +209,11 @@ func TestPipeline(t *testing.T) {
 									}
 
 									if len(classifications) > 0 {
-										So(
-											classifications,
-											ShouldBeGreaterThan,
-											0.0,
-										)
+										So(len(classifications), ShouldBeGreaterThan, 0)
+
+										for _, score := range classifications {
+											So(score, ShouldBeGreaterThan, 0.0)
+										}
 									}
 								},
 							)

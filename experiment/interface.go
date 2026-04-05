@@ -76,7 +76,7 @@ Validation is intentionally two-tier:
 
  2. Aggregate: Score() / Outcome() are driven by table rows accumulated in
     AddResult (and optionally Finalize on experiments that implement it). Tests
-    must record one ExperimentalData row per prompt (Observed = substrate
+    must record one ExperimentalData row per prompt (Generation = substrate
     readout) or Outcome() stays at zero from an empty table.
 */
 type PipelineExperiment interface {

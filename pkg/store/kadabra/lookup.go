@@ -2,8 +2,6 @@ package kadabra
 
 import (
 	"sort"
-
-	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -43,12 +41,15 @@ func (node *KadabraNode) FindRecord(key uint64) (SequenceRecord, bool, LookupTra
 			break
 		}
 
-		progress := false
 		for _, peer := range batch {
-			progress = true
 			seen[peer.ID] = struct{}{}
 			trace.Nodes = append(trace.Nodes, peer.ID)
 			trace.Latency += peer.RTT
+
+			if peer.Node == nil {
+				continue
+			}
+
 			node.observePeerQuery(peer)
 
 			peer.Node.recordsMu.RLock()
@@ -60,10 +61,6 @@ func (node *KadabraNode) FindRecord(key uint64) (SequenceRecord, bool, LookupTra
 			}
 
 			shortlist = mergeLookupPeers(shortlist, peer.Node.closestLookupPeers(target), target)
-		}
-
-		if !progress {
-			break
 		}
 	}
 
@@ -83,18 +80,22 @@ func (node *KadabraNode) LookupNodes(target uint64, limit int) []PeerInfo {
 			continue
 		}
 
-		rtt := node.peerRTT(candidate.ID)
+		rtt, rttOK := node.peerRTT(candidate.ID)
+		if !rttOK {
+			rtt = UnknownPeerRTT
+		}
+
 		out = append(out, PeerInfo{
 			ID:     candidate.ID,
 			RTT:    rtt,
-			Bucket: kadabraBucketIndex(node.ID, candidate.ID),
+			Bucket: node.bucketIndexForPeer(candidate.ID),
 		})
 	}
 
 	out = append(out, PeerInfo{
 		ID:     node.ID,
 		RTT:    0,
-		Bucket: core.Cfg.Kadabra.Bits - 1,
+		Bucket: UnknownPeerBucket,
 	})
 
 	sort.Slice(out, func(leftIndex int, rightIndex int) bool {
@@ -127,17 +128,16 @@ func (node *KadabraNode) lookupNodes(target NodeID, limit int) []*KadabraNode {
 			break
 		}
 
-		progress := false
 		for _, peer := range batch {
-			progress = true
 			seen[peer.ID] = struct{}{}
+
+			if peer.Node == nil {
+				continue
+			}
+
 			discovered[peer.ID] = peer.Node
 			node.observePeerQuery(peer)
 			shortlist = mergeLookupPeers(shortlist, peer.Node.closestLookupPeers(target), target)
-		}
-
-		if !progress {
-			break
 		}
 	}
 

@@ -168,7 +168,7 @@ func (value *Value) Close() error {
 		return nil
 	}
 
-	// Wipe the Value, this is important to ensure 
+	// Wipe the Value, this is important to ensure
 	// that the Value is not leaked to the heap.
 	*value = Value{}
 	valuePool.Put(value)
@@ -180,7 +180,11 @@ func (value *Value) Close() error {
 ID returns the ID of the Value.
 */
 func (value *Value) ID() uint64 {
-	return value.ID()
+	if value == nil {
+		return 0
+	}
+
+	return (*value)[core.Cfg.Value.Region.ID.Start]
 }
 
 /*
@@ -189,10 +193,12 @@ Value's token region, which stores the original
 bytes of the data that was used to create the Value.
 */
 func (value *Value) String() string {
+	tokenByteLen := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+
 	return string(
 		unsafe.Slice(
 			(*byte)(unsafe.Pointer(&value[0])),
-			core.Cfg.Value.Region.Tokens.Bits,
+			tokenByteLen,
 		),
 	)
 }

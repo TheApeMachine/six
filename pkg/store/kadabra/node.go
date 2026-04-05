@@ -24,6 +24,13 @@ NodeOption configures a KadabraNode.
 */
 type NodeOption func(*KadabraNode)
 
+const (
+	defaultKadabraBucketSize = 20
+	defaultReplicationFactor = 3
+	defaultLookupParallelism = 3
+	defaultEpochQueries      = 100
+)
+
 /*
 KadabraNode wraps a SequenceStore in a Kademlia-style DHT node with per-bucket
 adaptive peer selection inspired by Kadabra.
@@ -41,20 +48,76 @@ type KadabraNode struct {
 	random                   *rand.Rand
 	recordsMu                sync.RWMutex
 	records                  map[uint64]SequenceRecord
-	buckets                  [64]*kadabraBucket
+	routingBits              int
+	buckets                  []*kadabraBucket
+}
+
+/*
+bucketIndexForPeer maps remote XOR distance into this node's bucket slice.
+*/
+func (node *KadabraNode) bucketIndexForPeer(remote NodeID) int {
+	if node == nil {
+		return 0
+	}
+
+	return computeKadabraBucketIndex(node.ID, remote, node.routingBits)
+}
+
+func (node *KadabraNode) peerTableCapacity() int {
+	if node == nil || node.BucketSize <= 0 {
+		return 0
+	}
+
+	bits := node.routingBits
+
+	if bits <= 0 {
+		bits = defaultKadabraRoutingBits
+	}
+
+	return node.BucketSize * bits
 }
 
 /*
 NewKadabraNode constructs a Kadabra DHT node backed by a SequenceStore.
 */
 func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
+	bits := defaultKadabraRoutingBits
+	bucketSize := defaultKadabraBucketSize
+	replication := defaultReplicationFactor
+	parallelism := defaultLookupParallelism
+	epochQueries := defaultEpochQueries
+
+	if core.Cfg != nil {
+		if core.Cfg.Kadabra.Bits > 0 {
+			bits = core.Cfg.Kadabra.Bits
+		}
+
+		if core.Cfg.Kadabra.BucketSize > 0 {
+			bucketSize = core.Cfg.Kadabra.BucketSize
+		}
+
+		if core.Cfg.Kadabra.ReplicationFactor > 0 {
+			replication = core.Cfg.Kadabra.ReplicationFactor
+		}
+
+		if core.Cfg.Kadabra.Alpha > 0 {
+			parallelism = core.Cfg.Kadabra.Alpha
+		}
+
+		if core.Cfg.Kadabra.EpochQueries > 0 {
+			epochQueries = core.Cfg.Kadabra.EpochQueries
+		}
+	}
+
 	node := &KadabraNode{
 		ID:                id,
-		BucketSize:        core.Cfg.Kadabra.BucketSize,
-		ReplicationFactor: core.Cfg.Kadabra.ReplicationFactor,
-		LookupParallelism: core.Cfg.Kadabra.Alpha,
-		EpochQueries:      core.Cfg.Kadabra.EpochQueries,
+		BucketSize:        bucketSize,
+		ReplicationFactor: replication,
+		LookupParallelism: parallelism,
+		EpochQueries:      epochQueries,
+		routingBits:       bits,
 		records:           make(map[uint64]SequenceRecord),
+		buckets:           make([]*kadabraBucket, bits),
 	}
 
 	for bucketIndex := range node.buckets {

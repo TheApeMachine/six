@@ -136,7 +136,7 @@ func (evaluator *Evaluator) ComputePredictions(data []ExperimentalData) {
 		}
 
 		if len(found) == 1 {
-			data[idx].PredLabel = new(found[0])
+			data[idx].PredLabel = OptionalLabel(found[0])
 		}
 	}
 }
@@ -292,7 +292,7 @@ func calculateRandomBaseline() float64 {
 				Generation: obs,
 				Holdout:    hold,
 			}
-			
+
 			scorer.Enrich(&data)
 			sum += data.WeightedTotal
 			scores = append(scores, data.WeightedTotal)

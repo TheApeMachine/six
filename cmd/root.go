@@ -142,7 +142,10 @@ func initConfig() {
 		io.ErrShortBuffer forever.
 	*/
 	core.NewConfig()
-	errnie.InitLoggerFromViper()
+
+	if err := errnie.InitLoggerFromViper(); err != nil {
+		initErr = fmt.Errorf("%w", err)
+	}
 }
 
 const roottxt = `

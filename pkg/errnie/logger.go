@@ -96,7 +96,7 @@ func zapLevelFromViper() zapcore.Level {
 
 /*
 InitLogger rebuilds the global zap logger from cfg (the "logging" section of config.yml).
-Call InitLoggerFromViper after viper.ReadInConfig, or pass cfg built manually.
+Call InitLoggerFromViper (and handle its error) after viper.ReadInConfig, or pass cfg built manually.
 */
 func InitLogger(cfg LoggingConfig) {
 	loggingCfg.Store(cfg)
@@ -144,17 +144,17 @@ Call after viper has loaded config.yml (e.g. cmd initConfig).
 Environment overrides when non-empty: ELASTIC_PASSWORD, ELASTICSEARCH_API_KEY.
 ELASTICSEARCH_ENABLED accepts true/false/1/0 to force shipping on or off.
 */
-func InitLoggerFromViper() {
+func InitLoggerFromViper() error {
 	var cfg LoggingConfig
 
 	if err := viper.UnmarshalKey("logging", &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "errnie: logging unmarshal: %v\n", err)
-
-		return
+		return fmt.Errorf("errnie: logging unmarshal: %w", err)
 	}
 
 	applyElasticsearchEnvOverrides(&cfg.Elasticsearch)
 	InitLogger(cfg)
+
+	return nil
 }
 
 func applyElasticsearchEnvOverrides(es *ElasticsearchConfig) {

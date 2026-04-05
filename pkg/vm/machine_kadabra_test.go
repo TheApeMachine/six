@@ -10,6 +10,7 @@ import (
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/kadabra"
 )
 
@@ -65,11 +66,22 @@ func TestMachineRunPublishesBufferedChunks(t *testing.T) {
 			So(machine.Run(), ShouldBeNil)
 			So(node.Store.CurrentStep(), ShouldEqual, 2)
 
-			firstChunk := string(payload[:defaultMachineChunkBytes])
-			lastChunk := string(payload[defaultMachineChunkBytes:])
+			firstVal, valErr := primitive.NewValue(payload[:defaultMachineChunkBytes])
+			So(valErr, ShouldBeNil)
+			defer firstVal.Close()
 
-			So(node.HasRecord(kadabra.HashSequenceRecord(firstChunk, defaultMachineLabel)), ShouldBeTrue)
-			So(node.HasRecord(kadabra.HashSequenceRecord(lastChunk, defaultMachineLabel)), ShouldBeTrue)
+			lastVal, valErr := primitive.NewValue(payload[defaultMachineChunkBytes:])
+			So(valErr, ShouldBeNil)
+			defer lastVal.Close()
+
+			So(
+				node.HasRecord(kadabra.HashSequenceRecord(firstVal.String(), defaultMachineLabel)),
+				ShouldBeTrue,
+			)
+			So(
+				node.HasRecord(kadabra.HashSequenceRecord(lastVal.String(), defaultMachineLabel)),
+				ShouldBeTrue,
+			)
 		})
 	})
 }

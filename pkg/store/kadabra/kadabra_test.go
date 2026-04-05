@@ -1,17 +1,35 @@
 package kadabra
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/frankentrie"
 )
+
+func TestMain(m *testing.M) {
+	viper.SetConfigType("yml")
+	configPath := filepath.Join("..", "..", "..", "cmd", "cfg", "config.yml")
+	viper.SetConfigFile(configPath)
+
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "kadabra tests: viper.ReadInConfig(%s): %v\n", configPath, err)
+		os.Exit(1)
+	}
+
+	core.NewConfig()
+	os.Exit(m.Run())
+}
 
 func buildKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 	nodeOptions := []NodeOption{
@@ -108,8 +126,8 @@ func TestConnect(t *testing.T) {
 		Convey("Connect should register both peers symmetrically", func() {
 			Connect(left, right, 12)
 
-			leftBucket := left.buckets[kadabraBucketIndex(left.ID, right.ID)]
-			rightBucket := right.buckets[kadabraBucketIndex(right.ID, left.ID)]
+			leftBucket := left.buckets[left.bucketIndexForPeer(right.ID)]
+			rightBucket := right.buckets[right.bucketIndexForPeer(left.ID)]
 
 			So(leftBucket.Candidates[right.ID], ShouldNotBeNil)
 			So(rightBucket.Candidates[left.ID], ShouldNotBeNil)
@@ -129,7 +147,7 @@ func TestAddPeer(t *testing.T) {
 		Convey("AddPeer should update existing peer metadata in place", func() {
 			node.AddPeer(peer, 4)
 
-			bucket := node.buckets[kadabraBucketIndex(node.ID, peer.ID)]
+			bucket := node.buckets[node.bucketIndexForPeer(peer.ID)]
 			So(bucket.Candidates[peer.ID].RTT, ShouldEqual, 4)
 			So(bucket.Entries[0].RTT, ShouldEqual, 4)
 		})
@@ -226,9 +244,9 @@ func TestPublish(t *testing.T) {
 		Convey("Publish should replicate onto the closest nodes to the record key", func() {
 			value, err := primitive.NewValue([]byte("blue_cab"))
 			So(err, ShouldBeNil)
+			defer value.Close()
 
 			record, err := nodes[0].Publish(*value, "Truck")
-			defer value.Close()
 
 			So(err, ShouldBeNil)
 			expected := expectedClosestNodeIDs(nodes, NodeID(record.Key), 2)
@@ -300,7 +318,7 @@ func TestKadabraBucketAdaptation(t *testing.T) {
 		node.AddPeer(slowPeer, 90)
 		node.AddPeer(fastPeer, 10)
 
-		bucketIndex := kadabraBucketIndex(node.ID, slowPeer.ID)
+		bucketIndex := node.bucketIndexForPeer(slowPeer.ID)
 
 		Convey("The bucket should switch to the faster peer after exploration and comparison", func() {
 			node.LookupNodes(uint64(fastPeer.ID), 1)
@@ -326,7 +344,7 @@ func TestKadabraSecurityThreshold(t *testing.T) {
 		node.AddPeer(closePeer, 10)
 		node.AddPeer(safePeer, 80)
 
-		bucketIndex := kadabraBucketIndex(node.ID, currentPeer.ID)
+		bucketIndex := node.bucketIndexForPeer(currentPeer.ID)
 
 		Convey("Exploration should skip candidates that violate the security threshold", func() {
 			node.LookupNodes(uint64(safePeer.ID), 1)
@@ -368,12 +386,16 @@ func BenchmarkKadabraNode_Publish(b *testing.B) {
 	sequenceIndex := 0
 	for b.Loop() {
 		value, err := primitive.NewValue([]byte("blue_cab_" + strconv.Itoa(sequenceIndex)))
-		So(err, ShouldBeNil)
-
-		if _, err := nodes[0].Publish(*value, "Truck"); err != nil {
+		if err != nil {
 			b.Fatal(err)
 		}
 
+		if _, err := nodes[0].Publish(*value, "Truck"); err != nil {
+			value.Close()
+			b.Fatal(err)
+		}
+
+		value.Close()
 		sequenceIndex++
 	}
 }
@@ -389,7 +411,9 @@ func BenchmarkKadabraNode_FindRecord(b *testing.B) {
 	connectFully(nodes...)
 
 	value, err := primitive.NewValue([]byte("blue_cab"))
-	So(err, ShouldBeNil)
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	record, err := nodes[0].Publish(*value, "Truck")
 	defer value.Close()

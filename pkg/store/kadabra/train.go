@@ -1,5 +1,7 @@
 package kadabra
 
+import "math"
+
 func (node *KadabraNode) epochPenalty(bucket *kadabraBucket) float64 {
 	if node.Penalty > 0 {
 		return node.Penalty
@@ -20,6 +22,12 @@ func (node *KadabraNode) epochPenalty(bucket *kadabraBucket) float64 {
 	return totalLatency/float64(totalQueries) + 1
 }
 
+/*
+finishEpoch advances per-bucket Kadabra epoch state (entries, exploration flag,
+samples, scores). Caller must hold bucket.mu exclusively — observePeerQuery
+takes that lock before calling here so sample/QueryCount updates stay coherent
+with score computation and entry swaps.
+*/
 func (node *KadabraNode) finishEpoch(bucket *kadabraBucket) {
 	if bucket == nil || bucket.QueryCount == 0 {
 		return
@@ -31,6 +39,10 @@ func (node *KadabraNode) finishEpoch(bucket *kadabraBucket) {
 	)
 
 	for _, entry := range bucket.Entries {
+		if entry == nil {
+			continue
+		}
+
 		sample := bucket.Samples[entry.ID]
 		usedQueries := 0
 		latencyTotal := 0.0
@@ -45,7 +57,10 @@ func (node *KadabraNode) finishEpoch(bucket *kadabraBucket) {
 		)*penalty)
 	}
 
-	currentBucketScore := averagePeerScores(currentScores)
+	currentBucketScore, scoreOK := averagePeerScores(currentScores)
+	if !scoreOK {
+		currentBucketScore = math.Inf(-1)
+	}
 
 	if bucket.ExploreNext {
 		bucket.PreviousEntries = clonePeers(bucket.Entries)
@@ -57,7 +72,7 @@ func (node *KadabraNode) finishEpoch(bucket *kadabraBucket) {
 			worstPeerID := worstPeerScore(currentScores)
 
 			for entryIndex, entry := range bucket.Entries {
-				if entry.ID != worstPeerID {
+				if entry == nil || entry.ID != worstPeerID {
 					continue
 				}
 

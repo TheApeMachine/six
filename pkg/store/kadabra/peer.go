@@ -1,10 +1,7 @@
 package kadabra
 
 import (
-	"math"
 	"sort"
-
-	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -15,6 +12,12 @@ type PeerInfo struct {
 	RTT    float64
 	Bucket int
 }
+
+// UnknownPeerBucket marks LookupNodes entries for the local node, which has no XOR routing bucket.
+const UnknownPeerBucket = -1
+
+// UnknownPeerRTT is returned in PeerInfo.RTT when peerRTT has no candidate (missing routing state), distinct from a measured 0 RTT.
+const UnknownPeerRTT = -1
 
 type kadabraPeer struct {
 	ID   NodeID
@@ -48,18 +51,33 @@ func (node *KadabraNode) AddPeer(peer *KadabraNode, rtt float64) {
 		return
 	}
 
-	bucketIndex := kadabraBucketIndex(node.ID, peer.ID)
+	bucketIndex := node.bucketIndexForPeer(peer.ID)
+	if bucketIndex < 0 || bucketIndex >= len(node.buckets) {
+		return
+	}
+
 	bucket := node.buckets[bucketIndex]
+	if bucket == nil {
+		return
+	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
 
 	if existing := bucket.Candidates[peer.ID]; existing != nil {
 		existing.Node = peer
 		existing.RTT = rtt
 		for _, entry := range bucket.Entries {
+			if entry == nil {
+				continue
+			}
+
 			if entry.ID == peer.ID {
 				entry.Node = peer
 				entry.RTT = rtt
 			}
 		}
+
 		return
 	}
 
@@ -86,14 +104,32 @@ func (node *KadabraNode) ClosestPeers(target NodeID, limit int) []PeerInfo {
 		return nil
 	}
 
-	peers := make([]*kadabraPeer, 0, node.BucketSize*core.Cfg.Kadabra.Bits)
+	capacity := node.peerTableCapacity()
+	peers := make([]*kadabraPeer, 0, capacity)
+
 	for _, bucket := range node.buckets {
-		peers = append(peers, bucket.Entries...)
+		if bucket == nil {
+			continue
+		}
+
+		bucket.mu.RLock()
+		entries := bucket.Entries
+		bucket.mu.RUnlock()
+		peers = append(peers, entries...)
 	}
 
 	sort.Slice(peers, func(leftIndex int, rightIndex int) bool {
 		left := peers[leftIndex]
 		right := peers[rightIndex]
+
+		if left == nil {
+			return false
+		}
+
+		if right == nil {
+			return true
+		}
+
 		leftDistance := xorDistance(left.ID, target)
 		rightDistance := xorDistance(right.ID, target)
 		if leftDistance == rightDistance {
@@ -110,11 +146,15 @@ func (node *KadabraNode) ClosestPeers(target NodeID, limit int) []PeerInfo {
 			continue
 		}
 
+		if peer == nil {
+			continue
+		}
+
 		seen[peer.ID] = struct{}{}
 		out = append(out, PeerInfo{
 			ID:     peer.ID,
 			RTT:    peer.RTT,
-			Bucket: kadabraBucketIndex(node.ID, peer.ID),
+			Bucket: node.bucketIndexForPeer(peer.ID),
 		})
 		if len(out) >= limit {
 			break
@@ -135,10 +175,18 @@ func mergeLookupPeers(
 	)
 
 	for _, peer := range left {
+		if peer == nil {
+			continue
+		}
+
 		merged[peer.ID] = peer
 	}
 
 	for _, peer := range right {
+		if peer == nil {
+			continue
+		}
+
 		if existing := merged[peer.ID]; existing != nil {
 			if peer.RTT < existing.RTT {
 				merged[peer.ID] = peer
@@ -152,6 +200,10 @@ func mergeLookupPeers(
 	out := make([]*kadabraPeer, 0, len(merged))
 
 	for _, peer := range merged {
+		if peer == nil {
+			continue
+		}
+
 		out = append(out, peer)
 	}
 
@@ -160,6 +212,15 @@ func mergeLookupPeers(
 	) bool {
 		leftPeer := out[leftIndex]
 		rightPeer := out[rightIndex]
+
+		if leftPeer == nil {
+			return false
+		}
+
+		if rightPeer == nil {
+			return true
+		}
+
 		leftDistance := xorDistance(leftPeer.ID, target)
 		rightDistance := xorDistance(rightPeer.ID, target)
 
@@ -177,6 +238,10 @@ func dedupePeers(peers []*kadabraPeer) []*kadabraPeer {
 	seen := make(map[NodeID]struct{}, len(peers))
 	out := make([]*kadabraPeer, 0, len(peers))
 	for _, peer := range peers {
+		if peer == nil {
+			continue
+		}
+
 		if _, exists := seen[peer.ID]; exists {
 			continue
 		}
@@ -211,26 +276,48 @@ func clonePeers(peers []*kadabraPeer) []*kadabraPeer {
 
 func sortPeersByID(peers []*kadabraPeer) {
 	sort.Slice(peers, func(leftIndex int, rightIndex int) bool {
-		return peers[leftIndex].ID < peers[rightIndex].ID
+		left := peers[leftIndex]
+		right := peers[rightIndex]
+
+		if left == nil {
+			return false
+		}
+
+		if right == nil {
+			return true
+		}
+
+		return left.ID < right.ID
 	})
 }
 
 func (node *KadabraNode) closestLookupPeers(
 	target NodeID,
 ) []*kadabraPeer {
-	peers := make(
-		[]*kadabraPeer,
-		0,
-		node.BucketSize*core.Cfg.Kadabra.Bits,
-	)
+	peers := make([]*kadabraPeer, 0, node.peerTableCapacity())
 
 	for _, bucket := range node.buckets {
-		peers = append(peers, bucket.Entries...)
+		if bucket == nil {
+			continue
+		}
+
+		bucket.mu.RLock()
+		entries := bucket.Entries
+		bucket.mu.RUnlock()
+		peers = append(peers, entries...)
 	}
 
 	sort.Slice(peers, func(leftIndex int, rightIndex int) bool {
 		left := peers[leftIndex]
 		right := peers[rightIndex]
+
+		if left == nil {
+			return false
+		}
+
+		if right == nil {
+			return true
+		}
 
 		leftDistance := xorDistance(left.ID, target)
 		rightDistance := xorDistance(right.ID, target)
@@ -250,7 +337,17 @@ func (node *KadabraNode) observePeerQuery(peer *kadabraPeer) {
 		return
 	}
 
-	bucket := node.buckets[kadabraBucketIndex(node.ID, peer.ID)]
+	bucketIndex := node.bucketIndexForPeer(peer.ID)
+	if bucketIndex < 0 || bucketIndex >= len(node.buckets) {
+		return
+	}
+
+	bucket := node.buckets[bucketIndex]
+	if bucket == nil {
+		return
+	}
+
+	bucket.mu.Lock()
 	sample := bucket.Samples[peer.ID]
 	if sample == nil {
 		sample = &kadabraPeerSample{}
@@ -264,6 +361,8 @@ func (node *KadabraNode) observePeerQuery(peer *kadabraPeer) {
 	if node.EpochQueries > 0 && bucket.QueryCount >= node.EpochQueries {
 		node.finishEpoch(bucket)
 	}
+
+	bucket.mu.Unlock()
 }
 
 func (node *KadabraNode) selectExplorationPeer(
@@ -276,6 +375,10 @@ func (node *KadabraNode) selectExplorationPeer(
 	currentEntries := make(map[NodeID]struct{}, len(bucket.Entries))
 
 	for _, entry := range bucket.Entries {
+		if entry == nil {
+			continue
+		}
+
 		currentEntries[entry.ID] = struct{}{}
 	}
 
@@ -283,6 +386,10 @@ func (node *KadabraNode) selectExplorationPeer(
 	securityThreshold := node.bucketSecurityThreshold(bucket.Index)
 
 	for _, candidate := range bucket.Candidates {
+		if candidate == nil {
+			continue
+		}
+
 		if _, exists := currentEntries[candidate.ID]; exists {
 			continue
 		}
@@ -295,7 +402,20 @@ func (node *KadabraNode) selectExplorationPeer(
 	}
 
 	if len(eligible) == 0 {
+		/*
+			Intentional availability fallback: when every unseen candidate fails
+			securityThreshold, we broaden the pool to all unseen Candidates so
+			routing can still merge lookups and join the mesh (liveness). This
+			weakens the RTT eclipse floor for that choice — tightening means
+			raising securityThreshold / bucketSecurityThreshold, or gating this
+			block behind config later. Related: securityThreshold, eligible,
+			bucket.Candidates, currentEntries.
+		*/
 		for _, candidate := range bucket.Candidates {
+			if candidate == nil {
+				continue
+			}
+
 			if _, exists := currentEntries[candidate.ID]; exists {
 				continue
 			}
@@ -315,28 +435,39 @@ func (node *KadabraNode) selectExplorationPeer(
 	return eligible[node.random.Intn(len(eligible))]
 }
 
-func (node *KadabraNode) peerRTT(peerID NodeID) float64 {
-	bucket := node.buckets[kadabraBucketIndex(node.ID, peerID)]
-	if bucket != nil {
-		if candidate := bucket.Candidates[peerID]; candidate != nil {
-			return candidate.RTT
-		}
+func (node *KadabraNode) peerRTT(peerID NodeID) (rtt float64, ok bool) {
+	bucketIndex := node.bucketIndexForPeer(peerID)
+	if bucketIndex < 0 || bucketIndex >= len(node.buckets) {
+		return 0, false
 	}
 
-	return 0
+	bucket := node.buckets[bucketIndex]
+	if bucket == nil {
+		return 0, false
+	}
+
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
+	if candidate := bucket.Candidates[peerID]; candidate != nil {
+		return candidate.RTT, true
+	}
+
+	return 0, false
 }
 
-func averagePeerScores(scores map[NodeID]float64) float64 {
+func averagePeerScores(scores map[NodeID]float64) (mean float64, ok bool) {
 	if len(scores) == 0 {
-		return math.Inf(-1)
+		return 0, false
 	}
 
 	total := 0.0
+
 	for _, score := range scores {
 		total += score
 	}
 
-	return total / float64(len(scores))
+	return total / float64(len(scores)), true
 }
 
 func worstPeerScore(scores map[NodeID]float64) NodeID {
