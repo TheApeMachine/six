@@ -60,44 +60,47 @@ value:
   region:
     tokens:
       start: 0
-      bits: 3648
-    id:
-      start: 57
-      bits: 64
+      bits: 512
+    affinity:
+      start: 8
+      bits: 512
+    program:
+      start: 16
+      bits: 512
+    reserved:
+      start: 24
+      bits: 6464
     prev:
-      start: 58
+      start: 125
       bits: 64
     next:
-      start: 59
+      start: 126
       bits: 64
-    state: 
-      index: 60
-      sequence: 61
-      accumulator: 62
-    affinity:
-      start: 63
+    id:
+      start: 127
       bits: 64
+    state:
+      index: 24
+      sequence: 25
+      accumulator: 26
     registers:
-      start: 64
+      start: 27
       bits: 768
-      r0: 64
-      r1: 65
-      r2: 66
-      r3: 67
-      r4: 68
-      r5: 69
-      r6: 70
-      r7: 71
-      r8: 72
-      r9: 73
-      fw: 74
-      pc: 75
+      r0: 27
+      r1: 28
+      r2: 29
+      r3: 30
+      r4: 31
+      r5: 32
+      r6: 33
+      r7: 34
+      r8: 35
+      r9: 36
+      fw: 37
+      pc: 38
     pc:
-      start: 75
+      start: 38
       bits: 64
-    program:
-      start: 76
-      bits: 3328
   opcodes:
     false: 0000
     and: 0001

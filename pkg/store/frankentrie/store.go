@@ -73,6 +73,11 @@ type Store struct {
 	episodicRecencyWeight    float64
 	episodicBuffer           []episodicEvent
 	linearInterpolation      bool
+	wordTokensOnly           bool
+	generationTokenJoiner    string
+	episodicDecayGamma       float64
+	episodicSequenceCounter  uint64
+	adaptive                 *adaptiveState
 }
 
 /*
@@ -108,6 +113,7 @@ func NewStore(options ...Option) *Store {
 		episodicAlpha:            defaultEpisodicBlendWeight,
 		episodicNeighborLimit:    defaultEpisodicNeighborLimit,
 		episodicRecencyWeight:    defaultEpisodicRecencyWeight,
+		adaptive:                 newAdaptiveState(),
 	}
 
 	for _, option := range options {
@@ -251,6 +257,56 @@ weights to the linear schedule used by the reference cognitive trainer.
 func WithLinearInterpolationWeights() Option {
 	return func(store *Store) {
 		store.linearInterpolation = true
+	}
+}
+
+/*
+WithWordTokensOnly switches Tokenize (when no BPE is attached) to underscore and
+whitespace word boundaries only, matching the browser CognitiveModel demo
+tokenizer (split on [_ ]+ with no standalone separator tokens). Enable when
+training data matches underscore-separated words rather than trie paths that
+literalize "_" as its own symbol.
+*/
+func WithWordTokensOnly() Option {
+	return func(store *Store) {
+		store.wordTokensOnly = true
+		store.generationTokenJoiner = "_"
+	}
+}
+
+/*
+WithGenerationTokenSeparator sets the string used between newly sampled tokens
+in Generate and BeamSearch output (default "" for legacy trie tokens that may
+include "_" as a child; "_" matches the demo dream / beam display).
+*/
+func WithGenerationTokenSeparator(separator string) Option {
+	return func(store *Store) {
+		store.generationTokenJoiner = separator
+	}
+}
+
+/*
+WithEpisodicRecencyGamma applies exponential decay by match order toward older
+episodic hits (e.g. 0.9 matches the demo Math.pow(0.9, i) bias toward fresher
+rows). When gamma is 0, only the linear recency bias from WithEpisodicRecencyWeight applies.
+*/
+func WithEpisodicRecencyGamma(gamma float64) Option {
+	return func(store *Store) {
+		if gamma < 0 || gamma >= 1 {
+			return
+		}
+
+		store.episodicDecayGamma = gamma
+	}
+}
+
+/*
+WithAdaptive enables or disables adaptive self-tuning. When disabled, all
+parameters use their configured or default fixed values.
+*/
+func WithAdaptive(enabled bool) Option {
+	return func(store *Store) {
+		store.adaptive.enabled = enabled
 	}
 }
 

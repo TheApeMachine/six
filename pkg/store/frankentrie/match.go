@@ -68,6 +68,60 @@ func (store *Store) MatchContext(context string) ContextMatch {
 }
 
 /*
+CharacterNgramCosine returns cosine similarity between character n-gram count
+vectors (demo-style fuzzy fallback when co-occurrence rows are sparse).
+*/
+func CharacterNgramCosine(left string, right string, n int) float64 {
+	if n <= 1 {
+		n = 2
+	}
+
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+
+	if left == "" || right == "" {
+		return 0
+	}
+
+	leftRunes := []rune("^" + left + "$")
+	rightRunes := []rune("^" + right + "$")
+
+	if len(leftRunes) < n || len(rightRunes) < n {
+		return 0
+	}
+
+	leftCounts := make(map[string]float64)
+	rightCounts := make(map[string]float64)
+
+	for offset := 0; offset <= len(leftRunes)-n; offset++ {
+		leftCounts[string(leftRunes[offset:offset+n])]++
+	}
+
+	for offset := 0; offset <= len(rightRunes)-n; offset++ {
+		rightCounts[string(rightRunes[offset:offset+n])]++
+	}
+
+	dot := 0.0
+	leftMag := 0.0
+	rightMag := 0.0
+
+	for gram, count := range leftCounts {
+		dot += count * rightCounts[gram]
+		leftMag += count * count
+	}
+
+	for _, count := range rightCounts {
+		rightMag += count * count
+	}
+
+	if leftMag == 0 || rightMag == 0 {
+		return 0
+	}
+
+	return dot / (math.Sqrt(leftMag) * math.Sqrt(rightMag))
+}
+
+/*
 Similarity returns cosine similarity between two co-occurrence rows.
 */
 func (store *Store) Similarity(
@@ -156,6 +210,8 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 
 	bestWord := word
 	bestSimilarity := -1.0
+	bestNgramSimilarity := -1.0
+	ngramBestWord := word
 	editMapped := ""
 	editDistance := int(^uint(0) >> 1)
 
@@ -173,12 +229,16 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 		}
 
 		similarity := store.Similarity(word, knownWord)
-		if similarity <= bestSimilarity {
-			continue
+		if similarity > bestSimilarity {
+			bestSimilarity = similarity
+			bestWord = knownWord
 		}
 
-		bestSimilarity = similarity
-		bestWord = knownWord
+		ngramSim := CharacterNgramCosine(word, knownWord, 2)
+		if ngramSim > bestNgramSimilarity {
+			bestNgramSimilarity = ngramSim
+			ngramBestWord = knownWord
+		}
 	}
 
 	if editMapped != "" {
@@ -194,6 +254,16 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 			Original:   word,
 			Mapped:     bestWord,
 			Similarity: bestSimilarity,
+		}
+	}
+
+	const ngramConfidenceFloor = 0.35
+
+	if bestNgramSimilarity >= ngramConfidenceFloor {
+		return SemanticMatch{
+			Original:   word,
+			Mapped:     ngramBestWord,
+			Similarity: bestNgramSimilarity,
 		}
 	}
 

@@ -26,8 +26,29 @@ type ExtractedSymbol struct {
 }
 
 type episodicEvent struct {
+	ID     string
 	Tokens []string
 	Label  string
+	Step   int
+}
+
+/*
+EpisodicEpisode is a snapshot of one row in the rolling episodic buffer (RAG tail).
+*/
+type EpisodicEpisode struct {
+	ID        string
+	Tokens    []string
+	Label     string
+	Timestamp int
+}
+
+/*
+TokenContribution is one step in the per-label log-prob trace used for contrastive
+explanations (demo-style contributions / winner vs runner-up plots).
+*/
+type TokenContribution struct {
+	Token   string
+	LogProb float64
 }
 
 /*

@@ -217,6 +217,10 @@ func (store *Store) Tokenize(text string) []string {
 		return tokens
 	}
 
+	if store != nil && store.wordTokensOnly {
+		return splitWordsFromLine(text)
+	}
+
 	if text == "" {
 		return nil
 	}

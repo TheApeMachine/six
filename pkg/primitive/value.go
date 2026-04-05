@@ -194,11 +194,12 @@ bytes of the data that was used to create the Value.
 */
 func (value *Value) String() string {
 	tokenByteLen := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+	startByte := core.Cfg.Value.Region.Tokens.Start * 8
 
 	return string(
 		unsafe.Slice(
 			(*byte)(unsafe.Pointer(&value[0])),
-			tokenByteLen,
-		),
+			startByte+tokenByteLen,
+		)[startByte:],
 	)
 }

@@ -8,23 +8,29 @@ import (
 )
 
 /*
-affinityLSHRing and affinityLSHStride spread SimHash samples across the whole
-Tokens frame so shared prefixes no longer dominate the 64-bit Kademlia key.
+affinityProjections holds the prime strides used for 8 independent LSH
+projections across the 512-bit affinity region. Each projection uses a
+different stride to sample different subsets of the token bits.
 */
-const affinityLSHRing = 3659
-const affinityLSHStride = 73
-const affinityLSHSamples = 57
+var affinityProjections = [8]int{73, 97, 113, 131, 151, 167, 181, 199}
 
 /*
-ComputeAffinityLSH projects the Tokens region into a 64-bit Affinity word:
-for each output bit, majority vote over 57 samples at
-(outBit*affinityLSHStride + step) mod affinityLSHRing — affine sampling
-instead of contiguous blocks.
+affinityLSHSamplesPerBit controls how many token bits vote for each output
+bit. Higher = more stable but less sensitive to small differences. 7 is a
+good balance for 512 token bits: each output bit samples ~7 of 512 input
+bits, giving a stable majority vote while keeping projections independent.
+*/
+const affinityLSHSamplesPerBit = 7
+
+/*
+ComputeAffinityLSH projects the token region into the full 512-bit affinity
+region (8 words × 64 bits) using 8 independent SimHash projections. Each
+projection uses a different prime stride to sample different subsets of the
+token bits via majority vote.
 */
 func (value *Value) ComputeAffinityLSH() error {
 	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
-	nWords := (tokenBits + 63) / 64
-	if nWords == 0 || tokenBits <= 0 {
+	if tokenBits <= 0 {
 		return errnie.Error(NewPrimitiveError(
 			ErrPrimitiveInvalidValue,
 			nil,
@@ -32,30 +38,38 @@ func (value *Value) ComputeAffinityLSH() error {
 		))
 	}
 
-	var affinity uint64
-	start := core.Cfg.Value.Region.Tokens.Start
+	nWords := (tokenBits + 63) / 64
+	tokStart := core.Cfg.Value.Region.Tokens.Start
+	affStart := core.Cfg.Value.Region.Affinity.Start
+	affWords := int(core.Cfg.Value.Region.Affinity.Bits+63) / 64
 
-	for out := range 64 {
-		ones, counted := 0, 0
+	for proj := 0; proj < affWords && proj < 8; proj++ {
+		stride := affinityProjections[proj]
+		var word uint64
 
-		for s := range affinityLSHSamples {
-			idx := (out*affinityLSHStride + s) % affinityLSHRing
-			w := idx / 64
+		for out := 0; out < 64; out++ {
+			ones, counted := 0, 0
 
-			if idx >= tokenBits || w >= nWords || start+w >= core.Cfg.Value.Words {
-				continue
+			for s := 0; s < affinityLSHSamplesPerBit; s++ {
+				idx := (out*stride + s*stride + proj*37) % tokenBits
+				w := idx / 64
+
+				if w >= nWords || tokStart+w >= core.Cfg.Value.Words {
+					continue
+				}
+
+				counted++
+				ones += int((value[tokStart+w] >> uint(idx%64)) & 1)
 			}
 
-			counted++
-			ones += int((value[start+w] >> uint(idx%64)) & 1)
+			if counted > 0 && ones*2 >= counted {
+				word |= 1 << uint(out)
+			}
 		}
 
-		if counted > 0 && ones*2 >= counted {
-			affinity |= 1 << uint(out)
-		}
+		value[affStart+proj] = word
 	}
 
-	value[core.Cfg.Value.Region.Affinity.Start] = affinity
 	return nil
 }
 

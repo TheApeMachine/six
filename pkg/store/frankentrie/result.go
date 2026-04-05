@@ -20,3 +20,14 @@ type ExperienceResult struct {
 	LearningRate float64
 	IsNewConcept bool
 }
+
+/*
+Prediction is the unified response from Predict. The caller passes data in
+and gets back classification and continuations — nothing else leaks out.
+*/
+type Prediction struct {
+	Label         string
+	Confidence    float64
+	Scores        map[string]float64
+	Continuations []BeamCandidate
+}

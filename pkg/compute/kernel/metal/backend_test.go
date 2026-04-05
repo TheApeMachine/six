@@ -21,10 +21,10 @@ func installSlot(frame *[128]uint64, slot int, instr uint32) {
 }
 
 func setupTestConfig() {
-	core.Cfg.Value.Region.Program.Start = 76
-	core.Cfg.Value.Region.Program.Bits = 3328
-	core.Cfg.Value.Region.State.Accumulator = 62
-	core.Cfg.Value.Region.Registers.FW = 74
+	core.Cfg.Value.Region.Program.Start = 16
+	core.Cfg.Value.Region.Program.Bits = 512
+	core.Cfg.Value.Region.State.Accumulator = 26
+	core.Cfg.Value.Region.Registers.FW = 37
 }
 
 func TestAvailable(t *testing.T) {

@@ -64,11 +64,17 @@ func (store *Store) prune() {
 }
 
 func (store *Store) applyPrune() {
+	threshold := defaultPruneMinimumCount
+	if store.adaptive != nil {
+		store.adaptive.observeNodeGrowth(store.nodeCount, store.currentStep)
+		threshold = store.adaptive.adaptivePruneThreshold(threshold)
+	}
+
 	var pruneNode func(node *Node)
 	pruneNode = func(node *Node) {
 		for _, token := range sortedChildTokens(node) {
 			child := node.Children[token]
-			if store.EffectiveCount(child, "") < defaultPruneMinimumCount {
+			if store.EffectiveCount(child, "") < threshold {
 				store.nodeCount -= uint64(subtreeSize(child))
 				delete(node.Children, token)
 				continue
@@ -160,14 +166,40 @@ func (store *Store) bestLabelScore(scores map[string]float64) (string, float64) 
 	return bestLabel, maxScore
 }
 
+/*
+EpisodicBufferSnapshot returns a copy of the episodic ring buffer for UIs and
+telemetry (IDs mirror enqueue order).
+*/
+func (store *Store) EpisodicBufferSnapshot() []EpisodicEpisode {
+	if store == nil || len(store.episodicBuffer) == 0 {
+		return nil
+	}
+
+	out := make([]EpisodicEpisode, 0, len(store.episodicBuffer))
+
+	for _, event := range store.episodicBuffer {
+		out = append(out, EpisodicEpisode{
+			ID:        event.ID,
+			Tokens:    append([]string(nil), store.contentTokens(event.Tokens)...),
+			Label:     event.Label,
+			Timestamp: event.Step,
+		})
+	}
+
+	return out
+}
+
 func (store *Store) pushEpisodic(tokens []string, label string) {
 	if store.episodicCapacity <= 0 {
 		return
 	}
 
+	store.episodicSequenceCounter++
 	event := episodicEvent{
+		ID:     fmt.Sprintf("ep_%d", store.episodicSequenceCounter),
 		Tokens: append([]string(nil), tokens...),
 		Label:  label,
+		Step:   store.currentStep,
 	}
 
 	store.episodicBuffer = append(store.episodicBuffer, event)
@@ -188,6 +220,21 @@ func (store *Store) blendEpisodicTail(contextTokens []string, label string, trie
 	}
 
 	alpha := store.episodicAlpha
+	if store.adaptive != nil {
+		alpha = store.adaptive.adaptiveEpisodicBlend(alpha)
+
+		// Track episodic quality: how much mass did episodic contribute?
+		episodicMass := 0.0
+		trieMass := 0.0
+		for _, v := range episodic {
+			episodicMass += v
+		}
+		for _, v := range trie {
+			trieMass += v
+		}
+		store.adaptive.observeEpisodicQuality(episodicMass, trieMass)
+	}
+
 	if alpha <= 0 {
 		return trie
 	}
@@ -249,9 +296,15 @@ func (store *Store) episodicNextDistribution(contextTokens []string, label strin
 		}
 
 		recency := 1.0
-		weight := store.episodicRecencyWeight
-		if weight > 0 && bufferLength > 0 {
-			recency += float64(index) / float64(bufferLength) * weight
+		gamma := store.episodicDecayGamma
+
+		if gamma > 0 && gamma < 1 {
+			recency = math.Pow(gamma, float64(matches))
+		} else {
+			weight := store.episodicRecencyWeight
+			if weight > 0 && bufferLength > 0 {
+				recency += float64(index) / float64(bufferLength) * weight
+			}
 		}
 
 		counts[nextToken] += recency

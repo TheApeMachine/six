@@ -32,12 +32,19 @@ const (
 )
 
 /*
+AffinityWords is the number of uint64 words in an affinity vector.
+*/
+const AffinityWords = 8
+
+/*
 KadabraNode wraps a SequenceStore in a Kademlia-style DHT node with per-bucket
 adaptive peer selection inspired by Kadabra.
 */
 type KadabraNode struct {
 	ID                       NodeID
 	Store                    *frankentrie.Store
+	Affinity                 [AffinityWords]uint64
+	affinityCount            uint64
 	BucketSize               int
 	ReplicationFactor        int
 	LookupParallelism        int
@@ -145,8 +152,10 @@ func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 }
 
 /*
-Publish stores a labeled sequence on the replicationFactor closest
-DHT nodes and trains the local frankentrie.Store on each replica.
+Publish stores a labeled sequence on the closest DHT nodes by affinity
+and trains each replica's frankentrie.Store. If the Value has a computed
+affinity, routing uses affinity distance; otherwise it falls back to
+XOR distance on the record key.
 */
 func (node *KadabraNode) Publish(
 	value primitive.Value, label string,
@@ -158,16 +167,30 @@ func (node *KadabraNode) Publish(
 		Publisher: node.ID,
 	}
 
-	replicas := node.lookupNodes(
-		NodeID(record.Key), node.ReplicationFactor,
-	)
+	valueAff := ValueAffinity(&value)
+	hasAffinity := false
+	for _, w := range valueAff {
+		if w != 0 {
+			hasAffinity = true
+			break
+		}
+	}
+
+	var replicas []*KadabraNode
+	if hasAffinity {
+		replicas = node.closestNodesByAffinity(valueAff, node.ReplicationFactor)
+	} else {
+		replicas = node.lookupNodes(
+			NodeID(record.Key), node.ReplicationFactor,
+		)
+	}
 
 	if len(replicas) == 0 {
 		replicas = []*KadabraNode{node}
 	}
 
 	for _, replica := range replicas {
-		if err := replica.StoreRecord(record); err != nil {
+		if err := replica.storeRecordWithAffinity(record, valueAff); err != nil {
 			return record, err
 		}
 	}
@@ -180,6 +203,10 @@ StoreRecord stores a replicated sequence record locally and trains
 the backing frankentrie.Store on each replica once per key.
 */
 func (node *KadabraNode) StoreRecord(record SequenceRecord) error {
+	return node.storeRecordWithAffinity(record, [AffinityWords]uint64{})
+}
+
+func (node *KadabraNode) storeRecordWithAffinity(record SequenceRecord, valueAffinity [AffinityWords]uint64) error {
 	node.recordsMu.Lock()
 	defer node.recordsMu.Unlock()
 
@@ -200,6 +227,18 @@ func (node *KadabraNode) StoreRecord(record SequenceRecord) error {
 
 	node.records[record.Key] = record
 	node.Store.Insert(record.Sequence, record.Label)
+
+	hasAffinity := false
+	for _, w := range valueAffinity {
+		if w != 0 {
+			hasAffinity = true
+			break
+		}
+	}
+
+	if hasAffinity {
+		node.updateAffinity(valueAffinity)
+	}
 
 	return nil
 }

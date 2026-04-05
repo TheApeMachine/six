@@ -1,17 +1,17 @@
 /*
-Package store implements a labeled token-trie for online sequence storage and
-an in-process Kadabra-style DHT node that can publish and retrieve those
-sequences across a peer set.
+Package store implements a labeled token-trie (frankentrie) for online sequence
+storage and an in-process Kadabra DHT that publishes and retrieves sequence
+records across a peer set.
 
-The sequence layer keeps lazy-decayed per-label counts at each node, learns
-local word co-occurrence, scores next tokens by interpolating over suffix
-contexts, supports token-level fuzzy lookup, beam search, surprisal traces,
-posterior traces, repeated-symbol extraction, and replay-based self-training
-for novel high-confidence generations.
-
-The DHT layer wraps the store in a 64-bit XOR keyspace with k-buckets, closest
-peer lookup, replicated record placement, iterative retrieval, and per-bucket
-adaptive peer exploration guided by observed RTT and a configurable minimum
-exploration latency floor.
+Frankentrie is the substrate for the behaviors exercised by the browser
+CognitiveModel demo ( train, Experience / surprise-modulated plasticity,
+Classify, SurprisalSeries, InterpolatedProbabilities, NextProbabilities,
+Generate with repetition damping, BeamSearch, ExtractPatterns, PosteriorsOverTime,
+ReplayOne / REM-style consolidation, episodic tail blending, SemanticEquivalent /
+AttentionContext, and ClassifyDetailed for contrastive token traces ). Use
+WithWordTokensOnly when token streams should match the demo’s underscore-delimited
+words instead of treating "_" as its own trie symbol. Kadabra does not embed
+those algorithms: it hashes (sequence, label) keys, replicates SequenceRecord
+values, and routes lookups; the trie lives in each host’s frankentrie.Store.
 */
 package store

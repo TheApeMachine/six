@@ -47,7 +47,12 @@ func (store *Store) Generate(context string, label string, temperature float64, 
 		}
 	}
 
-	return strings.Join(resultTokens[len(contextTokens):], "")
+	generated := resultTokens[len(contextTokens):]
+	if store.generationTokenJoiner != "" {
+		return strings.Join(generated, store.generationTokenJoiner)
+	}
+
+	return strings.Join(generated, "")
 }
 
 /*
@@ -115,7 +120,7 @@ func (store *Store) BeamSearch(context string, label string, beamWidth int, maxL
 		}
 
 		candidates = append(candidates, BeamCandidate{
-			Sequence: strings.Join(generatedTokens, ""),
+			Sequence: strings.Join(generatedTokens, store.generationTokenJoiner),
 			Score:    beam.Score,
 		})
 	}

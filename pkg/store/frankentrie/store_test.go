@@ -219,6 +219,26 @@ func TestClassify(t *testing.T) {
 			So(scores["Bike"], ShouldBeGreaterThan, scores["Car"])
 			So(scores["Bike"], ShouldBeGreaterThan, scores["Truck"])
 		})
+
+		Convey("ClassifyDetailed should mirror Classify scores and expose token traces", func() {
+			detailedScores, contributions := store.ClassifyDetailed("blue")
+			plainScores := store.Classify("blue")
+
+			So(math.Abs(detailedScores["Truck"]-plainScores["Truck"]) < 1e-9, ShouldBeTrue)
+			So(len(contributions["Truck"]), ShouldBeGreaterThan, 1)
+			So(contributions["Truck"][0].Token, ShouldEqual, "PRIOR")
+		})
+	})
+}
+
+func TestWordTokensOnlyTokenizer(t *testing.T) {
+	Convey("Given a store with demo-style word boundaries", t, func() {
+		store := NewStore(WithWordTokensOnly())
+
+		Convey("Tokenize should omit standalone underscore tokens", func() {
+			So(store.Tokenize("blue_cab"), ShouldResemble, []string{"blue", "cab"})
+			So(store.Tokenize("blue cab"), ShouldResemble, []string{"blue", "cab"})
+		})
 	})
 }
 
@@ -249,16 +269,20 @@ func TestNextProbabilities(t *testing.T) {
 		store := buildSequenceStore()
 
 		Convey("NextProbabilities should return a normalized distribution", func() {
-			probabilities := store.nextProbabilitiesFromTokens([]string{"blue", "_"}, "Truck", 0)
+			internal := store.nextProbabilitiesFromTokens([]string{"blue", "_"}, "Truck", 0)
+			public := store.NextProbabilities("blue_", "Truck", 0)
+
+			So(len(public), ShouldEqual, len(internal))
+			So(public[0].Token, ShouldEqual, internal[0].Token)
 
 			total := 0.0
-			for _, probability := range probabilities {
+			for _, probability := range public {
 				total += probability.Probability
 			}
 
-			So(len(probabilities), ShouldBeGreaterThan, 0)
-			So(probabilities[0].Token, ShouldEqual, "cab")
-			So(probabilities[0].Probability, ShouldEqual, 1)
+			So(len(public), ShouldBeGreaterThan, 0)
+			So(public[0].Token, ShouldEqual, "cab")
+			So(public[0].Probability, ShouldEqual, 1)
 			So(math.Abs(total-1) < 1e-9, ShouldBeTrue)
 		})
 	})
@@ -322,6 +346,26 @@ func TestPosteriorsOverTime(t *testing.T) {
 
 			So(len(posteriors), ShouldEqual, 4)
 			So(posteriors[3]["Truck"], ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
+func TestEpisodicBufferSnapshot(t *testing.T) {
+	Convey("Given episodic memory enabled", t, func() {
+		store := NewStore(
+			WithDecayFactor(1),
+			WithEpisodicMemory(8),
+		)
+		store.Insert("alpha_beta", "L")
+
+		Convey("EpisodicBufferSnapshot should expose ids and content tokens", func() {
+			snap := store.EpisodicBufferSnapshot()
+
+			So(len(snap), ShouldEqual, 1)
+			So(snap[0].Label, ShouldEqual, "L")
+			So(snap[0].Tokens, ShouldResemble, []string{"alpha", "beta"})
+			So(snap[0].Timestamp, ShouldEqual, 1)
+			So(len(snap[0].ID), ShouldBeGreaterThan, 0)
 		})
 	})
 }
@@ -453,6 +497,41 @@ func TestSequenceStore_DeepestNodeID(t *testing.T) {
 			id := store.DeepestNodeID("a_b")
 
 			So(id, ShouldNotEqual, store.root.ID)
+		})
+	})
+}
+
+func TestPredict(t *testing.T) {
+	Convey("Given a populated sequence store", t, func() {
+		store := buildSequenceStore()
+
+		Convey("Predict should return classification and continuations", func() {
+			prediction := store.Predict("blue_cab")
+
+			So(prediction.Label, ShouldNotBeEmpty)
+			So(prediction.Confidence, ShouldBeGreaterThan, 0)
+			So(len(prediction.Scores), ShouldEqual, 3)
+			So(prediction.Scores["Truck"], ShouldBeGreaterThan, prediction.Scores["Car"])
+		})
+
+		Convey("Predict should generate continuations", func() {
+			prediction := store.Predict("blue_")
+
+			So(len(prediction.Continuations), ShouldBeGreaterThan, 0)
+		})
+
+		Convey("Predict on empty input should return zero value", func() {
+			prediction := store.Predict("")
+
+			So(prediction.Label, ShouldBeEmpty)
+		})
+
+		Convey("Predict on novel input should learn and classify", func() {
+			fresh := NewStore(WithDecayFactor(1), WithRandomSource(rand.NewSource(7)))
+			prediction := fresh.Predict("completely_unknown_data")
+
+			So(prediction.Label, ShouldNotBeEmpty)
+			So(len(fresh.labels), ShouldBeGreaterThan, 0)
 		})
 	})
 }

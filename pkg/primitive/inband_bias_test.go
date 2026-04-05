@@ -10,18 +10,20 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+// Scratch words live in reserved space (words 24+) to avoid overlapping
+// token, affinity, or program regions.
 const (
-	inbandWordSelf = iota
-	inbandWordPartner
-	inbandWordSupport
-	inbandWordPromoteWarm
-	inbandWordPromoteHot
-	inbandWordPromoteCarry
-	inbandWordSuppress
-	inbandWordSuppressWarm
-	inbandWordSuppressHot
-	inbandWordSuppressCarry
-	inbandWordProjection
+	inbandWordSelf         = 40
+	inbandWordPartner      = 41
+	inbandWordSupport      = 42
+	inbandWordPromoteWarm  = 43
+	inbandWordPromoteHot   = 44
+	inbandWordPromoteCarry = 45
+	inbandWordSuppress     = 46
+	inbandWordSuppressWarm = 47
+	inbandWordSuppressHot  = 48
+	inbandWordSuppressCarry = 49
+	inbandWordProjection   = 50
 )
 
 func setupInBandValueTest(tb testing.TB) {
@@ -35,13 +37,20 @@ func setupInBandValueTest(tb testing.TB) {
 
 	core.Cfg.Value.Words = 128
 	core.Cfg.Value.Bytes = 1024
-	core.Cfg.Value.Region.Program.Start = 76
-	core.Cfg.Value.Region.Program.Bits = 3328
-	core.Cfg.Value.Region.State.Index = 60
-	core.Cfg.Value.Region.State.Sequence = 61
-	core.Cfg.Value.Region.State.Accumulator = 62
-	core.Cfg.Value.Region.Affinity.Start = 63
-	core.Cfg.Value.Region.Affinity.Bits = 64
+	core.Cfg.Value.Region.Tokens.Start = 0
+	core.Cfg.Value.Region.Tokens.Bits = 512
+	core.Cfg.Value.Region.Affinity.Start = 8
+	core.Cfg.Value.Region.Affinity.Bits = 512
+	core.Cfg.Value.Region.Program.Start = 16
+	core.Cfg.Value.Region.Program.Bits = 512
+	core.Cfg.Value.Region.Reserved.Start = 24
+	core.Cfg.Value.Region.Reserved.Bits = 6464
+	core.Cfg.Value.Region.Prev.Start = 125
+	core.Cfg.Value.Region.Next.Start = 126
+	core.Cfg.Value.Region.ID.Start = 127
+	core.Cfg.Value.Region.State.Index = 24
+	core.Cfg.Value.Region.State.Sequence = 25
+	core.Cfg.Value.Region.State.Accumulator = 26
 }
 
 func encode32(op uint8, src, dst int) uint32 {

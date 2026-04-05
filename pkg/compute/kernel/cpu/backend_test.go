@@ -14,14 +14,21 @@ func init() {
 	// backend tests run without viper/config.yml and need a stable in-memory
 	// layout so every test shares the same explicit frame contract.
 	core.Cfg.Value.Region.Tokens.Start = 0
-	core.Cfg.Value.Region.Tokens.Bits = 3648
-	core.Cfg.Value.Region.Program.Start = 76
-	core.Cfg.Value.Region.Program.Bits = 3328 // 52 words * 64
-	core.Cfg.Value.Region.State.Index = 60
-	core.Cfg.Value.Region.State.Accumulator = 62
-	core.Cfg.Value.Region.State.Sequence = 61
-	core.Cfg.Value.Region.Registers.FW = 74
-	core.Cfg.Value.Region.Registers.PC = 75
+	core.Cfg.Value.Region.Tokens.Bits = 512
+	core.Cfg.Value.Region.Affinity.Start = 8
+	core.Cfg.Value.Region.Affinity.Bits = 512
+	core.Cfg.Value.Region.Program.Start = 16
+	core.Cfg.Value.Region.Program.Bits = 512
+	core.Cfg.Value.Region.Reserved.Start = 24
+	core.Cfg.Value.Region.Reserved.Bits = 6464
+	core.Cfg.Value.Region.State.Index = 24
+	core.Cfg.Value.Region.State.Accumulator = 26
+	core.Cfg.Value.Region.State.Sequence = 25
+	core.Cfg.Value.Region.Registers.FW = 37
+	core.Cfg.Value.Region.Registers.PC = 38
+	core.Cfg.Value.Region.Prev.Start = 125
+	core.Cfg.Value.Region.Next.Start = 126
+	core.Cfg.Value.Region.ID.Start = 127
 	core.Cfg.Value.Words = 128
 }
 
@@ -188,8 +195,9 @@ func TestUniversalBitwiseSelfModifyingPrograms(t *testing.T) {
 		orFrame[3] = uint64(encode32(0x7, 1, 2)) << 32
 
 		// Slot 0 copies word 3 into the first program word, replacing slot 1.
-		installSlot(&xorFrame, 0, encode32(0x3, 3, 76))
-		installSlot(&orFrame, 0, encode32(0x3, 3, 76))
+		progStart := core.Cfg.Value.Region.Program.Start
+		installSlot(&xorFrame, 0, encode32(0x3, 3, progStart))
+		installSlot(&orFrame, 0, encode32(0x3, 3, progStart))
 
 		err := backend.UniversalBitwise(ptrs)
 		convey.So(err, convey.ShouldBeNil)
@@ -251,6 +259,8 @@ func TestUniversalBitwiseExtendedTokenBindStrip(t *testing.T) {
 			var f [128]uint64
 			f[tok] = 0xFFFFFFFFFFFFFFFF
 			f[40] = 0x00FF00FF00FF00FF
+			// Install XOR slot: word[tok] ^= word[40]
+			installSlot(&f, 0, encode32(0x6, 40, tok))
 
 			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
 			convey.So(err, convey.ShouldBeNil)

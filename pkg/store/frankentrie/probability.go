@@ -15,8 +15,15 @@ type NextProbability struct {
 
 func (store *Store) interpolatedProbabilities(contextTokens []string, label string) map[string]float64 {
 	probabilities := make(map[string]float64)
-	maximumSuffix := min(len(contextTokens), store.interpolationSuffixDepth)
+	effectiveDepth := store.interpolationSuffixDepth
+	if store.adaptive != nil {
+		effectiveDepth = store.adaptive.adaptiveInterpolationDepth(effectiveDepth)
+	}
+
+	maximumSuffix := min(len(contextTokens), effectiveDepth)
 	totalWeight := 0.0
+	bestDepth := 0
+	bestDepthProb := 0.0
 
 	for suffixLength := 0; suffixLength <= maximumSuffix; suffixLength++ {
 		suffix := contextTokens[len(contextTokens)-suffixLength:]
@@ -25,11 +32,7 @@ func (store *Store) interpolatedProbabilities(contextTokens []string, label stri
 			continue
 		}
 
-		weight := math.Pow(2, float64(suffixLength))
-		if store.linearInterpolation {
-			weight = float64(suffixLength + 1)
-		}
-
+		weight := store.adaptive.interpolationWeight(suffixLength, store.linearInterpolation)
 		totalWeight += weight
 
 		nodeTotal := 0.0
@@ -47,7 +50,16 @@ func (store *Store) interpolatedProbabilities(contextTokens []string, label stri
 			count := store.EffectiveCount(node.Children[childToken], label)
 			probability := (count + defaultAdditiveSmoothing) / (nodeTotal + defaultAdditiveSmoothing*float64(vocabularySize))
 			probabilities[childToken] += probability * weight
+			if probability > bestDepthProb {
+				bestDepthProb = probability
+				bestDepth = suffixLength
+			}
 		}
+	}
+
+	// Feed the winning depth back to the adaptive state.
+	if store.adaptive != nil && totalWeight > 0 {
+		store.adaptive.observeInterpolationHit(bestDepth)
 	}
 
 	if totalWeight == 0 {
@@ -61,6 +73,16 @@ func (store *Store) interpolatedProbabilities(contextTokens []string, label stri
 	return store.blendEpisodicTail(contextTokens, label, probabilities)
 }
 
+/*
+NextProbabilities returns temperature-scaled next-token rankings for context,
+mirroring the demo getNextProbabilities API.
+*/
+func (store *Store) NextProbabilities(
+	context string, label string, temperature float64,
+) []NextProbability {
+	return store.nextProbabilitiesFromTokens(store.Tokenize(context), label, temperature)
+}
+
 func (store *Store) nextProbabilitiesFromTokens(tokens []string, label string, temperature float64) []NextProbability {
 	if temperature < 0 {
 		temperature = 0
@@ -69,6 +91,10 @@ func (store *Store) nextProbabilitiesFromTokens(tokens []string, label string, t
 	probabilityMap := store.interpolatedProbabilities(tokens, label)
 	if len(probabilityMap) == 0 {
 		return nil
+	}
+
+	if store.adaptive != nil && temperature > 0 {
+		temperature = store.adaptive.adaptiveTemperature(temperature, probabilityMap)
 	}
 
 	probabilities := make([]NextProbability, 0, len(probabilityMap))

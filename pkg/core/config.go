@@ -89,15 +89,19 @@ type ValueConfig struct {
 ValueRegionConfig holds the configuration for a Value's region.
 */
 type ValueRegionConfig struct {
-	Tokens    ValueOffsetConfig      `mapstructure:"tokens"`
-	ID        ValueOffsetConfig      `mapstructure:"id"`
-	Prev      ValueOffsetConfig      `mapstructure:"prev"`
-	Next      ValueOffsetConfig      `mapstructure:"next"`
+	Tokens   ValueOffsetConfig      `mapstructure:"tokens"`
+	Affinity ValueOffsetConfig      `mapstructure:"affinity"`
+	Program  ValueOffsetConfig      `mapstructure:"program"`
+	Reserved ValueOffsetConfig      `mapstructure:"reserved"`
+	Prev     ValueOffsetConfig      `mapstructure:"prev"`
+	Next     ValueOffsetConfig      `mapstructure:"next"`
+	ID       ValueOffsetConfig      `mapstructure:"id"`
+
+	// Legacy fields kept for backward compatibility during migration.
+	// TODO: remove once all consumers are updated.
 	State     ValueRegionConfigState `mapstructure:"state"`
-	Affinity  ValueOffsetConfig      `mapstructure:"affinity"`
 	Registers ValueRegistersConfig   `mapstructure:"registers"`
 	PC        ValueOffsetConfig      `mapstructure:"pc"`
-	Program   ValueOffsetConfig      `mapstructure:"program"`
 }
 
 /*

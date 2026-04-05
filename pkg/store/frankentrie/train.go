@@ -23,8 +23,13 @@ func (store *Store) Train(sequence string, label string, learningRate float64) {
 	store.currentStep++
 	store.patternsDirty = true
 
+	decay := store.decayFactor
+	if store.adaptive != nil {
+		decay = store.adaptive.adaptiveDecayFactor(decay)
+	}
+
 	for _, knownLabel := range store.labels {
-		store.ClassTotals[knownLabel] *= store.decayFactor
+		store.ClassTotals[knownLabel] *= decay
 	}
 
 	store.ClassTotals[label] += learningRate
@@ -100,9 +105,21 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 		averageBits = totalBits / float64(len(series))
 	}
 
+	// Feed surprisal observations into the adaptive state.
+	for _, item := range series {
+		if store.adaptive != nil {
+			store.adaptive.observeSurprisal(item.Bits)
+		}
+	}
+
+	surprisalScale := defaultSurprisalScaleBits
+	if store.adaptive != nil {
+		surprisalScale = store.adaptive.adaptiveSurprisalScale()
+	}
+
 	learningRate := math.Min(
 		defaultMaxLearningRate,
-		defaultBaselineLearningRate+averageBits/defaultSurprisalScaleBits,
+		defaultBaselineLearningRate+averageBits/surprisalScale,
 	)
 
 	label := ""
@@ -119,9 +136,14 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 		} else {
 			scores := store.Classify(sequence)
 			bestLabel, maxScore := store.bestLabelScore(scores)
+
 			threshold := store.unsupervisedThreshold
 			if threshold <= 0 {
 				threshold = defaultUnsupervisedConfidence
+			}
+
+			if store.adaptive != nil {
+				threshold = store.adaptive.adaptiveUnsupervisedThreshold(threshold)
 			}
 
 			if maxScore < threshold {
@@ -129,6 +151,11 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 				isNewConcept = true
 			} else {
 				label = bestLabel
+			}
+
+			// Track accuracy: did the label we picked stay dominant after retraining?
+			if store.adaptive != nil && !isNewConcept {
+				store.adaptive.observeClassifyAccuracy(true)
 			}
 		}
 	}
