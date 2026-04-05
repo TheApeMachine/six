@@ -164,8 +164,8 @@ func TestStoreRecord(t *testing.T) {
 		}
 
 		Convey("StoreRecord should store and train only once per key", func() {
-			node.StoreRecord(record)
-			node.StoreRecord(record)
+			So(node.StoreRecord(record), ShouldBeNil)
+			So(node.StoreRecord(record), ShouldBeNil)
 
 			So(node.HasRecord(record.Key), ShouldBeTrue)
 			So(node.Store.CurrentStep(), ShouldEqual, 1)
@@ -173,6 +173,19 @@ func TestStoreRecord(t *testing.T) {
 			scores := node.Store.Classify(record.Sequence)
 
 			So(scores["Truck"], ShouldBeGreaterThan, 0)
+		})
+
+		Convey("StoreRecord should reject conflicting payloads for the same key", func() {
+			So(node.StoreRecord(record), ShouldBeNil)
+
+			conflict := SequenceRecord{
+				Key:       record.Key,
+				Sequence:  "other_sequence",
+				Label:     "Boat",
+				Publisher: node.ID,
+			}
+
+			So(node.StoreRecord(conflict), ShouldNotBeNil)
 		})
 	})
 }
@@ -209,7 +222,8 @@ func TestPublish(t *testing.T) {
 		connectFully(nodes...)
 
 		Convey("Publish should replicate onto the closest nodes to the record key", func() {
-			record := nodes[0].Publish("blue_cab", "Truck")
+			record, err := nodes[0].Publish("blue_cab", "Truck")
+			So(err, ShouldBeNil)
 			expected := expectedClosestNodeIDs(nodes, NodeID(record.Key), 2)
 
 			for _, node := range nodes {
@@ -237,7 +251,8 @@ func TestFindRecord(t *testing.T) {
 		}
 
 		connectFully(nodes...)
-		record := nodes[0].Publish("blue_cab", "Truck")
+		record, err := nodes[0].Publish("blue_cab", "Truck")
+		So(err, ShouldBeNil)
 		ordered := expectedClosestNodeIDs(nodes, NodeID(record.Key), len(nodes))
 		seekerID := ordered[len(ordered)-1]
 
@@ -337,7 +352,9 @@ func BenchmarkKadabraNode_Publish(b *testing.B) {
 
 	sequenceIndex := 0
 	for b.Loop() {
-		nodes[0].Publish("blue_cab_"+strconv.Itoa(sequenceIndex), "Truck")
+		if _, err := nodes[0].Publish("blue_cab_"+strconv.Itoa(sequenceIndex), "Truck"); err != nil {
+			b.Fatal(err)
+		}
 		sequenceIndex++
 	}
 }
@@ -351,7 +368,10 @@ func BenchmarkKadabraNode_FindRecord(b *testing.B) {
 	}
 
 	connectFully(nodes...)
-	record := nodes[0].Publish("blue_cab", "Truck")
+	record, err := nodes[0].Publish("blue_cab", "Truck")
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 

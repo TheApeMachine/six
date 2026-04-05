@@ -27,10 +27,24 @@ func beamsClosed(beams []beamState, endToken string) bool {
 }
 
 func subtreeSize(node *Node) int {
-	size := 1
-	for _, child := range node.Children {
-		size += subtreeSize(child)
+	if node == nil {
+		return 0
 	}
 
-	return size
+	count := 0
+	stack := []*Node{node}
+
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		count++
+
+		for _, child := range current.Children {
+			if child != nil {
+				stack = append(stack, child)
+			}
+		}
+	}
+
+	return count
 }

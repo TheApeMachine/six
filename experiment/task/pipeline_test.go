@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -98,12 +99,16 @@ func TestPipeline(t *testing.T) {
 							So(machine.Prompt(prompt), ShouldBeNil)
 
 							Convey(
-								"It should have the right answer for"+prompt,
+								fmt.Sprintf("It should have the right answer for %s", prompt),
 								func() {
 									holdout, ok := pipeline.experiment.HoldoutForPrompt(idx)
 
+									So(
+										ok,
+										ShouldBeTrue,
+										fmt.Sprintf("expected holdout for prompt index %d (%q)", idx, prompt),
+									)
 									if !ok {
-										So(false, ShouldBeTrue)
 										return
 									}
 

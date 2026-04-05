@@ -167,12 +167,19 @@ programs:
     NOP
 
   # Same physics as prompt: active LSM fetch + affinity-driven FW for MAP-Elites routing.
+  # 2415927173 (0x8FFBD005): one 32-bit LGP *extended* slot word. Bit 31 must be set so
+  # CUDA/Metal execute_extended_slot runs (see pkg/compute/kernel/metal/backend.metal).
+  # Layout: [31]=1 extended, [6:0]=ext_opcode (here 5), [13:7]=argA, [20:14]=argB, [27:21]=argC.
+  # ext_opcode 5 writes MLMD state: STATE_INDEX_WORD = 0x4D4D4C44 ("MLMD"), STATE_ACCUM_WORD =
+  # argA|(argB<<8); with argA=63, argB=0 this tags affinity word 63 for the active in-band
+  # load/priority path (yaml mnemonic LGPXMemoryLoadMark / "active fetch"). Plain slots use
+  # [3:0] truth-table op — do not confuse with this extended encoding.
   query: |
     2415927173 0 0
     COPY 63 74
 
-  # Active fetch (LGPXMemoryLoadMark, meta): argA=63 affinity, neighbors → PRIORITY.
-  # Then COPY 63 74 — morph FW (word 74) from current affinity hash for next tick.
+  # Active fetch: same literal 2415927173 extended word as query, then COPY 63 74 to morph
+  # FW register (word 74) from the current affinity hash on the next tick.
   prompt: |
     2415927173 0 0
     COPY 63 74

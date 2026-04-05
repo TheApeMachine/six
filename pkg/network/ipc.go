@@ -231,8 +231,15 @@ func (ipc *IPC) Ready(ctx context.Context) error {
 
 	if !ipc.owner {
 		if ipc.path == "" {
-			ipc.monitor.RecordReady()
-			return nil
+			err := &TransportError{
+				Layer:    "ipc",
+				Op:       "ready",
+				Mode:     TransportFailureNotReady,
+				Systemic: true,
+				Err:      ErrIPCDialUnconfigured,
+			}
+			ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
+			return err
 		}
 
 		err := &TransportError{
@@ -266,6 +273,8 @@ func (ipc *IPC) Ready(ctx context.Context) error {
 			mode = TransportFailureTimeout
 		}
 		ipc.monitor.RecordFailure(mode, ctx.Err(), false)
+		_ = ipc.Close()
+		<-ready
 		return ctx.Err()
 	case err := <-ready:
 		return err
@@ -428,6 +437,10 @@ type IPCError string
 const (
 	ErrIPCNotConnected IPCError = "ipc: no active connection"
 	ErrIPCNotListening IPCError = "ipc: no listener configured"
+	// ErrIPCDialUnconfigured is returned when a client-side IPC is constructed
+	// without a socket path so Ready cannot reach a peer (Read/Write would hit
+	// ensureConn with no destination).
+	ErrIPCDialUnconfigured IPCError = "ipc: dial-side IPC has no path configured"
 )
 
 // Error implements the error interface for IPCError.

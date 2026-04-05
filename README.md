@@ -156,7 +156,30 @@ The LGP subsystem provides three mechanisms to make this safe:
 
 **Substrate exploit score.** `SubstrateExploitScore` (`pkg/primitive/substrate_fitness.go`) is experiment-agnostic: it uses `ScanSignals` / `SplitSignals` on the parent vs workspace token regions and returns the longest local cancel or merge run normalized to `[0, 1]`. That value biases the affine third parent toward donor A (the canonical parent frame), so sharp token-level structure increases exploitation of the canonical program; weak structure keeps the third parent on a broader affine orbit instead of collapsing to white noise. `HolographicCrossoverTwoParent` takes the same `parentBias` argument for call sites that only have one donor.
 
-**Local coherence revise (host-side falsification).** `NeighborChainCoherence` in `pkg/primitive/local_coherence.go` is a deliberately small harness: wire a short linear chain with `WireLinearChain`, measure mean edge coherence via `SubstrateExploitScore`, corrupt only the middle node’s token band, then run `ReviseMiddleGreedy`. Each step tries a fixed menu of token edits and commits a single move only if the mean edge score strictly improves. `ReviseMiddleGreedyWithMask` disables operators for ablation. `LocalReviseOperatorNames` labels the seven operators for logs. `ReviseReport` records `BestOperatorPerStep` and `OperatorWinCounts`. Corruptors: `CorruptMiddleTokensWith` (full token-band replace), `CorruptMiddleFractionFromSource` (random word substitution), `CorruptMiddleRandomBitFlips` (uniform bit flips in the token span), and `CorruptMiddleZeroContiguousWords` (erasure run). `EdgeCoherenceSlice`, `TokenRegionHammingBits`, and `TokenRegionHammingAgainstSnapshot` support edge- and bit-level diagnostics. Operators include bitwise majority against neighbors, half- and full-band copies from prev/next, per-word rotation, and **cancel strip** `middle[i] ^= prev[i] ^ next[i]` (same shape as extended VSA bind-strip when the strip is neighbor XOR). **Monte Carlo:** `RunLocalCoherenceMonteCarlo` (`pkg/primitive/local_coherence_monte_carlo.go`) returns a **`MonteCarloSummary`** (globals + **`PerKind`** breakdown) so tests, benchmarks, and one-off analysis share one loop — no copy-paste. Neighbor mode **`MonteCarloIdenticalNeighbors`** vs **`MonteCarloDivergentNeighbors`** (three payloads). `TestLocalCoherenceMonteCarloOperatorDistribution` runs the identical regime with per-kind thresholds (smooth dominance on full/fraction, no full-copy-beats-majority on bit flips, majority+half floors on zero-span). `TestLocalCoherenceMonteCarloDivergentVsIdenticalCopyMix` (skipped under `-short`) checks divergent chains raise **copy-operator** win share vs the identical baseline. Defaults: 180 trials (32 with `-short`); **`SIX_COHERENCE_MONTE_CARLO_TRIALS`** overrides. **`ReviseReport`** includes **`InitialEdgeCoherence` / `FinalEdgeCoherence`**; **`EdgeCoherenceImbalance`** scores edge spread. No firmware or evolution here: substrate-only local repair.
+**Local coherence revise (host-side falsification).** `NeighborChainCoherence` in `pkg/primitive/local_coherence.go` is a deliberately small harness: connect a short linear chain with `WireLinearChain`, score mean edge coherence with `SubstrateExploitScore`, corrupt only the middle node’s token band, then run `ReviseMiddleGreedy`. Each step tries a fixed menu of token edits and commits a single move only if the mean edge score strictly improves. No firmware or evolution: substrate-only local repair.
+
+**Operators.** `ReviseMiddleGreedyWithMask` disables operators for ablation. `LocalReviseOperatorNames` labels the **seven operators** for logs:
+
+- Bitwise majority against both neighbors.
+- Half-band copy from the previous neighbor.
+- Half-band copy from the next neighbor.
+- Full-band copy from the previous neighbor.
+- Full-band copy from the next neighbor.
+- Per-word rotation of the middle token band.
+- **Cancel strip:** `middle[i] ^= prev[i] ^ next[i]` (same shape as extended VSA bind-strip when the strip is neighbor XOR).
+
+`EdgeCoherenceSlice`, `TokenRegionHammingBits`, and `TokenRegionHammingAgainstSnapshot` support edge- and bit-level diagnostics.
+
+**Corruptors.**
+
+- `CorruptMiddleTokensWith` — full token-band replace.
+- `CorruptMiddleFractionFromSource` — random word substitution.
+- `CorruptMiddleRandomBitFlips` — uniform bit flips in the token span.
+- `CorruptMiddleZeroContiguousWords` — contiguous-word erasure run.
+
+**Monte Carlo testing.** `RunLocalCoherenceMonteCarlo` (`pkg/primitive/local_coherence_monte_carlo.go`) returns a **`MonteCarloSummary`** (globals plus **`PerKind`** breakdown) so tests, benchmarks, and one-off analysis share one loop. Neighbor mode is **`MonteCarloIdenticalNeighbors`** vs **`MonteCarloDivergentNeighbors`** (three payloads). `TestLocalCoherenceMonteCarloOperatorDistribution` exercises the identical regime with per-kind thresholds (smooth dominance on full/fraction, no full-copy-beats-majority on bit flips, majority+half floors on zero-span). `TestLocalCoherenceMonteCarloDivergentVsIdenticalCopyMix` (skipped under `-short`) checks divergent chains raise **copy-operator** win share vs the identical baseline. Defaults: 180 trials (32 with `-short`); **`SIX_COHERENCE_MONTE_CARLO_TRIALS`** overrides the trial count.
+
+**Reporting.** `ReviseReport` records `BestOperatorPerStep` and `OperatorWinCounts`, and includes **`InitialEdgeCoherence`** / **`FinalEdgeCoherence`**. **`EdgeCoherenceImbalance`** scores edge spread.
 
 ### Token Encoding
 
@@ -195,7 +218,7 @@ QUIC connections handle reliable point-to-point transfer when Values need to mov
 
 ### Sequence Store
 
-`pkg/store` now implements a labeled token-trie for online sequence storage together with a Kadabra-style DHT node wrapper for decentralized publish and lookup. The sequence layer records lazy-decayed per-label counts, trains suffix paths over tokenized sequences, learns a local co-occurrence vocabulary for edit-distance and similarity-based token remapping, interpolates next-token probabilities across short suffix contexts, and exposes posterior traces, surprisal traces, beam search, label-scored repeated-symbol extraction, and replay-based self-training for novel high-confidence generations. The DHT layer places sequence records on the closest replicas in a 64-bit XOR space, performs iterative node and record lookups, and adapts per-bucket peer selections from observed RTT while enforcing a configurable minimum exploration latency floor. `pkg/vm.Machine` now publishes prompt-aware dataset samples, or raw 64-byte ingress chunks when prompt boundaries are unavailable, directly into a local Kadabra node so the Frankentrie-backed sequence path can be populated without a separate adapter.
+`pkg/store` now implements a labeled token-trie for online sequence storage together with a Kadabra-style DHT node wrapper for decentralized publish and lookup. The sequence layer records lazy-decayed per-label counts, trains suffix paths over tokenized sequences, learns a local co-occurrence vocabulary for edit distance and similarity-based token remapping, interpolates next-token probabilities across short suffix contexts, and exposes posterior traces, surprisal traces, beam search, label-scored repeated-symbol extraction, and replay-based self-training for novel high-confidence generations. The DHT layer places sequence records on the closest replicas in a 64-bit XOR space, performs iterative node and record lookups, and adapts per-bucket peer selections from observed RTT while enforcing a configurable minimum exploration latency floor. `pkg/vm.Machine` now publishes prompt-aware dataset samples, or raw 64-byte ingress chunks when prompt boundaries are unavailable, directly into a local Kadabra node so the Frankentrie-backed sequence path can be populated without a separate adapter.
 
 ## Project Structure
 

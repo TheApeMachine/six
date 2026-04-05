@@ -15,15 +15,16 @@ One write maps to one datagram. Listener mode joins the multicast group and
 receives from any member. Dialer mode sends datagrams to the group.
 */
 type UDPMulticast struct {
-	err     error
-	ctx     context.Context
-	cancel  context.CancelFunc
-	sub     *net.UDPConn
-	pub     *net.UDPConn
-	group   *net.UDPAddr
-	timeout time.Duration
-	dialed  bool
-	monitor *transportMonitor
+	err              error
+	ctx              context.Context
+	cancel           context.CancelFunc
+	sub              *net.UDPConn
+	pub              *net.UDPConn
+	group            *net.UDPAddr
+	timeout          time.Duration
+	readPollDeadline time.Duration
+	dialed           bool
+	monitor          *transportMonitor
 }
 
 type udpMulticastOption func(*UDPMulticast)
@@ -55,6 +56,10 @@ func NewUDPMulticast(opts ...udpMulticastOption) *UDPMulticast {
 		opt(udp)
 	}
 
+	if udp.readPollDeadline <= 0 {
+		udp.readPollDeadline = 50 * time.Millisecond
+	}
+
 	return udp
 }
 
@@ -78,8 +83,13 @@ func (udp *UDPMulticast) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
+	poll := udp.readPollDeadline
+	if poll <= 0 {
+		poll = 50 * time.Millisecond
+	}
+
 	for {
-		if err := udp.sub.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		if err := udp.sub.SetReadDeadline(time.Now().Add(poll)); err != nil {
 			udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
 			return 0, err
 		}
@@ -257,7 +267,13 @@ func UDPMulticastWithListener(group string, iface string) udpMulticastOption {
 			}
 		}
 
-		_ = ipv4.NewPacketConn(publisher).SetMulticastLoopback(true)
+		if err := ipv4.NewPacketConn(publisher).SetMulticastLoopback(true); err != nil {
+			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
+			_ = listener.Close()
+			_ = publisher.Close()
+			return
+		}
 
 		udp.group = groupAddress
 		udp.sub = listener
@@ -285,11 +301,27 @@ func UDPMulticastWithDialer(group string) udpMulticastOption {
 			return
 		}
 
-		_ = ipv4.NewPacketConn(publisher).SetMulticastLoopback(true)
+		if err := ipv4.NewPacketConn(publisher).SetMulticastLoopback(true); err != nil {
+			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
+			_ = publisher.Close()
+			return
+		}
 
 		udp.group = groupAddress
 		udp.pub = publisher
 		udp.dialed = true
+	}
+}
+
+/*
+UDPMulticastWithReadPollDeadline sets how long each ReadFromUDP spin waits
+before refreshing context cancellation. Values <= 0 are replaced with the
+default (50ms) when the transport is constructed.
+*/
+func UDPMulticastWithReadPollDeadline(deadline time.Duration) udpMulticastOption {
+	return func(udp *UDPMulticast) {
+		udp.readPollDeadline = deadline
 	}
 }
 

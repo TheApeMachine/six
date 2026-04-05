@@ -60,6 +60,10 @@ func (store *Store) prune() {
 		return
 	}
 
+	store.applyPrune()
+}
+
+func (store *Store) applyPrune() {
 	var pruneNode func(node *Node)
 	pruneNode = func(node *Node) {
 		for _, token := range sortedChildTokens(node) {
@@ -94,15 +98,15 @@ func (store *Store) updateCoOccurrence(words []string) {
 			store.coOccurrence[leftWord] = make(map[string]float64)
 		}
 
-		startIndex := max(0, float64(wordIndex-defaultCoOccurrenceWindow))
+		startIndex := max(0, wordIndex-defaultCoOccurrenceWindow)
 		endIndex := min(len(words)-1, wordIndex+defaultCoOccurrenceWindow)
 
-		for neighborIndex := int(startIndex); neighborIndex <= int(endIndex); neighborIndex++ {
-			if float64(neighborIndex) == float64(wordIndex) {
+		for neighborIndex := startIndex; neighborIndex <= endIndex; neighborIndex++ {
+			if neighborIndex == wordIndex {
 				continue
 			}
 
-			rightWord := words[int(neighborIndex)]
+			rightWord := words[neighborIndex]
 			store.coOccurrence[leftWord][rightWord]++
 		}
 	}
@@ -245,8 +249,9 @@ func (store *Store) episodicNextDistribution(contextTokens []string, label strin
 		}
 
 		recency := 1.0
-		if bufferLength > 0 {
-			recency += float64(index) / float64(bufferLength) * 0.01
+		weight := store.episodicRecencyWeight
+		if weight > 0 && bufferLength > 0 {
+			recency += float64(index) / float64(bufferLength) * weight
 		}
 
 		counts[nextToken] += recency

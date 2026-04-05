@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 
@@ -84,18 +85,7 @@ func (q *QUIC) Read(p []byte) (int, error) {
 
 	n, err := q.stream.Read(p)
 	if err != nil {
-		mode := TransportFailureUnknown
-		systemic := false
-		if err == context.Canceled {
-			mode = TransportFailureCanceled
-		}
-		if err == context.DeadlineExceeded {
-			mode = TransportFailureTimeout
-		}
-		if err == io.EOF {
-			mode = TransportFailureClosed
-			systemic = true
-		}
+		mode, systemic := classifyQUICTransportError(err, true)
 		q.monitor.RecordFailure(mode, err, systemic)
 		return n, err
 	}
@@ -128,28 +118,14 @@ func (q *QUIC) Write(p []byte) (int, error) {
 	n, err := q.stream.Write(p)
 
 	if err != nil {
-		mode := TransportFailureUnknown
-		systemic := false
-		if err == context.Canceled {
-			mode = TransportFailureCanceled
-		}
-		if err == context.DeadlineExceeded {
-			mode = TransportFailureTimeout
-		}
+		mode, systemic := classifyQUICTransportError(err, false)
 		q.monitor.RecordFailure(mode, err, systemic)
 		return n, err
 	}
 
 	err = q.stream.Flush()
 	if err != nil {
-		mode := TransportFailureUnknown
-		systemic := false
-		if err == context.Canceled {
-			mode = TransportFailureCanceled
-		}
-		if err == context.DeadlineExceeded {
-			mode = TransportFailureTimeout
-		}
+		mode, systemic := classifyQUICTransportError(err, false)
 		q.monitor.RecordFailure(mode, err, systemic)
 		return n, err
 	}
@@ -224,14 +200,7 @@ func (q *QUIC) accept(ctx context.Context) error {
 	conn, err := q.endpoint.Accept(ctx)
 
 	if err != nil {
-		mode := TransportFailureUnknown
-		systemic := false
-		if err == context.Canceled {
-			mode = TransportFailureCanceled
-		}
-		if err == context.DeadlineExceeded {
-			mode = TransportFailureTimeout
-		}
+		mode, systemic := classifyQUICTransportError(err, false)
 		q.monitor.RecordFailure(mode, err, systemic)
 		return err
 	}
@@ -423,6 +392,27 @@ func (q *QUIC) sendHandshake(stream *quic.Stream) error {
 		return err
 	}
 	return stream.Flush()
+}
+
+/*
+classifyQUICTransportError maps QUIC stream/endpoint errors to monitor modes
+without overlapping assignments (public error values are mutually exclusive).
+allowEOF treats io.EOF as a clean remote close on Read paths only.
+*/
+func classifyQUICTransportError(err error, allowEOF bool) (TransportFailureMode, bool) {
+	if errors.Is(err, context.Canceled) {
+		return TransportFailureCanceled, false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return TransportFailureTimeout, false
+	}
+
+	if allowEOF && errors.Is(err, io.EOF) {
+		return TransportFailureClosed, true
+	}
+
+	return TransportFailureUnknown, false
 }
 
 func (q *QUIC) consumeHandshake(stream *quic.Stream) error {

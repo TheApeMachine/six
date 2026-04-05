@@ -21,7 +21,7 @@ func (store *Store) Classify(context string) map[string]float64 {
 	maxLogProbability := math.Inf(-1)
 
 	for _, label := range store.labels {
-		classTotal := store.classTotals[label]
+		classTotal := store.ClassTotals[label]
 
 		if classTotal == 0 {
 			classTotal = 0.1
@@ -30,8 +30,12 @@ func (store *Store) Classify(context string) map[string]float64 {
 		logProbability := math.Log(classTotal / math.Max(float64(store.currentStep), 1))
 
 		for tokenIndex := range tokens {
-			contextStart := max(0, float64(tokenIndex-store.classificationContext))
-			contextTokens := tokens[int(contextStart):tokenIndex]
+			contextStart := tokenIndex - store.classificationContext
+			if contextStart < 0 {
+				contextStart = 0
+			}
+
+			contextTokens := tokens[contextStart:tokenIndex]
 			probabilities := store.interpolatedProbabilities(contextTokens, label)
 			tokenProbability := probabilities[tokens[tokenIndex]]
 

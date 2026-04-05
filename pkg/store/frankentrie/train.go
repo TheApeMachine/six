@@ -9,6 +9,9 @@ import (
 /*
 Train records one labeled sequence scaled by learningRate, which implements
 surprise-modulated plasticity when driven through Experience.
+
+Pruning and ExtractPatterns run every pruneInterval steps; call Flush after a
+batch of trains when consumers need an up-to-date pattern list sooner.
 */
 func (store *Store) Train(sequence string, label string, learningRate float64) {
 	label = strings.TrimSpace(label)
@@ -18,12 +21,13 @@ func (store *Store) Train(sequence string, label string, learningRate float64) {
 
 	store.addLabel(label)
 	store.currentStep++
+	store.patternsDirty = true
 
 	for _, knownLabel := range store.labels {
-		store.classTotals[knownLabel] *= store.decayFactor
+		store.ClassTotals[knownLabel] *= store.decayFactor
 	}
 
-	store.classTotals[label] += learningRate
+	store.ClassTotals[label] += learningRate
 
 	tokens := store.tokensWithEnd(sequence)
 	store.pushEpisodic(tokens, label)
@@ -58,8 +62,10 @@ func (store *Store) Train(sequence string, label string, learningRate float64) {
 		}
 	}
 
-	store.prune()
-	store.ExtractPatterns()
+	if store.pruneInterval > 0 && store.currentStep%store.pruneInterval == 0 {
+		store.applyPrune()
+		store.rebuildExtractedPatterns()
+	}
 }
 
 /*

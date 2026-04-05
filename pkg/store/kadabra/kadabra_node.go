@@ -389,9 +389,6 @@ func kadabraBucketIndex(local NodeID, remote NodeID) int {
 	}
 
 	index := bits.LeadingZeros64(distance)
-	if index < 0 {
-		return 0
-	}
 
 	if index >= dhtIDBits {
 		return dhtIDBits - 1

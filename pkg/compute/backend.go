@@ -11,23 +11,6 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
-type QueueType uint
-
-const (
-	// PRIORITY is used for Values that set a loop or branch
-	// flag at the end of the program. This is the way we keep
-	// the ability to do looping and branching, while keeping
-	// the execution model in-hardware totally branchless,
-	// preventing thread-divergence.
-	PRIORITY QueueType = iota
-	// NORMAL is used as the default queue for Values. The way
-	// queues are drained is dynamically determined by various
-	// factors, such as the number of available substrates, the
-	// load on the substrates, and the number of Values in the
-	// queues.
-	NORMAL
-)
-
 /*
 Backend acts as an intelligent Multi-Substrate Load Balancer. It monitors
 pressure across available local arithmetic hardware (GPU/CPU) and geometrically

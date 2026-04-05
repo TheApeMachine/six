@@ -1,6 +1,9 @@
 package frankentrie
 
-import "strconv"
+import (
+	"strconv"
+	"sync"
+)
 
 /*
 MultimodalCoordinator binds sensory, action, and reward tries while tracking
@@ -12,7 +15,8 @@ type MultimodalCoordinator struct {
 	Action  *Store
 	Reward  *Store
 
-	coactivation map[string]float64
+	coactivationMu sync.RWMutex
+	coactivation   map[string]float64
 }
 
 /*
@@ -58,7 +62,10 @@ func (coordinator *MultimodalCoordinator) TrainStep(
 	rewardID := coordinator.Reward.DeepestNodeID(rewardSequence)
 
 	key := multimodalLinkKey(sensoryID, actionID, rewardID)
+
+	coordinator.coactivationMu.Lock()
 	coordinator.coactivation[key] += learningRate
+	coordinator.coactivationMu.Unlock()
 }
 
 /*
@@ -82,5 +89,9 @@ func (coordinator *MultimodalCoordinator) CoactivationStrength(
 		coordinator.Reward.DeepestNodeID(rewardSequence),
 	)
 
-	return coordinator.coactivation[key]
+	coordinator.coactivationMu.RLock()
+	strength := coordinator.coactivation[key]
+	coordinator.coactivationMu.RUnlock()
+
+	return strength
 }

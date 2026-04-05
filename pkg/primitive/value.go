@@ -9,13 +9,15 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+const valueScratchCap = 1024
+
 var (
 	valueTo   func(*Value, []byte)
 	valueFrom func([]byte, *Value)
 )
 
 /*
-Value is a programmable type that acts as a token for 
+Value is a programmable type that acts as a token for
 machine intelligence.
 
 Governed by the following rules:
@@ -92,9 +94,37 @@ var valuePool = sync.Pool{
 /*
 NewValue should only be used to create the initial Value.
 This method should not be used to create temporary Values.
+The returned pointer is owned by the caller until Close returns it to valuePool.
 */
 func NewValue(p []byte) (*Value, error) {
-	return nil, nil
+	raw := valuePool.Get()
+	v := raw.(*Value)
+	*v = Value{}
+
+	byteLen := core.Cfg.Value.Bytes
+	if byteLen <= 0 || len(p) == 0 {
+		return v, nil
+	}
+
+	n := len(p)
+	if n > byteLen {
+		n = byteLen
+	}
+
+	if byteLen <= valueScratchCap {
+		var scratch [valueScratchCap]byte
+		buf := scratch[:byteLen]
+		copy(buf, p[:n])
+		valueFrom(buf, v)
+
+		return v, nil
+	}
+
+	buf := make([]byte, byteLen)
+	copy(buf, p[:n])
+	valueFrom(buf, v)
+
+	return v, nil
 }
 
 /*
@@ -138,5 +168,12 @@ as a quick-and-dirty way to discard a Value, that has to
 be done by loading the tombstone firmware.
 */
 func (value *Value) Close() error {
+	if value == nil {
+		return nil
+	}
+
+	*value = Value{}
+	valuePool.Put(value)
+
 	return nil
 }

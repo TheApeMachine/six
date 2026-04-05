@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"errors"
 	"io"
 	"testing"
@@ -80,6 +81,15 @@ func TestIPC(t *testing.T) {
 			client.Close()
 			server.Close()
 		})
+	})
+}
+
+func TestReady(t *testing.T) {
+	gc.Convey("Given a dial-side IPC with an empty socket path", t, func() {
+		ipc := NewIPC(IPCWithDial(""))
+		err := ipc.Ready(context.Background())
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(errors.Is(err, ErrIPCDialUnconfigured), gc.ShouldBeTrue)
 	})
 }
 

@@ -2,6 +2,7 @@ package frankentrie
 
 import (
 	"math"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -56,14 +57,27 @@ func LearnBytePairEncoder(corpus []string, mergeCount int) *BytePairEncoder {
 			}
 		}
 
+		pairKeys := make([]string, 0, len(pairTotals))
+		for pairKey := range pairTotals {
+			pairKeys = append(pairKeys, pairKey)
+		}
+
+		sort.Slice(pairKeys, func(i, j int) bool {
+			ci := pairTotals[pairKeys[i]]
+			cj := pairTotals[pairKeys[j]]
+			if ci != cj {
+				return ci > cj
+			}
+
+			return pairKeys[i] < pairKeys[j]
+		})
+
 		bestPair := ""
 		bestCount := 0
 
-		for pairKey, count := range pairTotals {
-			if count > bestCount {
-				bestCount = count
-				bestPair = pairKey
-			}
+		if len(pairKeys) > 0 {
+			bestPair = pairKeys[0]
+			bestCount = pairTotals[bestPair]
 		}
 
 		if bestCount == 0 {
@@ -209,7 +223,8 @@ func (store *Store) Tokenize(text string) []string {
 
 	tokens := make([]string, 0, len(text))
 	tokenStart := 0
-	separatorMode := isSeparatorRune(rune(text[0]))
+	firstRune, _ := utf8.DecodeRuneInString(text)
+	separatorMode := isSeparatorRune(firstRune)
 
 	for byteIndex, value := range text {
 		currentSeparator := isSeparatorRune(value)

@@ -167,7 +167,11 @@ func UniConnWithContext(ctx context.Context) uniConnOption {
 }
 
 /*
-UniConnWithTransport wires a new transport.
+UniConnWithTransport registers a transport in the UniConn map. The first
+non-nil registration also becomes the active transport (Read/Write/Ready use
+it). Later registrations stay available but do not replace active until
+SetActiveTransport or UniConnWithActiveTransport selects them—call those after
+all transports are registered when you need a specific layer (e.g. QUIC) to win.
 */
 func UniConnWithTransport(
 	transportType UniConnType, transport ManagedTransport,
@@ -186,6 +190,40 @@ func UniConnWithTransport(
 		conn.active = transport
 		conn.sources = transport
 		conn.destinations = transport
+	}
+}
+
+/*
+SetActiveTransport selects which registered transport handles I/O and Ready.
+Resets lazy readiness so the next Ready re-runs against the new active peer.
+Call after registration (e.g. after all UniConnWithTransport options).
+*/
+func (conn *UniConn) SetActiveTransport(transportType UniConnType) error {
+	transport := conn.transports[transportType]
+	if transport == nil {
+		return ErrNoTransport
+	}
+
+	conn.activeType = transportType
+	conn.active = transport
+	conn.sources = transport
+	conn.destinations = transport
+	conn.ready = sync.Once{}
+	conn.readyErr = nil
+
+	return nil
+}
+
+/*
+UniConnWithActiveTransport applies SetActiveTransport from an option. Use as
+the last NewUniConn option after every UniConnWithTransport so the map is
+complete; if transportType was never registered, active is left unchanged
+(options cannot surface errors—call SetActiveTransport yourself when you
+need to handle that failure).
+*/
+func UniConnWithActiveTransport(transportType UniConnType) uniConnOption {
+	return func(conn *UniConn) {
+		_ = conn.SetActiveTransport(transportType)
 	}
 }
 

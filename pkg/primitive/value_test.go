@@ -8,21 +8,42 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+func setupPrimitiveValueTest(tb testing.TB) {
+	tb.Helper()
+
+	original := *core.Cfg
+	tb.Cleanup(func() {
+		*core.Cfg = original
+	})
+
+	core.Cfg.Value.Words = 128
+	core.Cfg.Value.Bytes = 1024
+}
+
 func TestNewValue(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
 	Convey("Given raw source bytes", t, func() {
 		source := []byte("roy is in the kitchen")
 
 		Convey("NewValue should load them into the literal token head", func() {
 			value, err := NewValue(source)
 			So(err, ShouldBeNil)
+			So(value, ShouldNotBeNil)
 			defer value.Close()
 
-			So(len(value), ShouldEqual, len(source))
+			buf := make([]byte, core.Cfg.Value.Bytes)
+			n, readErr := value.Read(buf)
+			So(readErr, ShouldEqual, io.EOF)
+			So(n, ShouldEqual, core.Cfg.Value.Bytes)
+			So(buf[:len(source)], ShouldResemble, source)
 		})
 	})
 }
 
 func TestRead(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
 	Convey("Given a populated Value", t, func() {
 		source := []byte("roy is in the kitchen")
 		value, err := NewValue(source)
@@ -41,6 +62,8 @@ func TestRead(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
 	Convey("Given a serialized Value frame", t, func() {
 		source := []byte("roy is in the kitchen")
 		src, err := NewValue(source)
@@ -54,20 +77,25 @@ func TestWrite(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
 	Convey("Given a populated Value", t, func() {
 		value, err := NewValue([]byte("roy is in the kitchen"))
 		So(err, ShouldBeNil)
+		So(value, ShouldNotBeNil)
 
 		Convey("Close should wipe the frame before returning it to the pool", func() {
 			err := value.Close()
 
 			So(err, ShouldBeNil)
-			So(len(value), ShouldEqual, 0)
+			So(*value, ShouldResemble, Value{})
 		})
 	})
 }
 
 func BenchmarkValue_Read(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
 	value, err := NewValue([]byte("roy is in the kitchen"))
 
 	if err != nil {
@@ -90,6 +118,8 @@ func BenchmarkValue_Read(b *testing.B) {
 }
 
 func BenchmarkValue_Write(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
 	value, err := NewValue(nil)
 
 	if err != nil {

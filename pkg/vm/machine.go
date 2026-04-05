@@ -61,19 +61,36 @@ func NewMachine(
 }
 
 func (machine *Machine) Run() error {
-	validate.Require(map[string]any{
+	if err := validate.Require(map[string]any{
 		"machine": machine,
 		"ctx":     machine.ctx,
 		"cancel":  machine.cancel,
 		"dataset": machine.dataset,
 		"kadabra": machine.kadabra,
-	})
+	}); err != nil {
+		return err
+	}
 
 	defer func() {
 		errnie.Error(
 			machine.dataset.Close(),
 		)
 	}()
+
+	if promptDataset, ok := machine.dataset.(data.PromptProvider); ok {
+		for prompt := range promptDataset.GeneratePrompts() {
+			label := machine.label
+			if prompt.HasLabel && strings.TrimSpace(prompt.Label) != "" {
+				label = strings.TrimSpace(prompt.Label)
+			}
+
+			if err := machine.publishSequence(prompt.Text, label); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
 
 	buffer := bytes.NewBuffer(make([]byte, 0, defaultMachineChunkBytes))
 
@@ -95,11 +112,11 @@ func (machine *Machine) Run() error {
 		return nil
 	}
 
-	return machine.publishChunk(buffer.Bytes())
+	return machine.publishSequence(buffer.String(), machine.label)
 }
 
 func (machine *Machine) Prompt(prompt string) error {
-	return machine.publishChunk([]byte(prompt))
+	return machine.publishSequence(prompt, machine.label)
 }
 
 /*
@@ -114,15 +131,27 @@ func (machine *Machine) Kadabra() *kadabra.KadabraNode {
 }
 
 func (machine *Machine) publishChunk(chunk []byte) error {
-	if len(chunk) == 0 {
+	return machine.publishSequence(string(chunk), machine.label)
+}
+
+func (machine *Machine) publishSequence(sequence string, label string) error {
+	if sequence == "" {
 		return nil
 	}
 
-	if _, err := primitive.NewValue(chunk); err != nil {
+	val, err := primitive.NewValue([]byte(sequence))
+	if err != nil {
 		return err
 	}
 
-	machine.kadabra.Publish(string(chunk), machine.label)
+	defer func() {
+		errnie.Error(val.Close())
+	}()
+
+	if _, err := machine.kadabra.Publish(sequence, label); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -164,6 +193,7 @@ MachineWithKadabraLabel sets the fallback label used for unlabeled sequences.
 func MachineWithKadabraLabel(label string) machineOpts {
 	return func(machine *Machine) {
 		label = strings.TrimSpace(label)
+
 		if label == "" {
 			return
 		}

@@ -44,6 +44,31 @@ func TestClose(t *testing.T) {
 	})
 }
 
+func TestSetActiveTransport(t *testing.T) {
+	Convey("Given a UniConn with two transports", t, func() {
+		first := newStubManagedTransport()
+		second := newStubManagedTransport()
+		conn := NewUniConn(
+			t.Context(),
+			UniConnWithTransport(IPCType, first),
+			UniConnWithTransport(UDPType, second),
+		)
+
+		So(conn.activeType, ShouldEqual, IPCType)
+		So(conn.SetActiveTransport(UDPType), ShouldBeNil)
+		So(conn.activeType, ShouldEqual, UDPType)
+		So(conn.active, ShouldEqual, second)
+	})
+
+	Convey("Given SetActiveTransport for a missing registration", t, func() {
+		conn := NewUniConn(
+			t.Context(),
+			UniConnWithTransport(IPCType, newStubManagedTransport()),
+		)
+		So(conn.SetActiveTransport(QUICType), ShouldEqual, ErrNoTransport)
+	})
+}
+
 func TestEnsureReady(t *testing.T) {
 	Convey("Given a UniConn with no transport", t, func() {
 		conn := NewUniConn(t.Context())
@@ -70,5 +95,20 @@ func BenchmarkWrite(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		conn.Write(nil)
+	}
+}
+
+func BenchmarkSetActiveTransport(b *testing.B) {
+	first := newStubManagedTransport()
+	second := newStubManagedTransport()
+	conn := NewUniConn(
+		b.Context(),
+		UniConnWithTransport(IPCType, first),
+		UniConnWithTransport(UDPType, second),
+	)
+	b.ResetTimer()
+	for b.Loop() {
+		_ = conn.SetActiveTransport(UDPType)
+		_ = conn.SetActiveTransport(IPCType)
 	}
 }

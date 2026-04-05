@@ -124,9 +124,18 @@ func (store *Store) BeamSearch(context string, label string, beamWidth int, maxL
 }
 
 /*
-ExtractPatterns rebuilds the label-skewed repeated symbol list from the trie.
+ExtractPatterns returns the label-skewed repeated symbol list, rebuilding from
+the trie only when training has invalidated the cache since the last rebuild.
 */
 func (store *Store) ExtractPatterns() []ExtractedSymbol {
+	if !store.patternsDirty {
+		return append([]ExtractedSymbol(nil), store.extractedSymbols...)
+	}
+
+	return store.rebuildExtractedPatterns()
+}
+
+func (store *Store) rebuildExtractedPatterns() []ExtractedSymbol {
 	candidates := make(map[string]map[string]float64)
 
 	var traverse func(node *Node, path []string)
@@ -200,6 +209,8 @@ func (store *Store) ExtractPatterns() []ExtractedSymbol {
 	}
 
 	store.extractedSymbols = append([]ExtractedSymbol(nil), scored...)
+	store.patternsDirty = false
+
 	return append([]ExtractedSymbol(nil), store.extractedSymbols...)
 }
 

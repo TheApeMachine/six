@@ -1,9 +1,11 @@
 package kadabra
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"sort"
+	"sync"
 
 	"github.com/theapemachine/six/pkg/store/frankentrie"
 )
@@ -33,6 +35,7 @@ type KadabraNode struct {
 	SecurityThreshold        float64
 	BucketSecurityThresholds []float64
 	random                   *rand.Rand
+	recordsMu                sync.RWMutex
 	records                  map[uint64]SequenceRecord
 	buckets                  [dhtIDBits]*kadabraBucket
 }
@@ -43,12 +46,10 @@ NewKadabraNode constructs a Kadabra DHT node backed by a SequenceStore.
 func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 	node := &KadabraNode{
 		ID:                id,
-		Store:             frankentrie.NewStore(),
 		BucketSize:        defaultKadabraBucketSize,
 		ReplicationFactor: defaultKadabraReplication,
 		LookupParallelism: defaultKadabraAlpha,
 		EpochQueries:      defaultKadabraEpochQueries,
-		random:            rand.New(rand.NewSource(int64(id) + 1)),
 		records:           make(map[uint64]SequenceRecord),
 	}
 
@@ -80,7 +81,7 @@ func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 Publish stores a labeled sequence on the replicationFactor closest DHT nodes and
 trains the local frankentrie.Store on each replica.
 */
-func (node *KadabraNode) Publish(sequence string, label string) SequenceRecord {
+func (node *KadabraNode) Publish(sequence string, label string) (SequenceRecord, error) {
 	record := SequenceRecord{
 		Key:       HashSequenceRecord(sequence, label),
 		Sequence:  sequence,
@@ -94,32 +95,52 @@ func (node *KadabraNode) Publish(sequence string, label string) SequenceRecord {
 	}
 
 	for _, replica := range replicas {
-		replica.StoreRecord(record)
+		if err := replica.StoreRecord(record); err != nil {
+			return record, err
+		}
 	}
 
-	return record
+	return record, nil
 }
 
 /*
 StoreRecord stores a replicated sequence record locally and trains the backing
 frankentrie.Store on each replica once per key.
 */
-func (node *KadabraNode) StoreRecord(record SequenceRecord) {
+func (node *KadabraNode) StoreRecord(record SequenceRecord) error {
+	node.recordsMu.Lock()
+	defer node.recordsMu.Unlock()
+
 	if existing, exists := node.records[record.Key]; exists {
 		if existing.Sequence == record.Sequence && existing.Label == record.Label {
-			return
+			return nil
 		}
+
+		return fmt.Errorf(
+			"kadabra: record %d conflict: stored sequence %q label %q vs incoming sequence %q label %q",
+			record.Key,
+			existing.Sequence,
+			existing.Label,
+			record.Sequence,
+			record.Label,
+		)
 	}
 
 	node.records[record.Key] = record
 	node.Store.Insert(record.Sequence, record.Label)
+
+	return nil
 }
 
 /*
 HasRecord reports whether the node stores the given DHT key locally.
 */
 func (node *KadabraNode) HasRecord(key uint64) bool {
+	node.recordsMu.RLock()
+	defer node.recordsMu.RUnlock()
+
 	_, exists := node.records[key]
+
 	return exists
 }
 
@@ -132,10 +153,13 @@ func (node *KadabraNode) FindRecord(key uint64) (SequenceRecord, bool, LookupTra
 		Nodes: []NodeID{node.ID},
 	}
 
+	node.recordsMu.RLock()
 	if record, exists := node.records[key]; exists {
+		node.recordsMu.RUnlock()
 		trace.Found = true
 		return record, true, trace
 	}
+	node.recordsMu.RUnlock()
 
 	target := NodeID(key)
 	seen := map[NodeID]struct{}{node.ID: {}}
@@ -155,7 +179,10 @@ func (node *KadabraNode) FindRecord(key uint64) (SequenceRecord, bool, LookupTra
 			trace.Latency += peer.RTT
 			node.observePeerQuery(peer)
 
-			if record, exists := peer.Node.records[key]; exists {
+			peer.Node.recordsMu.RLock()
+			record, exists := peer.Node.records[key]
+			peer.Node.recordsMu.RUnlock()
+			if exists {
 				trace.Found = true
 				return record, true, trace
 			}
@@ -176,10 +203,11 @@ LookupNodes returns up to limit closest node ids discovered by iterative lookup.
 */
 func (node *KadabraNode) LookupNodes(target uint64, limit int) []PeerInfo {
 	nodes := node.lookupNodes(NodeID(target), limit)
-	out := make([]PeerInfo, 0, len(nodes))
+	targetID := NodeID(target)
+	out := make([]PeerInfo, 0, len(nodes)+1)
+
 	for _, candidate := range nodes {
 		if candidate == nil || candidate.ID == node.ID {
-			out = append(out, PeerInfo{ID: node.ID, RTT: 0, Bucket: dhtIDBits - 1})
 			continue
 		}
 
@@ -190,6 +218,22 @@ func (node *KadabraNode) LookupNodes(target uint64, limit int) []PeerInfo {
 			Bucket: kadabraBucketIndex(node.ID, candidate.ID),
 		})
 	}
+
+	out = append(out, PeerInfo{
+		ID:     node.ID,
+		RTT:    0,
+		Bucket: dhtIDBits - 1,
+	})
+
+	sort.Slice(out, func(leftIndex int, rightIndex int) bool {
+		leftDistance := xorDistance(out[leftIndex].ID, targetID)
+		rightDistance := xorDistance(out[rightIndex].ID, targetID)
+		if leftDistance == rightDistance {
+			return out[leftIndex].ID < out[rightIndex].ID
+		}
+
+		return leftDistance < rightDistance
+	})
 
 	return out
 }

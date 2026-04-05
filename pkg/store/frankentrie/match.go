@@ -34,10 +34,13 @@ allowing single-edit fuzzy matches at the token level.
 func (store *Store) MatchContext(context string) ContextMatch {
 	tokens := store.Tokenize(context)
 
-	bestMatch := ContextMatch{
+	fallbackMatch := ContextMatch{
 		Node: store.root,
 		Path: []*Node{store.root},
 	}
+
+	var bestMatch ContextMatch
+	bestTokenCount := -1
 
 	for startIndex := 0; startIndex < len(tokens); startIndex++ {
 		suffix := tokens[startIndex:]
@@ -46,15 +49,22 @@ func (store *Store) MatchContext(context string) ContextMatch {
 			continue
 		}
 
-		return ContextMatch{
-			Node:          node,
-			ActiveTokens:  matchedTokens,
-			ActiveContext: strings.Join(matchedTokens, ""),
-			Path:          path,
+		if len(matchedTokens) > bestTokenCount {
+			bestTokenCount = len(matchedTokens)
+			bestMatch = ContextMatch{
+				Node:          node,
+				ActiveTokens:  matchedTokens,
+				ActiveContext: strings.Join(matchedTokens, ""),
+				Path:          path,
+			}
 		}
 	}
 
-	return bestMatch
+	if bestTokenCount >= 0 {
+		return bestMatch
+	}
+
+	return fallbackMatch
 }
 
 /*
@@ -146,15 +156,19 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 
 	bestWord := word
 	bestSimilarity := -1.0
+	editMapped := ""
+	editDistance := int(^uint(0) >> 1)
 
 	for _, knownWord := range store.vocabularyOrder {
 		if absInt(utf8.RuneCountInString(knownWord)-utf8.RuneCountInString(word)) <= 2 {
-			if store.EditDistance(word, knownWord) <= defaultEditDistance {
-				return SemanticMatch{
-					Original:   word,
-					Mapped:     knownWord,
-					Similarity: defaultEditSimilarity,
+			distance := store.EditDistance(word, knownWord)
+			if distance <= defaultEditDistance {
+				if distance < editDistance {
+					editDistance = distance
+					editMapped = knownWord
 				}
+
+				continue
 			}
 		}
 
@@ -165,6 +179,14 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 
 		bestSimilarity = similarity
 		bestWord = knownWord
+	}
+
+	if editMapped != "" {
+		return SemanticMatch{
+			Original:   word,
+			Mapped:     editMapped,
+			Similarity: defaultEditSimilarity,
+		}
 	}
 
 	if bestSimilarity > 0 {
@@ -212,10 +234,17 @@ func (store *Store) SurprisalSeries(context string) []Surprisal {
 	surprisals := make([]Surprisal, 0, len(tokens))
 
 	for tokenIndex := range tokens {
-		contextStart := max(0, float64(tokenIndex-store.classificationContext))
-		contextTokens := tokens[int(contextStart):tokenIndex]
+		contextStart := tokenIndex - store.classificationContext
+		if contextStart < 0 {
+			contextStart = 0
+		}
+
+		contextTokens := tokens[contextStart:tokenIndex]
 		probabilities := store.interpolatedProbabilities(contextTokens, "")
 		tokenProbability := probabilities[tokens[tokenIndex]]
+		// Token absent from interpolation yields 0; log2(0) is -Inf and smoothing avoids NaN.
+		// defaultUnknownProbability is a small floor (~10^-3); we assume unknown/rare mass is
+		// rare but not zero so surprisal stays finite and comparable across labels.
 		if tokenProbability <= 0 {
 			tokenProbability = defaultUnknownProbability
 		}

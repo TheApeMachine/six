@@ -22,9 +22,9 @@ for each output bit, majority vote over 57 samples at
 instead of contiguous blocks.
 */
 func (value *Value) ComputeAffinityLSH() error {
-	bits := int(core.Cfg.Value.Region.Tokens.Bits)
-	nWords := (bits + 63) / 64
-	if nWords == 0 || bits <= 0 {
+	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
+	nWords := (tokenBits + 63) / 64
+	if nWords == 0 || tokenBits <= 0 {
 		return errnie.Error(NewPrimitiveError(
 			ErrPrimitiveInvalidValue,
 			nil,
@@ -41,15 +41,15 @@ func (value *Value) ComputeAffinityLSH() error {
 		for s := range affinityLSHSamples {
 			idx := (out*affinityLSHStride + s) % affinityLSHRing
 			w := idx / 64
-		
-			if idx >= bits || w >= nWords || start+w >= core.Cfg.Value.Words {
+
+			if idx >= tokenBits || w >= nWords || start+w >= core.Cfg.Value.Words {
 				continue
 			}
-		
+
 			counted++
 			ones += int((value[start+w] >> uint(idx%64)) & 1)
 		}
-		
+
 		if counted > 0 && ones*2 >= counted {
 			affinity |= 1 << uint(out)
 		}

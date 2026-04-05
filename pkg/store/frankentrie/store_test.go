@@ -81,7 +81,7 @@ func TestInsert(t *testing.T) {
 			store.Insert("truck", "Vehicle")
 
 			So(store.labels, ShouldResemble, []string{"Vehicle"})
-			So(store.classTotals["Vehicle"], ShouldEqual, 1)
+			So(store.ClassTotals["Vehicle"], ShouldEqual, 1)
 			So(store.currentStep, ShouldEqual, 1)
 			So(store.nodeCount, ShouldEqual, 4)
 			So(store.root.TotalVisits, ShouldEqual, 2)
@@ -94,8 +94,8 @@ func TestInsert(t *testing.T) {
 			store.Insert("truck", "Vehicle")
 			store.Insert("car", "Auto")
 
-			So(store.classTotals["Vehicle"], ShouldEqual, 0.5)
-			So(store.classTotals["Auto"], ShouldEqual, 1)
+			So(store.ClassTotals["Vehicle"], ShouldEqual, 0.5)
+			So(store.ClassTotals["Auto"], ShouldEqual, 1)
 			So(store.EffectiveCount(store.root.Children["truck"], "Vehicle"), ShouldEqual, 0.5)
 		})
 	})
@@ -249,7 +249,7 @@ func TestNextProbabilities(t *testing.T) {
 		store := buildSequenceStore()
 
 		Convey("NextProbabilities should return a normalized distribution", func() {
-			probabilities := store.nextProbabilitiesFromTokens([]string{"blue_"}, "Truck", 0)
+			probabilities := store.nextProbabilitiesFromTokens([]string{"blue", "_"}, "Truck", 0)
 
 			total := 0.0
 			for _, probability := range probabilities {
@@ -343,7 +343,7 @@ func TestTrain(t *testing.T) {
 		Convey("Train should scale class totals by learningRate", func() {
 			store.Train("token", "Label", 0.25)
 
-			So(store.classTotals["Label"], ShouldEqual, 0.25)
+			So(store.ClassTotals["Label"], ShouldEqual, 0.25)
 			So(store.currentStep, ShouldEqual, 1)
 		})
 	})

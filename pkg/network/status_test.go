@@ -145,10 +145,9 @@ func TestUniConnWithManagedTransport(t *testing.T) {
 			gc.So(string(buf), gc.ShouldEqual, "hello")
 		})
 
-		gc.Reset(func() {
-			conn.Close()
-			gc.So(transport.closed, gc.ShouldBeTrue)
-		})
+		closeErr := conn.Close()
+		gc.So(closeErr, gc.ShouldBeNil)
+		gc.So(transport.closed, gc.ShouldBeTrue)
 	})
 }
 

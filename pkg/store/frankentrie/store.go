@@ -33,6 +33,7 @@ const (
 	defaultExperienceEmptyLabel     = "None"
 	defaultEpisodicCapacity         = 1000
 	defaultEpisodicNeighborLimit    = 16
+	defaultEpisodicRecencyWeight    = 0.25
 	defaultEpisodicBlendWeight      = 0.35
 	defaultInitialConceptCounter    = 1
 	bpeEndOfWordToken               = "</w>"
@@ -44,11 +45,11 @@ Store stores labeled token sequences in a trie, applies lazy decay, and
 derives interpolated next-token probabilities for classification and generation.
 */
 type Store struct {
-	root                     *Node
-	labels                   []string
-	labelSet                 map[string]struct{}
-	classTotals              map[string]float64
-	ClassCounts              map[string]float64
+	root     *Node
+	labels   []string
+	labelSet map[string]struct{}
+	// ClassTotals holds decayed cumulative training weight per label (global marginal).
+	ClassTotals              map[string]float64
 	nodeCount                uint64
 	decayFactor              float64
 	currentStep              int
@@ -56,6 +57,7 @@ type Store struct {
 	vocabularyOrder          []string
 	coOccurrence             map[string]map[string]float64
 	extractedSymbols         []ExtractedSymbol
+	patternsDirty            bool
 	endToken                 string
 	maximumPathLength        int
 	interpolationSuffixDepth int
@@ -68,6 +70,7 @@ type Store struct {
 	episodicCapacity         int
 	episodicAlpha            float64
 	episodicNeighborLimit    int
+	episodicRecencyWeight    float64
 	episodicBuffer           []episodicEvent
 	linearInterpolation      bool
 }
@@ -88,7 +91,7 @@ func NewStore(options ...Option) *Store {
 			ClassCounts: make(map[string]float64),
 		},
 		labelSet:                 make(map[string]struct{}),
-		classTotals:              make(map[string]float64),
+		ClassTotals:              make(map[string]float64),
 		nodeCount:                1,
 		decayFactor:              defaultDecayFactor,
 		vocabulary:               make(map[string]struct{}),
@@ -104,14 +107,11 @@ func NewStore(options ...Option) *Store {
 		episodicCapacity:         0,
 		episodicAlpha:            defaultEpisodicBlendWeight,
 		episodicNeighborLimit:    defaultEpisodicNeighborLimit,
+		episodicRecencyWeight:    defaultEpisodicRecencyWeight,
 	}
 
 	for _, option := range options {
 		option(store)
-	}
-
-	if store.random == nil {
-		store.random = rand.New(rand.NewSource(1))
 	}
 
 	return store
@@ -122,6 +122,16 @@ Insert records one labeled sequence at full learning rate.
 */
 func (store *Store) Insert(sequence string, label string) {
 	store.Train(sequence, label, 1)
+}
+
+/*
+Flush applies pruning and rebuilds extracted pattern symbols. Training only
+refreshes patterns on pruneInterval boundaries; batch callers should call Flush
+when a sequence of Train steps finishes.
+*/
+func (store *Store) Flush() {
+	store.applyPrune()
+	store.rebuildExtractedPatterns()
 }
 
 /*
@@ -217,6 +227,20 @@ func WithEpisodicNeighborLimit(limit int) Option {
 		}
 
 		store.episodicNeighborLimit = limit
+	}
+}
+
+/*
+WithEpisodicRecencyWeight scales how much newer episodic buffer rows inflate
+next-token counts (0 disables the bias).
+*/
+func WithEpisodicRecencyWeight(weight float64) Option {
+	return func(store *Store) {
+		if weight < 0 {
+			return
+		}
+
+		store.episodicRecencyWeight = weight
 	}
 }
 
