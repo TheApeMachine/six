@@ -7,6 +7,20 @@ Classify scores a context against all labels and normalizes the result to
 percentages with a softmax.
 */
 func (store *Store) Classify(context string) map[string]float64 {
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.classifyBody(context)
+}
+
+/*
+classifyBody runs classification; caller must hold store.mu.
+*/
+func (store *Store) classifyBody(context string) map[string]float64 {
 	scores, _ := store.classifyLogEvidence(context)
 	result := softmaxPercentages(scores, store.labels)
 
@@ -25,6 +39,13 @@ func (store *Store) ClassifyDetailed(context string) (
 	scores map[string]float64,
 	contributions map[string][]TokenContribution,
 ) {
+	if store == nil {
+		return nil, nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	logEvidence, contributions := store.classifyLogEvidence(context)
 
 	return softmaxPercentages(logEvidence, store.labels), contributions
@@ -46,7 +67,7 @@ func (store *Store) classifyLogEvidence(context string) (
 		return logEvidence, contributions
 	}
 
-	tokens := store.Tokenize(context)
+	tokens := store.tokenizeUnlocked(context)
 
 	classificationContext := store.classificationContext
 	if store.adaptive != nil {

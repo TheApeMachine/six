@@ -208,7 +208,21 @@ underscore and space runs as standalone tokens, unless a byte-pair encoder is
 attached in which case subword tokens mirror EncodeDocument output.
 */
 func (store *Store) Tokenize(text string) []string {
-	if store != nil && store.bpe != nil {
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.tokenizeUnlocked(text)
+}
+
+/*
+tokenizeUnlocked is the Tokenize implementation; the caller must hold store.mu.
+*/
+func (store *Store) tokenizeUnlocked(text string) []string {
+	if store.bpe != nil {
 		tokens := store.bpe.EncodeDocument(text)
 		if len(tokens) == 0 {
 			return nil
@@ -217,7 +231,7 @@ func (store *Store) Tokenize(text string) []string {
 		return tokens
 	}
 
-	if store != nil && store.wordTokensOnly {
+	if store.wordTokensOnly {
 		return splitWordsFromLine(text)
 	}
 
@@ -247,5 +261,6 @@ func (store *Store) Tokenize(text string) []string {
 	}
 
 	tokens = append(tokens, text[tokenStart:])
+
 	return tokens
 }

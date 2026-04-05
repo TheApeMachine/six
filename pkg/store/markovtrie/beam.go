@@ -3,6 +3,10 @@ package markovtrie
 import "sort"
 
 func sortedChildTokens(node *Node) []string {
+	if node == nil {
+		return nil
+	}
+
 	tokens := make([]string, 0, len(node.Children))
 	for token := range node.Children {
 		tokens = append(tokens, token)

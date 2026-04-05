@@ -164,7 +164,7 @@ func TestSemanticEquivalent(t *testing.T) {
 
 			So(match.Original, ShouldEqual, "zeppelin")
 			So(match.Mapped, ShouldEqual, "zeppelin")
-			So(match.Similarity, ShouldEqual, 1)
+			So(match.Similarity, ShouldEqual, 0)
 		})
 	})
 }

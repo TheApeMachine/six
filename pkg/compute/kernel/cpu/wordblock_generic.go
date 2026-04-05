@@ -9,6 +9,10 @@ import "math/bits"
 func (backend *Backend) HammingMatch(
 	frame []uint64, target uint64, maxDist uint64,
 ) bool {
+	if len(frame) == 0 {
+		return false
+	}
+
 	for _, w := range frame {
 		if uint64(bits.OnesCount64(w^target)) <= maxDist {
 			return true

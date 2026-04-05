@@ -53,9 +53,21 @@ func (coordinator *MultimodalCoordinator) TrainStep(
 
 	rewardSequence := strconv.FormatFloat(rewardSignal, 'g', 6, 64)
 
-	coordinator.Sensory.Train(sensorySequence, label, learningRate)
-	coordinator.Action.Train(actionSequence, label, learningRate)
-	coordinator.Reward.Train(rewardSequence, label, learningRate)
+	if coordinator.Sensory != nil {
+		coordinator.Sensory.Train(sensorySequence, label, learningRate)
+	}
+
+	if coordinator.Action != nil {
+		coordinator.Action.Train(actionSequence, label, learningRate)
+	}
+
+	if coordinator.Reward != nil {
+		coordinator.Reward.Train(rewardSequence, label, learningRate)
+	}
+
+	if coordinator.Sensory == nil || coordinator.Action == nil || coordinator.Reward == nil {
+		return
+	}
 
 	sensoryID := coordinator.Sensory.DeepestNodeID(sensorySequence)
 	actionID := coordinator.Action.DeepestNodeID(actionSequence)
@@ -78,6 +90,10 @@ func (coordinator *MultimodalCoordinator) CoactivationStrength(
 	rewardSignal float64,
 ) float64 {
 	if coordinator == nil {
+		return 0
+	}
+
+	if coordinator.Sensory == nil || coordinator.Action == nil || coordinator.Reward == nil {
 		return 0
 	}
 

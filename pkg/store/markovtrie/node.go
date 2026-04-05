@@ -24,6 +24,13 @@ DeepestNodeID walks exact post-tokenization symbols through the trie including
 the configured end token and returns the last reachable node identifier.
 */
 func (store *Store) DeepestNodeID(sequence string) string {
+	if store == nil {
+		return ""
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	tokens := store.tokensWithEnd(sequence)
 	node := store.root
 
@@ -74,7 +81,7 @@ func (store *Store) applyPrune() {
 	pruneNode = func(node *Node) {
 		for _, token := range sortedChildTokens(node) {
 			child := node.Children[token]
-			if store.EffectiveCount(child, "") < threshold {
+			if store.effectiveCountUnlocked(child, "") < threshold {
 				store.nodeCount -= uint64(subtreeSize(child))
 				delete(node.Children, token)
 				continue
@@ -119,7 +126,8 @@ func (store *Store) updateCoOccurrence(words []string) {
 }
 
 func (store *Store) tokensWithEnd(sequence string) []string {
-	tokens := append([]string(nil), store.Tokenize(sequence)...)
+	tokens := append([]string(nil), store.tokenizeUnlocked(sequence)...)
+
 	return append(tokens, store.endToken)
 }
 
@@ -174,6 +182,9 @@ func (store *Store) EpisodicBufferSnapshot() []EpisodicEpisode {
 	if store == nil || len(store.episodicBuffer) == 0 {
 		return nil
 	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
 
 	out := make([]EpisodicEpisode, 0, len(store.episodicBuffer))
 

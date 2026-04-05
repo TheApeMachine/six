@@ -32,10 +32,10 @@ type adaptiveState struct {
 	classifyTotal float64
 
 	// Adaptive pruning: tracks node growth rate.
-	lastNodeCount   uint64
-	lastPruneStep   int
-	growthRateEMA   float64
-	pruneThreshold  float64
+	lastNodeCount  uint64
+	lastPruneStep  int
+	growthRateEMA  float64
+	pruneThreshold float64
 
 	// Field pressure: external modulation applied by the distributed field.
 	// These shift the trie's behavior without the trie "deciding" anything.
@@ -47,8 +47,8 @@ type adaptiveState struct {
 }
 
 const (
-	maxAdaptiveDepth = 8
-	adaptiveEMAAlpha = 0.05
+	maxAdaptiveDepth   = 8
+	adaptiveEMAAlpha   = 0.05
 	adaptiveMinSamples = 50
 )
 
@@ -294,7 +294,8 @@ func (state *adaptiveState) observeNodeGrowth(nodeCount uint64, currentStep int)
 		return
 	}
 
-	growthRate := float64(nodeCount-state.lastNodeCount) / stepDelta
+	deltaNodes := int64(nodeCount) - int64(state.lastNodeCount)
+	growthRate := float64(deltaNodes) / stepDelta
 	state.growthRateEMA = (1-adaptiveEMAAlpha)*state.growthRateEMA + adaptiveEMAAlpha*growthRate
 
 	state.lastNodeCount = nodeCount
@@ -427,7 +428,12 @@ func (state *adaptiveState) deriveBeamWidth(confidence float64) int {
 		return 3 + int((80-confidence)/40*2)
 	}
 
-	return 5 + int((40-confidence)/40*2)
+	wide := 5 + int((40-confidence)/40*2)
+	if wide > 6 {
+		wide = 6
+	}
+
+	return wide
 }
 
 /*
@@ -441,7 +447,7 @@ func (state *adaptiveState) deriveMaxHops(base int) int {
 
 	// Find the deepest depth with >10% hit rate — that's roughly how far
 	// the trie can reliably predict. Generate 2x that for exploration.
-	deepest := 2
+	deepest := 0
 
 	for i := maxAdaptiveDepth - 1; i >= 0; i-- {
 		rate := state.depthHits[i] / state.depthTotal

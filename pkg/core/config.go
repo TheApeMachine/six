@@ -79,24 +79,25 @@ type SystemConfig struct {
 ValueConfig holds the configuration for a Value.
 */
 type ValueConfig struct {
-	Words   int                `mapstructure:"words"`
-	Bytes   int                `mapstructure:"bytes"`
-	Region  ValueRegionConfig  `mapstructure:"region"`
-	Opcodes ValueOpcodesConfig `mapstructure:"opcodes"`
+	Words        int                `mapstructure:"words"`
+	Bytes        int                `mapstructure:"bytes"`
+	NumRotations int                `mapstructure:"num_rotations"`
+	Region       ValueRegionConfig  `mapstructure:"region"`
+	Opcodes      ValueOpcodesConfig `mapstructure:"opcodes"`
 }
 
 /*
 ValueRegionConfig holds the configuration for a Value's region.
 */
 type ValueRegionConfig struct {
-	Tokens   ValueOffsetConfig      `mapstructure:"tokens"`
-	Affinity ValueOffsetConfig      `mapstructure:"affinity"`
-	Program  ValueOffsetConfig      `mapstructure:"program"`
-	Signals  ValueOffsetConfig      `mapstructure:"signals"`
-	Reserved ValueOffsetConfig      `mapstructure:"reserved"`
-	Prev     ValueOffsetConfig      `mapstructure:"prev"`
-	Next     ValueOffsetConfig      `mapstructure:"next"`
-	ID       ValueOffsetConfig      `mapstructure:"id"`
+	Tokens   ValueOffsetConfig `mapstructure:"tokens"`
+	Affinity ValueOffsetConfig `mapstructure:"affinity"`
+	Program  ValueOffsetConfig `mapstructure:"program"`
+	Signals  ValueOffsetConfig `mapstructure:"signals"`
+	Reserved ValueOffsetConfig `mapstructure:"reserved"`
+	Prev     ValueOffsetConfig `mapstructure:"prev"`
+	Next     ValueOffsetConfig `mapstructure:"next"`
+	ID       ValueOffsetConfig `mapstructure:"id"`
 
 	// Legacy fields kept for backward compatibility during migration.
 	// TODO: remove once all consumers are updated.
@@ -224,75 +225,83 @@ func NewConfig() *Config {
 
 			return kadabraCfg
 		}(),
-		Value: ValueConfig{
-			Words: viper.GetInt("value.words"),
-			Bytes: viper.GetInt("value.bytes"),
-			Region: ValueRegionConfig{
-				Tokens: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.tokens.start"),
-					Bits:  viper.GetUint64("value.region.tokens.bits"),
+		Value: func() ValueConfig {
+			numRotations := viper.GetInt("value.num_rotations")
+			if numRotations <= 0 {
+				numRotations = 16
+			}
+
+			return ValueConfig{
+				Words:        viper.GetInt("value.words"),
+				Bytes:        viper.GetInt("value.bytes"),
+				NumRotations: numRotations,
+				Region: ValueRegionConfig{
+					Tokens: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.tokens.start"),
+						Bits:  viper.GetUint64("value.region.tokens.bits"),
+					},
+					ID: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.id.start"),
+						Bits:  viper.GetUint64("value.region.id.bits"),
+					},
+					Prev: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.prev.start"),
+						Bits:  viper.GetUint64("value.region.prev.bits"),
+					},
+					Next: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.next.start"),
+						Bits:  viper.GetUint64("value.region.next.bits"),
+					},
+					State: ValueRegionConfigState{
+						Index:       viper.GetInt("value.region.state.index"),
+						Sequence:    viper.GetInt("value.region.state.sequence"),
+						Accumulator: viper.GetInt("value.region.state.accumulator"),
+					},
+					Affinity: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.affinity.start"),
+						Bits:  viper.GetUint64("value.region.affinity.bits"),
+					},
+					Registers: ValueRegistersConfig{
+						Start: viper.GetInt("value.region.registers.start"),
+						Bits:  viper.GetInt("value.region.registers.bits"),
+						R0:    viper.GetInt("value.region.registers.r0"),
+						R1:    viper.GetInt("value.region.registers.r1"),
+						R2:    viper.GetInt("value.region.registers.r2"),
+						R3:    viper.GetInt("value.region.registers.r3"),
+						R4:    viper.GetInt("value.region.registers.r4"),
+						R5:    viper.GetInt("value.region.registers.r5"),
+						R6:    viper.GetInt("value.region.registers.r6"),
+						R7:    viper.GetInt("value.region.registers.r7"),
+						R8:    viper.GetInt("value.region.registers.r8"),
+						R9:    viper.GetInt("value.region.registers.r9"),
+						FW:    viper.GetInt("value.region.registers.fw"),
+						PC:    viper.GetInt("value.region.registers.pc"),
+					},
+					Program: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.program.start"),
+						Bits:  viper.GetUint64("value.region.program.bits"),
+					},
+					Signals: ValueOffsetConfig{
+						Start: viper.GetInt("value.region.signals.start"),
+						Bits:  viper.GetUint64("value.region.signals.bits"),
+					},
 				},
-				ID: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.id.start"),
-					Bits:  viper.GetUint64("value.region.id.bits"),
+				Opcodes: ValueOpcodesConfig{
+					False:    viper.GetString("value.opcodes.false"),
+					And:      viper.GetString("value.opcodes.and"),
+					AandNotB: viper.GetString("value.opcodes.aandnotb"),
+					A:        viper.GetString("value.opcodes.a"),
+					NotAandB: viper.GetString("value.opcodes.notandb"),
+					B:        viper.GetString("value.opcodes.b"),
+					XOR:      viper.GetString("value.opcodes.xor"),
+					OR:       viper.GetString("value.opcodes.or"),
+					NOR:      viper.GetString("value.opcodes.nor"),
+					XNOR:     viper.GetString("value.opcodes.xnor"),
+					NOTB:     viper.GetString("value.opcodes.notb"),
+					IFBTHENA: viper.GetString("value.opcodes.ifbthena"),
 				},
-				Prev: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.prev.start"),
-					Bits:  viper.GetUint64("value.region.prev.bits"),
-				},
-				Next: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.next.start"),
-					Bits:  viper.GetUint64("value.region.next.bits"),
-				},
-				State: ValueRegionConfigState{
-					Index:       viper.GetInt("value.region.state.index"),
-					Sequence:    viper.GetInt("value.region.state.sequence"),
-					Accumulator: viper.GetInt("value.region.state.accumulator"),
-				},
-				Affinity: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.affinity.start"),
-					Bits:  viper.GetUint64("value.region.affinity.bits"),
-				},
-				Registers: ValueRegistersConfig{
-					Start: viper.GetInt("value.region.registers.start"),
-					Bits:  viper.GetInt("value.region.registers.bits"),
-					R0:    viper.GetInt("value.region.registers.r0"),
-					R1:    viper.GetInt("value.region.registers.r1"),
-					R2:    viper.GetInt("value.region.registers.r2"),
-					R3:    viper.GetInt("value.region.registers.r3"),
-					R4:    viper.GetInt("value.region.registers.r4"),
-					R5:    viper.GetInt("value.region.registers.r5"),
-					R6:    viper.GetInt("value.region.registers.r6"),
-					R7:    viper.GetInt("value.region.registers.r7"),
-					R8:    viper.GetInt("value.region.registers.r8"),
-					R9:    viper.GetInt("value.region.registers.r9"),
-					FW:    viper.GetInt("value.region.registers.fw"),
-					PC:    viper.GetInt("value.region.registers.pc"),
-				},
-				Program: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.program.start"),
-					Bits:  viper.GetUint64("value.region.program.bits"),
-				},
-				Signals: ValueOffsetConfig{
-					Start: viper.GetInt("value.region.signals.start"),
-					Bits:  viper.GetUint64("value.region.signals.bits"),
-				},
-			},
-			Opcodes: ValueOpcodesConfig{
-				False:    viper.GetString("value.opcodes.false"),
-				And:      viper.GetString("value.opcodes.and"),
-				AandNotB: viper.GetString("value.opcodes.aandnotb"),
-				A:        viper.GetString("value.opcodes.a"),
-				NotAandB: viper.GetString("value.opcodes.notandb"),
-				B:        viper.GetString("value.opcodes.b"),
-				XOR:      viper.GetString("value.opcodes.xor"),
-				OR:       viper.GetString("value.opcodes.or"),
-				NOR:      viper.GetString("value.opcodes.nor"),
-				XNOR:     viper.GetString("value.opcodes.xnor"),
-				NOTB:     viper.GetString("value.opcodes.notb"),
-				IFBTHENA: viper.GetString("value.opcodes.ifbthena"),
-			},
-		},
+			}
+		}(),
 		TelemetryEnabled:               viper.GetBool("telemetry.enabled"),
 		TelemetryEndpoint:              viper.GetString("telemetry.udp_endpoint"),
 		TelemetryUniversalBitwiseSlots: viper.GetBool("telemetry.universal_bitwise_slots"),

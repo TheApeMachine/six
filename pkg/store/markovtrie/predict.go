@@ -11,13 +11,15 @@ func (store *Store) Predict(data string) Prediction {
 		return Prediction{}
 	}
 
-	tokens := store.contentTokens(store.Tokenize(data))
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	tokens := store.contentTokens(store.tokenizeUnlocked(data))
 	if len(tokens) == 0 {
 		return Prediction{}
 	}
 
-	// Surprisal drives internal learning decisions.
-	surprisalSeries := store.SurprisalSeries(data)
+	surprisalSeries := store.surprisalSeriesBody(data)
 	totalBits := 0.0
 	for _, s := range surprisalSeries {
 		totalBits += s.Bits
@@ -28,16 +30,13 @@ func (store *Store) Predict(data string) Prediction {
 		avgSurprisal = totalBits / float64(len(surprisalSeries))
 	}
 
-	// Learn from surprising input before classifying.
-	if avgSurprisal > 1.0 {
-		store.Experience(data, nil)
+	if avgSurprisal > store.predictExperienceSurprisalGate() {
+		store.experienceBody(data, nil)
 	}
 
-	// Classify.
-	scores := store.Classify(data)
+	scores := store.classifyBody(data)
 	bestLabel, bestScore := store.bestLabelScore(scores)
 
-	// Derive generation parameters.
 	temperature := 0.7
 	beamWidth := 3
 	maxHops := 8
@@ -48,10 +47,9 @@ func (store *Store) Predict(data string) Prediction {
 		maxHops = store.adaptive.deriveMaxHops(maxHops)
 	}
 
-	// Continuations via beam search + one sampled generation for diversity.
-	continuations := store.BeamSearch(data, bestLabel, beamWidth, maxHops)
+	continuations := store.beamSearchBody(data, bestLabel, beamWidth, maxHops)
 
-	sampled := store.Generate(data, bestLabel, temperature, maxHops)
+	sampled := store.generateBody(data, bestLabel, temperature, maxHops)
 	if sampled != "" {
 		isDuplicate := false
 		for _, c := range continuations {

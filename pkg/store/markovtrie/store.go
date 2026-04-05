@@ -3,6 +3,7 @@ package markovtrie
 import (
 	"math/rand"
 	"strings"
+	"sync"
 )
 
 const (
@@ -38,6 +39,12 @@ const (
 	defaultInitialConceptCounter    = 1
 	bpeEndOfWordToken               = "</w>"
 	bpePairDelimiter                = "\x00"
+
+	/*
+		defaultPredictExperienceSurprisalBits is the average per-token surprisal
+		floor above which Predict invokes Experience before classification.
+	*/
+	defaultPredictExperienceSurprisalBits = 1.0
 )
 
 /*
@@ -45,6 +52,8 @@ Store stores labeled token sequences in a trie, applies lazy decay, and
 derives interpolated next-token probabilities for classification and generation.
 */
 type Store struct {
+	mu sync.Mutex
+
 	root     *Node
 	labels   []string
 	labelSet map[string]struct{}
@@ -78,6 +87,12 @@ type Store struct {
 	episodicDecayGamma       float64
 	episodicSequenceCounter  uint64
 	adaptive                 *adaptiveState
+
+	/*
+		predictExperienceSurprisalBits overrides defaultPredictExperienceSurprisalBits
+		when > 0 so callers can tune automatic Experience inside Predict.
+	*/
+	predictExperienceSurprisalBits float64
 }
 
 /*
@@ -124,10 +139,47 @@ func NewStore(options ...Option) *Store {
 }
 
 /*
+predictExperienceSurprisalGate returns the average surprisal threshold used
+inside Predict to decide whether to run Experience before classification.
+*/
+func (store *Store) predictExperienceSurprisalGate() float64 {
+	if store == nil {
+		return defaultPredictExperienceSurprisalBits
+	}
+
+	if store.predictExperienceSurprisalBits > 0 {
+		return store.predictExperienceSurprisalBits
+	}
+
+	return defaultPredictExperienceSurprisalBits
+}
+
+/*
+WithPredictExperienceSurprisalBits sets the per-token average surprisal (bits)
+above which Predict calls Experience. Values <= 0 keep the package default.
+*/
+func WithPredictExperienceSurprisalBits(bits float64) Option {
+	return func(store *Store) {
+		if bits <= 0 {
+			return
+		}
+
+		store.predictExperienceSurprisalBits = bits
+	}
+}
+
+/*
 Insert records one labeled sequence at full learning rate.
 */
 func (store *Store) Insert(sequence string, label string) {
-	store.Train(sequence, label, 1)
+	if store == nil {
+		return
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	store.trainBody(sequence, label, 1)
 }
 
 /*
@@ -136,6 +188,13 @@ refreshes patterns on pruneInterval boundaries; batch callers should call Flush
 when a sequence of Train steps finishes.
 */
 func (store *Store) Flush() {
+	if store == nil {
+		return
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	store.applyPrune()
 	store.rebuildExtractedPatterns()
 }
@@ -324,6 +383,9 @@ func (store *Store) ApplyFieldPressure(decay, learning, prune float64) {
 		return
 	}
 
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	store.adaptive.fieldDecayPressure = decay
 	store.adaptive.fieldLearningPressure = learning
 	store.adaptive.fieldPrunePressure = prune
@@ -349,6 +411,9 @@ func (store *Store) AdaptiveDigest() AdaptiveSignals {
 	if store == nil || store.adaptive == nil || !store.adaptive.enabled {
 		return AdaptiveSignals{}
 	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
 
 	a := store.adaptive
 

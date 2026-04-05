@@ -9,13 +9,11 @@ import (
 /*
 Signal describes a detected structure in a Value's token region.
 RunLen is the length of the longest contiguous run found.
-Position is the bit offset where the run starts.
 Kind distinguishes zero-runs (absence) from one-runs (density).
 */
 type Signal struct {
 	WordIndex int
 	RunLen    int
-	Position  int
 	Kind      SignalKind
 }
 

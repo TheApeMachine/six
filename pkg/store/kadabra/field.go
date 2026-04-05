@@ -42,6 +42,17 @@ evaluate multi-scale structural alignment between affinity vectors.
 */
 var affineRotations = [4]uint64{1, 4, 16, 64}
 
+/*
+affineAffinityBitRotationMul scales each affine exponent k (from affineRotations)
+before reducing mod 64 for the per-lane bit rotation in affineCoupling.
+
+Using 3 keeps gcd(3, 64) = 1 so the composed shift (k * affineAffinityBitRotationMul) % 64
+visits many distinct bit phases as k sweeps the exponentially spaced scales,
+spreading overlap mass across the AffinityWords × 64-bit hypercube instead of
+reusing a small set of aligned rotations only.
+*/
+const affineAffinityBitRotationMul = 3
+
 const (
 	// modeCouplingThreshold: minimum affine coupling to consider two
 	// digests part of the same eigenmode.
@@ -50,10 +61,10 @@ const (
 	// alignedDecayFactor: nodes in the dominant mode decay slowly (retained).
 	// misalignedDecayFactor: nodes outside the dominant mode decay fast (pruned).
 	// The asymmetry is the selection pressure — this IS the attention.
-	alignedDecayMultiplier    = 0.5  // halves decay pressure (retain)
-	misalignedDecayMultiplier = 2.0  // doubles decay pressure (forget)
-	alignedLearnMultiplier    = 1.5  // amplify learning
-	misalignedLearnMultiplier = 0.3  // suppress learning
+	alignedDecayMultiplier    = 0.5 // halves decay pressure (retain)
+	misalignedDecayMultiplier = 2.0 // doubles decay pressure (forget)
+	alignedLearnMultiplier    = 1.5 // amplify learning
+	misalignedLearnMultiplier = 0.3 // suppress learning
 )
 
 /*
@@ -76,7 +87,7 @@ func affineCoupling(a, b [AffinityWords]uint64) float64 {
 		var permuted [AffinityWords]uint64
 		for w := range AffinityWords {
 			srcWord := int((uint64(w) + k) % uint64(AffinityWords))
-			shift := (k * 3) % 64
+			shift := (k * affineAffinityBitRotationMul) % 64
 			permuted[w] = (a[srcWord] << shift) | (a[srcWord] >> (64 - shift))
 		}
 
@@ -92,19 +103,28 @@ func phaseVelocity(d FieldDigest) float64 {
 	return d.SurprisalMean - d.SurprisalPrev
 }
 
+/*
+phaseCoupling scores how strongly two digests' surprisal velocities line up.
+The product va*vb is divided by the square of the geometric mean of the
+two magnitudes (mg := sqrt(magA*magB)), equivalent to (va*vb)/(magA*magB),
+instead of normalizing by max(magA,magB)^2. That avoids over-penalizing
+pairs where one velocity is much weaker than the other.
+*/
 func phaseCoupling(a, b FieldDigest) float64 {
+	const magEps = 0.01
+
 	va := phaseVelocity(a)
 	vb := phaseVelocity(b)
 
 	magA := math.Abs(va)
 	magB := math.Abs(vb)
-	maxMag := math.Max(magA, magB)
+	mg := math.Sqrt(magA * magB)
 
-	if maxMag < 0.01 {
+	if mg < magEps {
 		return 0
 	}
 
-	return (va * vb) / (maxMag * maxMag)
+	return (va * vb) / (mg * mg)
 }
 
 /*
@@ -130,6 +150,91 @@ func newFieldView(owner *KadabraNode) *FieldView {
 		owner:        owner,
 		dominantMode: -1,
 	}
+}
+
+/*
+ModeCount returns how many eigenmodes were detected in the last projection.
+*/
+func (fv *FieldView) ModeCount() int {
+	if fv == nil {
+		return 0
+	}
+
+	fv.mu.RLock()
+	defer fv.mu.RUnlock()
+
+	return len(fv.modes)
+}
+
+/*
+ModeMembers returns a copy of member node IDs for the mode at modeIdx, or nil if out of range.
+*/
+func (fv *FieldView) ModeMembers(modeIdx int) []NodeID {
+	if fv == nil || modeIdx < 0 {
+		return nil
+	}
+
+	fv.mu.RLock()
+	defer fv.mu.RUnlock()
+
+	if modeIdx >= len(fv.modes) {
+		return nil
+	}
+
+	out := make([]NodeID, len(fv.modes[modeIdx].members))
+	copy(out, fv.modes[modeIdx].members)
+
+	return out
+}
+
+/*
+ModeEnergy returns the aggregate energy score for modeIdx, or 0 if out of range.
+*/
+func (fv *FieldView) ModeEnergy(modeIdx int) float64 {
+	if fv == nil || modeIdx < 0 {
+		return 0
+	}
+
+	fv.mu.RLock()
+	defer fv.mu.RUnlock()
+
+	if modeIdx >= len(fv.modes) {
+		return 0
+	}
+
+	return fv.modes[modeIdx].energy
+}
+
+/*
+DominantModeIndex returns the index of the highest-energy mode, or -1 if none.
+*/
+func (fv *FieldView) DominantModeIndex() int {
+	if fv == nil {
+		return -1
+	}
+
+	fv.mu.RLock()
+	defer fv.mu.RUnlock()
+
+	return fv.dominantMode
+}
+
+/*
+DominantModeEnergy returns the energy of the dominant mode, or 0 if there is no dominant mode.
+*/
+func (fv *FieldView) DominantModeEnergy() float64 {
+	if fv == nil {
+		return 0
+	}
+
+	fv.mu.RLock()
+	defer fv.mu.RUnlock()
+
+	if fv.dominantMode < 0 || fv.dominantMode >= len(fv.modes) {
+		return 0
+	}
+
+	return fv.modes[fv.dominantMode].energy
 }
 
 /*
@@ -241,8 +346,8 @@ func (fv *FieldView) project() {
 		return
 	}
 
-	fv.mu.RLock()
-	defer fv.mu.RUnlock()
+	fv.mu.Lock()
+	defer fv.mu.Unlock()
 
 	if len(fv.digests) < 2 {
 		return

@@ -57,6 +57,8 @@ kadabra:
 value:
   words: 128
   bytes: 1024
+  # UniversalBitwise rotates the B span in 8-bit steps; one opcode per rotation.
+  num_rotations: 16
   region:
     tokens:
       start: 0

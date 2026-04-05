@@ -6,6 +6,18 @@ import (
 )
 
 /*
+interpolationWeightFallback mirrors adaptiveState.interpolationWeight when
+adaptive self-tuning is disabled or unavailable.
+*/
+func (store *Store) interpolationWeightFallback(suffixLength int) float64 {
+	if store.linearInterpolation {
+		return float64(suffixLength + 1)
+	}
+
+	return math.Pow(2, float64(suffixLength))
+}
+
+/*
 NextProbability holds one next-token probability.
 */
 type NextProbability struct {
@@ -32,13 +44,19 @@ func (store *Store) interpolatedProbabilities(contextTokens []string, label stri
 			continue
 		}
 
-		weight := store.adaptive.interpolationWeight(suffixLength, store.linearInterpolation)
+		var weight float64
+		if store.adaptive != nil {
+			weight = store.adaptive.interpolationWeight(suffixLength, store.linearInterpolation)
+		} else {
+			weight = store.interpolationWeightFallback(suffixLength)
+		}
+
 		totalWeight += weight
 
 		nodeTotal := 0.0
 		childTokens := sortedChildTokens(node)
 		for _, childToken := range childTokens {
-			nodeTotal += store.EffectiveCount(node.Children[childToken], label)
+			nodeTotal += store.effectiveCountUnlocked(node.Children[childToken], label)
 		}
 
 		vocabularySize := len(childTokens)
@@ -47,7 +65,7 @@ func (store *Store) interpolatedProbabilities(contextTokens []string, label stri
 		}
 
 		for _, childToken := range childTokens {
-			count := store.EffectiveCount(node.Children[childToken], label)
+			count := store.effectiveCountUnlocked(node.Children[childToken], label)
 			probability := (count + defaultAdditiveSmoothing) / (nodeTotal + defaultAdditiveSmoothing*float64(vocabularySize))
 			probabilities[childToken] += probability * weight
 			if probability > bestDepthProb {
@@ -80,7 +98,14 @@ mirroring the demo getNextProbabilities API.
 func (store *Store) NextProbabilities(
 	context string, label string, temperature float64,
 ) []NextProbability {
-	return store.nextProbabilitiesFromTokens(store.Tokenize(context), label, temperature)
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.nextProbabilitiesFromTokens(store.tokenizeUnlocked(context), label, temperature)
 }
 
 func (store *Store) nextProbabilitiesFromTokens(tokens []string, label string, temperature float64) []NextProbability {

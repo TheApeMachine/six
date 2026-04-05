@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Text Overlap — standardised result summary (N=200).}
+\caption{Text Overlap — standardised result summary (N=100).}
 \label{tab:text_overlap_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-35 & Text Overlap & 0.0000 & 0.1080 & 0.0410 & 0.0369 \\
-63 & Text Overlap & 0.0000 & 0.1130 & 0.0322 & 0.0367 \\
-43 & Text Overlap & 0.0000 & 0.1065 & 0.0352 & 0.0354 \\
+0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & prompt\_2 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-67 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-68 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+99 & prompt\_99 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+98 & prompt\_98 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+97 & prompt\_97 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a big gray e\ldots}} & \multicolumn{2}{l}{\texttt{o use her long nose to spray water on th\ldots}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once there were two friends named Bob an\ldots}} & \multicolumn{2}{l}{\texttt{ob smiled and nodded. "That's a good ide\ldots}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a caterpilla\ldots}} & \multicolumn{2}{l}{\texttt{with being scared, just always be brave \ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a baby who w\ldots}} & \multicolumn{2}{l}{\texttt{uldn't wait to show his mum and dad. He \ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{the needle and sewed the button on Lily'\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.··Beep playe\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{John and Sarah were playing together in \ldots}} & \multicolumn{2}{l}{\texttt{he metal outside in the backyard and it \ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a small girl\ldots}} & \multicolumn{2}{l}{\texttt{o visit and see." ··So Susie and the kit\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 200} & \multicolumn{3}{l}{Holdout: 200\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0110} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0369} \\
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 100\% ()} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

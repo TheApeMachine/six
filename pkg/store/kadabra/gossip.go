@@ -1,5 +1,7 @@
 package kadabra
 
+import "sync/atomic"
+
 /*
 Digest produces a FieldDigest from this node's current trie state and
 affinity vector. This is the unit of gossip.
@@ -16,15 +18,15 @@ func (node *KadabraNode) Digest() FieldDigest {
 	node.Field.mu.RUnlock()
 
 	return FieldDigest{
-		Origin:          node.ID,
-		Affinity:        node.Affinity,
-		SurprisalMean:   signals.SurprisalMean,
-		SurprisalVar:    signals.SurprisalVar,
-		SurprisalPrev:   prevSurprisal,
-		ClassEntropy:    signals.ClassEntropy,
-		GrowthRate:      signals.GrowthRate,
-		Depth:           signals.EffectiveDepth,
-		Epoch:           node.epoch,
+		Origin:        node.ID,
+		Affinity:      node.Affinity,
+		SurprisalMean: signals.SurprisalMean,
+		SurprisalVar:  signals.SurprisalVar,
+		SurprisalPrev: prevSurprisal,
+		ClassEntropy:  signals.ClassEntropy,
+		GrowthRate:    signals.GrowthRate,
+		Depth:         signals.EffectiveDepth,
+		Epoch:         atomic.LoadUint64(&node.epoch),
 	}
 }
 
@@ -34,7 +36,7 @@ table. Each receiving peer absorbs the digest into its FieldView. Called
 automatically at the end of each Kadabra epoch.
 */
 func (node *KadabraNode) Gossip() {
-	node.epoch++
+	atomic.AddUint64(&node.epoch, 1)
 	digest := node.Digest()
 
 	// Absorb own digest so the field view includes self.
@@ -46,10 +48,10 @@ func (node *KadabraNode) Gossip() {
 		}
 
 		bucket.mu.RLock()
-		entries := bucket.Entries
+		entriesCopy := append([]*kadabraPeer(nil), bucket.Entries...)
 		bucket.mu.RUnlock()
 
-		for _, peer := range entries {
+		for _, peer := range entriesCopy {
 			if peer == nil || peer.Node == nil {
 				continue
 			}

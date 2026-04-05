@@ -9,6 +9,13 @@ import (
 )
 
 func (store *Store) CurrentStep() int {
+	if store == nil {
+		return 0
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	return store.currentStep
 }
 
@@ -16,6 +23,20 @@ func (store *Store) CurrentStep() int {
 Generate samples a continuation for the supplied context and label.
 */
 func (store *Store) Generate(context string, label string, temperature float64, maxLength int) string {
+	if store == nil {
+		return ""
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.generateBody(context, label, temperature, maxLength)
+}
+
+/*
+generateBody implements Generate; caller must hold store.mu.
+*/
+func (store *Store) generateBody(context string, label string, temperature float64, maxLength int) string {
 	if maxLength <= 0 {
 		return ""
 	}
@@ -24,7 +45,7 @@ func (store *Store) Generate(context string, label string, temperature float64, 
 		temperature = 0
 	}
 
-	contextTokens := store.Tokenize(context)
+	contextTokens := store.tokenizeUnlocked(context)
 	resultTokens := append([]string(nil), contextTokens...)
 	recentTokens := make([]string, 0, defaultRecentWindow)
 
@@ -59,11 +80,25 @@ func (store *Store) Generate(context string, label string, temperature float64, 
 BeamSearch returns the highest-scoring continuations under a fixed beam width.
 */
 func (store *Store) BeamSearch(context string, label string, beamWidth int, maxLength int) []BeamCandidate {
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.beamSearchBody(context, label, beamWidth, maxLength)
+}
+
+/*
+beamSearchBody implements BeamSearch; caller must hold store.mu.
+*/
+func (store *Store) beamSearchBody(context string, label string, beamWidth int, maxLength int) []BeamCandidate {
 	if beamWidth <= 0 || maxLength <= 0 {
 		return nil
 	}
 
-	initialTokens := store.Tokenize(context)
+	initialTokens := store.tokenizeUnlocked(context)
 	beams := []beamState{{
 		Tokens: append([]string(nil), initialTokens...),
 		Score:  0,
@@ -133,6 +168,13 @@ ExtractPatterns returns the label-skewed repeated symbol list, rebuilding from
 the trie only when training has invalidated the cache since the last rebuild.
 */
 func (store *Store) ExtractPatterns() []ExtractedSymbol {
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	if !store.patternsDirty {
 		return append([]ExtractedSymbol(nil), store.extractedSymbols...)
 	}
@@ -152,12 +194,14 @@ func (store *Store) rebuildExtractedPatterns() []ExtractedSymbol {
 			}
 
 			for _, label := range store.labels {
-				candidates[symbol][label] += store.EffectiveCount(node, label)
+				candidates[symbol][label] += store.effectiveCountUnlocked(node, label)
 			}
 		}
 
 		for _, token := range sortedChildTokens(node) {
-			traverse(node.Children[token], append(path, token))
+			child := node.Children[token]
+			childPath := append(append([]string(nil), path...), token)
+			traverse(child, childPath)
 		}
 	}
 
@@ -224,14 +268,22 @@ PosteriorsOverTime returns the posterior distribution for the empty context and
 after each additional token in the input.
 */
 func (store *Store) PosteriorsOverTime(context string) []map[string]float64 {
-	tokens := store.Tokenize(context)
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	tokens := store.tokenizeUnlocked(context)
 	posteriors := make([]map[string]float64, 0, len(tokens)+1)
 
 	currentContext := ""
-	posteriors = append(posteriors, store.Classify(currentContext))
+	posteriors = append(posteriors, store.classifyBody(currentContext))
+
 	for _, token := range tokens {
 		currentContext += token
-		posteriors = append(posteriors, store.Classify(currentContext))
+		posteriors = append(posteriors, store.classifyBody(currentContext))
 	}
 
 	return posteriors
@@ -270,7 +322,7 @@ func (store *Store) walkTokens(tokens []string, allowFuzzy bool) (*Node, []*Node
 
 func (store *Store) fuzzyChild(node *Node, token string) *Node {
 	for _, childToken := range sortedChildTokens(node) {
-		if store.EditDistance(token, childToken) <= defaultEditDistance {
+		if levenshteinTokenDistance(token, childToken) <= defaultEditDistance {
 			return node.Children[childToken]
 		}
 	}
@@ -350,12 +402,29 @@ EffectiveCount returns the node count after applying lazy decay from the last
 update step. When label is empty, it returns the total visit count.
 */
 func (store *Store) EffectiveCount(node *Node, label string) float64 {
+	if store == nil || node == nil {
+		return 0
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.effectiveCountUnlocked(node, label)
+}
+
+/*
+effectiveCountUnlocked implements EffectiveCount; caller must hold store.mu.
+*/
+func (store *Store) effectiveCountUnlocked(node *Node, label string) float64 {
 	if node == nil {
 		return 0
 	}
 
 	stepDelta := store.currentStep - node.LastUpdateStep
-	decay := math.Pow(store.decayFactor, float64(stepDelta))
+	decay := 1.0
+	if stepDelta > 0 {
+		decay = math.Pow(store.decayFactor, float64(stepDelta))
+	}
 
 	if label != "" {
 		return node.ClassCounts[label] * decay

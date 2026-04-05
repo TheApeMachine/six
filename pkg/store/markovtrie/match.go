@@ -32,7 +32,14 @@ MatchContext returns the longest token suffix that can be walked in the trie,
 allowing single-edit fuzzy matches at the token level.
 */
 func (store *Store) MatchContext(context string) ContextMatch {
-	tokens := store.Tokenize(context)
+	if store == nil {
+		return ContextMatch{}
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	tokens := store.tokenizeUnlocked(context)
 
 	fallbackMatch := ContextMatch{
 		Node: store.root,
@@ -127,6 +134,20 @@ Similarity returns cosine similarity between two co-occurrence rows.
 func (store *Store) Similarity(
 	leftToken string, rightToken string,
 ) float64 {
+	if store == nil {
+		return 0
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.similarityUnlocked(leftToken, rightToken)
+}
+
+/*
+similarityUnlocked implements Similarity; caller must hold store.mu.
+*/
+func (store *Store) similarityUnlocked(leftToken string, rightToken string) float64 {
 	if leftToken == rightToken {
 		return 1
 	}
@@ -162,6 +183,17 @@ func (store *Store) Similarity(
 EditDistance returns Levenshtein distance between two tokens.
 */
 func (store *Store) EditDistance(left string, right string) int {
+	if store == nil {
+		return levenshteinTokenDistance(left, right)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return levenshteinTokenDistance(left, right)
+}
+
+func levenshteinTokenDistance(left string, right string) int {
 	leftRunes := []rune(left)
 	rightRunes := []rune(right)
 
@@ -196,10 +228,31 @@ func (store *Store) EditDistance(left string, right string) int {
 }
 
 /*
+editDistanceUnlocked is an alias used on hot paths where store.mu is already held.
+*/
+func (store *Store) editDistanceUnlocked(left string, right string) int {
+	return levenshteinTokenDistance(left, right)
+}
+
+/*
 SemanticEquivalent maps a token onto the nearest known vocabulary item using
 edit distance first and co-occurrence similarity second.
 */
 func (store *Store) SemanticEquivalent(word string) SemanticMatch {
+	if store == nil {
+		return SemanticMatch{Original: word, Mapped: word, Similarity: 0}
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.semanticEquivalentBody(word)
+}
+
+/*
+semanticEquivalentBody implements SemanticEquivalent; caller must hold store.mu.
+*/
+func (store *Store) semanticEquivalentBody(word string) SemanticMatch {
 	if _, exists := store.vocabulary[word]; exists {
 		return SemanticMatch{
 			Original:   word,
@@ -213,14 +266,14 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 	bestNgramSimilarity := -1.0
 	ngramBestWord := word
 	editMapped := ""
-	editDistance := int(^uint(0) >> 1)
+	editDistBest := int(^uint(0) >> 1)
 
 	for _, knownWord := range store.vocabularyOrder {
 		if absInt(utf8.RuneCountInString(knownWord)-utf8.RuneCountInString(word)) <= 2 {
-			distance := store.EditDistance(word, knownWord)
+			distance := store.editDistanceUnlocked(word, knownWord)
 			if distance <= defaultEditDistance {
-				if distance < editDistance {
-					editDistance = distance
+				if distance < editDistBest {
+					editDistBest = distance
 					editMapped = knownWord
 				}
 
@@ -228,7 +281,7 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 			}
 		}
 
-		similarity := store.Similarity(word, knownWord)
+		similarity := store.similarityUnlocked(word, knownWord)
 		if similarity > bestSimilarity {
 			bestSimilarity = similarity
 			bestWord = knownWord
@@ -270,7 +323,7 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 	return SemanticMatch{
 		Original:   word,
 		Mapped:     word,
-		Similarity: 1,
+		Similarity: 0,
 	}
 }
 
@@ -278,11 +331,18 @@ func (store *Store) SemanticEquivalent(word string) SemanticMatch {
 AttentionContext returns semantic mappings for content tokens in the context.
 */
 func (store *Store) AttentionContext(context string) []SemanticMatch {
-	tokens := store.contentTokens(store.Tokenize(context))
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	tokens := store.contentTokens(store.tokenizeUnlocked(context))
 	matches := make([]SemanticMatch, 0, len(tokens))
 
 	for _, token := range tokens {
-		matches = append(matches, store.SemanticEquivalent(token))
+		matches = append(matches, store.semanticEquivalentBody(token))
 	}
 
 	return matches
@@ -293,14 +353,35 @@ InterpolatedProbabilities returns weighted next-token probabilities from all
 suffixes up to the configured interpolation depth.
 */
 func (store *Store) InterpolatedProbabilities(context string, label string) map[string]float64 {
-	return store.interpolatedProbabilities(store.Tokenize(context), label)
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.interpolatedProbabilities(store.tokenizeUnlocked(context), label)
 }
 
 /*
 SurprisalSeries returns the surprisal for each token in the context.
 */
 func (store *Store) SurprisalSeries(context string) []Surprisal {
-	tokens := store.Tokenize(context)
+	if store == nil {
+		return nil
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.surprisalSeriesBody(context)
+}
+
+/*
+surprisalSeriesBody implements SurprisalSeries; caller must hold store.mu.
+*/
+func (store *Store) surprisalSeriesBody(context string) []Surprisal {
+	tokens := store.tokenizeUnlocked(context)
 	surprisals := make([]Surprisal, 0, len(tokens))
 
 	for tokenIndex := range tokens {

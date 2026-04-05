@@ -5,17 +5,20 @@ ReplayOne samples one label, generates a candidate continuation, and reinserts
 it only when it is confident and novel.
 */
 func (store *Store) ReplayOne(temperature float64) *ReplayResult {
-	if len(store.labels) == 0 {
+	if store == nil || len(store.labels) == 0 {
 		return nil
 	}
 
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
 	label := store.labels[store.random.Intn(len(store.labels))]
-	sequence := store.Generate("", label, temperature, defaultReplayLength)
+	sequence := store.generateBody("", label, temperature, defaultReplayLength)
 	if len(sequence) < 2 {
 		return nil
 	}
 
-	scores := store.Classify(sequence)
+	scores := store.classifyBody(sequence)
 	confidence := scores[label]
 	if confidence <= defaultReplayThreshold {
 		return nil
@@ -23,7 +26,7 @@ func (store *Store) ReplayOne(temperature float64) *ReplayResult {
 
 	node := store.root
 	novel := false
-	for _, token := range store.Tokenize(sequence) {
+	for _, token := range store.tokenizeUnlocked(sequence) {
 		child := node.Children[token]
 		if child == nil {
 			novel = true
@@ -37,7 +40,8 @@ func (store *Store) ReplayOne(temperature float64) *ReplayResult {
 		return nil
 	}
 
-	store.Insert(sequence, label)
+	store.trainBody(sequence, label, 1)
+
 	return &ReplayResult{
 		Sequence:   sequence,
 		Label:      label,

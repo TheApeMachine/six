@@ -14,6 +14,20 @@ Pruning and ExtractPatterns run every pruneInterval steps; call Flush after a
 batch of trains when consumers need an up-to-date pattern list sooner.
 */
 func (store *Store) Train(sequence string, label string, learningRate float64) {
+	if store == nil {
+		return
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	store.trainBody(sequence, label, learningRate)
+}
+
+/*
+trainBody contains Train's mutable work; caller must hold store.mu.
+*/
+func (store *Store) trainBody(sequence string, label string, learningRate float64) {
 	label = strings.TrimSpace(label)
 	if label == "" || learningRate <= 0 {
 		return
@@ -78,22 +92,36 @@ Experience performs unsupervised or supervised learning with automatic concept
 spawning and surprise-modulated learning rates.
 */
 func (store *Store) Experience(sequence string, providedLabel *string) ExperienceResult {
+	if store == nil {
+		return ExperienceResult{
+			Label:        defaultExperienceEmptyLabel,
+			Surprisal:    0,
+			LearningRate: 0,
+		}
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.experienceBody(sequence, providedLabel)
+}
+
+/*
+experienceBody is the Experience implementation; caller must hold store.mu.
+*/
+func (store *Store) experienceBody(sequence string, providedLabel *string) ExperienceResult {
 	result := ExperienceResult{
 		Label:        defaultExperienceEmptyLabel,
 		Surprisal:    0,
 		LearningRate: 0,
 	}
 
-	if store == nil {
-		return result
-	}
-
-	content := store.contentTokens(store.Tokenize(sequence))
+	content := store.contentTokens(store.tokenizeUnlocked(sequence))
 	if len(content) == 0 {
 		return result
 	}
 
-	series := store.SurprisalSeries(sequence)
+	series := store.surprisalSeriesBody(sequence)
 	totalBits := 0.0
 
 	for _, item := range series {
@@ -105,7 +133,6 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 		averageBits = totalBits / float64(len(series))
 	}
 
-	// Feed surprisal observations into the adaptive state.
 	for _, item := range series {
 		if store.adaptive != nil {
 			store.adaptive.observeSurprisal(item.Bits)
@@ -124,6 +151,7 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 
 	label := ""
 	isNewConcept := false
+	observeAccuracy := false
 
 	if providedLabel != nil {
 		label = strings.TrimSpace(*providedLabel)
@@ -134,7 +162,7 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 			label = store.nextConceptLabel()
 			isNewConcept = true
 		} else {
-			scores := store.Classify(sequence)
+			scores := store.classifyBody(sequence)
 			bestLabel, maxScore := store.bestLabelScore(scores)
 
 			threshold := store.unsupervisedThreshold
@@ -151,16 +179,20 @@ func (store *Store) Experience(sequence string, providedLabel *string) Experienc
 				isNewConcept = true
 			} else {
 				label = bestLabel
-			}
-
-			// Track accuracy: did the label we picked stay dominant after retraining?
-			if store.adaptive != nil && !isNewConcept {
-				store.adaptive.observeClassifyAccuracy(true)
+				if store.adaptive != nil {
+					observeAccuracy = true
+				}
 			}
 		}
 	}
 
-	store.Train(sequence, label, learningRate)
+	store.trainBody(sequence, label, learningRate)
+
+	if observeAccuracy {
+		scoresAfter := store.classifyBody(sequence)
+		postBest, _ := store.bestLabelScore(scoresAfter)
+		store.adaptive.observeClassifyAccuracy(label == postBest)
+	}
 
 	result.Label = label
 	result.Surprisal = averageBits

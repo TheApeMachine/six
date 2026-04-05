@@ -140,8 +140,18 @@ extern "C" {
 
         unified_bitwise_kernel<<<blocks, threadsPerBlock>>>((uint64_t*)d_pool_A, num_values);
 
-        if (cudaGetLastError()      != cudaSuccess) return -2;
-        if (cudaDeviceSynchronize() != cudaSuccess) return -3;
+        cudaError_t launchErr = cudaGetLastError();
+        if (launchErr != cudaSuccess) {
+            fprintf(stderr, "unified_bitwise_cuda: kernel launch failed: %s\n",
+                    cudaGetErrorString(launchErr));
+            return -2;
+        }
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            fprintf(stderr, "unified_bitwise_cuda: cudaDeviceSynchronize failed: %s\n",
+                    cudaGetErrorString(syncErr));
+            return -3;
+        }
 
         cpyErr = cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
         if (cpyErr != cudaSuccess) {

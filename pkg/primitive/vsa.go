@@ -86,7 +86,7 @@ func (value *Value) ComputeAffinityLSH() error {
 		// Extract token bytes for Bloom fallback.
 		tokenByteLen := (tokenBits + 7) / 8
 		buf := make([]byte, tokenByteLen)
-		for i := 0; i < nWords && i < tokenByteLen/8; i++ {
+		for i := 0; i < nWords && i*8 < tokenByteLen; i++ {
 			w := value[tokStart+i]
 			for b := 0; b < 8 && i*8+b < tokenByteLen; b++ {
 				buf[i*8+b] = byte(w >> uint(b*8))

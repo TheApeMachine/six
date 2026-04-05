@@ -45,13 +45,13 @@ func TestLongestOneRun(t *testing.T) {
 	Convey("longestOneRun should find correct run lengths", t, func() {
 		So(longestOneRun(0), ShouldEqual, 0)
 		So(longestOneRun(1), ShouldEqual, 1)
-		So(longestOneRun(0x3), ShouldEqual, 2)           // 11
-		So(longestOneRun(0x7), ShouldEqual, 3)            // 111
-		So(longestOneRun(0xFF), ShouldEqual, 8)           // 8 ones
-		So(longestOneRun(0xFF00FF), ShouldEqual, 8)       // two 8-runs
-		So(longestOneRun(0xFFFF), ShouldEqual, 16)        // 16 ones
+		So(longestOneRun(0x3), ShouldEqual, 2)                 // 11
+		So(longestOneRun(0x7), ShouldEqual, 3)                 // 111
+		So(longestOneRun(0xFF), ShouldEqual, 8)                // 8 ones
+		So(longestOneRun(0xFF00FF), ShouldEqual, 8)            // two 8-runs
+		So(longestOneRun(0xFFFF), ShouldEqual, 16)             // 16 ones
 		So(longestOneRun(0xFFFFFFFFFFFFFFFF), ShouldEqual, 64) // all ones
-		So(longestOneRun(0x0F0F0F0F), ShouldEqual, 4)    // 4-bit runs
+		So(longestOneRun(0x0F0F0F0F), ShouldEqual, 4)          // 4-bit runs
 	})
 }
 
@@ -299,8 +299,14 @@ func BenchmarkScanSignals(b *testing.B) {
 		0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1,
 	})
 
+	if err := cpuRunner(v); err != nil {
+		b.Fatal(err)
+	}
+
+	noopRunner := func(*Value) error { return nil }
+
 	b.ResetTimer()
 	for b.Loop() {
-		_, _ = ScanSignals(v, cpuRunner)
+		_, _ = ScanSignals(v, noopRunner)
 	}
 }

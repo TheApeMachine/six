@@ -98,5 +98,5 @@ func (node *KadabraNode) finishEpoch(bucket *kadabraBucket) {
 	bucket.Samples = make(map[NodeID]*kadabraPeerSample)
 
 	// Propagate field state at each epoch boundary.
-	go node.Gossip()
+	node.enqueueGossip()
 }

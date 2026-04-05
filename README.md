@@ -12,7 +12,7 @@ This research project started from a simple question: "Can we reject gradient de
 ## Motivations
 
 1. I can't afford a $20k+ GPU, so the only realistic option is to attempt to side-step that obstacle.
-2. If you reject the 1847 origin of gradient-descent, at best the algortithm is over 70 years old, let's try something else.
+2. If you reject the 1847 origin of gradient-descent, at best the algorithm is over 70 years old, let's try something else.
 3. I like to explore interesting problems, and this is by far the most interesting problem of our time.
 
 ---
@@ -21,7 +21,7 @@ This research project started from a simple question: "Can we reject gradient de
 
 Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
 
-```
+```text
 ┌────────────────────────────────┐
 │           The Field            │
 │  Emergent eigenmodes project   │
@@ -53,7 +53,7 @@ The `Value` type comes from the idea that machine intelligence currently lacks i
 
 A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
-```
+```text
 ┌───────────┬────────────┬────────────┬────────────┬─────────────┬──────┬──────┬─────┐
 │  Tokens   │  Affinity  │  Program   │  Signals   │  Reserved   │ Prev │ Next │ ID  │
 │ 512 bits  │  512 bits  │  512 bits  │  512 bits  │  6464 bits  │  64  │  64  │ 64  │
@@ -70,11 +70,11 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 **RULES**
 
 - `Value` operates on itself. It uses its own `Token` region as data.
-- `Values` that encouter each other potentially modify the way they compute.
+- `Values` that encounter each other potentially modify the way they compute.
 
 ### The ALU
 
-The `UniversalBitwise` method is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the opertations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
+The `UniversalBitwise` method is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the operations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
 
 Because alignment is important in this process the `Token` region and `Program` region are the same size, so the `A` part of the data can be held steady while the `B` part of the data is rotated. The "line number" of the `Program` acts as the "program counter" in this case. Rotations need to happen in steps of 8 positions at a time, given our data exists at byte-level granularity.
 
@@ -294,7 +294,7 @@ for i := range nodes {
 
 ## Project Structure
 
-```
+```text
 six/
 ├── cmd/                    # CLI commands (root, init, paper)
 │   └── cfg/config.yml      # Default configuration

@@ -60,14 +60,24 @@ func main() {
 	tokenBits := viper.GetInt("value.region.tokens.bits")
 	tokenWords := (tokenBits + 63) / 64
 	aWords := tokenWords / 2
-	bWords := tokenWords / 2
+	bWords := tokenWords - aWords
 	progStart := viper.GetInt("value.region.program.start")
 	progBits := viper.GetInt("value.region.program.bits")
 	progWords := (progBits + 63) / 64
 	sigStart := viper.GetInt("value.region.signals.start")
 	sigBits := viper.GetInt("value.region.signals.bits")
 	sigWords := (sigBits + 63) / 64
+
 	numRotations := 16
+	if viper.IsSet("value.num_rotations") {
+		numRotations = viper.GetInt("value.num_rotations")
+		if numRotations <= 0 {
+			fmt.Printf("gen primitives: value.num_rotations must be positive, got %d\n", numRotations)
+			os.Exit(1)
+		}
+	}
+
+	// Surface width: one result lane per rotation × each A word (B rotates in lockstep per word).
 	surfaceElements := numRotations * aWords
 
 	var content strings.Builder

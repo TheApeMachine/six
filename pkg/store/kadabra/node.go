@@ -42,6 +42,7 @@ adaptive peer selection inspired by Kadabra.
 */
 type KadabraNode struct {
 	ID                       NodeID
+	epoch                    uint64 // gossip / digest generation; atomically updated (see Gossip, Digest)
 	Store                    *markovtrie.Store
 	Affinity                 [AffinityWords]uint64
 	affinityCount            uint64
@@ -57,8 +58,11 @@ type KadabraNode struct {
 	records                  map[uint64]SequenceRecord
 	routingBits              int
 	buckets                  []*kadabraBucket
-	epoch                    uint64
 	Field                    *FieldView
+
+	// gossipCh sequences Gossip work on a single goroutine so node.epoch and
+	// Digest remain race-free when multiple buckets finish epochs concurrently.
+	gossipCh chan struct{}
 }
 
 /*
@@ -152,6 +156,9 @@ func NewKadabraNode(id NodeID, options ...NodeOption) *KadabraNode {
 	}
 
 	node.Field = newFieldView(node)
+
+	node.gossipCh = make(chan struct{}, 256)
+	go node.runGossipWorker()
 
 	return node
 }

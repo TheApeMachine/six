@@ -570,36 +570,38 @@ func TestFieldGossip(t *testing.T) {
 			// Structurally similar nodes should cluster into the same mode,
 			// and the high-surprisal outlier should dominate by energy.
 			fv := nodes[0].Field
-			fv.mu.RLock()
-			So(len(fv.modes), ShouldEqual, 2) // two distinct clusters
+			So(fv.ModeCount(), ShouldEqual, 2) // two distinct clusters
 
-			// Find the mode containing the shared-affinity nodes.
-			var clusterMode, outlierMode *eigenmode
-			for i := range fv.modes {
+			clusterIdx := -1
+			outlierIdx := -1
+
+			for modeIdx := 0; modeIdx < fv.ModeCount(); modeIdx++ {
 				hasNode0 := false
-				for _, id := range fv.modes[i].members {
+
+				for _, id := range fv.ModeMembers(modeIdx) {
 					if id == nodes[0].ID {
 						hasNode0 = true
 						break
 					}
 				}
+
 				if hasNode0 {
-					clusterMode = &fv.modes[i]
-				} else {
-					outlierMode = &fv.modes[i]
+					clusterIdx = modeIdx
+					continue
 				}
+
+				outlierIdx = modeIdx
 			}
 
-			So(clusterMode, ShouldNotBeNil)
-			So(outlierMode, ShouldNotBeNil)
-			So(len(clusterMode.members), ShouldEqual, 3)  // nodes 0, 2, 3
-			So(len(outlierMode.members), ShouldEqual, 1)   // node 1
+			So(clusterIdx, ShouldNotEqual, -1)
+			So(outlierIdx, ShouldNotEqual, -1)
+			So(len(fv.ModeMembers(clusterIdx)), ShouldEqual, 3) // nodes 0, 2, 3
+			So(len(fv.ModeMembers(outlierIdx)), ShouldEqual, 1) // node 1
 
 			// The outlier (high surprisal) should be the dominant mode —
 			// the system "attends to" where the action is.
-			dominant := fv.modes[fv.dominantMode]
-			So(dominant.energy, ShouldEqual, outlierMode.energy)
-			fv.mu.RUnlock()
+			So(fv.DominantModeEnergy(), ShouldEqual, fv.ModeEnergy(outlierIdx))
+			So(fv.DominantModeIndex(), ShouldEqual, outlierIdx)
 		})
 	})
 }

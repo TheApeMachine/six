@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Text Classification — standardised result summary (N=200).}
+\caption{Text Classification — standardised result summary (N=100).}
 \label{tab:text_classification_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,30 +9,30 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & prompt\_2 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-99 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-98 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-97 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+99 & prompt\_99 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+98 & prompt\_98 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+97 & prompt\_97 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Fears for T N pension after talks Unions\ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{The Race is On: Second Private Team Sets\ldots}} & \multicolumn{2}{l}{\texttt{4}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{Consumer Prices Down, Industry Output Up\ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{Delegation Is Delayed Before Reaching Na\ldots}} & \multicolumn{2}{l}{\texttt{sports}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{Fears for T N pension after talks Unions\ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{The Race is On: Second Private Team Sets\ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{Consumer Prices Down, Industry Output Up\ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{Delegation Is Delayed Before Reaching Na\ldots}} & \multicolumn{2}{l}{\texttt{sports}} & \multicolumn{2}{l}{\texttt{}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 200} & \multicolumn{3}{l}{Holdout: 200\% ()} \\
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 100\% ()} \\
 \multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
