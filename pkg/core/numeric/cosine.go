@@ -1,6 +1,7 @@
 package numeric
 
 import (
+	"fmt"
 	"math"
 	"strings"
 )
@@ -36,23 +37,23 @@ func CosineSparseMaps(left map[string]float64, right map[string]float64) float64
 /*
 CharacterNgramCosine is cosine similarity over character n-gram counts (^/$ padded).
 */
-func CharacterNgramCosine(left string, right string, n int) float64 {
+func CharacterNgramCosine(left string, right string, n int) (float64, error) {
 	if n <= 1 {
-		n = 2
+		return 0, fmt.Errorf("numeric: CharacterNgramCosine n must be >= 2, got %d", n)
 	}
 
 	left = strings.TrimSpace(left)
 	right = strings.TrimSpace(right)
 
 	if left == "" || right == "" {
-		return 0
+		return 0, nil
 	}
 
 	leftRunes := []rune("^" + left + "$")
 	rightRunes := []rune("^" + right + "$")
 
 	if len(leftRunes) < n || len(rightRunes) < n {
-		return 0
+		return 0, nil
 	}
 
 	leftCounts := make(map[string]float64)
@@ -80,8 +81,8 @@ func CharacterNgramCosine(left string, right string, n int) float64 {
 	}
 
 	if leftMag == 0 || rightMag == 0 {
-		return 0
+		return 0, nil
 	}
 
-	return dot / (math.Sqrt(leftMag) * math.Sqrt(rightMag))
+	return dot / (math.Sqrt(leftMag) * math.Sqrt(rightMag)), nil
 }

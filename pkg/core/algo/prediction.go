@@ -55,7 +55,7 @@ func (prediction *Prediction) String() string {
 	}
 
 	slices.SortFunc(prediction.Continuations, func(a, b Continuation) int {
-		return cmp.Compare(a.Score, b.Score)
+		return cmp.Compare(b.Score, a.Score)
 	})
 
 	return string(prediction.Continuations[0].Sequence)
@@ -70,7 +70,7 @@ func (prediction *Prediction) Label() string {
 	}
 
 	slices.SortFunc(prediction.Labels, func(a, b Label) int {
-		return cmp.Compare(a.Confidence, b.Confidence)
+		return cmp.Compare(b.Confidence, a.Confidence)
 	})
 
 	return string(prediction.Labels[0].Label)

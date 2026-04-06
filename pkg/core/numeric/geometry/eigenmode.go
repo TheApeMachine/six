@@ -15,7 +15,7 @@ type Eigenmode struct {
 Members returns the participant IDs in this mode.
 */
 func (mode *Eigenmode) Members() []uint64 {
-	return mode.members
+	return append([]uint64(nil), mode.members...)
 }
 
 /*
@@ -78,12 +78,16 @@ func DetectModes(
 		modes = append(modes, mode)
 	}
 
-	dominantIdx := -1
-	maxEnergy := 0.0
+	if len(modes) == 0 {
+		return modes, -1
+	}
 
-	for idx, mode := range modes {
-		if mode.energy > maxEnergy {
-			maxEnergy = mode.energy
+	dominantIdx := 0
+	maxEnergy := modes[0].energy
+
+	for idx := 1; idx < len(modes); idx++ {
+		if modes[idx].energy > maxEnergy {
+			maxEnergy = modes[idx].energy
 			dominantIdx = idx
 		}
 	}

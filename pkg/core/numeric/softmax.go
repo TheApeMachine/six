@@ -11,27 +11,42 @@ func SoftmaxPercentages(logEvidence map[string]float64, labels []string) map[str
 	maxLog := math.Inf(-1)
 
 	for _, label := range labels {
-		if logEvidence[label] > maxLog {
-			maxLog = logEvidence[label]
+		val, ok := logEvidence[label]
+
+		if !ok {
+			val = math.Inf(-1)
+		}
+
+		if val > maxLog {
+			maxLog = val
 		}
 	}
 
 	sumExp := 0.0
 
 	for _, label := range labels {
-		expProbability := math.Exp(logEvidence[label] - maxLog)
+		val, ok := logEvidence[label]
+
+		if !ok {
+			val = math.Inf(-1)
+		}
+
+		expProbability := math.Exp(val - maxLog)
 		expScores[label] = expProbability
 		sumExp += expProbability
 	}
 
 	out := make(map[string]float64, len(labels))
 
-	for _, label := range labels {
-		if sumExp == 0 {
+	if sumExp == 0 {
+		for _, label := range labels {
 			out[label] = 0
-			continue
 		}
 
+		return out
+	}
+
+	for _, label := range labels {
 		out[label] = expScores[label] / sumExp * 100
 	}
 

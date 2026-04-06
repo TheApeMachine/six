@@ -21,6 +21,7 @@ is handled by an EMA that bootstraps itself.
 func NewDelta(initial float64) *Delta {
 	return &Delta{
 		smoother: NewEMA(),
+		previous: initial,
 	}
 }
 
@@ -34,10 +35,19 @@ func (delta *Delta) Next(
 	out float64, values ...float64,
 ) (change float64, err error) {
 	for _, observation := range values {
-		change, delta.previous = observation-delta.previous, observation
+		rawChange := observation - delta.previous
+		delta.previous = observation
+
+		change, err = delta.smoother.Next(out, rawChange)
+
+		if err != nil {
+			return 0, err
+		}
+
+		out = change
 	}
 
-	return delta.smoother.Next(out, change)
+	return change, nil
 }
 
 /*

@@ -8,9 +8,11 @@ import (
 
 func TestArgmaxStringFloat64(t *testing.T) {
 	Convey("ArgmaxStringFloat64", t, func() {
-		So(func() (string, float64) {
-			return ArgmaxStringFloat64(nil)
-		}, ShouldNotPanic)
+		So(func() { ArgmaxStringFloat64(nil) }, ShouldNotPanic)
+
+		emptyKey, emptyVal := ArgmaxStringFloat64(nil)
+		So(emptyKey, ShouldEqual, "")
+		So(emptyVal, ShouldEqual, -1)
 
 		k, v := ArgmaxStringFloat64(map[string]float64{"a": 1, "b": 3, "c": 2})
 		So(k, ShouldEqual, "b")

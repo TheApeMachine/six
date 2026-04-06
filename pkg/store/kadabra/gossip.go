@@ -30,7 +30,7 @@ func (gossip *Gossip) Digests() []Digest {
 	for trieIdx := range gossip.owner.Tries {
 		cluster := gossip.owner.Tries[trieIdx]
 		sig := cluster.Adaptive
-		origin := uint64(gossip.owner.ID) + uint64(trieIdx) + 1
+		origin := (gossip.owner.ID << 32) | uint64(uint32(trieIdx+1))
 
 		var prevSurprisal float64
 
@@ -42,11 +42,13 @@ func (gossip *Gossip) Digests() []Digest {
 
 		gossip.owner.Field.mu.RUnlock()
 
+		surprisalMean := sig.SurprisalStats.Value()
+
 		out = append(out, Digest{
 			Origin:          origin,
 			Affinity:        cluster.Affinity.Vector(),
-			SurprisalMean:   sig.SurprisalStats.Value(),
-			SurprisalGrowth: sig.GrowthRateSmooth.Value(),
+			SurprisalMean:   surprisalMean,
+			SurprisalGrowth: surprisalMean - prevSurprisal,
 			SurprisalPrev:   prevSurprisal,
 			ClassEntropy:    sig.EntropySmooth.Value(),
 			GrowthRate:      sig.GrowthRateSmooth.Value(),

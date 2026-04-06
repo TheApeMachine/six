@@ -16,7 +16,9 @@ func TestCosineSparseMaps(t *testing.T) {
 
 func TestCharacterNgramCosine(t *testing.T) {
 	Convey("CharacterNgramCosine", t, func() {
-		So(CharacterNgramCosine("cab", "cab", 2), ShouldEqual, 1)
+		sim, err := CharacterNgramCosine("cab", "cab", 2)
+		So(err, ShouldBeNil)
+		So(sim, ShouldEqual, 1)
 	})
 }
 
@@ -38,6 +40,6 @@ func BenchmarkCharacterNgramCosine(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_ = CharacterNgramCosine(left, right, 2)
+		_, _ = CharacterNgramCosine(left, right, 2)
 	}
 }

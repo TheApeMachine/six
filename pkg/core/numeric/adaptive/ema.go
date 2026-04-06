@@ -1,5 +1,7 @@
 package adaptive
 
+import "math"
+
 /*
 EMA (Exponential Moving Average) gives more weight to
 recent observations. It bootstraps from the first
@@ -76,6 +78,9 @@ func (ema *EMA) Next(out float64, values ...float64) (float64, error) {
 
 		if spread > 0 {
 			ema.rate = ema.meanDelta / spread
+			ema.rate = math.Max(0, math.Min(1, ema.rate))
+		} else {
+			ema.rate = 0
 		}
 
 		ema.value = ema.rate*observation + (1-ema.rate)*ema.value

@@ -1,6 +1,10 @@
 package numeric
 
-import "github.com/theapemachine/six/pkg/errnie"
+import (
+	"sync"
+
+	"github.com/theapemachine/six/pkg/errnie"
+)
 
 /*
 Dynamic is a reactive numeric primitive. It takes
@@ -23,6 +27,7 @@ configuration — every number comes from the data
 or from the dynamic below.
 */
 type Derived struct {
+	mu        sync.RWMutex
 	dynamics  []Dynamic
 	lastValue float64
 }
@@ -63,7 +68,9 @@ func (derived *Derived) Next(values ...float64) (float64, error) {
 		out = result
 	}
 
+	derived.mu.Lock()
 	derived.lastValue = out
+	derived.mu.Unlock()
 
 	return out, nil
 }
@@ -87,6 +94,9 @@ Value returns the last output of the chain without
 pushing a new observation.
 */
 func (derived *Derived) Value() float64 {
+	derived.mu.RLock()
+	defer derived.mu.RUnlock()
+
 	return derived.lastValue
 }
 

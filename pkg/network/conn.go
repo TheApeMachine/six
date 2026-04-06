@@ -116,7 +116,7 @@ func (conn *UniConn) Close() error {
 
 func (conn *UniConn) ensureReady() error {
 	if conn.active == nil || conn.sources == nil || conn.destinations == nil {
-		return NewNetworkError("transport", nil, "ensureReady")
+		return NewNetworkError("transport", ErrNoTransport, "ensureReady")
 	}
 
 	conn.ready.Do(func() {

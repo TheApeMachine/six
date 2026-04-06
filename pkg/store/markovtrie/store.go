@@ -22,7 +22,7 @@ composed as separate objects from the algo and numeric packages.
 type Store struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
-	mu           sync.Mutex
+	mu           sync.RWMutex
 	root         *Node
 	nodeCount    uint64
 	decayFactor  float64
@@ -33,6 +33,7 @@ type Store struct {
 	Adaptive     *AdaptiveState
 	trainer      *train.Online
 	bpe          *bpe.Encoder
+	beamWidth    int
 
 	Affinity *primitive.Affinity
 }
@@ -66,6 +67,24 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 		option(store)
 	}
 
+	if store.decayFactor == 0 {
+		store.decayFactor = core.Cfg.MarkovTrie.DecayFactor
+	}
+
+	if store.trainer == nil {
+		store.trainer = train.NewOnline(store.decayFactor, store.cooccurrence)
+	}
+
+	if store.bpe == nil {
+		encoder := bpe.NewEncoder()
+		encoder.EndToken = core.Cfg.MarkovTrie.EndToken
+		store.bpe = encoder
+	}
+
+	if store.beamWidth <= 0 {
+		store.beamWidth = 3
+	}
+
 	return store, validate.Require(map[string]any{
 		"ctx":    store.ctx,
 		"cancel": store.cancel,
@@ -92,8 +111,10 @@ func (store *Store) Load(value *primitive.Value) {
 	}
 
 	store.root.Children[value.String()] = &Node{
-		Value: value,
-		Token: value.String(),
+		Value:       value,
+		Token:       value.String(),
+		Children:    make(map[string]*Node),
+		ClassCounts: make(map[string]float64),
 	}
 }
 

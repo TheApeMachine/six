@@ -111,16 +111,6 @@ func (value *Value) ComputeAffinityLSH() error {
 }
 
 /*
-ComputeAffinityFromContext writes the affinity region of a Value using an
-arbitrary byte slice as the source signal, rather than the Value's own
-token region. This allows affinity routing based on a larger context
-window than the 64-byte token region can hold.
-
-The algorithm is the same SimHash majority-vote projection as
-ComputeAffinityLSH, but the input bits come from the supplied context
-bytes instead of value[tokStart..].
-*/
-/*
 ComputeAffinityFromContext writes the affinity region using multi-scale
 n-gram Bloom fingerprints over an arbitrary byte slice. Each of the 8
 affinity words captures a different n-gram scale (3..10 bytes), so the
@@ -132,10 +122,13 @@ character distributions). N-gram Blooms capture sequential byte patterns
 — "def " vs "fn " produce different 3-gram sets and therefore different
 fingerprints.
 */
-func ComputeAffinityFromContext(value *Value, context []byte) {
+func (value *Value) ComputeAffinityFromContext(context []byte) error {
+	if value == nil {
+		return nil
+	}
+
 	if len(context) == 0 {
-		_ = value.ComputeAffinityLSH()
-		return
+		return value.ComputeAffinityLSH()
 	}
 
 	affStart := core.Cfg.Value.Region.Affinity.Start
@@ -148,22 +141,24 @@ func ComputeAffinityFromContext(value *Value, context []byte) {
 	//
 	// We use two n-gram scales (4 and 8 bytes) so the fingerprint
 	// captures both keyword-level and phrase-level structure.
-	var aff [8]uint64
+	var aff [AffinityWords]uint64
 	for _, ngramWidth := range []int{4, 8} {
 		if ngramWidth > len(context) {
 			continue
 		}
 		for i := 0; i <= len(context)-ngramWidth; i++ {
 			h := fnvHash(context[i : i+ngramWidth])
-			wordIdx := (h >> 6) & 7          // which of 8 words
-			bitIdx := h & 63                  // which bit in that word
+			wordIdx := (h >> 6) & 7 // which of 8 words
+			bitIdx := h & 63        // which bit in that word
 			aff[wordIdx] |= 1 << uint(bitIdx)
 		}
 	}
 
-	for i := 0; i < affWords && i < 8; i++ {
-		value[affStart+i] = aff[i]
+	for wordIdx := 0; wordIdx < affWords && wordIdx < AffinityWords; wordIdx++ {
+		(*value)[affStart+wordIdx] = aff[wordIdx]
 	}
+
+	return nil
 }
 
 /*

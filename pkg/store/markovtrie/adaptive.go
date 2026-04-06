@@ -6,10 +6,6 @@ import (
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 )
 
-const (
-	percentToProbability = 1.0 / 100.0
-)
-
 /*
 AdaptiveState tracks online statistics for self-tuned trie behavior.
 */

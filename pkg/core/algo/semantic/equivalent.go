@@ -65,7 +65,11 @@ func (equivalent *Equivalent) Run(word string) *Equivalent {
 			bestWord = knownWord
 		}
 
-		ngramSim := numeric.CharacterNgramCosine(word, knownWord, 2)
+		ngramSim, err := numeric.CharacterNgramCosine(word, knownWord, 2)
+
+		if err != nil {
+			continue
+		}
 
 		if ngramSim > bestNgramSimilarity {
 			bestNgramSimilarity = ngramSim
@@ -89,7 +93,7 @@ func (equivalent *Equivalent) Run(word string) *Equivalent {
 		}
 	}
 
-	const ngramConfidenceFloor = 0.35
+	ngramConfidenceFloor := core.Cfg.MarkovTrie.NgramConfidenceFloor
 
 	if bestNgramSimilarity >= ngramConfidenceFloor {
 		return &Equivalent{

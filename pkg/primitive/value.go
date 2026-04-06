@@ -184,7 +184,11 @@ func (value *Value) Set(region int, data uint64) {
 		return
 	}
 
-	value[region] = data
+	if region < 0 || region >= len(*value) {
+		return
+	}
+
+	(*value)[region] = data
 }
 
 /*
@@ -199,14 +203,27 @@ func (value *Value) ID() uint64 {
 }
 
 /*
-AffinityVector returns the affinity region as a fixed-size array of 8 uint64 words.
+AffinityVector returns the affinity region as a fixed-size array of words.
 */
-func (value *Value) AffinityVector() [8]uint64 {
-	var aff [8]uint64
-	start := core.Cfg.Value.Region.Affinity.Start
-	for i := range 8 {
-		aff[i] = value[start+i]
+func (value *Value) AffinityVector() [AffinityWords]uint64 {
+	var aff [AffinityWords]uint64
+
+	if value == nil {
+		return aff
 	}
+
+	start := core.Cfg.Value.Region.Affinity.Start
+
+	for wordIdx := 0; wordIdx < AffinityWords; wordIdx++ {
+		idx := start + wordIdx
+
+		if idx < 0 || idx >= len(*value) {
+			break
+		}
+
+		aff[wordIdx] = (*value)[idx]
+	}
+
 	return aff
 }
 

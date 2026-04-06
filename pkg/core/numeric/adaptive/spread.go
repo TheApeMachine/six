@@ -9,9 +9,15 @@ func NewSpread() *Spread {
 }
 
 func (spread *Spread) Next(out float64, values ...float64) (float64, error) {
+	var err error
+
 	for _, observation := range values {
 		deviation := observation - out
-		return spread.smoother.Next(0, deviation*deviation)
+		out, err = spread.smoother.Next(0, deviation*deviation)
+
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	return out, nil

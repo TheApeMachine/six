@@ -23,7 +23,8 @@ func installSlot(frame *[128]uint64, slot int, instr uint32) {
 func setupTestConfig() {
 	core.Cfg.Value.Region.Program.Start = 16
 	core.Cfg.Value.Region.Program.Bits = 512
-	core.Cfg.Value.Region.State.Accumulator = 26
+	// Signals region defaults to words 24–31; keep probe fields outside that span.
+	core.Cfg.Value.Region.State.Accumulator = 40
 	core.Cfg.Value.Region.Registers.FW = 37
 }
 
@@ -54,7 +55,7 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 		err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&frame)})
 
 		So(err, ShouldBeNil)
-		So(frame[1], ShouldEqual, uint64(0x6666666666666666))
+		So(frame[1], ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
 		So(frame[core.Cfg.Value.Region.Registers.FW], ShouldEqual, uint64(11))
 		So(frame[core.Cfg.Value.Region.State.Accumulator], ShouldEqual, uint64(42))
 	})

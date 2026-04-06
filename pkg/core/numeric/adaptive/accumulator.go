@@ -39,7 +39,7 @@ values charge, negative values drain, zero holds.
 Returns the current accumulated level.
 */
 func (accumulator *Accumulator) Next(
-	out float64, values ...float64,
+	_out float64, values ...float64,
 ) (result float64, err error) {
 	for _, observation := range values {
 		smoothed, err := accumulator.smoother.Next(0, observation)

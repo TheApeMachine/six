@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric"
@@ -55,6 +56,8 @@ func NewRoutingTable(node *Node) *RoutingTable {
 			Samples:       make(map[uint64]*PeerSample),
 		}
 	}
+
+	rt.random = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	return rt
 }
@@ -179,7 +182,19 @@ func (rt *RoutingTable) Closest(
 
 		bucket.mu.RLock()
 
+		snap := make(PeerSet, 0, len(bucket.Entries))
+
 		for _, entry := range bucket.Entries {
+			if entry == nil || entry.Node == nil {
+				continue
+			}
+
+			snap = append(snap, entry.Clone())
+		}
+
+		bucket.mu.RUnlock()
+
+		for _, entry := range snap {
 			if entry == nil || entry.Node == nil {
 				continue
 			}
@@ -194,8 +209,6 @@ func (rt *RoutingTable) Closest(
 				distance: target.Distance(entry.Node.Affinity),
 			})
 		}
-
-		bucket.mu.RUnlock()
 	}
 
 	candidates = append(candidates, candidate{
@@ -353,12 +366,19 @@ func (rt *RoutingTable) Store(
 	rt.records[record.Key] = record
 	rt.recordsMu.Unlock()
 
-	rt.node.Tries[0].Insert(record.Sequence, record.Label)
+	rt.node.triesMu.Lock()
+
+	if len(rt.node.Tries) > 0 {
+		rt.node.Tries[0].Insert(record.Sequence, record.Label)
+	}
+
+	rt.node.triesMu.Unlock()
+
 	return nil
 }
 
 func (rt *RoutingTable) bucketIndexFor(remote uint64) int {
-	return rt.buckets[0].IndexFor(rt.nodeID, remote, rt.routingBits)
+	return IndexFor(rt.nodeID, remote, rt.routingBits)
 }
 
 func (rt *RoutingTable) peerTableCapacity() int {

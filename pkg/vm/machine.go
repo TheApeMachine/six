@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -27,7 +28,6 @@ type Machine struct {
 	pool      *compute.Pool
 	tokenizer *Tokenizer
 	kadabra   *kadabra.Node
-	label     string
 }
 
 type machineOpts func(*Machine)
@@ -40,6 +40,10 @@ func NewMachine(
 	machine := &Machine{
 		ctx:    ctx,
 		cancel: cancel,
+	}
+
+	for _, opt := range opts {
+		opt(machine)
 	}
 
 	if machine.host, machine.err = network.NewHost(ctx); machine.err != nil {
@@ -68,10 +72,6 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	for _, opt := range opts {
-		opt(machine)
-	}
-
 	return machine, validate.Require(map[string]any{
 		"ctx":       machine.ctx,
 		"cancel":    machine.cancel,
@@ -86,7 +86,29 @@ func NewMachine(
 Close the machine.
 */
 func (machine *Machine) Close() error {
-	return machine.kadabra.Close()
+	machine.cancel()
+
+	var errs []error
+
+	if machine.host != nil {
+		if err := machine.host.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if machine.tokenizer != nil {
+		if err := machine.tokenizer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if machine.kadabra != nil {
+		if err := machine.kadabra.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 /*
@@ -108,10 +130,14 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	var n int64
 
+	buf := make([]byte, 1024)
+
 	for {
-		if n, machine.err = io.CopyBuffer(
-			machine.tokenizer, dataset, make([]byte, 1024),
-		); machine.err != nil {
+		if n, machine.err = io.CopyBuffer(machine.tokenizer, dataset, buf); machine.err != nil {
+			if machine.err == io.EOF {
+				return nil
+			}
+
 			return errnie.Error(machine.err)
 		}
 
@@ -133,8 +159,7 @@ holds the most relevant data.
 */
 func (machine *Machine) Prompt(prompt string) (*algo.Prediction, error) {
 	if err := validate.Require(map[string]any{
-		"tokenizer": machine.tokenizer,
-		"kadabra":   machine.kadabra,
+		"kadabra": machine.kadabra,
 	}); err != nil {
 		return nil, errnie.Error(err)
 	}

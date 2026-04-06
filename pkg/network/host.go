@@ -37,7 +37,6 @@ func NewHost(ctx context.Context, opts ...hostOption) (*Host, error) {
 	return host, validate.Require(map[string]any{
 		"ctx":    host.ctx,
 		"cancel": host.cancel,
-		"err":    host.err,
 		"name":   host.Name,
 		"ip":     host.IP,
 		"port":   host.Port,

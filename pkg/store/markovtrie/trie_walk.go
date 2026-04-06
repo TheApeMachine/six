@@ -6,7 +6,7 @@ import (
 
 /*
 sortedChildTokens returns child edge labels in deterministic order for pruning,
-pattern extraction, and beam expansion tie-breaking.
+pattern extraction, and stable tie-breaks.
 */
 func sortedChildTokens(node *Node) []string {
 	if node == nil {

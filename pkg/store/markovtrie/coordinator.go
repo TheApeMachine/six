@@ -40,12 +40,30 @@ func NewMultimodalCoordinator(
 		coactivation: make(map[string]float64),
 	}
 
-	coordinator.Sensory, coordinator.err = NewStore(ctx, options...)
-	coordinator.Action, coordinator.err = NewStore(ctx, options...)
-	coordinator.Reward, coordinator.err = NewStore(ctx, options...)
+	var err error
 
-	if coordinator.err != nil {
-		return nil, errnie.Error(coordinator.err)
+	coordinator.Sensory, err = NewStore(ctx, options...)
+
+	if err != nil {
+		cancel()
+
+		return nil, errnie.Error(err)
+	}
+
+	coordinator.Action, err = NewStore(ctx, options...)
+
+	if err != nil {
+		cancel()
+
+		return nil, errnie.Error(err)
+	}
+
+	coordinator.Reward, err = NewStore(ctx, options...)
+
+	if err != nil {
+		cancel()
+
+		return nil, errnie.Error(err)
 	}
 
 	return coordinator, validate.Require(map[string]any{

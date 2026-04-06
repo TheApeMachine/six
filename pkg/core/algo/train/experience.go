@@ -1,6 +1,7 @@
 package train
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -55,6 +56,25 @@ type TrainSink interface {
 }
 
 /*
+fixedSurprisalScaleBits is a numeric.Dynamic that pins the surprisal
+denominator to core.Cfg.MarkovTrie.SurprisalScaleBits. Experience uses
+it as the default SurprisalScale chain so Run matches the former nil
+branch without leaving SurprisalScale unset.
+*/
+type fixedSurprisalScaleBits struct{}
+
+func (fixed *fixedSurprisalScaleBits) Next(out float64, values ...float64) (float64, error) {
+	_ = out
+	_ = values
+
+	return core.Cfg.MarkovTrie.SurprisalScaleBits, nil
+}
+
+func (fixed *fixedSurprisalScaleBits) Reset() error {
+	return nil
+}
+
+/*
 Experience performs unsupervised or supervised learning with
 automatic concept spawning and surprise-modulated learning
 rates. It composes a classifier for label inference and an
@@ -69,14 +89,14 @@ type Experience struct {
 	Scores    ClassifySource
 	Sink      TrainSink
 
-	SurprisalScale *numeric.Derived
+	SurprisalScale        *numeric.Derived
 	UnsupervisedThreshold float64
 }
 
 /*
 NewExperience constructs an experience driver. The caller
 wires the trie as SurprisalSource, ClassifySource, and
-TrainSink.
+TrainSink. online must be non-nil.
 */
 func NewExperience(
 	online *Online,
@@ -84,15 +104,22 @@ func NewExperience(
 	surprisal SurprisalSource,
 	scores ClassifySource,
 	sink TrainSink,
-) *Experience {
-	return &Experience{
-		Online:                online,
-		Classifier:            classifier,
-		Surprisal:             surprisal,
-		Scores:                scores,
-		Sink:                  sink,
-		UnsupervisedThreshold: core.Cfg.MarkovTrie.UnsupervisedConfidence,
+) (*Experience, error) {
+	if online == nil {
+		return nil, fmt.Errorf("train: NewExperience requires non-nil online")
 	}
+
+	return &Experience{
+		Online:     online,
+		Classifier: classifier,
+		Surprisal:  surprisal,
+		Scores:     scores,
+		Sink:       sink,
+		SurprisalScale: numeric.NewDerived(
+			numeric.WithDynamics(&fixedSurprisalScaleBits{}),
+		),
+		UnsupervisedThreshold: core.Cfg.MarkovTrie.UnsupervisedConfidence,
+	}, nil
 }
 
 /*
@@ -125,7 +152,7 @@ func (experience *Experience) Run(
 
 	if experience.SurprisalScale != nil {
 		scaled, err := experience.SurprisalScale.Next(averageBits)
-		
+
 		if err == nil && scaled > 0 {
 			surprisalScale = scaled
 		}
@@ -158,6 +185,10 @@ func (experience *Experience) Run(
 }
 
 func (experience *Experience) assignLabel(sequence string) (string, bool) {
+	if experience.Online == nil {
+		return core.Cfg.MarkovTrie.ExperienceEmptyLabel, true
+	}
+
 	if len(experience.Online.Labels) == 0 {
 		return experience.Online.NextConceptLabel(), true
 	}

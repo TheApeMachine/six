@@ -19,16 +19,14 @@ func NewPhase() *Phase {
 }
 
 /*
-Coupling scores how strongly two surprisal velocities align.
-The product is divided by the square of the geometric mean of the
-two magnitudes, giving equal log-scale weight to both — so a pair
-with velocities (0.1, 10.0) moving in the same direction still
-produces strong positive coupling, whereas max-magnitude would
-yield near-zero.
+Coupling is directional alignment of two surprisal velocities, in [-1,+1].
+With magnitudes large enough to clear magEps, (left*right)/(|left|*|right|)
+collapses to sign(left)*sign(right): co-moving growth is +1, opposing signs
+−1, and either side ~0 yields ~0. Field code treats this as a sign factor
+in weights such as coupling * (1 + phaseCoupling): +1 boosts, −1 dampens.
 
-magEps (0.01) prevents division by zero and suppresses spurious
-coupling for quiescent nodes whose velocity magnitude is below
-the measurement noise floor of the surprisal EMA.
+magEps (0.01) gates out near-zero geometric mean so quiescent nodes do not
+inject noisy coupling.
 */
 func (phase *Phase) Coupling(leftGrowth float64, rightGrowth float64) float64 {
 	const magEps = 0.01

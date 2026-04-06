@@ -1,6 +1,7 @@
 package kadabra
 
 import (
+	"maps"
 	"math"
 	"sync"
 
@@ -16,6 +17,12 @@ to be considered part of the same eigenmode. Below this, they are
 structurally unrelated regardless of phase.
 */
 const modeCouplingThreshold = 0.15
+
+const digestCouplingFloor = 0.01
+
+const clampDecayLearnLimit = 3.0
+
+const clampPruneLimit = 5.0
 
 /*
 Field lives in the context of a Kadabra Node, and forms a mesh
@@ -174,13 +181,15 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 	}
 
 	field.mu.Lock()
-	defer field.mu.Unlock()
 
 	if len(field.digests) < 2 {
+		field.mu.Unlock()
+
 		return nil, nil
 	}
 
 	participants := make([]geometry.ModeParticipant, 0, len(field.digests))
+
 	for origin, digest := range field.digests {
 		participants = append(participants, geometry.ModeParticipant{
 			Origin: origin,
@@ -199,6 +208,11 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		},
 	)
 
+	digestSnap := maps.Clone(field.digests)
+	modesSnap := field.modes
+	dominantSnap := field.dominantMode
+	field.mu.Unlock()
+
 	clamp := func(val, limit float64) float64 {
 		return math.Max(-limit, math.Min(limit, val))
 	}
@@ -208,9 +222,9 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 
 	for trieIdx := range field.owner.Tries {
 		cluster := field.owner.Tries[trieIdx]
-		trieID := uint64(field.owner.ID) + uint64(trieIdx) + 1
+		trieID := (field.owner.ID << 32) | uint64(uint32(trieIdx+1))
 
-		local, hasLocal := field.digests[trieID]
+		local, hasLocal := digestSnap[trieID]
 
 		if !hasLocal {
 			continue
@@ -218,8 +232,8 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 
 		aligned := false
 
-		if field.dominantMode >= 0 && field.dominantMode < len(field.modes) {
-			dominant := field.modes[field.dominantMode]
+		if dominantSnap >= 0 && dominantSnap < len(modesSnap) {
+			dominant := modesSnap[dominantSnap]
 
 			for _, memberID := range dominant.Members() {
 				if memberID == trieID {
@@ -235,8 +249,8 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 			totalWeight       float64
 		)
 
-		for _, digest := range field.digests {
-			if digest.Origin == trieID {
+		for origin, digest := range digestSnap {
+			if origin == trieID {
 				continue
 			}
 
@@ -244,7 +258,7 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 			digestAff := primitive.NewAffinityFromVector(digest.Affinity)
 			coupling := clusterAff.Coupling(digestAff)
 
-			if coupling < 0.01 {
+			if coupling < digestCouplingFloor {
 				continue
 			}
 
@@ -268,7 +282,7 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		fieldGrowth := weightedGrowth / totalWeight
 
 		rawDecay := fieldSurprisal - local.SurprisalMean
-		rawLearn := fieldSurprisal - local.SurprisalMean
+		rawLearn := fieldGrowth - local.GrowthRate
 		rawPrune := fieldGrowth - local.GrowthRate
 
 		var decayMul, learnMul float64
@@ -282,9 +296,9 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		}
 
 		cluster.ApplyFieldPressure(
-			clamp(rawDecay*decayMul, 3.0),
-			clamp(rawLearn*learnMul, 3.0),
-			clamp(rawPrune, 5.0),
+			clamp(rawDecay*decayMul, clampDecayLearnLimit),
+			clamp(rawLearn*learnMul, clampDecayLearnLimit),
+			clamp(rawPrune, clampPruneLimit),
 		)
 	}
 

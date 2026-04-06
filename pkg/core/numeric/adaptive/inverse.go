@@ -1,5 +1,10 @@
 package adaptive
 
+import (
+	"fmt"
+	"sync"
+)
+
 /*
 Inverse produces the counter-signal. High input yields
 low output, low input yields high output. Critically,
@@ -16,6 +21,7 @@ has an equal and opposite reaction, bounded by its own
 observed behavior.
 */
 type Inverse struct {
+	mu       sync.Mutex
 	min      float64
 	max      float64
 	observed bool
@@ -35,7 +41,18 @@ within the observed range. On the first observation
 it returns the value unchanged, since there is no
 range to invert within yet.
 */
-func (inverse *Inverse) Next(out float64, values ...float64) (float64, error) {
+func (inverse *Inverse) Next(
+	out float64, values ...float64,
+) (float64, error) {
+	_ = out
+
+	if len(values) == 0 {
+		return 0, fmt.Errorf("adaptive: Inverse.Next requires at least one value")
+	}
+
+	inverse.mu.Lock()
+	defer inverse.mu.Unlock()
+
 	var result float64
 
 	for _, observation := range values {
@@ -44,13 +61,14 @@ func (inverse *Inverse) Next(out float64, values ...float64) (float64, error) {
 			inverse.max = observation
 			inverse.observed = true
 			result = observation
+
 			continue
 		}
 
 		if observation < inverse.min {
 			inverse.min = observation
 		}
-		
+
 		if observation > inverse.max {
 			inverse.max = observation
 		}
@@ -68,8 +86,12 @@ func (inverse *Inverse) Next(out float64, values ...float64) (float64, error) {
 Reset clears the Inverse back to its unobserved state.
 */
 func (inverse *Inverse) Reset() error {
+	inverse.mu.Lock()
+	defer inverse.mu.Unlock()
+
 	inverse.min = 0
 	inverse.max = 0
 	inverse.observed = false
+
 	return nil
 }

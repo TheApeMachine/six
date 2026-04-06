@@ -1,5 +1,7 @@
 package adaptive
 
+import "fmt"
+
 /*
 EWMoments tracks an exponentially weighted mean and variance (of the residual)
 for scalar telemetry such as token surprisal in bits. Variance uses the same
@@ -16,6 +18,13 @@ Update ingests one sample with blending alpha in (0, 1]. The first call only
 seeds mean and leaves variance at zero.
 */
 func (moments *EWMoments) Update(observation float64, alpha float64) error {
+	if alpha <= 0 || alpha > 1 {
+		return fmt.Errorf(
+			"adaptive: EWMoments.Update alpha must be in (0,1], got %g",
+			alpha,
+		)
+	}
+
 	moments.observations++
 
 	if moments.observations == 1 {
@@ -27,7 +36,8 @@ func (moments *EWMoments) Update(observation float64, alpha float64) error {
 
 	delta := observation - moments.mean
 	moments.mean += alpha * delta
-	moments.varianceEWMA = (1-alpha)*moments.varianceEWMA + alpha*delta*delta
+	delta2 := observation - moments.mean
+	moments.varianceEWMA = (1-alpha)*moments.varianceEWMA + alpha*delta*delta2
 
 	return nil
 }

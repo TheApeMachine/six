@@ -201,17 +201,29 @@ func (peers PeerSet) Clone() PeerSet {
 AverageScores returns the mean of a score map, or (0, false) when empty.
 */
 func (peers PeerSet) AverageScores(scores map[uint64]float64) (float64, bool) {
-	if len(scores) == 0 {
+	if len(scores) == 0 || len(peers) == 0 {
 		return 0, false
 	}
 
 	total := 0.0
+	count := 0
 
-	for _, score := range scores {
-		total += score
+	for _, peer := range peers {
+		if peer == nil {
+			continue
+		}
+
+		if score, ok := scores[peer.ID]; ok {
+			total += score
+			count++
+		}
 	}
 
-	return total / float64(len(scores)), true
+	if count == 0 {
+		return 0, false
+	}
+
+	return total / float64(count), true
 }
 
 /*
@@ -222,10 +234,20 @@ func (peers PeerSet) WorstScore(scores map[uint64]float64) uint64 {
 	first := true
 	worstVal := 0.0
 
-	for peerID, score := range scores {
-		if first || score < worstVal || (score == worstVal && peerID < worstPeer) {
+	for _, peer := range peers {
+		if peer == nil {
+			continue
+		}
+
+		score, ok := scores[peer.ID]
+
+		if !ok {
+			continue
+		}
+
+		if first || score < worstVal || (score == worstVal && peer.ID < worstPeer) {
 			first = false
-			worstPeer = peerID
+			worstPeer = peer.ID
 			worstVal = score
 		}
 	}
@@ -244,6 +266,10 @@ func (peers PeerSet) NextBatch(seen map[uint64]struct{}, limit int) PeerSet {
 	batch := make(PeerSet, 0, limit)
 
 	for _, peer := range peers {
+		if peer == nil {
+			continue
+		}
+
 		if _, exists := seen[peer.ID]; exists {
 			continue
 		}

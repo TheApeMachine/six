@@ -26,14 +26,19 @@ type Bucket struct {
 
 /*
 IndexFor returns the bucket index for remote relative to local
-using a fixed routing bit width.
+using a fixed routing bit width. When local and remote coincide
+(distance zero) it returns -1 so callers can reject self-routing.
 */
-func (bucket *Bucket) IndexFor(local uint64, remote uint64, routingBits int) int {
+func IndexFor(local uint64, remote uint64, routingBits int) int {
 	if routingBits <= 0 {
 		routingBits = core.Cfg.Kadabra.Bits
 	}
 
 	distance := numeric.XOR(local, remote)
+
+	if distance == 0 {
+		return -1
+	}
 
 	return int(bits.LeadingZeros64(distance))
 }

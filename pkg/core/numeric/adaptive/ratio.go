@@ -1,5 +1,10 @@
 package adaptive
 
+import (
+	"fmt"
+	"math"
+)
+
 /*
 Ratio expresses one signal relative to another. This
 is the fundamental way to combine two measurements
@@ -35,13 +40,21 @@ be the second value.
 func (ratio *Ratio) Next(
 	out float64, values ...float64,
 ) (result float64, err error) {
-	for _, observation := range values {
-		if observation == 0 {
-			continue
-		}
-
-		ratio.raw = ratio.raw / observation
+	if len(values) != 2 {
+		return 0, fmt.Errorf(
+			"adaptive: Ratio.Next expects exactly numerator and denominator, got %d values",
+			len(values),
+		)
 	}
+
+	numerator := values[0]
+	denominator := values[1]
+
+	if denominator == 0 {
+		return 0, fmt.Errorf("adaptive: Ratio.Next zero denominator")
+	}
+
+	ratio.raw = numerator / denominator
 
 	return ratio.smoother.Next(out, ratio.raw)
 }
@@ -50,6 +63,7 @@ func (ratio *Ratio) Next(
 Reset clears the Ratio back to its initial state.
 */
 func (ratio *Ratio) Reset() error {
-	ratio.raw = 0
+	ratio.raw = math.NaN()
+
 	return ratio.smoother.Reset()
 }

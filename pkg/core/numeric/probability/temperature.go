@@ -20,29 +20,32 @@ func TemperatureShape(distribution []Ranked, temperature float64) []Ranked {
 		return nil
 	}
 
+	clone := make([]Ranked, len(distribution))
+	copy(clone, distribution)
+
 	if temperature <= 0 {
-		return greedyShape(distribution)
+		return greedyShape(clone)
 	}
 
 	total := 0.0
 
-	for index := range distribution {
-		distribution[index].Probability = math.Pow(
-			distribution[index].Probability,
+	for index := range clone {
+		clone[index].Probability = math.Pow(
+			clone[index].Probability,
 			1/temperature,
 		)
-		total += distribution[index].Probability
+		total += clone[index].Probability
 	}
 
 	if total == 0 {
 		return nil
 	}
 
-	for index := range distribution {
-		distribution[index].Probability /= total
+	for index := range clone {
+		clone[index].Probability /= total
 	}
 
-	return distribution
+	return clone
 }
 
 func greedyShape(distribution []Ranked) []Ranked {
@@ -62,17 +65,25 @@ func greedyShape(distribution []Ranked) []Ranked {
 		}
 	}
 
+	out := make([]Ranked, len(distribution))
+
 	for index := range distribution {
 		if distribution[index].Probability == maxProb {
-			distribution[index].Probability = 1 / float64(bestCount)
+			out[index] = Ranked{
+				Token:       distribution[index].Token,
+				Probability: 1 / float64(bestCount),
+			}
 
 			continue
 		}
 
-		distribution[index].Probability = 0
+		out[index] = Ranked{
+			Token:       distribution[index].Token,
+			Probability: 0,
+		}
 	}
 
-	return distribution
+	return out
 }
 
 /*
@@ -99,7 +110,17 @@ AdditiveSmoothing returns P(token) under additive (Laplace) smoothing:
 (count + smoothing) / (total + smoothing * vocabSize).
 */
 func AdditiveSmoothing(count float64, total float64, vocabSize int, smoothing float64) float64 {
-	return (count + smoothing) / (total + smoothing*float64(vocabSize))
+	if vocabSize < 0 || smoothing < 0 {
+		return math.NaN()
+	}
+
+	denom := total + smoothing*float64(vocabSize)
+
+	if denom == 0 {
+		return 0
+	}
+
+	return (count + smoothing) / denom
 }
 
 /*
@@ -109,6 +130,10 @@ func RepetitionPenalty(distribution []Ranked, recentTokens []string, penaltyWeig
 	if len(distribution) == 0 || len(recentTokens) == 0 {
 		return distribution
 	}
+
+	const penaltyMin = 1e-9
+
+	penaltyWeight = math.Max(penaltyMin, math.Min(1, penaltyWeight))
 
 	recent := make(map[string]struct{}, len(recentTokens))
 

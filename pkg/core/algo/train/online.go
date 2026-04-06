@@ -2,6 +2,7 @@ package train
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -19,6 +20,16 @@ type Online struct {
 	Labels      []string
 	labelSet    map[string]struct{}
 	ClassTotals map[string]float64
+
+	/*
+		classTotalsLastNormStep records the global CurrentStep at which each
+		label's ClassTotals entry was last multiplied through the decay chain.
+		Only the label touched in Step is normalized each tick, so inactive
+		totals catch up lazily on their next update without scanning every
+		label every time.
+	*/
+	classTotalsLastNormStep map[string]int
+
 	CurrentStep int
 	DecayFactor float64
 
@@ -35,10 +46,11 @@ func NewOnline(
 	cooc *cooccurrence.Matrix,
 ) *Online {
 	return &Online{
-		labelSet:    make(map[string]struct{}),
-		ClassTotals: make(map[string]float64),
-		DecayFactor: decayFactor,
-		Cooccurrence: cooc,
+		labelSet:                make(map[string]struct{}),
+		ClassTotals:             make(map[string]float64),
+		classTotalsLastNormStep: make(map[string]int),
+		DecayFactor:             decayFactor,
+		Cooccurrence:            cooc,
 	}
 }
 
@@ -63,9 +75,7 @@ func (online *Online) Step(
 	online.AddLabel(label)
 	online.CurrentStep++
 
-	for _, knownLabel := range online.Labels {
-		online.ClassTotals[knownLabel] *= online.DecayFactor
-	}
+	online.normalizeClassTotalForStep(label, online.CurrentStep)
 
 	online.ClassTotals[label] += learningRate
 
@@ -81,6 +91,22 @@ func (online *Online) Step(
 /*
 AddLabel registers a label if not already known.
 */
+func (online *Online) normalizeClassTotalForStep(label string, step int) {
+	lastNormStep, exists := online.classTotalsLastNormStep[label]
+
+	if !exists {
+		lastNormStep = 0
+	}
+
+	delta := step - lastNormStep
+
+	if delta > 0 {
+		online.ClassTotals[label] *= math.Pow(online.DecayFactor, float64(delta))
+	}
+
+	online.classTotalsLastNormStep[label] = step
+}
+
 func (online *Online) AddLabel(label string) {
 	if _, exists := online.labelSet[label]; exists {
 		return

@@ -2,8 +2,10 @@ package kadabra
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -50,11 +52,21 @@ NewNode constructs a Kadabra DHT node.
 func NewNode(
 	ctx context.Context, id string, options ...nodeOption,
 ) (*Node, error) {
+	if ctx == nil {
+		return nil, errnie.Error(fmt.Errorf("kadabra.NewNode: nil context"))
+	}
+
+	if strings.TrimSpace(id) == "" {
+		return nil, errnie.Error(fmt.Errorf("kadabra.NewNode: empty id"))
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	idHash, err := numeric.HashString(id)
 
 	if err != nil {
+		cancel()
+
 		return nil, errnie.Error(err)
 	}
 
@@ -138,12 +150,28 @@ func (node *Node) Publish(
 		valueAff, node.replicationFactor,
 	)
 
+	var storeErrs []error
+
 	for _, replica := range replicas {
-		if err := replica.routing.Store(
-			record, valueAff,
-		); err != nil {
-			return record, err
+		if replica == nil {
+			continue
 		}
+
+		var err error
+
+		if replica == node || replica.ID == node.ID {
+			err = node.routing.Store(record, valueAff)
+		} else {
+			err = replica.routing.Store(record, valueAff)
+		}
+
+		if err != nil {
+			storeErrs = append(storeErrs, err)
+		}
+	}
+
+	if len(storeErrs) > 0 {
+		return record, errnie.Error(errors.Join(storeErrs...))
 	}
 
 	return record, nil

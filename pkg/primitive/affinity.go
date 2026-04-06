@@ -90,12 +90,15 @@ of everything it ever saw.
 The shannonLimit parameter caps the maximum popcount; if blending
 would push past it the operation is reverted.
 */
-func (affinity *Affinity) Blend(incoming *Affinity, count uint64, shannonLimit int) {
-	count++
+func (affinity *Affinity) Blend(
+	incoming *Affinity, count uint64, shannonLimit int,
+) uint64 {
+	nextCount := count + 1
 
-	if count <= 1 {
+	if nextCount <= 1 {
 		affinity.vector = incoming.vector
-		return
+
+		return nextCount
 	}
 
 	prev := affinity.vector
@@ -104,7 +107,7 @@ func (affinity *Affinity) Blend(incoming *Affinity, count uint64, shannonLimit i
 		agree := affinity.vector[wordIdx] & incoming.vector[wordIdx]
 		disagree := affinity.vector[wordIdx] ^ incoming.vector[wordIdx]
 
-		selector := rotateSelector(count, wordIdx)
+		selector := rotateSelector(nextCount, wordIdx)
 		flipToIncoming := disagree & selector & incoming.vector[wordIdx]
 		flipToZero := disagree & selector & ^incoming.vector[wordIdx]
 
@@ -114,6 +117,8 @@ func (affinity *Affinity) Blend(incoming *Affinity, count uint64, shannonLimit i
 	if affinity.Popcount() >= shannonLimit {
 		affinity.vector = prev
 	}
+
+	return nextCount
 }
 
 /*
@@ -183,13 +188,28 @@ bits are set, used to select which disagreement bits flip toward the incoming
 vector during blending. Uses a simple LCG seeded by count and word index.
 */
 func rotateSelector(count uint64, wordIdx int) uint64 {
+	if count == 0 {
+		count = 1
+	}
+
 	seed := count*2654435761 + uint64(wordIdx)*1442695040888963407
+	limit := (^uint64(0) / count) * count
 	var mask uint64
 
 	for bit := 0; bit < 64; bit++ {
-		seed = seed*6364136223846793005 + 1442695040888963407
+		var slot uint64
 
-		if seed%count == 0 {
+		for {
+			seed = seed*6364136223846793005 + 1442695040888963407
+			v := seed
+
+			if v < limit {
+				slot = v % count
+				break
+			}
+		}
+
+		if slot == 0 {
 			mask |= 1 << uint(bit)
 		}
 	}

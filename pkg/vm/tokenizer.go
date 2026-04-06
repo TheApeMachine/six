@@ -15,9 +15,9 @@ import (
 
 var bufPool = sync.Pool{
 	New: func() any {
-		return make(
-			[]byte, 0, core.Cfg.Value.Region.Tokens.Bits,
-		)
+		capacity := int(core.Cfg.Value.Region.Tokens.Bits)
+
+		return make([]byte, capacity, capacity)
 	},
 }
 
@@ -72,40 +72,39 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
-	var value *primitive.Value
-
-	if tokenizer.current == nil {
-		value = tokenizer.current
-	}
+	old := tokenizer.current
 
 	buf := bufPool.Get().([]byte)
-	defer bufPool.Put(buf)
+	buf = buf[:cap(buf)]
+	defer bufPool.Put(buf[:0])
 
 	if n, err = tokenizer.rb.Read(buf); err != nil {
 		return n, errnie.Error(err)
 	}
 
-	tokenizer.current, tokenizer.err = primitive.NewValue(buf)
+	var next *primitive.Value
+
+	next, tokenizer.err = primitive.NewValue(buf[:n])
 
 	if tokenizer.err != nil {
 		return 0, errnie.Error(tokenizer.err)
 	}
 
-	if value != nil && tokenizer.current != nil {
-		tokenizer.current.Set(
+	if old != nil {
+		next.Set(
 			core.Cfg.Value.Region.Prev.Start,
-			value.ID(),
+			old.ID(),
 		)
 
-		value.Set(
+		old.Set(
 			core.Cfg.Value.Region.Next.Start,
-			tokenizer.current.ID(),
+			next.ID(),
 		)
-
-		tokenizer.current = value
 	}
 
-	return value.Read(p)
+	tokenizer.current = next
+
+	return tokenizer.current.Read(p)
 }
 
 func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {

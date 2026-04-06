@@ -3,10 +3,8 @@ package beam
 import "sort"
 
 /*
-RankedToken is one vocabulary choice with its conditional probability (or any
-non-negative score treated ordinally). Beam expansion consumes these in array
-order, so callers that care about branch priority should sort before invoking
-the search step callback.
+RankedToken is one branch label with a non-negative mass; SortDescending orders
+them before beam consumes the top-k slice.
 */
 type RankedToken struct {
 	Token       string

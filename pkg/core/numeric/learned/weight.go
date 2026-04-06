@@ -1,6 +1,10 @@
 package learned
 
-import "github.com/theapemachine/six/pkg/core/numeric/adaptive"
+import (
+	"math"
+
+	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
+)
 
 /*
 Weight is a self-adapting rate. It watches the delta
@@ -20,11 +24,9 @@ current model — high when predictions match reality,
 low when they diverge.
 */
 type Weight struct {
-	value     float64
-	errorEMA  *adaptive.EMA
-	deltaEMA  *adaptive.EMA
-	predicted float64
-	observed  bool
+	value    float64
+	errorEMA *adaptive.EMA
+	deltaEMA *adaptive.EMA
 }
 
 /*
@@ -54,6 +56,10 @@ improving, trust more.
 func (weight *Weight) Next(
 	out float64, values ...float64,
 ) (float64, error) {
+	if weight == nil {
+		return 0, nil
+	}
+
 	if len(values) < 2 {
 		return weight.value, nil
 	}
@@ -93,6 +99,7 @@ func (weight *Weight) Next(
 	}
 
 	weight.value += smoothedAdjustment
+	weight.value = math.Max(0, math.Min(1, weight.value))
 
 	return weight.value, nil
 }
@@ -101,9 +108,11 @@ func (weight *Weight) Next(
 Reset clears the Weight back to its initial state.
 */
 func (weight *Weight) Reset() error {
+	if weight == nil {
+		return nil
+	}
+
 	weight.value = 0
-	weight.observed = false
-	weight.predicted = 0
 
 	if err := weight.errorEMA.Reset(); err != nil {
 		return err

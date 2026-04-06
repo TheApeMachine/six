@@ -74,6 +74,7 @@ type MarkovTrieConfig struct {
 	RecentWindow                    int     `mapstructure:"recentWindow"`
 	EditDistance                    int     `mapstructure:"editDistance"`
 	EditSimilarity                  float64 `mapstructure:"editSimilarity"`
+	NgramConfidenceFloor            float64 `mapstructure:"ngramConfidenceFloor"`
 	SymbolMinimumTotal              int     `mapstructure:"symbolMinimumTotal"`
 	SymbolMinimumScore              float64 `mapstructure:"symbolMinimumScore"`
 	SymbolLimit                     int     `mapstructure:"symbolLimit"`
@@ -290,6 +291,7 @@ func NewConfig() *Config {
 			RecentWindow:                   WithDefault(viper.GetInt("markovtrie.recentWindow"), 3),
 			EditDistance:                   WithDefault(viper.GetInt("markovtrie.editDistance"), 1),
 			EditSimilarity:                 WithDefault(viper.GetFloat64("markovtrie.editSimilarity"), 0.95),
+			NgramConfidenceFloor:           WithDefault(viper.GetFloat64("markovtrie.ngramConfidenceFloor"), 0.35),
 			SymbolMinimumTotal:             WithDefault(viper.GetInt("markovtrie.symbolMinimumTotal"), 2),
 			SymbolMinimumScore:             WithDefault(viper.GetFloat64("markovtrie.symbolMinimumScore"), 1.5),
 			SymbolLimit:                    WithDefault(viper.GetInt("markovtrie.symbolLimit"), 50),
@@ -458,7 +460,9 @@ func NewConfig() *Config {
 }
 
 func WithDefault[T comparable](value, defaultValue T) T {
-	if value != defaultValue {
+	var zero T
+
+	if value == zero {
 		return defaultValue
 	}
 

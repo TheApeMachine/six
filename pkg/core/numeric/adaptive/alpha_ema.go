@@ -1,5 +1,7 @@
 package adaptive
 
+import "fmt"
+
 /*
 AlphaEMA is a plain exponential moving average with an explicit smoothing
 coefficient supplied per update. Markov trie adaptive hooks still thread
@@ -16,6 +18,10 @@ Update folds one observation in using alpha in (0, 1]. The first observation
 seeds the tracker so downstream Value calls are stable immediately.
 */
 func (ema *AlphaEMA) Update(observation float64, alpha float64) error {
+	if alpha <= 0 || alpha > 1 {
+		return fmt.Errorf("adaptive: AlphaEMA.Update alpha must be in (0,1], got %g", alpha)
+	}
+
 	ema.updates++
 
 	if ema.updates == 1 {

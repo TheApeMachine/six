@@ -1,5 +1,7 @@
 package replay
 
+import "unicode/utf8"
+
 /*
 Acceptance is a replay step that passed confidence and novelty gates.
 */
@@ -18,6 +20,13 @@ type Env struct {
 	LabelConfidence      func(sequence string, label string) float64
 	PathIsNovel          func(sequence string) bool
 	Train                func(sequence string, label string, learningRate float64)
+
+	/*
+		LearningRate is passed to Train on successful acceptance. Zero means
+		use 1.0 so existing callers stay byte-for-byte equivalent unless they
+		set this field.
+	*/
+	LearningRate float64
 }
 
 /*
@@ -39,7 +48,7 @@ func TryOnce(
 	label := env.PickLabel()
 	sequence := env.GenerateContinuation(label, temperature, replayLen)
 
-	if len(sequence) < minRunes {
+	if utf8.RuneCountInString(sequence) < minRunes {
 		return nil
 	}
 
@@ -53,7 +62,13 @@ func TryOnce(
 		return nil
 	}
 
-	env.Train(sequence, label, 1)
+	learningRate := env.LearningRate
+
+	if learningRate == 0 {
+		learningRate = 1
+	}
+
+	env.Train(sequence, label, learningRate)
 
 	return &Acceptance{
 		Sequence:   sequence,
