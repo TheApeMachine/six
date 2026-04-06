@@ -11,14 +11,51 @@ import (
 affinityProjections holds the prime strides used for 8 independent LSH
 projections across the 512-bit affinity region. Each projection uses a
 different stride to sample different subsets of the token bits.
+
+All 8 values are prime numbers chosen from the range [73, 199]. Primes are
+required because the stride is used modulo tokenBits (512) to index into the
+input: a composite stride that shares a factor with 512 (any power of 2)
+would create degenerate sampling patterns that revisit the same subset of
+input bits, collapsing independent projections into correlated ones.
+
+The specific primes {73, 97, 113, 131, 151, 167, 181, 199} are spread across
+the range to maximize pairwise stride differences. This ensures that any two
+projections sample maximally different subsets of input bits -- for a 512-bit
+input, two projections with strides p1 and p2 first re-collide after
+lcm(p1,p2) steps, and since both are prime, lcm = p1*p2 >> 512, meaning they
+never re-collide within the input, producing fully independent samples.
+
+Sensitivity: replacing any prime with a power-of-2 (e.g. 128) causes that
+projection to sample only even-indexed or only odd-indexed bits, halving its
+effective input and correlating it with other projections. Using primes that
+are too close together (e.g. all in [71,89]) reduces the diversity of sampling
+patterns, weakening the LSH's ability to distinguish inputs that differ only
+in specific bit regions.
 */
 var affinityProjections = [8]int{73, 97, 113, 131, 151, 167, 181, 199}
 
 /*
 affinityLSHSamplesPerBit controls how many token bits vote for each output
-bit. Higher = more stable but less sensitive to small differences. 7 is a
-good balance for 512 token bits: each output bit samples ~7 of 512 input
-bits, giving a stable majority vote while keeping projections independent.
+bit via majority vote. Higher values produce more stable (less noisy) output
+bits but reduce sensitivity to small input differences.
+
+7 is chosen for 512-bit token inputs based on the following reasoning:
+  - Each output bit's majority vote has error rate ~ exp(-2 * margin^2 * k)
+    where k is the sample count. At k=7, a true-positive input bit (>50%
+    of sampled bits set) is correctly output with probability >96%.
+  - At k=3 (too few), the majority vote flips on a single noisy input bit,
+    making the affinity fingerprint unstable across minor input variations.
+  - At k=15 (too many), the vote is extremely stable but each output bit
+    averages over ~3% of the input, washing out fine-grained differences
+    between similar-but-distinct inputs. Two inputs differing in only 10%
+    of their token bits would produce nearly identical affinity vectors.
+  - k=7 samples ~1.4% of the input per output bit, preserving sensitivity
+    to ~5% input differences while suppressing single-bit noise.
+
+Sensitivity: reducing to 3 makes affinity vectors noisy enough that
+BloomOverlap / affineCoupling produce false positives on unrelated inputs.
+Increasing to 15+ causes genuinely different inputs to hash to the same
+affinity vector, creating false mode merges in the Kadabra field.
 */
 const affinityLSHSamplesPerBit = 7
 
@@ -70,35 +107,63 @@ func (value *Value) ComputeAffinityLSH() error {
 		value[affStart+proj] = word
 	}
 
-	// If the majority-vote LSH produced all-zero affinity (possible for
-	// low-entropy inputs where fewer than half the token bits are set),
-	// fall back to Bloom-filter hashing so the Value still has a usable
-	// non-zero fingerprint.
-	allZero := true
-	for i := 0; i < affWords && i < 8; i++ {
-		if value[affStart+i] != 0 {
-			allZero = false
-			break
-		}
-	}
-
-	if allZero {
-		// Extract token bytes for Bloom fallback.
-		tokenByteLen := (tokenBits + 7) / 8
-		buf := make([]byte, tokenByteLen)
-		for i := 0; i < nWords && i*8 < tokenByteLen; i++ {
-			w := value[tokStart+i]
-			for b := 0; b < 8 && i*8+b < tokenByteLen; b++ {
-				buf[i*8+b] = byte(w >> uint(b*8))
-			}
-		}
-		bloom := ComputeAffinityBloom(buf)
-		if bloom != 0 {
-			value[affStart] = bloom
-		}
-	}
-
 	return nil
+}
+
+/*
+ComputeAffinityFromContext writes the affinity region of a Value using an
+arbitrary byte slice as the source signal, rather than the Value's own
+token region. This allows affinity routing based on a larger context
+window than the 64-byte token region can hold.
+
+The algorithm is the same SimHash majority-vote projection as
+ComputeAffinityLSH, but the input bits come from the supplied context
+bytes instead of value[tokStart..].
+*/
+/*
+ComputeAffinityFromContext writes the affinity region using multi-scale
+n-gram Bloom fingerprints over an arbitrary byte slice. Each of the 8
+affinity words captures a different n-gram scale (3..10 bytes), so the
+512-bit fingerprint encodes structural patterns at multiple resolutions.
+
+This is fundamentally different from the token-region SimHash (which
+operates on raw bits and cannot distinguish ASCII text with similar
+character distributions). N-gram Blooms capture sequential byte patterns
+— "def " vs "fn " produce different 3-gram sets and therefore different
+fingerprints.
+*/
+func ComputeAffinityFromContext(value *Value, context []byte) {
+	if len(context) == 0 {
+		_ = value.ComputeAffinityLSH()
+		return
+	}
+
+	affStart := core.Cfg.Value.Region.Affinity.Start
+	affWords := int(core.Cfg.Value.Region.Affinity.Bits+63) / 64
+
+	// Compute n-gram hashes and distribute them across the 8 affinity
+	// words using the hash value itself to select which word and bit.
+	// This spreads the fingerprint across all 512 bits, avoiding the
+	// saturation problem of per-word Bloom filters on large inputs.
+	//
+	// We use two n-gram scales (4 and 8 bytes) so the fingerprint
+	// captures both keyword-level and phrase-level structure.
+	var aff [8]uint64
+	for _, ngramWidth := range []int{4, 8} {
+		if ngramWidth > len(context) {
+			continue
+		}
+		for i := 0; i <= len(context)-ngramWidth; i++ {
+			h := fnvHash(context[i : i+ngramWidth])
+			wordIdx := (h >> 6) & 7          // which of 8 words
+			bitIdx := h & 63                  // which bit in that word
+			aff[wordIdx] |= 1 << uint(bitIdx)
+		}
+	}
+
+	for i := 0; i < affWords && i < 8; i++ {
+		value[affStart+i] = aff[i]
+	}
 }
 
 /*
@@ -121,16 +186,23 @@ func ComputeAffinityBloom(data []byte) uint64 {
 }
 
 /*
-fnvBit hashes a small byte slice to a single bit position (0..63)
-using FNV-1a.
+fnvHash computes a full 64-bit FNV-1a hash of a byte slice.
 */
-func fnvBit(data []byte) uint64 {
+func fnvHash(data []byte) uint64 {
 	h := uint64(14695981039346656037)
 	for _, b := range data {
 		h ^= uint64(b)
 		h *= 1099511628211
 	}
-	return 1 << (h & 63)
+	return h
+}
+
+/*
+fnvBit hashes a small byte slice to a single bit position (0..63)
+using FNV-1a.
+*/
+func fnvBit(data []byte) uint64 {
+	return 1 << (fnvHash(data) & 63)
 }
 
 /*

@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -31,7 +32,8 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 	return backend
 }
 
-func Available() int { return runtime.NumCPU() }
+func Available() int                  { return runtime.NumCPU() }
+func (backend *Backend) Name() string { return "cpu" }
 
 /*
 UniversalBitwise executes the in-band program carried by each Value.
@@ -52,7 +54,7 @@ func (backend *Backend) UniversalBitwise(values []unsafe.Pointer) error {
 
 	for i := range values {
 		if values[i] == nil {
-			return NewBackendError(ErrNilValuePointer, "value", values[i], "i", i)
+			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "UniversalBitwise")
 		}
 	}
 
@@ -119,17 +121,6 @@ func execute(v *[128]uint64) {
 		&m0[0], &m1[0], &m2[0], &m3[0],
 	)
 }
-
-func (backend *Backend) Shutdown() error {
-	backend.cancel()
-	return nil
-}
-
-func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
-	return job(context.Background())
-}
-
-func (backend *Backend) Name() string { return "cpu" }
 
 func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
 	v := (*[128]uint64)(value)

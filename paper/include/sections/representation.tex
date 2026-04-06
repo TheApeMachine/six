@@ -10,45 +10,64 @@ words.  All computation is expressed as transformations over Values using
 the complete set of two-input boolean functions.
 
 \paragraph{Frame Layout.}
-Each Value is partitioned into contiguous regions with distinct roles.
-The \emph{data region} (words 0--59) holds packed token identifiers
-derived from the input byte stream, together with a unique frame
-identifier and forward/backward linking pointers.  Words 60--62 store
-execution \emph{state}: a slot index, a sequence index, and a running
-XOR accumulator for the write engine.  Word~63 carries a 64-bit
-\emph{affinity} bitmask that encodes topological clustering preferences
-via bitwise AND.
+Each Value is partitioned into contiguous regions with distinct roles,
+specified by a configuration file that maps region names to word offsets
+and bit widths.  The default layout is:
 
-Eleven general-purpose \emph{registers} (words 64--74)—including 
-scratch spans and a firmware index—and a \emph{program counter}
-(word~75) support execution.  The remaining 52 words (76--127)
-constitute the \emph{program region}, storing up to 104
-thirty-two-bit instruction slots.
+\begin{table}[h]
+  \centering
+  \caption{Value frame layout.  All offsets are word indices into the
+           128-word frame.  Bit widths are given for the default
+           configuration.}
+  \label{tab:value_layout}
+  \begin{tabular}{llrl}
+    \toprule
+    \textbf{Region} & \textbf{Words} & \textbf{Bits} & \textbf{Purpose} \\
+    \midrule
+    Tokens    & 0--7     & 512  & Raw input bytes, packed token data \\
+    Affinity  & 8--15    & 512  & 8 independent SimHash projections \\
+    Program   & 16--23   & 512  & 32 bitwise instruction slots \\
+    Signals   & 24--31   & 512  & ALU output from program execution \\
+    Reserved  & 32--124  & 5952 & Application-defined metadata \\
+    Prev ID   & 125      & 64   & Link to predecessor Value \\
+    Next ID   & 126      & 64   & Link to successor Value \\
+    ID        & 127      & 64   & Unique frame identifier \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
-This layout is not fixed at compile time.  A configuration file
-specifies the word offsets and bit widths for every region, allowing the
-frame geometry to be altered without modifying the runtime.
+The Token region holds the raw byte content of an input datum.  The
+Affinity region stores a locality-sensitive fingerprint used for
+content-addressable routing (\Cref{sec:entropy_routing}).  The Program
+region contains executable instructions that the multi-substrate backend
+applies to the frame's own data.  The Signals region receives the output
+of program execution, serving as a write target for the ALU.  The
+Prev/Next/ID words thread Values into doubly-linked sequences that
+preserve ingestion order.
+
+This layout is not fixed at compile time.  A configuration file specifies
+the word offsets and bit widths for every region, allowing the frame
+geometry to be altered without modifying the runtime.
 
 \paragraph{The Sixteen Boolean Operations.}
 The instruction set consists of the sixteen two-input boolean
 functions, each encoded as a four-bit truth table.  During execution,
-pairs of bits drawn from a source and a destination are used to index
-into the truth table; the resulting bit is written back to the
-destination.  Because these operations are applied across
-\emph{spans}---contiguous runs of bits within a frame---each
-instruction performs parallel boolean evaluation over an arbitrary
-bit-width in a single step.
+pairs of bits drawn from two operand spans are used to index into the
+truth table; the resulting bit is written to the destination.  Because
+these operations are applied across \emph{spans}---contiguous runs of
+bits within a frame---each instruction performs parallel boolean
+evaluation over an arbitrary bit-width in a single step.
 
 The sixteen operations partition into functional roles:
 
 \begin{itemize}[nosep]
   \item \textbf{Identity and projection} (\texttt{A}=\texttt{0011},
         \texttt{B}=\texttt{0101}): output one operand, ignoring the other.
-        Used for data movement between regions and registers.
+        Used for data movement between regions.
   \item \textbf{Equality testing} (XNOR, \texttt{1001}): returns all
         ones where source and destination bits match.  A span-wide XNOR
-        that produces a block of all ones indicates a perfect match---the
-        basis for pattern recognition across data regions.
+        producing all ones indicates a perfect match---the basis for
+        pattern recognition across data regions.
   \item \textbf{Difference detection} (XOR, \texttt{0110}): returns
         ones where bits differ.  Identifies the structural delta between
         two frames.
@@ -56,25 +75,18 @@ The sixteen operations partition into functional roles:
         A-AND-NOT-B, \texttt{0010}): retains bits in the destination
         only where the source permits.  The inhibitor gate
         (\texttt{0010}) selectively removes bits, functioning as a
-        permission filter---if the source is a mask, only unmasked bits
-        in the destination survive.
+        permission filter.
   \item \textbf{Merging} (OR, \texttt{0111}): combines two spans,
         preserving all active bits from both.  Used for superposition of
-        multiple token identities into a single frame.
+        multiple identities into a single frame.
   \item \textbf{Constraint solving} (NAND, \texttt{1110}; NOR,
-        \texttt{1000}): applied across a span, NAND yields the set of
-        bit positions where at least one input is inactive---the
-        complement of the AND mask.  When one span encodes a set of
-        rules and the other encodes a current state, NAND produces the
-        set of positions not yet satisfied.
+        \texttt{1000}): NAND yields positions where at least one input
+        is inactive---the complement of the AND mask.
   \item \textbf{Conditional selection} (material implication,
         \texttt{1011}, \texttt{1101}): retains the destination where the
-        source is active, and forces ones elsewhere.  Used for
-        conditional patching: a template (source) selects which bits of
-        the destination to preserve.
+        source is active, and forces ones elsewhere.
   \item \textbf{Negation} (NOT-A, \texttt{1100}; NOT-B, \texttt{1010}):
-        inverts a span.  Converts a whitelist to a blacklist, or inverts
-        a program's logic in a single pass.
+        inverts a span.
   \item \textbf{Constants} (\texttt{0000}, \texttt{1111}): force a
         span to all zeros or all ones regardless of current content.
         Used for clearing and signaling.
@@ -84,39 +96,41 @@ No higher-level arithmetic or symbolic primitives are provided.  All
 behavior is constructed by composing these operations across the
 regions of one or more frames.
 
-\paragraph{Computed Control Flow.}
-Because the program counter and registers are stored in
-addressable words, any boolean operation can target them.  A
-conditional skip-if-zero mechanism enables loops without invented opcodes.
-If a specified condition evaluates to zero, the program counter skips
-the subsequent instruction, allowing for data-dependent execution paths
-while preserving the simplicity of the uniform boolean truth table
-instructions.
+\paragraph{Program Execution.}
+The ALU partitions the Token region into two operand spans, $A$ and $B$.
+Span~$A$ is held steady; span~$B$ is rotated in 8-bit steps.  The
+program counter advances through the Program region one opcode at a time,
+applying the corresponding boolean truth table between $A$ and the
+rotated $B$.  Results are emitted as Signal bits into the Signals
+region.  Programs may set loop bits to request re-enqueuing for
+iterative execution.
 
 \paragraph{Instruction Encoding.}
-Each instruction is packed into a thirty-two-bit word with three fields:
-a source operand, a destination operand, and a four-bit opcode.  Operands
-may reference one of the seven general-purpose registers, the program
-counter, the firmware index, or a fourteen-bit immediate value.  A flag
-field distinguishes register references from immediates and pointer
-dereferences.  The compiler translates a textual assembly language---one
-instruction per line, each specifying source, destination, and
-operation---into the packed binary form.
+Each instruction occupies a thirty-two-bit word with three fields: a
+source operand, a destination operand, and a four-bit opcode.  Operands
+may reference named regions, pointer dereferences, or fourteen-bit
+immediate values.  A flag field distinguishes register references from
+immediates.  An assembler translates a textual representation---one
+instruction per line---into the packed binary form.  Extended instruction
+words support memory-load markers for use in query and prompt firmware.
 
 \paragraph{Programs as Data.}
-Programs reside within the same frame that holds data.  The program
+Programs reside within the same frame that holds data.  The Program
 region is addressable by the same boolean operations that act on the
-data region, and the program counter advances through this region during
-execution.  A frame may therefore carry stored information, an executable
-program, or both.  Self-modifying behavior is a natural consequence: an
-instruction can target another instruction in the same program region.
+Token region.  A frame may therefore carry stored information, an
+executable program, or both.  Self-modifying behavior is a natural
+consequence: an instruction can target another instruction in the same
+program region.
 
 \paragraph{Firmware.}
 The system provides a library of pre-compiled programs called
-\emph{firmware}.  Six firmware types are defined: \textbf{bootloader}
-(register initialization), \textbf{affinity} (structural comparison and
-value emission), \textbf{viral} (program propagation to a partner
-frame), \textbf{shatter} (data decomposition via multi-pass AND),
-\textbf{tombstone} (metadata zeroing), and \textbf{wipe} (data
-zeroing).  Firmware segments compose into multi-stage pipelines
-through a chaining mechanism described in \Cref{sec:firmware}.
+\emph{firmware}.  Seven firmware types are defined:
+\textbf{learn} (plasticity operations),
+\textbf{bootloader} (register initialization),
+\textbf{tombstone} (metadata zeroing via FALSE across structural words),
+\textbf{viral} (program propagation to a partner frame),
+\textbf{build} (structural assembly),
+\textbf{query} (retrieval with extended memory-load instructions), and
+\textbf{prompt} (input preparation).
+Firmware segments compose into multi-stage pipelines through a chaining
+mechanism described in \Cref{sec:firmware}.

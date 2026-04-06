@@ -2,25 +2,34 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-We present a computational substrate in which data, programs, and execution
-state occupy a single fixed-width binary representation.  The fundamental
-primitive is a 1024-byte frame---128 sixty-four-bit words---partitioned into
-regions for token data, execution registers, and an embedded program.
-Computation proceeds through the complete set of sixteen two-input boolean
-truth tables, applied across frame regions by a multi-substrate backend that
-dispatches to CPU, CUDA, or Metal hardware.
+We present a four-layer computational architecture in which data,
+programs, and execution state occupy a single fixed-width binary frame,
+and learning emerges from the interaction of adaptive probabilistic
+tries, content-addressable routing, and collective eigenmode selection.
 
-Frames are deposited into concurrent mixing pools, termed Regions, where
-non-deterministic interaction between frames drives computation without
-centralized control flow.  A configurable firmware system provides
-pre-compiled programs---including bootstrapping, structural zeroing, and
-self-propagating replication---that can be loaded into any frame's program
-region, enabling a form of self-modification within the substrate.
+The fundamental primitive is a 1024-byte frame---128 sixty-four-bit
+words---partitioned into regions for token data, a 512-bit
+locality-sensitive affinity fingerprint, an embedded program of sixteen
+two-input boolean truth tables, and a signals region for ALU output.
+Frames are routed through a Kademlia-style distributed hash table where
+each node maintains a MarkovTrie: a suffix trie that learns online via
+surprise-modulated plasticity, adapting its own decay rate, learning
+rate, and nine other parameters from signals it already computes.
 
-The system processes all input modalities as raw byte sequences, requiring
-no learned encoders or modality-specific preprocessing.  We evaluate the
-architecture across text classification, code generation, image
-reconstruction, logical reasoning, and text generation.  All experiments
-execute within the substrate and produce their own documentation artifacts,
-yielding the present paper as a structured output of the system itself.
+A gossip protocol propagates compact digests of each trie's adaptive
+state across the network.  From these digests, each node's Field
+detects emergent eigenmodes---clusters of structurally aligned,
+phase-coherent tries---and projects asymmetric pressure onto the local
+trie: amplifying learning in the dominant mode while suppressing it
+elsewhere.  This mechanism functions as attention by differential
+survival, without matrices, softmax, or learned parameters.
+
+The system processes all input modalities as raw byte sequences,
+requiring no learned encoders or modality-specific preprocessing.  A
+multi-substrate backend dispatches boolean operations to CPU, CUDA, or
+Metal hardware.  We evaluate the architecture across text
+classification, code generation, image reconstruction, logical
+reasoning, and text generation.  All experiments execute within the
+substrate and produce their own documentation artifacts, yielding the
+present paper as a structured output of the system itself.
 \end{abstract}

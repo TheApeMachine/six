@@ -38,11 +38,14 @@ system:
   batchSize: 10000
   batchWindow: 500
   queueSize: 20000
+  shannonLimit: 0.47
 
 kadabra:
   bits: 64
   bucketSize: 20
   replicationFactor: 3
+  clusterThreshold: 192
+  shannonLimit: 240
   alpha: 3
   epochQueries: 100
   penalty: 0.1
@@ -53,6 +56,51 @@ kadabra:
     - 0.3
     - 0.4
     - 0.5
+
+markovtrie:
+  decayFactor: 0.995
+  endToken: "$"
+  maximumPathLength: 5
+  interpolationSuffixDepth: 4
+  classificationContext: 3
+  coOccurrenceWindow: 2
+  pruneInterval: 10
+  pruneMinimumCount: 0.05
+  replayLength: 10
+  replayThreshold: 85
+  unknownProbability: 0.001
+  additiveSmoothing: 0.1
+  recentPenalty: 0.5
+  recentWindow: 3
+  editDistance: 1
+  editSimilarity: 0.95
+  symbolMinimumTotal: 2
+  symbolMinimumScore: 1.5
+  symbolLimit: 50
+  baselineLearningRate: 0.1
+  maxLearningRate: 1.0
+  surprisalScaleBits: 2.0
+  conceptLabelPrefix: "Concept_"
+  unsupervisedConfidence: 50.0
+  experienceEmptyLabel: "None"
+  episodicCapacity: 1000
+  episodicNeighborLimit: 16
+  episodicRecencyWeight: 0.25
+  episodicBlendWeight: 0.35
+  initialConceptCounter: 1
+  bpeEndOfWordToken: "</w>"
+  bpePairDelimiter: "\x00"
+  predictExperienceSurprisalBits: 1.0
+  temperature: 0.7
+  adaptiveEMAAlpha: 0.05
+  adaptiveMinSamples: 50
+  adaptiveMaxSamples: 1000
+  adaptiveMaxDepth: 8
+  adaptiveMaxDepthDecay: 0.99
+  adaptiveMaxDepthDecayAlpha: 0.05
+  adaptiveMaxDepthDecayMinSamples: 50
+  adaptiveMaxDepthDecayMaxSamples: 1000
+  adaptiveMaxDepthDecayMaxDepth: 8
 
 value:
   words: 128

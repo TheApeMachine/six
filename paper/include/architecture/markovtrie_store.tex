@@ -1,0 +1,182 @@
+% ============================================================================
+% MARKOVTRIE: ADAPTIVE PROBABILISTIC LEARNING WITHOUT GRADIENTS
+% ============================================================================
+\subsection{The MarkovTrie Store}
+\label{sec:markovtrie}
+
+The MarkovTrie is the system's learning substrate: an adaptive
+probabilistic suffix trie that learns online from every observation
+without training epochs, loss functions, or weight matrices.  Each node
+in the Kadabra routing layer (\Cref{sec:kadabra_dht}) owns one
+MarkovTrie instance; Values are routed to tries by affinity similarity,
+so each trie naturally specializes in a region of content space.
+
+\subsubsection{Data Structure}
+
+The trie is a rooted tree in which each node $n$ stores:
+\begin{itemize}[nosep]
+  \item A token $\tau_n$ (the symbol at this position in the suffix).
+  \item A children map $\mathcal{C}_n : \mathcal{V} \to \mathcal{N}$
+        from vocabulary symbols to child nodes.
+  \item Per-label decayed counts
+        $c_n(\ell) \in \mathbb{R}_{\geq 0}$ for each label
+        $\ell \in \mathcal{L}$.
+  \item A total visit count
+        $T_n = \sum_{\ell} c_n(\ell)$.
+  \item Depth $d_n$ (distance from the root).
+  \item A timestamp $t_n$ recording the last update step.
+\end{itemize}
+
+Paths from root to leaf encode observed token sequences.  The depth of
+the trie grows with the complexity of the data, not with a fixed
+parameter budget.
+
+\subsubsection{Lazy Decay}
+
+All counts decay exponentially, but decay is computed lazily: a node's
+counts are updated only when it is accessed.  If the current global step
+is $s$ and a node was last touched at step $t_n$, the elapsed decay is:
+\begin{equation}
+  c_n(\ell) \leftarrow c_n(\ell) \cdot \lambda^{s - t_n}
+  \label{eq:lazy_decay}
+\end{equation}
+where $\lambda \in (0,1)$ is the decay factor (default $0.995$).  This
+ensures that stale knowledge fades without requiring a global sweep, and
+the cost is amortized over accesses.
+
+\subsubsection{Surprisal-Modulated Plasticity}
+\label{sec:surprisal_plasticity}
+
+The trie's learning rate is not a fixed hyperparameter.  It is modulated
+by \emph{surprisal}: the information-theoretic novelty of each
+observation.  For a token $\tau$ observed in context $c$, the surprisal
+is:
+\begin{equation}
+  S(\tau \mid c) = -\log_2 P(\tau \mid c)
+  \label{eq:surprisal}
+\end{equation}
+where $P(\tau \mid c)$ is the trie's current estimate of the next-token
+probability given context $c$.  The effective learning rate for this
+observation is:
+\begin{equation}
+  \eta(\tau) = \min\!\bigl(\eta_{\max},\;
+    \eta_{\text{base}} + \bar{S} / \sigma_S\bigr)
+  \label{eq:adaptive_lr}
+\end{equation}
+where $\bar{S}$ is the exponential moving average of recent surprisal
+values, $\sigma_S$ is its standard deviation, and $\eta_{\text{base}} =
+0.1$, $\eta_{\max} = 1.0$ are the floor and ceiling.  Novel inputs
+(high surprisal) are learned aggressively; familiar inputs (low
+surprisal) are absorbed gently.
+
+\subsubsection{Adaptive Self-Tuning}
+
+Nine parameters that are typically fixed hyperparameters are instead
+derived online from signals the trie already computes.  All use
+exponential moving averages with smoothing factor $\alpha = 0.05$
+(effective window $\approx 20$ observations).  The adaptive mappings
+are:
+
+\begin{table}[h]
+  \centering
+  \caption{Adaptive parameter derivation.  Each parameter is a
+           deterministic function of an online signal; no search or
+           meta-optimization is required.}
+  \label{tab:adaptive_params}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Parameter} & \textbf{Signal} & \textbf{Mechanism} \\
+    \midrule
+    Decay factor $\lambda$
+      & Surprisal EMA
+      & High surprisal $\to$ lower $\lambda$ (forget faster) \\
+    Learning rate $\eta$
+      & Per-token surprisal
+      & Novel tokens learned more aggressively \\
+    Prune threshold
+      & Node growth rate
+      & Fast growth $\to$ prune harder to control memory \\
+    Classification context
+      & Classification entropy
+      & High entropy $\to$ widen context window \\
+    Temperature $\tau$
+      & Surprisal EMA
+      & Familiar $\to$ explore; novel $\to$ exploit \\
+    Beam width
+      & Classification confidence
+      & Low confidence $\to$ wider search \\
+    Interpolation weights
+      & Depth hit rate
+      & Tracks which $n$-gram depths are predictive \\
+    Episodic blend weight
+      & Episodic match quality
+      & Good episodic hits $\to$ higher blend \\
+    Unsupervised threshold
+      & Classification accuracy
+      & Maturing labels $\to$ require more confidence \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A cold-start guard prevents any adaptive parameter from deviating from
+its base value until at least 50 surprisal observations have been
+collected, ensuring that the EMA estimates are calibrated before they
+influence behavior.
+
+\subsubsection{Classification}
+
+Classification follows a Naive Bayes formulation over interpolated
+$n$-gram probabilities.  For an input sequence
+$\mathbf{x} = (x_1, \ldots, x_T)$ and label $\ell$, the log-evidence
+is:
+\begin{equation}
+  \log P(\ell \mid \mathbf{x})
+    \propto \log P(\ell)
+    + \sum_{t=1}^{T} \sum_{d=1}^{D}
+      w_d \,\log P_d(x_t \mid x_{t-d:t-1},\, \ell)
+  \label{eq:classification}
+\end{equation}
+where $P_d$ is the $d$-gram probability read from the trie at depth
+$d$, $w_d$ is the adaptive interpolation weight for depth $d$, $D$ is
+the interpolation suffix depth, and $P(\ell)$ is the label prior from
+global class totals.  The system walks the trie depth-first,
+accumulating log-evidence per label, and returns the label with the
+highest posterior.
+
+\subsubsection{Generation}
+
+Text generation uses beam search with adaptively derived parameters.
+At each step, the trie samples candidate next tokens from the
+distribution at the current node:
+\begin{equation}
+  P(\tau \mid c) = \frac{c_n(\tau)}{\sum_{\tau'} c_n(\tau')}
+  \label{eq:generation}
+\end{equation}
+Temperature $\tau$, beam width, and maximum length are not
+hyperparameters; they are derived from the trie's adaptive state
+(\Cref{tab:adaptive_params}).  Beam candidates are extended while
+their cumulative probability exceeds a threshold, producing
+completions whose length and diversity adapt to the trie's confidence
+in the current context.
+
+\subsubsection{Episodic Memory}
+
+A bounded episodic buffer (default capacity 1000) stores recent
+token sequences with timestamps.  During prediction, the buffer
+contributes a $k$-nearest-neighbor tail to the trie's probability
+estimates.  The blend weight between trie predictions and episodic
+recall is itself adaptive: when episodic matches are high-quality
+(low edit distance to the query), the blend weight increases; when
+matches are poor, the trie's own estimates dominate.  This provides
+fast adaptation to recent context without retraining the trie.
+
+\subsubsection{Experience-Driven Learning}
+
+The trie does not distinguish training from inference.  When the
+\texttt{Predict} method encounters high-surprisal input (average
+per-token surprisal above a configurable threshold, default 1.0 bit),
+it invokes \texttt{Experience} before classification.  Experience
+creates a new concept label if no existing label adequately explains
+the input, inserts the sequence into the trie under that label, and
+updates all adaptive statistics.  This closed loop means the trie
+continuously refines its model as it processes queries.

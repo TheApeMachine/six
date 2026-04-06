@@ -1,46 +1,8 @@
 package metal
 
-/*
-MetalErrorType is a typed error for Metal backend failures.
-*/
-type MetalErrorType string
+import "github.com/theapemachine/six/pkg/compute/kernel"
 
-const (
-	MetalErrorUnavailable    MetalErrorType = "metal backend unavailable"
-	MetalErrorInitFailed     MetalErrorType = "metal backend init failed"
-	MetalErrorDispatchFailed MetalErrorType = "metal backend dispatch failed"
-)
-
-type MetalError struct {
-	Err error
-	Msg string
-	Op  string
-}
-
-func NewMetalError(merr MetalErrorType, err error, op string) *MetalError {
-	msg := string(merr)
-	if err != nil {
-		msg += ": " + err.Error()
-	}
-	return &MetalError{
-		Err: err,
-		Msg: msg,
-		Op:  op,
-	}
-}
-
-// Error implements error for *MetalError.
-func (err *MetalError) Error() string {
-	if err == nil {
-		return ""
-	}
-	return err.Msg
-}
-
-// Unwrap returns the wrapped error for errors.Is / errors.As.
-func (err *MetalError) Unwrap() error {
-	if err == nil {
-		return nil
-	}
-	return err.Err
+// NewMetalKernelError is a convenience constructor for Metal kernel errors.
+func NewMetalKernelError(typ kernel.KernelErrorType, err error, op string) *kernel.KernelError {
+	return kernel.NewKernelError("metal", typ, err, op, 0)
 }

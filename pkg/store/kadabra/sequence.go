@@ -7,29 +7,26 @@ import (
 )
 
 /*
-SequenceRecord is the replicated DHT
-value stored at Kadabra nodes.
+SequenceRecord is the replicated DHT value stored at Kadabra nodes.
 */
 type SequenceRecord struct {
 	Key       uint64
 	Sequence  string
 	Label     string
-	Publisher NodeID
+	Publisher uint64
 }
 
 /*
-HashSequenceRecord derives the DHT key
-for one replicated sequence record.
+Hash derives the DHT key for this sequence record from its
+sequence content and label.
 */
-func HashSequenceRecord(
-	sequence string, label string,
-) uint64 {
+func (record SequenceRecord) Hash() uint64 {
 	hasher := fnv.New64a()
 
-	for _, b := range [][]byte{
-		[]byte(label), {0}, []byte(sequence),
+	for _, segment := range [][]byte{
+		[]byte(record.Label), {0}, []byte(record.Sequence),
 	} {
-		_, err := hasher.Write(b)
+		_, err := hasher.Write(segment)
 
 		if errnie.Error(err) != nil {
 			return 0

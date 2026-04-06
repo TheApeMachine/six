@@ -119,8 +119,8 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 			frames[0],
 			C.uint32_t(1),
 		) != 0 {
-			err := NewCUDAError(
-				CUDAErrorDispatchFailed,
+			err := NewCUDAKernelError(
+				kernel.KernelErrDispatchFailed,
 				errors.New("failed to dispatch unified bitwise operation"),
 				"UniversalBitwise",
 				1,
@@ -143,8 +143,8 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 		unsafe.Pointer(&slabA[0]),
 		C.uint32_t(len(frames)),
 	) != 0 {
-		err := NewCUDAError(
-			CUDAErrorDispatchFailed,
+		err := NewCUDAKernelError(
+			kernel.KernelErrDispatchFailed,
 			errors.New("failed to dispatch unified bitwise operation"),
 			"UniversalBitwise",
 			1,

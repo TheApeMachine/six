@@ -156,33 +156,28 @@ func TestPipeline(t *testing.T) {
 				So(pipeline, ShouldNotBeNil)
 
 				Convey("And a machine", func() {
-					machine, err := vm.NewMachine(
-						t.Context(),
-						vm.MachineWithDataset(experiment.Dataset()),
-					)
-
+					machine, err := vm.NewMachine(t.Context())
 					So(err, ShouldBeNil)
 					So(machine, ShouldNotBeNil)
-
-					Convey("When the machine is run", func() {
-						So(machine.Run(), ShouldBeNil)
-					})
+					So(machine.Load(experiment.Dataset()), ShouldBeNil)
 
 					for idx, prompt := range experiment.Prompts() {
 						Convey(fmt.Sprintf("When prompted with [%d] %q", idx, prompt), func() {
 							holdoutBytes, holdoutOK := pipeline.experiment.HoldoutForPrompt(idx)
-
-							generation, classifications := machine.Prompt(prompt)
+							prediction, err := machine.Prompt(prompt)
+							So(err, ShouldBeNil)
+							So(prediction, ShouldNotBeNil)
 
 							// Score() / Outcome() read tableData filled by AddResult; without this,
 							// aggregate gates see an empty run even when per-prompt checks pass.
 							pipeline.experiment.AddResult(tools.ExperimentalData{
-								Idx:             idx,
-								Name:            fmt.Sprintf("prompt_%d", idx),
-								Prefix:          []byte(prompt),
-								Holdout:         holdoutBytes,
-								Generation:      []byte(generation),
-								Classifications: classifications,
+								Idx:            idx,
+								Name:           fmt.Sprintf("prompt_%d", idx),
+								Prefix:         []byte(prompt),
+								Holdout:        holdoutBytes,
+								Generation:     []byte(prediction.String()),
+								Classification: []byte(prediction.Label()),
+								Prediction:     prediction,
 							})
 
 							if !holdoutOK {
@@ -196,22 +191,22 @@ func TestPipeline(t *testing.T) {
 										"experiment",
 										"prompt", prompt,
 										"holdout", string(holdoutBytes),
-										"generation", generation,
-										"classifications", classifications,
+										"generation", prediction.String(),
+										"classification", prediction.Label(),
 									)
 
-									if strings.TrimSpace(generation) != "" {
+									if strings.TrimSpace(prediction.String()) != "" {
 										So(
-											generation,
+											prediction.String(),
 											ShouldEqual,
 											string(holdoutBytes),
 										)
 									}
 
-									if len(classifications) > 0 {
-										So(len(classifications), ShouldBeGreaterThan, 0)
+									if len(prediction.Labels) > 0 {
+										So(len(prediction.Labels), ShouldBeGreaterThan, 0)
 
-										for _, score := range classifications {
+										for _, score := range prediction.Labels {
 											So(score, ShouldBeGreaterThan, 0.0)
 										}
 									}

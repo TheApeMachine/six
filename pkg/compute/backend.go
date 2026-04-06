@@ -84,3 +84,7 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 
 	return backend
 }
+
+func (backend *Backend) Name() string {
+	return "backend"
+}

@@ -1,53 +1,54 @@
 package network
 
-import (
-	"errors"
-	"fmt"
+import "fmt"
 
-	"github.com/theapemachine/six/pkg/errnie"
-)
-
-type NetworkErrorType string
-
-const (
-	ErrTransportFailure NetworkErrorType = "transport failure"
-)
-
+// NetworkError is the unified error type for the network package,
+// consolidating the former NetworkError and TransportError.
 type NetworkError struct {
-	*errnie.ErrnieError
-	Type NetworkErrorType
+	Subsystem string               // "transport", "conn", etc.
+	Op        string               // operation that failed
+	Err       error                // underlying cause
+	Msg       string               // human-readable summary
+	Mode      TransportFailureMode // failure classification (optional)
+	Systemic  bool                 // true when the failure is systemic
 }
 
-func NewNetworkError(
-	errType NetworkErrorType, keyvals ...any,
-) *NetworkError {
+// NewNetworkError builds a NetworkError.
+func NewNetworkError(subsystem string, err error, op string) *NetworkError {
+	msg := subsystem
+	if err != nil {
+		msg += ": " + err.Error()
+	}
 	return &NetworkError{
-		ErrnieError: errnie.NewErrnieError(
-			errors.New(string(errType)),
-			keyvals...,
-		),
-		Type: errType,
+		Subsystem: subsystem,
+		Op:        op,
+		Err:       err,
+		Msg:       msg,
 	}
 }
 
-// TransportError is a structured error for transport-layer failures.
-type TransportError struct {
-	Layer    string
-	Op       string
-	Mode     TransportFailureMode
-	Systemic bool
-	Err      error
-}
-
-func (e *TransportError) Error() string {
-	if e.Mode == "" || e.Mode == TransportFailureNone {
-		return fmt.Sprintf("%s %s: %v", e.Layer, e.Op, e.Err)
+func (e *NetworkError) Error() string {
+	if e == nil {
+		return ""
 	}
-
-	return fmt.Sprintf("%s %s (%s): %v", e.Layer, e.Op, e.Mode, e.Err)
+	if e.Mode != "" && e.Mode != TransportFailureNone {
+		return fmt.Sprintf("[%s] %s (mode=%s): %v", e.Subsystem, e.Op, e.Mode, e.Err)
+	}
+	if e.Op != "" {
+		return fmt.Sprintf("[%s] %s: %v", e.Subsystem, e.Op, e.Err)
+	}
+	if e.Msg != "" {
+		return fmt.Sprintf("[%s] %s", e.Subsystem, e.Msg)
+	}
+	return fmt.Sprintf("[%s] %v", e.Subsystem, e.Err)
 }
 
-func (e *TransportError) Unwrap() error { return e.Err }
+func (e *NetworkError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 // TransportStatusError is returned by monitor and breaker state transitions.
 type TransportStatusError string

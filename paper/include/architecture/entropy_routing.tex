@@ -1,62 +1,110 @@
-\section{Topological Affinity Clustering: In-Band Programmable Substrate}
+% ============================================================================
+% AFFINITY PROJECTION AND TOPOLOGICAL ROUTING
+% ============================================================================
+\subsection{Affinity Projection and Topological Routing}
 \label{sec:entropy_routing}
 
-\subsection{The Shannon Limit and the ``Wall of Ones''}
-A persistent vulnerability in traditional Hyperdimensional Computing (HDC) and Vector Symbolic Architectures (VSA) is the strict capacity bound imposed by Shannon entropy. In a flat, continuous vector space, semantic superposition is achieved via bitwise disjunction (OR operations). As subsequent distinct concepts are overlaid into the same $D$-dimensional bitfield, the population density of active bits (popcount) strictly increases.
+\subsubsection{The Shannon Limit and Bundling Saturation}
 
-In information theoretic terms, the representational capacity of a binary vector is maximized when exactly 50\% of its bits are active ($p(1) = 0.5$). Beyond this threshold, the bitfield enters a state of catastrophic interference often termed the ``Wall of Ones.'' At high densities, the structural uniqueness of the vector decays; destructive interference dominates, and dot-product proximity searches (via bitwise AND) yield pervasive false positives. 
+A persistent challenge in Hyperdimensional Computing (HDC) and Vector
+Symbolic Architectures (VSA) is the capacity bound imposed by
+bundling saturation.  When distinct concepts are overlaid into the same
+$D$-dimensional binary vector via bitwise OR, the population density of
+active bits monotonically increases.  Representational capacity is
+maximized when exactly $50\%$ of bits are active ($p(1) = 0.5$); beyond
+this threshold, structural uniqueness decays and proximity searches
+yield pervasive false positives.
 
-Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector. However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
+Conventional architectures delay this saturation by scaling the
+dimensionality.  The approach taken here is different: rather than
+expanding the vector, the system embeds a \emph{locality-sensitive
+affinity fingerprint} directly into the frame and uses it to route
+Values to specialized storage nodes, distributing the representational
+load across a network of independent tries.
 
-\subsection{The In-Band Programmable Substrate}
-Rather than treating semantic memory as a static container of arbitrary width, or relying on external orchestration to manage routing and collisions, the architecture introduces a unified \textbf{In-Band Programmable Substrate}. Within this paradigm, the data itself dictates its execution trajectory and structural behavior.
+\subsubsection{SimHash Affinity Projection}
+\label{sec:simhash}
 
-The fundamental unit of computation is a rigid, 128-word (8192-bit) \texttt{Value} frame. This frame is strictly partitioned to encapsulate not just semantic data, but also topological routing directives and internal execution logic:
+The affinity region of each Value (words 8--15, 512 bits) is computed
+from the token region (words 0--7, 512 bits) via eight independent
+SimHash projections.  Each projection $h_j$ ($j = 0, \ldots, 7$) uses
+a distinct prime stride $p_j$ to sample the token bits:
 
-\begin{itemize}[nosep]
-    \item \textbf{Data Field:} The core semantic payload representing encoded tokens and relationships.
-    \item \textbf{Affinity Mask:} A dedicated 256-bit region serving as a high-dimensional positional anchor, enabling rapid spatial correlation.
-    \item \textbf{Program Region:} A localized, 104-slot execution register containing programmatic opcodes that natively dictate the frame's interaction behavior.
-\end{itemize}
+\begin{definition}[SimHash Projection]
+For output bit $i \in \{0, \ldots, 63\}$ of projection $j$, sample
+$k = 7$ token bits at positions:
+\begin{equation}
+  \text{idx}(i, j, s) = (i \cdot p_j + s \cdot p_j + 37j) \bmod 512
+  \qquad s = 0, \ldots, k-1
+  \label{eq:simhash_index}
+\end{equation}
+The output bit is set if a majority of the $k$ sampled bits are set
+(majority vote):
+\begin{equation}
+  h_j(x)_i = \mathbb{1}\!\Bigl[\sum_{s=0}^{k-1} x_{\text{idx}(i,j,s)} \geq \lceil k/2 \rceil\Bigr]
+  \label{eq:majority_vote}
+\end{equation}
+\end{definition}
 
-By embedding both routing and executable logic directly into the native 8192-bit geometry, the \texttt{Value} effectively becomes a self-executing cellular automaton, eliminating external control structures and offloading permutation management directly into the topological substrate.
+The prime strides $\{73, 97, 113, 131, 151, 167, 181, 199\}$ are
+chosen from the range $[73, 199]$ to maximize pairwise stride
+differences.  Since all strides are prime and $512 = 2^9$ has no odd
+prime factors, $\gcd(p_j, 512) = 1$ for all $j$, and any two
+projections first re-collide after $\text{lcm}(p_j, p_k) = p_j \cdot
+p_k \gg 512$ steps.  The projections are therefore statistically
+independent.
 
-\subsection{Topological Affinity Clustering}
-To bypass local Shannon saturation without incurring the prohibitive bandwidth costs of infinite vector expansion, the architecture facilitates dynamic structural expansion via \textbf{Topological Affinity Clustering}. Ingestion of data streams is not uniform; instead, new information is spatially clustered into an emergent graph based strictly on overlap in the \texttt{Value}'s Affinity Mask.
+The majority vote with $k = 7$ has error rate
+$\sim \exp(-2 \cdot \text{margin}^2 \cdot k)$, producing $>96\%$
+per-bit accuracy for true-positive inputs.  At $k = 7$, each output bit
+samples $\approx 1.4\%$ of the input, preserving sensitivity to $\sim
+5\%$ input differences while suppressing single-bit noise.
 
-Topological proximity is computed as a native physics engine: when discrete \texttt{Value} frames enter the processing window, their Affinity Masks undergo a highly optimized bitwise \texttt{AND} operation followed by a hardware-accelerated \texttt{popcount}. When the emergent population density of this overlap clears a tuned thermodynamic threshold, the frames are deemed ``topologically close'' and are mutually pulled into the Arithmetic Logic Unit (ALU) for programmatic interaction.
+\subsubsection{Bloom Filter Fallback}
 
-This mechanism replaces expensive heuristic searches and arbitrary spatial mappings. The environment scales dynamically; as the local substrate approaches theoretical maximum entropy limits, the Affinity Mask clustering isolates distinct conceptual structures into discrete topological subgraphs, naturally diffusing informational heat across a distributed representational fabric.
+For low-entropy inputs where the majority-vote LSH produces an all-zero
+affinity vector (possible when fewer than half the token bits are set),
+the system falls back to a 3-byte $n$-gram Bloom filter.  Overlapping
+3-byte windows of the raw token data are hashed via FNV-1a to a single
+bit position in a 64-bit word, and the result is stored in the first
+affinity word.  This ensures that every Value has a non-zero
+fingerprint for routing.
 
-\subsection{State Space Analysis: Topology as a Capacity Multiplier}
+\subsubsection{Topological Affinity Clustering}
+
+Values are not stored uniformly.  The affinity vector determines which
+node in the Kadabra DHT (\Cref{sec:kadabra_dht}) receives a Value.
+Topological proximity between two Values $u, v$ is measured by:
+\begin{equation}
+  \text{overlap}(u, v)
+    = \sum_{w=0}^{7} \text{popcount}(\mathbf{a}_{u,w} \;\mathbin{\&}\; \mathbf{a}_{v,w})
+  \label{eq:affinity_overlap}
+\end{equation}
+Values with high overlap are routed to the same network node, creating
+implicit clusters of semantically related content.  This mechanism
+replaces external routing heuristics: the data itself dictates its
+storage location through the affinity fingerprint embedded in its frame.
+
+\subsubsection{State Space Analysis}
 \label{sec:state_space}
 
-The fundamental architectural insight is that \emph{representational capacity can be dramatically amplified by topological structuring and in-band programmatic permutation, rather than parameterized scaling}. We formalize this by evaluating the emergent configuration space at each level of the substrate hierarchy.
+The affinity mechanism amplifies representational capacity through
+topological structuring rather than dimensional scaling.
 
 \paragraph{Level 1: The 8192-Bit Value.}
-The atomic unit of the substrate is an 8192-bit frame. When considered simply as a static binary matrix, it admits:
-\begin{equation}
-  |\Omega_{\text{frame}}| = 2^{8192}
-  \label{eq:state_frame}
-\end{equation}
-This establishes the base Shannon-limited micro-state for an isolated vector.
+The atomic unit admits $|\Omega_{\text{frame}}| = 2^{8192}$ binary
+configurations.
 
 \paragraph{Level 2: The Distributed Topological Graph.}
-Structural relations emerge between vectors via their matching Affinity Masks. For an environment scaled to $N$ active values, the combinatorial space of topological edges---dictated entirely by successful hardware matches ($A \text{ AND } B \ge \theta$)---spans every emergent graph configuration:
-\begin{equation}
-  |\Omega_{\text{topology}}| = (2^{8192})^{N} \times \mathcal{O}(2^{N(N-1)/2})
-  \label{eq:state_topology}
-\end{equation}
-This structural mapping organically defines the memory space, clustering related semantic items implicitly into discrete sub-networks bounded by natural affinity rather than an external rigid layout.
+For $N$ active Values, the affinity-routed topology admits up to
+$(2^{8192})^{N} \times \mathcal{O}(2^{N(N-1)/2})$ possible
+configurations---the product of individual frame states and the
+space of possible routing edges.
 
-\paragraph{Level 3: Execution Permutations over the 104-Slot Substrate.}
-Further multiplying the representational bounds, each \texttt{Value} operates as its own programmable mechanism. With a 104-slot local program region consisting of base instruction mappings (assuming $O$ operator combinations per slot), the interactive state is perturbed dynamically during ALU processing. The accessible configuration space thus expands factorially:
-\begin{equation}
-  |\Omega_{\text{total}}| = |\Omega_{\text{topology}}| \times O^{104N}
-  \label{eq:state_total}
-\end{equation}
-
-By encapsulating self-modifying, localized logic natively within the same geometric bound as the encoded data, the \texttt{Value} substrate ensures that identically grouped data units can still trace dramatically different semantic operations depending on their in-band instruction sets.
-
-\paragraph{Topology as a Capacity Multiplier.}
-Through this tri-level mechanism, the architecture fundamentally circumvents Shannon's static parameter ceilings. It maps scalar density pressure directly into physical geometry (via topological Affinity Masking) and programmatic combinations (via the 104-slot program register). The computational substrate organically diffuses semantic stress, scaling representational state spaces efficiently through local interactions rather than brute-force dimensional expansion.
+\paragraph{Level 3: Trie and Field States.}
+Each Value's storage node maintains a MarkovTrie
+(\Cref{sec:markovtrie}) whose state grows with observed complexity, and
+the Field (\Cref{sec:field}) partitions nodes into eigenmodes whose
+multipliers modulate learning and decay.  The total accessible state
+space is the product of all three levels, growing multiplicatively
+without requiring dimensional expansion of individual frames.

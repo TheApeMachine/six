@@ -4,52 +4,112 @@
 \subsection{Representational Capacity}
 \label{sec:capacity_analysis}
 
-This subsection analyzes the state space of the Value representation and
-compares it with the capacity of conventional parameterized architectures.
+This subsection analyzes the state space of the Value representation,
+the information-theoretic properties of the affinity projection, and
+the capacity amplification provided by the four-layer architecture.
 
 \subsubsection{State Space of a Single Value}
 
-A Value occupies $D = 8192$ bits of storage (128 words $\times$ 64
-bits) and admits $2^{8192}$ possible binary configurations.  Of these,
-the data region (words 0--59, yielding 3840 bits) contributes
-$2^{3840}$ distinguishable data states, while the program region
-(words 79--127, yielding 3136 bits encoding 98 instruction slots)
-contributes $2^{3136}$ distinguishable programs.  Because data and
-program regions are independently addressable, the joint state space of
-a single frame is the Cartesian product of its regions---substantially
-larger than either region alone.
+A Value occupies $D = 8192$ bits (128 words $\times$ 64 bits) and admits
+$2^{8192}$ possible binary configurations.  Partitioning into functional
+regions yields the following independent state counts:
 
-\subsubsection{Combinatorial Interaction in Regions}
+\begin{align}
+  |\Omega_{\text{token}}|   &= 2^{512}   && \text{(words 0--7)} \\
+  |\Omega_{\text{affinity}}| &= 2^{512}  && \text{(words 8--15)} \\
+  |\Omega_{\text{program}}|  &= 2^{512}  && \text{(words 16--23)} \\
+  |\Omega_{\text{signal}}|   &= 2^{512}  && \text{(words 24--31)}
+\end{align}
 
-A Region holds up to 64 frames in its primary mixer and up to 256 in its
-spill channel.  When two frames interact through a boolean operation, the
-result depends on both frames' data and program contents.  For $N$ frames
-in a Region, the number of ordered interaction pairs is $N(N-1)$, and
-each pair can produce a distinct output depending on which boolean
-operation is applied.  With 16 possible operations per instruction slot,
-the reachable state space after $k$ interaction steps grows
-combinatorially.
+Because program and data regions are independently addressable, the
+joint state space of a single frame is the Cartesian product of its
+regions, substantially larger than any single region alone.
 
-This combinatorial expansion is not merely theoretical: the
-non-deterministic read order of the Region means that repeated
-executions over the same initial set of frames may explore different
-interaction sequences, providing a form of stochastic search over the
-space of possible compositions.
+\subsubsection{SimHash Projection and Collision Bounds}
+
+The affinity region is computed from the token region via eight
+independent SimHash projections (\Cref{sec:entropy_routing}).  Each
+projection $h_j$ ($j = 1, \ldots, 8$) uses a distinct prime stride
+$p_j \in \{73, 97, 113, 131, 151, 167, 181, 199\}$ to sample $k = 7$
+token bits per output bit via majority vote.
+
+For two Values $u, v$ with token Hamming distance $\delta(u,v)$ over
+512 bits, the per-bit agreement probability of a single SimHash
+projection is:
+\begin{equation}
+  \Pr\bigl[h_j(u)_i = h_j(v)_i\bigr]
+    = \sum_{t=0}^{\lfloor k/2 \rfloor} \binom{k}{t}\, p^t\, (1-p)^{k-t}
+  \label{eq:simhash_agreement}
+\end{equation}
+where $p = \delta(u,v) / 512$ is the fractional Hamming distance.  At
+$k=7$, this function amplifies the similarity signal: inputs differing
+in fewer than $5\%$ of token bits produce affinity vectors with expected
+Hamming agreement exceeding $96\%$, while inputs differing in more than
+$40\%$ of bits produce near-chance agreement ($\approx 50\%$).
+
+The eight projections are independent because $\gcd(p_j, 512) = 1$ for
+all primes $p_j$ (none divide $512 = 2^9$), and any two projections
+with strides $p_j, p_k$ first re-collide after $\text{lcm}(p_j, p_k) =
+p_j \cdot p_k \gg 512$ steps---they never revisit the same sampling
+pattern within the 512-bit input.
+
+\subsubsection{Kademlia Metric from Affinity}
+
+The affinity vector defines a metric space via XOR distance.  For two
+Values with affinity words $\mathbf{a}, \mathbf{b} \in \{0,1\}^{512}$,
+the routing distance is:
+\begin{equation}
+  d(\mathbf{a}, \mathbf{b})
+    = \mathbf{a} \oplus \mathbf{b}
+  \label{eq:xor_distance}
+\end{equation}
+where $\oplus$ denotes bitwise XOR.  This satisfies the requirements of
+a Kademlia topology: $d(\mathbf{a}, \mathbf{a}) = 0$, symmetry
+$d(\mathbf{a}, \mathbf{b}) = d(\mathbf{b}, \mathbf{a})$, and the
+triangle inequality (since XOR distance is a metric on $\{0,1\}^n$).
+The log-distance $\lfloor \log_2 d(\mathbf{a}, \mathbf{b}) \rfloor$
+determines bucket placement in the routing table
+(\Cref{sec:kadabra_dht}).
+
+\subsubsection{Capacity Amplification Through the Layer Stack}
+
+The four-layer architecture multiplicatively expands the accessible
+state space beyond the single-Value bound:
+
+\paragraph{Layer 1: Value.}
+$|\Omega_1| = 2^{8192}$ per frame.
+
+\paragraph{Layer 2: MarkovTrie.}
+Each MarkovTrie node stores per-label decayed counts and structural
+metadata.  For a trie with $M$ nodes, vocabulary $|V|$, and $L$ labels,
+the trie state space is $\bigl(\mathbb{R}_{\geq 0}^{L}\bigr)^M \times
+|V|^M$, growing with the complexity of observed sequences rather than
+with a fixed parameter budget.
+
+\paragraph{Layer 3: Kadabra DHT.}
+For a network of $N$ trie nodes, the routing topology admits up to
+$2^{\binom{N}{2}}$ possible edge configurations, constrained by affinity
+similarity.  With replication factor $r = 3$, each Value is stored on
+$r$ nodes, providing redundancy and enabling multiple tries to
+specialize on overlapping content regions.
+
+\paragraph{Layer 4: The Field.}
+The eigenmode structure partitions $N$ nodes into $K$ modes.  The number
+of possible partitions is the Bell number $B_N$.  Each partition induces
+a distinct attention pattern---a set of asymmetric decay and learning
+multipliers---yielding a total field state space of $B_N \times
+\mathbb{R}^{2N}$ (one decay and one learning multiplier per node).
 
 \subsubsection{Comparison with Parameter-Count Scaling}
 \label{sec:capacity_comparison}
-
-Table~\ref{tab:capacity_comparison} contrasts the representational state
-space of the Value architecture with that of conventional parameterized
-models.
 
 \begin{table}[h]
   \centering
   \caption{Memory footprint and representational state space.  The Value
            architecture achieves comparable information density per byte
-           to parameterized models, but the structure of the state space
-           differs: Values compose through boolean operations rather than
-           matrix multiplications.}
+           to parameterized models, but navigates state space through
+           boolean composition and adaptive trie learning rather than
+           gradient descent.}
   \label{tab:capacity_comparison}
   \begin{tabular}{lrrr}
     \toprule
@@ -67,44 +127,23 @@ models.
       & $\sim 2^{1.87 \times 10^9}$
       & $\sim 2{,}406$ \\
     \addlinespace
-    1K Values (mixed)
+    1K Values (frames only)
       & 1\,MB
       & $(2^{8192})^{1000}$
       & $\sim 2{,}467$ \\
-    1M Values (mixed)
-      & 1\,GB
-      & $(2^{8192})^{10^6}$
-      & $\sim 2{,}467$ \\
+    1K Values + MarkovTrie + Field
+      & 1\,MB + trie
+      & $(2^{8192})^{1000} \times |\Omega_{\text{trie}}|$
+      & $> 2{,}467$ \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 The states-per-kilobyte ratio is comparable across architectures, as
 information density is ultimately bounded by the entropy of the
-underlying bits.  The difference lies in the structure of the state
-space and the cost of navigating it:
-
-\begin{itemize}[nosep]
-  \item In a parameterized model, the state space is navigated through
-        matrix multiplications and gradient updates over continuous
-        parameters.  The cost per step scales with the number of
-        parameters.
-  \item In the Value architecture, the state space is navigated through
-        boolean operations over binary frames.  Each operation executes
-        in constant time per 64-bit word, independent of the number of
-        stored Values.  Navigation is combinatorial rather than
-        gradient-driven: the system explores states through composition
-        of elementary boolean functions rather than through optimization
-        of a differentiable objective.
-\end{itemize}
-
-\subsubsection{Implications}
-
-The capacity analysis highlights a trade-off.  Parameterized models
-achieve efficient navigation of their state space through learned
-projections, at the cost of requiring gradient-based training and
-floating-point arithmetic.  The Value architecture eliminates both
-requirements but relies on combinatorial exploration through boolean
-composition, which may require many interaction steps to reach a
-desired state.  The experimental sections that follow provide empirical
-evidence for what this exploration achieves in practice.
+underlying bits.  The key difference is the navigation strategy:
+parameterized models traverse state space through gradient updates
+over continuous parameters, while the Value architecture traverses
+it through boolean composition at the frame level, surprise-modulated
+trie updates at the learning level, and eigenmode selection at the
+collective level (\Cref{sec:field}).

@@ -177,6 +177,17 @@ func (value *Value) Close() error {
 }
 
 /*
+Set sets the value of the Value.
+*/
+func (value *Value) Set(region int, data uint64) {
+	if value == nil {
+		return
+	}
+
+	value[region] = data
+}
+
+/*
 ID returns the ID of the Value.
 */
 func (value *Value) ID() uint64 {
@@ -185,6 +196,18 @@ func (value *Value) ID() uint64 {
 	}
 
 	return (*value)[core.Cfg.Value.Region.ID.Start]
+}
+
+/*
+AffinityVector returns the affinity region as a fixed-size array of 8 uint64 words.
+*/
+func (value *Value) AffinityVector() [8]uint64 {
+	var aff [8]uint64
+	start := core.Cfg.Value.Region.Affinity.Start
+	for i := range 8 {
+		aff[i] = value[start+i]
+	}
+	return aff
 }
 
 /*

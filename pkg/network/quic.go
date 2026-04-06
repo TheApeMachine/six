@@ -72,12 +72,13 @@ func (q *QUIC) Read(p []byte) (int, error) {
 	}
 
 	if q.stream == nil {
-		err := &TransportError{
-			Layer:    "quic",
-			Op:       "read",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrQUICNoStream,
+		err := &NetworkError{
+			Subsystem: "transport",
+			Op:        "read",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrQUICNoStream,
+			Msg:       "quic: read: stream not ready",
 		}
 		q.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return 0, err
@@ -104,12 +105,13 @@ func (q *QUIC) Write(p []byte) (int, error) {
 	}
 
 	if q.stream == nil {
-		err := &TransportError{
-			Layer:    "quic",
-			Op:       "write",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrQUICNoStream,
+		err := &NetworkError{
+			Subsystem: "transport",
+			Op:        "write",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrQUICNoStream,
+			Msg:       "quic: write: stream not ready",
 		}
 		q.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return 0, err
@@ -179,8 +181,8 @@ func (q *QUIC) Accept() error {
 
 func (q *QUIC) accept(ctx context.Context) error {
 	if q.endpoint == nil {
-		err := &TransportError{
-			Layer:    "quic",
+		err := &NetworkError{
+			Subsystem:    "quic",
 			Op:       "accept",
 			Mode:     TransportFailureBind,
 			Systemic: true,
@@ -239,8 +241,8 @@ func (q *QUIC) Ready(ctx context.Context) error {
 		return nil
 	}
 	if q.endpoint == nil {
-		err := &TransportError{
-			Layer:    "quic",
+		err := &NetworkError{
+			Subsystem:    "quic",
 			Op:       "ready",
 			Mode:     TransportFailureNotReady,
 			Systemic: true,
@@ -380,8 +382,8 @@ func (quicErr QUICError) Error() string {
 
 func (q *QUIC) sendHandshake(stream *quic.Stream) error {
 	if stream == nil {
-		return &TransportError{
-			Layer:    "quic",
+		return &NetworkError{
+			Subsystem:    "quic",
 			Op:       "handshake_write",
 			Mode:     TransportFailureHandshake,
 			Systemic: true,
@@ -417,8 +419,8 @@ func classifyQUICTransportError(err error, allowEOF bool) (TransportFailureMode,
 
 func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
 	if stream == nil {
-		return &TransportError{
-			Layer:    "quic",
+		return &NetworkError{
+			Subsystem:    "quic",
 			Op:       "handshake_read",
 			Mode:     TransportFailureHandshake,
 			Systemic: true,
@@ -431,8 +433,8 @@ func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
 		return err
 	}
 	if buf[0] != quicReadyHandshakeByte {
-		return &TransportError{
-			Layer:    "quic",
+		return &NetworkError{
+			Subsystem:    "quic",
 			Op:       "handshake_read",
 			Mode:     TransportFailureHandshake,
 			Systemic: false,

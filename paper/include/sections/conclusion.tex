@@ -3,28 +3,40 @@
 % ============================================================================
 \section{Conclusion}
 
-We presented a computational architecture that unifies data, programs,
-and execution state within a single 1024-byte binary frame.  The system
-rests on three design decisions: a fixed-width Value representation with
-embedded registers and program space; an instruction set consisting of
-the sixteen two-input boolean truth tables; and a concurrent mixing
-substrate that drives computation through non-deterministic frame
-interaction.
+We presented a four-layer computational architecture that unifies data,
+programs, execution state, and learning within a single substrate.  The
+system rests on four interlocking design decisions:
+
+\begin{enumerate}[nosep]
+  \item A fixed-width Value frame (1024 bytes) with embedded token data,
+        a 512-bit SimHash affinity fingerprint, a boolean program region,
+        and a signals region for ALU output.
+  \item A MarkovTrie that learns online from every observation through
+        surprise-modulated plasticity, adapting nine parameters from
+        signals it already computes.
+  \item A Kadabra distributed hash table that routes Values to tries by
+        affinity similarity, producing emergent content-based
+        specialization.
+  \item A Field that detects eigenmodes from gossip-propagated digests
+        and projects asymmetric decay/learning pressure, implementing
+        attention by differential survival.
+\end{enumerate}
 
 The multi-substrate backend demonstrates that boolean computation over
-fixed-size frames maps efficiently to heterogeneous hardware---CPU, CUDA,
-and Metal---with deterministic, data-independent latency.  The firmware
-system provides a mechanism for bootstrapping higher-level behaviors from
-boolean primitives and for propagating useful programs through a
-population of frames.
+fixed-size frames maps efficiently to heterogeneous hardware---CPU,
+CUDA, and Metal---with deterministic, data-independent latency.  The
+firmware system provides a mechanism for bootstrapping higher-level
+behaviors from boolean primitives and for propagating useful programs
+through a population of frames.
 
 Across the reported experiments---text classification, code generation,
-image reconstruction, logical reasoning, and text generation---the system
-demonstrates that gradient-free, parameter-free computation through
-structured binary interaction is capable of non-trivial inference across
+image reconstruction, logical reasoning, and text generation---the
+system demonstrates that gradient-free, parameter-free computation
+through structured binary interaction, adaptive trie learning, and
+emergent collective dynamics is capable of non-trivial inference across
 modalities.  The identified limitations---retrieval selectivity,
-composition depth, and sparse representation capacity---define concrete
-targets for architectural refinement.
+composition depth, eigenmode stability, and sparse representation
+capacity---define concrete targets for architectural refinement.
 
 The self-documenting experimental pipeline, which produces both results
 and the corresponding research artifact, illustrates a secondary

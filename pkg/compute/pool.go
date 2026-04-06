@@ -41,6 +41,7 @@ func emitPoolEvent(ev PoolEvent) {
 type Pool struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
+	err           error
 	procs         int
 	jobs          chan func(context.Context) error
 	droppedErrors atomic.Uint64
@@ -63,8 +64,15 @@ type Pool struct {
 
 type poolOpts func(*Pool)
 
-func NewPool(opts ...poolOpts) (pool *Pool, err error) {
-	pool = &Pool{}
+func NewPool(
+	ctx context.Context, opts ...poolOpts,
+) (pool *Pool, err error) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	pool = &Pool{
+		ctx:    ctx,
+		cancel: cancel,
+	}
 
 	for _, opt := range opts {
 		opt(pool)
@@ -83,11 +91,22 @@ func NewPool(opts ...poolOpts) (pool *Pool, err error) {
 		"procs":  pool.procs,
 		"jobs":   pool.jobs,
 	}); err != nil {
-		return nil, errnie.Error(NewPoolError(PoolErrFail, err))
+		return nil, errnie.Error(
+			NewComputeError(
+				"pool", ComputeErrPoolFail, err, "NewPool",
+			),
+		)
 	}
 
 	if pool.procs <= 0 {
-		return nil, errnie.Error(NewPoolError(PoolErrFail, errors.New("pool procs must be positive")))
+		return nil, errnie.Error(
+			NewComputeError(
+				"pool",
+				ComputeErrPoolFail,
+				errors.New("pool procs must be positive"),
+				"NewPool",
+			),
+		)
 	}
 
 	return pool, nil
@@ -149,7 +168,7 @@ func (pool *Pool) observeDropSaturation(droppedTotal uint64, cause error) {
 		return
 	}
 
-	saturationErr := NewBackendError(BackendErrorCompleteSaturation, cause, "compute.pool.trySendErr")
+	saturationErr := NewComputeError("pool", ComputeErrCompleteSaturation, cause, "compute.pool.trySendErr")
 	pool.saturationCnt.Add(1)
 	if observer != nil {
 		observer(saturationErr)
@@ -211,7 +230,7 @@ func (pool *Pool) Run() chan error {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					pool.trySendErr(out, NewPoolError(PoolErrFail, fmt.Sprintf("%v\n%s", r, debug.Stack())))
+					pool.trySendErr(out, NewComputeError("pool", ComputeErrPoolFail, fmt.Errorf("%v\n%s", r, debug.Stack()), "Run.recover"))
 				}
 			}()
 
@@ -222,7 +241,7 @@ func (pool *Pool) Run() chan error {
 						return
 					}
 					if job == nil {
-						pool.trySendErr(out, NewPoolError(PoolErrInvalidJob, errors.New("nil job")))
+						pool.trySendErr(out, NewComputeError("pool", ComputeErrPoolInvalidJob, errors.New("nil job"), "Run"))
 						continue
 					}
 					jobStart := time.Now()
@@ -270,7 +289,7 @@ func (pool *Pool) Schedule(ctx context.Context, job func(ctx context.Context) er
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return errnie.Error(NewPoolError(PoolErrFail, errors.New("job buffer full")))
+		return errnie.Error(NewComputeError("pool", ComputeErrPoolFail, errors.New("job buffer full"), "Schedule"))
 	}
 }
 
@@ -336,44 +355,4 @@ func PoolWithJobBuffer(size int) poolOpts {
 		}
 		pool.jobs = make(chan func(context.Context) error, size)
 	}
-}
-
-type PoolErrorType string
-
-const (
-	PoolErrFail       PoolErrorType = "pool failure"
-	PoolErrInvalidJob PoolErrorType = "invalid job"
-)
-
-type PoolError struct {
-	Err error
-	Obj any
-}
-
-func (e *PoolError) Error() string {
-	if e == nil {
-		return ""
-	}
-	return e.Err.Error()
-}
-
-func (e *PoolError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
-
-func NewPoolError(err PoolErrorType, obj any) *PoolError {
-	t := string(err)
-	var wrapped error
-	switch x := obj.(type) {
-	case nil:
-		wrapped = errors.New(t)
-	case error:
-		wrapped = fmt.Errorf("%s: %w", t, x)
-	default:
-		wrapped = fmt.Errorf("%s: %v", t, x)
-	}
-	return &PoolError{Err: wrapped, Obj: obj}
 }

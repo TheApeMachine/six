@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 type Scores struct {
@@ -16,17 +17,18 @@ type Scores struct {
 }
 
 type ExperimentalData struct {
-	Idx             int
-	Name            string
-	Prefix          []byte
-	Holdout         []byte
-	Generation      []byte
-	Classifications map[string]float64
-	ErrorRatio      []byte
-	Scores          Scores
-	WeightedTotal   float64
-	TrueLabel       *int
-	PredLabel       *int
+	Idx            int
+	Name           string
+	Prefix         []byte
+	Holdout        []byte
+	Generation     []byte
+	Classification []byte
+	ErrorRatio     []byte
+	Scores         Scores
+	WeightedTotal  float64
+	TrueLabel      *int
+	PredLabel      *int
+	Prediction     *algo.Prediction
 }
 
 type ScoreWeights struct {

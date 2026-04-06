@@ -86,8 +86,8 @@ against the same 32-bit slot sweep the CPU backend uses.
 */
 func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	if !metalReady.Load() {
-		return NewMetalError(
-			MetalErrorUnavailable,
+		return NewMetalKernelError(
+			kernel.KernelErrUnavailable,
 			errors.New("failed to load metal backend"),
 			"UniversalBitwise",
 		)
@@ -99,7 +99,7 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 
 	if len(frames) == 1 && frames[0] != nil {
 		if C.unified_bitwise_metal(frames[0], 1) != 0 {
-			return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
+			return NewMetalKernelError(kernel.KernelErrDispatchFailed, nil, "UniversalBitwise")
 		}
 
 		return nil
@@ -107,7 +107,7 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 
 	slabA := kernel.PackValueFrames(frames)
 	if C.unified_bitwise_metal(unsafe.Pointer(&slabA[0]), C.uint32_t(len(frames))) != 0 {
-		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
+		return NewMetalKernelError(kernel.KernelErrDispatchFailed, nil, "UniversalBitwise")
 	}
 
 	kernel.UnpackValueFrames(frames, slabA)
@@ -144,7 +144,7 @@ func init() {
 	defer C.free(unsafe.Pointer(cPath))
 
 	if res := C.init_metal(cPath); res != 0 {
-		reportInitError(NewMetalError(MetalErrorInitFailed, nil, "init_metal"))
+		reportInitError(NewMetalKernelError(kernel.KernelErrInitFailed, nil, "init_metal"))
 		return
 	}
 

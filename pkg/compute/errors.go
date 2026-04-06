@@ -5,63 +5,68 @@ import (
 	"fmt"
 )
 
-type BackendErrorType string
+// ComputeErrorType categorises compute-layer failures.
+type ComputeErrorType string
 
 const (
-	BackendErrorNoHardware         BackendErrorType = "no hardware initialized"
-	BackendErrorCompleteSaturation BackendErrorType = "complete saturation"
-	BackendErrorNoComputeResource  BackendErrorType = "no compute resource"
-	BackendErrorNoValues           BackendErrorType = "no values"
-	BackendErrorPoolEnqueueFailed  BackendErrorType = "pool enqueue failed"
-	BackendErrorInlineJobFailed    BackendErrorType = "inline job failed"
-	BackendErrorSubstrateEjected   BackendErrorType = "substrate ejected"
+	// Backend-level error types (formerly BackendErrorType).
+	ComputeErrNoHardware         ComputeErrorType = "no hardware initialized"
+	ComputeErrCompleteSaturation ComputeErrorType = "complete saturation"
+	ComputeErrNoComputeResource  ComputeErrorType = "no compute resource"
+	ComputeErrNoValues           ComputeErrorType = "no values"
+	ComputeErrPoolEnqueueFailed  ComputeErrorType = "pool enqueue failed"
+	ComputeErrInlineJobFailed    ComputeErrorType = "inline job failed"
+	ComputeErrSubstrateEjected   ComputeErrorType = "substrate ejected"
+
+	// Pool-level error types (formerly PoolErrorType).
+	ComputeErrPoolFail       ComputeErrorType = "pool failure"
+	ComputeErrPoolInvalidJob ComputeErrorType = "invalid job"
 )
 
-type BackendError struct {
-	Type BackendErrorType
-	Err  error
-	Msg  string
-	Op   string
+// ComputeError is the unified error type for the compute package,
+// replacing both BackendError and PoolError.
+type ComputeError struct {
+	Subsystem string           // "pool", "backend", etc.
+	Op        string           // operation that failed
+	Err       error            // underlying cause
+	Msg       string           // human-readable summary
+	Type      ComputeErrorType // failure category
 }
 
-func NewBackendError(typ BackendErrorType, err error, op string) *BackendError {
+// NewComputeError builds a ComputeError.
+func NewComputeError(subsystem string, typ ComputeErrorType, err error, op string) *ComputeError {
 	msg := string(typ)
-	if msg == "" && err != nil {
-		msg = err.Error()
+	if err != nil {
+		msg += ": " + err.Error()
 	}
-	return &BackendError{
-		Type: typ,
-		Err:  err,
-		Msg:  msg,
-		Op:   op,
+	return &ComputeError{
+		Subsystem: subsystem,
+		Op:        op,
+		Err:       err,
+		Msg:       msg,
+		Type:      typ,
 	}
 }
 
-// AsType reports whether err wraps a *BackendError whose Type matches.
-func AsType(err error, t BackendErrorType) bool {
-	var be *BackendError
-	return errors.As(err, &be) && be.Type == t
+// AsComputeType reports whether err wraps a *ComputeError whose Type matches.
+func AsComputeType(err error, t ComputeErrorType) bool {
+	var ce *ComputeError
+	return errors.As(err, &ce) && ce.Type == t
 }
 
-func (e *BackendError) Error() string {
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	if e.Type != "" {
-		if e.Op != "" {
-			return fmt.Sprintf("%s (%s)", e.Type, e.Op)
-		}
-		return string(e.Type)
-	}
-	if e.Msg != "" {
-		return e.Msg
+func (e *ComputeError) Error() string {
+	if e == nil {
+		return ""
 	}
 	if e.Op != "" {
-		return fmt.Sprintf("backend error (%s)", e.Op)
+		return fmt.Sprintf("[%s] %s (%s)", e.Subsystem, e.Msg, e.Op)
 	}
-	return "backend error"
+	return fmt.Sprintf("[%s] %s", e.Subsystem, e.Msg)
 }
 
-func (e *BackendError) Unwrap() error {
+func (e *ComputeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
 	return e.Err
 }

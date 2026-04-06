@@ -9,42 +9,50 @@
 The experimental results provide evidence for the following properties
 of the architecture.
 
-\emph{Gradient-free inference.}  The system performs retrieval,
-generation, and structural reasoning without optimizing a learned loss
-surface.  All inference reduces to deterministic boolean operations and
-population-count-based similarity scoring.
+\emph{Gradient-free learning.}  The MarkovTrie learns online from raw
+byte sequences through surprise-modulated plasticity, adapting its own
+decay rate, learning rate, and classification parameters without
+backpropagation or differentiable loss surfaces.  The Field provides a
+collective selection mechanism that modulates learning across the
+network without computing gradients.
 
 \emph{Modality-agnostic processing.}  The same byte-level encoding and
-Value representation processes text, images, code, and structured logical
-data through identical pipelines.  No modality-specific encoders,
-tokenizers, or preprocessing stages are required.
+Value representation processes text, images, code, and structured
+logical data through identical pipelines.  No modality-specific
+encoders, tokenizers, or preprocessing stages are required.
 
 \emph{Hardware-native parallelism.}  The boolean instruction set maps
 directly to SIMD and GPU architectures, with all operations executing at
 fixed, data-independent latency.  The multi-substrate backend
-demonstrates that the same computation can be dispatched to CPU, CUDA, or
-Metal without algorithmic modification.
+demonstrates that the same computation can be dispatched to CPU, CUDA,
+or Metal without algorithmic modification.
 
-\emph{Self-modification.}  The firmware system demonstrates that Values
-can carry and execute programs, and that the viral firmware can propagate
-programs between frames.  This provides a mechanism for distributing
-useful instruction sequences through a population of Values without
-external optimization.
+\emph{Emergent specialization.}  The combination of SimHash affinity
+projection and Kademlia routing produces content-based clustering:
+Values with similar token content are routed to the same MarkovTrie,
+which then specializes in that content domain.  This specialization
+emerges from the routing geometry without explicit assignment.
+
+\emph{Collective attention.}  The Field's eigenmode detection and
+asymmetric projection demonstrate that attention-like behavior---
+selective amplification of relevant patterns and suppression of
+noise---can arise from gossip-propagated statistics and simple
+threshold-based clustering, without query-key-value matrices or
+softmax normalization.
 
 \subsection{Known Limitations}
 \label{sec:limitations}
 
-\emph{Retrieval selectivity.}  The current similarity scoring, based on
-population count of bitwise AND, is permissive: any two frames sharing
-common bit patterns score positively.  More selective gating
-mechanisms---such as weighted scoring functions or structural
-filtering---are needed for high-precision discriminative retrieval.
+\emph{Retrieval selectivity.}  The affinity-based routing is
+locality-sensitive but permissive: Values sharing even modest bit
+overlap are routed to overlapping node sets.  More selective gating
+mechanisms---such as multi-stage filtering or learned hash
+refinement---may be needed for high-precision discriminative retrieval.
 
 \emph{Composition depth.}  Information propagation through sequences of
 boolean operations attenuates with depth.  Each operation can only
 redistribute existing bits or set bits to zero or one; there is no
-amplification mechanism analogous to the residual connections or
-normalization layers that stabilize deep neural networks.  Deep
+amplification mechanism analogous to residual connections.  Deep
 multi-step reasoning chains are therefore limited by the rate at which
 signal degrades under repeated boolean transformation.
 
@@ -54,42 +62,45 @@ results establish baseline performance for the architecture but do not
 claim competitive accuracy at the scale of contemporary language or
 vision models.
 
-\emph{Convergence.}  The self-modification loop---firmware seeding,
-boolean interaction, and viral propagation---converges to useful programs
-empirically in the reported experiments, but lacks formal convergence
-guarantees.  Characterizing the conditions under which this loop
-reliably produces effective programs is an open problem.
+\emph{Convergence.}  The adaptive self-tuning mechanism converges
+empirically in the reported experiments but lacks formal convergence
+guarantees.  Characterizing the conditions under which
+surprise-modulated plasticity and eigenmode-based attention reliably
+produce stable learning is an open problem.
 
-\emph{Sparsity.}  A 1024-byte Value with a small number of active bits
-is extremely sparse relative to its dimensionality.  The capacity limits
-of this sparse representation under heavy superposition (many frames
-combined via OR) require formal characterization.
+\emph{Eigenmode stability.}  The greedy clustering algorithm for mode
+detection is $O(nm)$ and does not guarantee optimal partitions.  Mode
+boundaries may fluctuate across epochs, potentially causing oscillation
+in the field pressure applied to borderline nodes.
 
 \subsection{Directions for Future Work}
 \label{sec:future_work}
 
 \paragraph{Ablation Studies.}
-Varying the frame width (e.g., 512, 1024, 2048 bytes) would
-characterize the trade-off between representational capacity and
-computational cost per boolean operation.  Disabling the viral firmware
-and measuring the effect on downstream task performance would isolate
-the contribution of self-modification to the system's behavior.  Varying
-the Region capacity (primary mixer size and spill depth) would quantify
-the relationship between mixing pool size and the quality of frame
-interactions.
+Varying the frame width (512, 1024, 2048 bytes) would characterize the
+trade-off between representational capacity and computational cost.
+Disabling the Field and measuring the effect on downstream task
+performance would isolate the contribution of eigenmode-based attention.
+Varying the number of SimHash projections (4, 8, 16) and the majority
+vote parameter $k$ would quantify the relationship between affinity
+precision and routing quality.
 
 \paragraph{Scaling Experiments.}
-Measuring retrieval latency as a function of the number of stored Values
-(from $10^3$ to $10^7$) would establish the empirical scaling behavior
-of population-count-based search.  Measuring deduplication rates across
-corpora of varying redundancy would validate whether the collision
-properties described in \Cref{sec:related_godel_arithmetic} yield
-practical storage savings.
+Measuring classification accuracy and generation quality as a function
+of the number of Kadabra nodes ($10^1$ to $10^4$) would establish the
+empirical scaling behavior of distributed learning.  Measuring trie
+depth and node count as a function of corpus size would characterize the
+memory growth profile of the MarkovTrie.
 
-\paragraph{Structured Storage.}
-The current system stores Values in flat Regions without persistent
-indexing.  Introducing a tree-structured or trie-based index over
-Value contents would enable sub-linear retrieval and provide a
-persistent memory substrate.  Such an index could exploit the
-deterministic encoding to achieve content-addressable storage with
-structural deduplication.
+\paragraph{Field Dynamics.}
+Formal analysis of the eigenmode detection and projection loop---
+particularly conditions for convergence, oscillation bounds, and the
+relationship between the coupling threshold $\theta_C$ and mode
+stability---would strengthen the theoretical foundations of the
+attention mechanism.
+
+\paragraph{Structured Retrieval.}
+The current system retrieves via trie lookup and episodic $k$-NN.
+Introducing content-addressable indexing over the affinity space (e.g.,
+locality-sensitive hashing trees) would enable sub-linear retrieval
+across the full Kadabra network.

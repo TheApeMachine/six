@@ -1,16 +1,80 @@
-\subsection{Topological Sequencing and Boundary Analysis}
+% ============================================================================
+% TOPOLOGICAL SEQUENCING AND LFSR PHASE ENCODING
+% ============================================================================
+\subsection{Sequence Encoding and Phase Rotation}
 \label{sec:topological_sequencing}
 
-For the trie-based memory substrate to correctly adapt to the linguistic or structural entropy of an incoming byte stream, the system employs a \textbf{Sequencer} that converts unstructured streams into discrete \textbf{Topological Events}.
+The system processes all input as raw byte streams.  To preserve
+sequential structure within the trie-based memory substrate, the
+architecture encodes sequence position through a deterministic
+phase-rotation mechanism based on a linear feedback shift register
+(LFSR) over the Mersenne prime field.
 
-Traditional sub-word boundaries (like BPE) rely on statically computed occurrence frequencies. The architecture replaces this with a continuous, streaming formulation of the Minimum Description Length (MDL) principle to identify natural ``hinge points'' where the information distribution drastically diverges.
+\subsubsection{LFSR Sequence Generator}
 
-\subsubsection{MDL Boundary Detection and Buffering}
-The Sequencer identifies boundaries by splitting sequences where the cost of separating an active segment into two independent probability distributions optimally outperforms treating them as uniform. This is evaluated with a strict Information Criterion penalty for the addition of the structural split itself.
+A 13-bit LFSR with primitive polynomial $x^{13} + x^4 + x^3 + x + 1$
+(taps at bits 12, 3, 2, 0) produces a maximal-length cycle of
+$2^{13} - 1 = 8191$ states.  The update rule is:
+\begin{equation}
+  s_{t+1} = \bigl((s_t \ll 1) \mathbin{|} b_t\bigr) \;\mathbin{\&}\; \texttt{0x1FFF}
+  \label{eq:lfsr_step}
+\end{equation}
+where the feedback bit $b_t$ is:
+\begin{equation}
+  b_t = (s_t \gg 12) \oplus (s_t \gg 3) \oplus (s_t \gg 2) \oplus s_t
+        \;\mathbin{\&}\; 1
+  \label{eq:lfsr_feedback}
+\end{equation}
 
-Recent optimizations buffer candidate splits, computing bounding comparisons for successive boundary events before finalizing emissions. The system evaluates $N$ recent candidates, validating whether trailing splits are statistically redundant. If multiple splits express similar localized distributions, the Sequencer triggers a merge, effectively collapsing fragmented structural boundaries.
+The state space of $8191$ values corresponds to the nonzero elements of
+$\operatorname{GF}(2^{13})$, and the maximal-length property guarantees
+that every nonzero 13-bit pattern appears exactly once in the cycle
+before repeating.  This provides a deterministic, collision-free
+sequence index for up to 8191 consecutive tokens.
 
-\subsubsection{Structural Z-Scores and Affine Transitions}
-Boundary sensitivity inherently relies on dynamic Z-scores calculated through the Standard Error of the Mean (SEM). The calculation maintains real-time variance estimates, classifying structural boundaries without assuming any fixed underlying linguistic priors. 
+\subsubsection{Delta Accumulation}
 
-When a confirmed orientational drift is triggered, it does not inject a conventional ``token'' into the generation context. Instead, the Sequencer emits a $\operatorname{GF}(8191)$ affine rotation $(\Delta a, \Delta b)$ that composes with the current rotational state via $(a', b') = (a \cdot \Delta a \bmod 8191,\; a \cdot \Delta b + b \bmod 8191)$. This shifts the projection angle for all subsequent data injected into the substrate, natively mapping sequence chronology to discrete topology without positional embeddings.
+Sequential structure is captured through a differential encoding.  For
+consecutive Values $v_t$ and $v_{t-1}$, the system computes a
+compressed delta sketch:
+\begin{equation}
+  \delta_t = \bigoplus_{w=0}^{n-1}
+    \bigl(\text{token}_w(v_t) \oplus \text{token}_w(v_{t-1})\bigr)
+  \label{eq:delta_accumulation}
+\end{equation}
+where $\bigoplus$ denotes XOR accumulation across all $n$ token words.
+This collapses the full 512-bit token difference into a single 64-bit
+sketch stored in the state accumulator word.  The delta sketch captures
+\emph{what changed} between consecutive frames without preserving the
+full differential, providing a compact sequential signal that the
+MarkovTrie can condition on.
+
+\subsubsection{Predictive Delta Application}
+
+Given a current Value $v_t$ and its accumulated delta $\delta_t$, the
+system generates a predicted next-token region by applying the delta
+forward:
+\begin{equation}
+  \hat{\text{token}}_w(v_{t+1}) = \text{token}_w(v_t) \oplus \delta_t
+  \qquad \forall\; w = 0, \ldots, n-1
+  \label{eq:delta_prediction}
+\end{equation}
+
+This prediction is not intended to be exact; it provides a
+content-based prior for retrieval and generation that biases the system
+toward continuations consistent with the recent direction of change.
+
+\subsubsection{Sequence Position via LFSR Advance}
+
+Each Value's sequence word is advanced by one LFSR step upon creation,
+producing a deterministic sequence index that encodes temporal position
+without requiring positional embeddings.  The LFSR state maps sequence
+chronology to a pseudo-random but reproducible index: two Values at the
+same position in different sequences share the same LFSR state,
+enabling the trie to recognize positional patterns (e.g., ``the third
+token in a sentence'') without explicit positional features.
+
+For sequences longer than 8191 tokens, the LFSR wraps, but the
+combination of LFSR state and token content remains discriminative
+because the probability of two distinct contexts sharing both the
+same LFSR state and the same token content is negligible.

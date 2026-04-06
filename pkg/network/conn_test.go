@@ -14,7 +14,7 @@ func TestRead(t *testing.T) {
 		Convey("Ready returns an error", func() {
 			err := conn.Ready()
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, string(ErrTransportFailure))
+			So(err.Error(), ShouldContainSubstring, "transport")
 		})
 	})
 }
@@ -27,7 +27,7 @@ func TestWrite(t *testing.T) {
 		Convey("Ready returns an error", func() {
 			err := conn.Ready()
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, string(ErrTransportFailure))
+			So(err.Error(), ShouldContainSubstring, "transport")
 		})
 	})
 }
@@ -77,7 +77,7 @@ func TestEnsureReady(t *testing.T) {
 		Convey("ensureReady returns an error", func() {
 			err := conn.ensureReady()
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, string(ErrTransportFailure))
+			So(err.Error(), ShouldContainSubstring, "transport")
 		})
 	})
 }

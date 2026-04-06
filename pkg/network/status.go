@@ -278,8 +278,8 @@ func (monitor *transportMonitor) Allow(layer string, op string) error {
 	monitor.status.LastFailureAt = now
 	monitor.status.SystemicFailure = true
 
-	return &TransportError{
-		Layer:    layer,
+	return &NetworkError{
+		Subsystem:    layer,
 		Op:       op,
 		Mode:     TransportFailureCircuitOpen,
 		Systemic: true,

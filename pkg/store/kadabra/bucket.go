@@ -3,55 +3,37 @@ package kadabra
 import (
 	"math/bits"
 	"sync"
+
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric"
 )
 
 /*
-defaultKadabraRoutingBits is the XOR routing tree depth when config does not
-supply kadabra.bits (e.g. core.Cfg unset). It must match the NodeID width
-semantic used elsewhere in the DHT.
+Bucket holds the routing entries and candidate peers for one
+XOR distance prefix in the Kadabra routing table.
 */
-const defaultKadabraRoutingBits = 64
-
-type kadabraBucket struct {
+type Bucket struct {
 	mu              sync.RWMutex
 	Index           int
-	Entries         []*kadabraPeer
-	Candidates      map[NodeID]*kadabraPeer
-	PreviousEntries []*kadabraPeer
+	Entries         PeerSet
+	Candidates      map[uint64]*Peer
+	PreviousEntries PeerSet
 	PreviousScore   float64
 	ExploreNext     bool
 	QueryCount      int
-	Samples         map[NodeID]*kadabraPeerSample
+	Samples         map[uint64]*PeerSample
 }
 
 /*
-computeKadabraBucketIndex returns the bucket index for remote relative to local
-using a fixed routing bit width (len(node.buckets) on each node).
+IndexFor returns the bucket index for remote relative to local
+using a fixed routing bit width.
 */
-func computeKadabraBucketIndex(local NodeID, remote NodeID, routingBits int) int {
+func (bucket *Bucket) IndexFor(local uint64, remote uint64, routingBits int) int {
 	if routingBits <= 0 {
-		routingBits = defaultKadabraRoutingBits
+		routingBits = core.Cfg.Kadabra.Bits
 	}
 
-	distance := xorDistance(local, remote)
+	distance := numeric.XOR(local, remote)
 
-	if distance == 0 {
-		return routingBits - 1
-	}
-
-	index := bits.LeadingZeros64(distance)
-
-	if index >= routingBits {
-		return routingBits - 1
-	}
-
-	return index
-}
-
-func (node *KadabraNode) bucketSecurityThreshold(bucketIndex int) float64 {
-	if bucketIndex >= 0 && bucketIndex < len(node.BucketSecurityThresholds) {
-		return node.BucketSecurityThresholds[bucketIndex]
-	}
-
-	return node.SecurityThreshold
+	return int(bits.LeadingZeros64(distance))
 }

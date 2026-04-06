@@ -167,8 +167,8 @@ func (ipc *IPC) Accept() error {
 	}
 
 	if !ipc.owner {
-		err := &TransportError{
-			Layer:    "ipc",
+		err := &NetworkError{
+			Subsystem:    "ipc",
 			Op:       "accept",
 			Mode:     TransportFailureBind,
 			Systemic: true,
@@ -179,8 +179,8 @@ func (ipc *IPC) Accept() error {
 	}
 
 	if ipc.listener == nil {
-		err := &TransportError{
-			Layer:    "ipc",
+		err := &NetworkError{
+			Subsystem:    "ipc",
 			Op:       "accept",
 			Mode:     TransportFailureNotReady,
 			Systemic: true,
@@ -231,8 +231,8 @@ func (ipc *IPC) Ready(ctx context.Context) error {
 
 	if !ipc.owner {
 		if ipc.path == "" {
-			err := &TransportError{
-				Layer:    "ipc",
+			err := &NetworkError{
+				Subsystem:    "ipc",
 				Op:       "ready",
 				Mode:     TransportFailureNotReady,
 				Systemic: true,
@@ -242,8 +242,8 @@ func (ipc *IPC) Ready(ctx context.Context) error {
 			return err
 		}
 
-		err := &TransportError{
-			Layer:    "ipc",
+		err := &NetworkError{
+			Subsystem:    "ipc",
 			Op:       "ready",
 			Mode:     TransportFailureNotReady,
 			Systemic: true,

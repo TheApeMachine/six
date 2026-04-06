@@ -1,30 +1,8 @@
 package cpu
 
-import (
-	"errors"
+import "github.com/theapemachine/six/pkg/compute/kernel"
 
-	"github.com/theapemachine/six/pkg/errnie"
-)
-
-type BackendErrorType string
-
-const (
-	ErrNilValuePointer BackendErrorType = "nil value pointer"
-)
-
-type BackendError struct {
-	*errnie.ErrnieError
-	Type BackendErrorType
-}
-
-func NewBackendError(
-	errType BackendErrorType, keyvals ...any,
-) *BackendError {
-	return &BackendError{
-		ErrnieError: errnie.NewErrnieError(
-			errors.New(string(errType)),
-			keyvals...,
-		),
-		Type: errType,
-	}
+// NewCPUKernelError is a convenience constructor for CPU kernel errors.
+func NewCPUKernelError(typ kernel.KernelErrorType, err error, op string) *kernel.KernelError {
+	return kernel.NewKernelError("cpu", typ, err, op, 0)
 }

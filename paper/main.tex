@@ -142,14 +142,16 @@
 
 \maketitle
 
+% --- Abstract and Introduction ---
 \graphicspath{{include/sections/}}
-
 \InputIfFileExists{include/sections/abstract.tex}{}{}
 \InputIfFileExists{include/sections/introduction.tex}{}{}
 
+% === ARCHITECTURE ===
 \section{Architecture}
 \label{sec:architecture}
 
+% --- Layer 1: The Value Primitive ---
 \graphicspath{{include/sections/}}
 \InputIfFileExists{include/sections/representation.tex}{}{}
 \InputIfFileExists{include/sections/substrate.tex}{}{}
@@ -158,6 +160,21 @@
 \InputIfFileExists{include/architecture/value_architecture.tex}{}{}
 \InputIfFileExists{include/architecture/capacity_analysis.tex}{}{}
 \InputIfFileExists{include/architecture/firmware_system.tex}{}{}
+
+% --- Affinity Projection and Routing ---
+\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
+\InputIfFileExists{include/architecture/topological_sequencing.tex}{}{}
+
+% --- Layer 2: The MarkovTrie ---
+\InputIfFileExists{include/architecture/markovtrie_store.tex}{}{}
+
+% --- Layer 3: Kadabra DHT ---
+\InputIfFileExists{include/architecture/kadabra_dht.tex}{}{}
+
+% --- Layer 4: The Field ---
+\InputIfFileExists{include/architecture/field.tex}{}{}
+
+% --- Related Work (Architecture Context) ---
 \InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
 \InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
 \InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}

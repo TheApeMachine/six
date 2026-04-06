@@ -10,10 +10,10 @@ VSA frameworks use high-dimensional random vectors ($D \ge 10{,}000$)
 with binding, bundling, and permutation operations.  The Value provides
 an 8192-bit binary frame with the complete set of sixteen boolean
 functions, subsuming the standard VSA operators while using a
-deterministic rather than random encoding.  The multi-frame Region
-structure addresses the bundling saturation problem by distributing
-content across a population of interacting frames rather than a single
-high-dimensional vector.
+deterministic rather than random encoding.  The Kadabra routing layer
+addresses the bundling saturation problem by distributing content across
+a population of specialized MarkovTries rather than superposing
+everything into a single high-dimensional vector.
 
 \paragraph{Discrete Symmetry in Machine Learning.}
 Equivariant neural networks exploit continuous symmetry groups to build
@@ -21,37 +21,57 @@ inductive biases.  The Value architecture uses the discrete boolean
 algebra over $\{0,1\}^{8192}$ as its computational substrate, providing
 deterministic algebraic closure rather than learned equivariance.  The
 non-commutativity of composed boolean operations encodes sequence order
-without explicit positional embeddings.
+without explicit positional embeddings; the LFSR sequence generator
+provides an additional deterministic position signal.
 
-\paragraph{Content-Addressable Memory.}
+\paragraph{Content-Addressable Memory and Attention.}
 Hopfield networks and modern transformer-based associative memories
 store patterns as energy minima or attention-weighted retrievals.  The
-Value architecture differs in substrate: memory consists of binary
-frames stored in concurrent mixing pools, and retrieval is based on
-population-count similarity rather than learned attention weights.  New
-observations enter memory immediately through deterministic encoding and
-frame deposition.
+architecture differs in mechanism: the MarkovTrie stores patterns as
+suffix paths with decayed counts, and the Field implements attention
+through eigenmode detection and asymmetric projection rather than
+query-key-value dot products.  The Field's affine coupling and phase
+coherence criteria replace learned attention weights with
+gossip-derived structural and dynamic alignment.
+
+\paragraph{Surprise and Predictive Coding.}
+The surprisal-modulated plasticity of the MarkovTrie relates to
+predictive coding frameworks in neuroscience, where prediction error
+drives learning.  The key distinction is that the trie derives its
+learning rate, decay factor, and eight other parameters from its own
+prediction error statistics, creating a fully self-tuning system
+without external hyperparameter optimization.
 
 \paragraph{Byte-Level Models.}
 ByT5 and MEGABYTE process raw bytes to eliminate vocabulary constraints,
 but retain learned encoders and autoregressive decoding.  The Value
-system processes raw bytes through a deterministic encoding and performs
-inference via parallel boolean operations rather than sequential token
-generation.
+system processes raw bytes through a deterministic SimHash encoding
+and performs inference via the MarkovTrie's interpolated $n$-gram
+classification, eliminating learned encoders entirely.
+
+\paragraph{Distributed Hash Tables and Peer-to-Peer Learning.}
+Kademlia provides the routing foundation for the Kadabra layer, but
+the standard protocol routes by key hash, not by content similarity.
+The innovation here is routing by locality-sensitive affinity:
+because the SimHash projection maps similar content to nearby points
+in XOR space, standard Kademlia routing produces content-based
+clustering as an emergent property.  The multi-armed bandit peer
+selection extends standard Kademlia bucket management with adaptive
+quality tracking.
 
 \paragraph{Non-Autoregressive Generation.}
 Masked language models and diffusion-based text generators produce
-tokens in parallel but rely on learned denoising schedules or masking
-strategies for output coherence.  The Value architecture resolves
-inter-position dependencies through the structural constraints imposed
-by boolean composition: output coherence is a consequence of the
-encoding and mixing process rather than a learned decoding strategy.
+tokens in parallel but rely on learned denoising schedules.  The
+MarkovTrie's beam search generates via interpolated $n$-gram
+probabilities with adaptively derived temperature and beam width,
+producing output whose diversity and length adapt to the trie's
+confidence in the current context.
 
 \paragraph{Self-Modifying Code.}
 The firmware system and viral propagation mechanism relate to the
-tradition of self-modifying code in computer science, from von Neumann's
-stored-program architecture to genetic programming.  The distinction is
-that modification in the Value architecture occurs through the same
-boolean operations used for all other computation, within the same
-binary representation, and without a separate mutation or crossover
-operator.
+tradition of self-modifying code, from von Neumann's stored-program
+architecture to genetic programming.  The distinction is that
+modification occurs through the same boolean operations used for all
+other computation, within the same binary representation, and
+selection is driven by the Field's eigenmode pressure rather than an
+explicit fitness function.

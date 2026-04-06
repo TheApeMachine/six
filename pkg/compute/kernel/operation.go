@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"context"
 	"unsafe"
 )
 
@@ -26,12 +25,7 @@ type Substrate interface {
 	// UniversalBitwise calls on the same frames without external sync.
 	UniversalBitwise(frames []unsafe.Pointer) error
 
-	// Schedule runs job on the backend worker path (or synchronously if
-	// there is no pool). When a pool is used, the returned error reflects
-	// enqueue / context cancellation only; the job itself may still fail
-	// asynchronously inside the pool. Without a pool, the error is the job's.
-	Schedule(job func(ctx context.Context) error) error
-
-	// Name returns a human-readable identifier for the substrate (e.g. "cpu", "cuda", "metal").
+	// Name returns a human-readable identifier for
+	// the substrate (e.g. "cpu", "cuda", "metal").
 	Name() string
 }

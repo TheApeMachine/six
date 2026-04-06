@@ -88,7 +88,7 @@ func Available() int {
 }
 
 func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
-	return NewCUDAError(CUDAErrorUnavailable, nil, "UniversalBitwise", 0)
+	return NewCUDAKernelError(kernel.KernelErrUnavailable, nil, "UniversalBitwise", 0)
 }
 
 // Schedule runs the job with Context(); cancellation is tied to Shutdown.

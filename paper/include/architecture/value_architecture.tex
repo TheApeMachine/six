@@ -9,92 +9,72 @@ boundary between stored data and executable code.  A single Value frame
 serves simultaneously as a record in memory and as a self-contained
 computation unit.  This subsection describes how the frame layout
 supports both roles, how their interaction gives rise to computation,
-and how computation produces new Values.
+and how Values compose into larger structures.
 
 \subsubsection{The Data Plane}
 
-The frame layout defined in \Cref{sec:representation} assigns each
-region a structural role; here we describe the functional
-interpretation.  The data region (words 0--59) holds the raw content
-of a Value: packed
-token identifiers derived from input bytes, together with structural
-metadata---a unique frame identifier and bidirectional linking pointers
-that allow frames to reference their neighbors in a sequence.  The
-affinity bitmask (word~64) encodes a 64-bit topological signature used
-to direct a frame toward compatible partners during Region mixing.  The
-gossip field (words 66--69) provides a 256-bit fingerprint summarizing
-the frame's content for lightweight similarity checks during distributed
-routing.  The link pointer (word~65) records an edge to a related Value,
-forming the basic unit of the graph structure that emerges from
-computation.
+The Token region (words 0--7, 512 bits) holds the raw content of a
+Value: packed byte data derived from the input stream.  The Affinity
+region (words 8--15, 512 bits) stores an 8-word locality-sensitive
+fingerprint (\Cref{sec:entropy_routing}) that serves as the frame's
+topological address in the distributed routing layer.  The bidirectional
+link pointers (words 125--126) record predecessor and successor edges,
+threading Values into sequences that preserve ingestion order.  The
+unique frame identifier (word 127) provides a stable reference for
+cross-frame addressing.
 
 \subsubsection{The Execution Plane}
 
-The same frame also contains a complete execution context.  Seven
-general-purpose registers (words 71--77) and a program counter (word~78)
-define the machine state, while the program region (words 79--127) holds
-up to 98 packed instructions.  A firmware index register (\texttt{fw})
-selects which pre-compiled program occupies the program region.
+The Program region (words 16--23, 512 bits) holds up to 32 packed
+instruction slots.  When a frame is submitted to the compute backend,
+the backend reads the instruction at the current program counter,
+decodes its four-bit opcode, applies the boolean truth table across
+the specified source and destination spans, and writes the result
+into the Signals region (words 24--31).
 
-When a frame is submitted to the compute backend, the backend reads the
-instruction at the current program counter, decodes its four-bit opcode
-as one of the sixteen boolean truth tables, applies the operation across
-the specified source and destination, and advances the program counter.
-Because \texttt{fw} and \texttt{pc} are themselves addressable by
-boolean operations, a program can redirect its own execution---the
-basis of the firmware chaining mechanism that allows unbounded program
-length from bounded segments (\Cref{sec:firmware}).
-
-Execution halts when the program counter reaches an instruction slot
-containing the zero opcode (constant-false) beyond the first slot, or
-when it exceeds the program region.  The backend reports the exit
-condition through a status field in the state region (word~63).
+Program execution proceeds as a linear sweep: the Token region is split
+into two operand spans $A$ and $B$, with $B$ rotated in 8-bit steps
+at each instruction.  This rotation ensures that successive instructions
+operate on different alignments of the input, extracting progressively
+finer structural features.
 
 \subsubsection{Interaction Between Planes}
 
 The data and execution planes occupy the same address space within the
-frame.  An instruction in the program region can target any word in the
-data region, and conversely, a boolean operation applied to the program
+frame.  An instruction in the Program region can target any word in the
+Token region, and conversely, a boolean operation applied to the Program
 region can rewrite an instruction.  This bidirectional access has four
 consequences.
 
 First, a frame can \emph{inspect its own data}.  A program can read
-token identifiers, compare affinity bitmasks, or accumulate statistics
-over the data region using boolean operations, then store the result in
-a register for use by subsequent instructions.
+token bytes, compare affinity fingerprints, or accumulate statistics
+over the Token region using boolean operations, storing results in the
+Signals region for downstream consumption.
 
 Second, a frame can \emph{modify its own program}.  Because program
 words are addressable data, an instruction can overwrite a later
-instruction.  Combined with the computed control flow mechanism
-described in \Cref{sec:representation}, this enables conditional
-behavior without explicit branch primitives.
+instruction, enabling conditional behavior without explicit branch
+primitives.
 
-Third, when two frames interact through the compute backend's
-\texttt{UniversalBitwise} operation, each frame can read from the
-other's data and program regions.  One frame's program can operate on
-another frame's data, compare affinity bitmasks across frames, or copy
-instructions from one frame to another.
+Third, when two frames interact through the compute backend, each
+frame can read from the other's data and program regions.  One frame's
+program can operate on another frame's tokens, compare affinity
+vectors across frames, or copy instructions between frames.
 
 Fourth, interaction can \emph{emit new Values}.  A program that
-identifies derived structure---such as the residual after factoring out
-shared content between two frames---writes it into a fresh frame and
-deposits it back into the Region.  Emission is how the system grows:
-the emitted Values carry their own data, links, and potentially their
-own programs, making them full participants in future interactions.
-The affinity firmware's emission mechanism and the graph it constructs
-are detailed in \Cref{sec:firmware}.
+identifies derived structure---such as the residual after factoring
+out shared content between two frames---writes it into a fresh frame
+and deposits it into the routing layer.  The emitted Values carry their
+own data, links, and programs, making them full participants in future
+interactions.
 
-\subsubsection{Values as a Graph}
+\subsubsection{Values as Linked Sequences}
 
-The link pointer (word~65) and affinity bitmask (word~64) together
-define an implicit graph over the population of Values in a Region.
-Each link pointer records a directed edge from one Value to another;
-the affinity bitmask constrains which edges are traversed during
-query evaluation.
-
-This graph is constructed incrementally through the affinity firmware's
-folding process: shared components become interior nodes and
-distinguishing content occupies the leaves.  Retrieval traverses this
-graph from a query Value, following links where boolean cancellation
-produces a match.  The folding mechanism and a concrete example are
-given in \Cref{sec:firmware}.
+The Prev~ID (word 125) and Next~ID (word 126) pointers define a
+doubly-linked chain over the population of Values ingested from a
+data source.  During ingestion, the Machine (\Cref{sec:substrate})
+links each new Value to its predecessor, preserving the temporal order
+of the input stream.  These chains serve as the raw sequential structure
+that the MarkovTrie (\Cref{sec:markovtrie}) learns from, while the
+Affinity region provides the content-based routing signal that
+determines \emph{which} trie a Value is stored in.

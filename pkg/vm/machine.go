@@ -1,21 +1,17 @@
 package vm
 
 import (
-	"bytes"
 	"context"
-	"os"
-	"strings"
+	"io"
 
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/network"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/kadabra"
-)
-
-const (
-	defaultMachineChunkBytes = 64
-	defaultMachineLabel      = "Machine"
 )
 
 /*
@@ -24,12 +20,14 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	dataset data.Provider
-	kadabra *kadabra.KadabraNode
-	label   string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	host      *network.Host
+	pool      *compute.Pool
+	tokenizer *Tokenizer
+	kadabra   *kadabra.Node
+	label     string
 }
 
 type machineOpts func(*Machine)
@@ -42,171 +40,110 @@ func NewMachine(
 	machine := &Machine{
 		ctx:    ctx,
 		cancel: cancel,
-		label:  defaultMachineLabel,
+	}
+
+	if machine.host, machine.err = network.NewHost(ctx); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
+	if machine.kadabra, machine.err = kadabra.NewNode(
+		ctx,
+		machine.host.Name,
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
+	if machine.pool, machine.err = compute.NewPool(
+		ctx,
+		compute.PoolWithContext(ctx),
+		compute.PoolWithErrBuffer(1),
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
+	if machine.tokenizer, machine.err = NewTokenizer(
+		ctx,
+		TokenizerWithPool(machine.pool),
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
 	}
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	if machine.kadabra == nil {
-		machine.kadabra = kadabra.NewKadabraNode(
-			machine.defaultNodeID(),
-		)
-	}
-
 	return machine, validate.Require(map[string]any{
-		"ctx":    machine.ctx,
-		"cancel": machine.cancel,
+		"ctx":       machine.ctx,
+		"cancel":    machine.cancel,
+		"host":      machine.host,
+		"kadabra":   machine.kadabra,
+		"pool":      machine.pool,
+		"tokenizer": machine.tokenizer,
 	})
 }
 
 /*
-Run starts the machine and ingests the dataset into the Kadabra node.
-Before we can prompt the machine, we need to have the full dataset.
+Close the machine.
 */
-func (machine *Machine) Run() error {
+func (machine *Machine) Close() error {
+	return machine.kadabra.Close()
+}
+
+/*
+Error returns the error of the machine.
+*/
+func (machine *Machine) Error() error {
+	return machine.err
+}
+
+/*
+Load a dataset into the machine.
+*/
+func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
-		"machine": machine,
-		"ctx":     machine.ctx,
-		"cancel":  machine.cancel,
-		"dataset": machine.dataset,
-		"kadabra": machine.kadabra,
+		"tokenizer": machine.tokenizer,
 	}); err != nil {
 		return errnie.Error(err)
 	}
 
-	defer func() {
-		errnie.Error(
-			machine.dataset.Close(),
-		)
-	}()
+	var n int64
 
-	buffer := bytes.NewBuffer(make([]byte, 0, defaultMachineChunkBytes))
-
-	for b := range machine.dataset.Generate() {
-		buffer.WriteByte(b)
-
-		if buffer.Len() < defaultMachineChunkBytes {
-			continue
+	for {
+		if n, machine.err = io.CopyBuffer(
+			machine.tokenizer, dataset, make([]byte, 1024),
+		); machine.err != nil {
+			return errnie.Error(machine.err)
 		}
 
-		value, err := primitive.NewValue(buffer.Bytes())
-
-		if err != nil {
-			return errnie.Error(
-				NewVmError(ErrVmInvalidValue, err, "NewValue"),
-				"buffer", buffer.Bytes(),
-			)
+		if n == 0 {
+			break
 		}
-
-		if err := value.ComputeAffinityLSH(); err != nil {
-			_ = value.Close()
-			return errnie.Error(
-				NewVmError(ErrVmInvalidValue, err, "ComputeAffinityLSH"),
-				"buffer", buffer.Bytes(),
-			)
-		}
-
-		if _, err := machine.kadabra.Publish(*value, machine.label); err != nil {
-			return errnie.Error(
-				NewVmError(ErrVmInvalidSequence, err, "publishSequence"),
-				"buffer", buffer.Bytes(),
-			)
-		}
-
-		_ = value.Close()
-		buffer.Reset()
 	}
 
-	if buffer.Len() > 0 {
-		value, err := primitive.NewValue(buffer.Bytes())
-
-		if err != nil {
-			return errnie.Error(
-				NewVmError(ErrVmInvalidValue, err, "NewValue"),
-				"buffer", buffer.Bytes(),
-			)
-		}
-
-		if err := value.ComputeAffinityLSH(); err != nil {
-			_ = value.Close()
-			return errnie.Error(
-				NewVmError(ErrVmInvalidValue, err, "ComputeAffinityLSH"),
-				"buffer", buffer.Bytes(),
-			)
-		}
-
-		if _, err := machine.kadabra.Publish(*value, machine.label); err != nil {
-			return errnie.Error(
-				NewVmError(ErrVmInvalidSequence, err, "publishSequence"),
-				"buffer", buffer.Bytes(),
-			)
-		}
-
-		_ = value.Close()
-	}
-
-	return nil
+	return machine.err
 }
 
 /*
 Prompt the machine and retrieve both a prediction and a classification.
+
+The prompt is converted into a temporary Value so we can compute its
+affinity vector, which the Kadabra node uses to route the query to the
+closest trie cluster(s). This ensures the prompt reaches the trie that
+holds the most relevant data.
 */
-func (machine *Machine) Prompt(prompt string) (
-	generation string, classification map[string]float64,
-) {
-	if machine == nil || machine.kadabra == nil || machine.kadabra.Store == nil {
-		return "", nil
+func (machine *Machine) Prompt(prompt string) (*algo.Prediction, error) {
+	if err := validate.Require(map[string]any{
+		"tokenizer": machine.tokenizer,
+		"kadabra":   machine.kadabra,
+	}); err != nil {
+		return nil, errnie.Error(err)
 	}
 
-	return machine.kadabra.Store.Generate(
-			prompt, machine.label, 0.5, 100,
-		),
-		machine.kadabra.Store.Classify(
-			prompt,
-		)
-}
+	value, err := primitive.NewValue([]byte(prompt))
 
-func (machine *Machine) defaultNodeID() kadabra.NodeID {
-	hostname, err := os.Hostname()
-
-	if err == nil && hostname != "" {
-		return kadabra.NodeIDFromString(hostname)
+	if err != nil {
+		return nil, errnie.Error(err)
 	}
 
-	return kadabra.NodeIDFromString("six-machine")
-}
-
-/*
-WithDataset sets the dataset for the machine.
-*/
-func MachineWithDataset(dataset data.Provider) machineOpts {
-	return func(machine *Machine) {
-		machine.dataset = dataset
-	}
-}
-
-/*
-MachineWithKadabraNode sets the Kadabra node used for sequence publishing.
-*/
-func MachineWithKadabraNode(node *kadabra.KadabraNode) machineOpts {
-	return func(machine *Machine) {
-		machine.kadabra = node
-	}
-}
-
-/*
-MachineWithKadabraLabel sets the fallback label used for unlabeled sequences.
-*/
-func MachineWithKadabraLabel(label string) machineOpts {
-	return func(machine *Machine) {
-		label = strings.TrimSpace(label)
-
-		if label == "" {
-			return
-		}
-
-		machine.label = label
-	}
+	return machine.kadabra.Predict(value)
 }

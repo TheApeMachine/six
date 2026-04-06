@@ -1,8 +1,11 @@
 package markovtrie
 
 import (
-	"strconv"
+	"context"
 	"sync"
+
+	"github.com/theapemachine/six/pkg/core/validate"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -11,6 +14,9 @@ coactivated terminal nodes so reward expectations can be queried from paired
 sensory-action histories without a separate simulator graph.
 */
 type MultimodalCoordinator struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
 	Sensory *Store
 	Action  *Store
 	Reward  *Store
@@ -23,91 +29,45 @@ type MultimodalCoordinator struct {
 NewMultimodalCoordinator constructs three independent stores that share option
 parity but maintain isolated trie roots and vocabularies.
 */
-func NewMultimodalCoordinator(options ...Option) *MultimodalCoordinator {
-	return &MultimodalCoordinator{
-		Sensory:      NewStore(options...),
-		Action:       NewStore(options...),
-		Reward:       NewStore(options...),
+func NewMultimodalCoordinator(
+	ctx context.Context, options ...Option,
+) (*MultimodalCoordinator, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	coordinator := &MultimodalCoordinator{
+		ctx:          ctx,
+		cancel:       cancel,
 		coactivation: make(map[string]float64),
 	}
+
+	coordinator.Sensory, coordinator.err = NewStore(ctx, options...)
+	coordinator.Action, coordinator.err = NewStore(ctx, options...)
+	coordinator.Reward, coordinator.err = NewStore(ctx, options...)
+
+	if coordinator.err != nil {
+		return nil, errnie.Error(coordinator.err)
+	}
+
+	return coordinator, validate.Require(map[string]any{
+		"ctx":          coordinator.ctx,
+		"cancel":       coordinator.cancel,
+		"Sensory":      coordinator.Sensory,
+		"Action":       coordinator.Action,
+		"Reward":       coordinator.Reward,
+		"coactivation": coordinator.coactivation,
+	})
 }
 
-func multimodalLinkKey(sensoryID string, actionID string, rewardID string) string {
-	return sensoryID + "\x1f" + actionID + "\x1f" + rewardID
-}
-
-/*
-TrainStep walks every stream under one label, applies the same learningRate, and
-records how often the resulting deepest nodes line up.
-*/
-func (coordinator *MultimodalCoordinator) TrainStep(
-	sensorySequence string,
-	actionSequence string,
-	rewardSignal float64,
-	label string,
-	learningRate float64,
-) {
+func (coordinator *MultimodalCoordinator) LinkKey(
+	sensorySequence string, actionSequence string, rewardSequence string,
+) string {
 	if coordinator == nil {
-		return
-	}
-
-	rewardSequence := strconv.FormatFloat(rewardSignal, 'g', 6, 64)
-
-	if coordinator.Sensory != nil {
-		coordinator.Sensory.Train(sensorySequence, label, learningRate)
-	}
-
-	if coordinator.Action != nil {
-		coordinator.Action.Train(actionSequence, label, learningRate)
-	}
-
-	if coordinator.Reward != nil {
-		coordinator.Reward.Train(rewardSequence, label, learningRate)
+		return ""
 	}
 
 	if coordinator.Sensory == nil || coordinator.Action == nil || coordinator.Reward == nil {
-		return
+		return ""
 	}
 
-	sensoryID := coordinator.Sensory.DeepestNodeID(sensorySequence)
-	actionID := coordinator.Action.DeepestNodeID(actionSequence)
-	rewardID := coordinator.Reward.DeepestNodeID(rewardSequence)
-
-	key := multimodalLinkKey(sensoryID, actionID, rewardID)
-
-	coordinator.coactivationMu.Lock()
-	coordinator.coactivation[key] += learningRate
-	coordinator.coactivationMu.Unlock()
-}
-
-/*
-CoactivationStrength returns accumulated plasticity mass on the synchronous
-triple for one sensory-action-reward tuple.
-*/
-func (coordinator *MultimodalCoordinator) CoactivationStrength(
-	sensorySequence string,
-	actionSequence string,
-	rewardSignal float64,
-) float64 {
-	if coordinator == nil {
-		return 0
-	}
-
-	if coordinator.Sensory == nil || coordinator.Action == nil || coordinator.Reward == nil {
-		return 0
-	}
-
-	rewardSequence := strconv.FormatFloat(rewardSignal, 'g', 6, 64)
-
-	key := multimodalLinkKey(
-		coordinator.Sensory.DeepestNodeID(sensorySequence),
-		coordinator.Action.DeepestNodeID(actionSequence),
-		coordinator.Reward.DeepestNodeID(rewardSequence),
-	)
-
-	coordinator.coactivationMu.RLock()
-	strength := coordinator.coactivation[key]
-	coordinator.coactivationMu.RUnlock()
-
-	return strength
+	return sensorySequence + "\x1f" + actionSequence + "\x1f" + rewardSequence
 }

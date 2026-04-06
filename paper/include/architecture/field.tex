@@ -1,0 +1,201 @@
+% ============================================================================
+% THE FIELD: EMERGENT ATTENTION THROUGH EIGENMODE SELECTION
+% ============================================================================
+\subsection{The Field: Emergent Attention via Eigenmode Selection}
+\label{sec:field}
+
+The Field is not a data structure that nodes query.  It is a
+\emph{force that acts on them}---analogous to a physical field acting on
+particles.  It emerges from the gossip protocol
+(\Cref{sec:gossip}): as nodes exchange \texttt{FieldDigest} messages,
+each node's \texttt{FieldView} detects emergent clusters of
+structurally aligned, phase-coherent tries, identifies the dominant
+cluster, and projects asymmetric pressure back onto the local trie.
+This mechanism functions as the system's attention: it selects what to
+retain and what to forget, without matrices, softmax, or learned
+parameters.
+
+\subsubsection{Affine Coupling: Multi-Scale Structural Alignment}
+
+Structural similarity between two nodes is measured by
+\emph{affine coupling}, which evaluates overlap between their
+512-bit affinity vectors at multiple spatial scales.  For affinity
+vectors $\mathbf{a}, \mathbf{b} \in \{0,1\}^{8 \times 64}$ (eight
+64-bit words), the coupling is:
+\begin{equation}
+  C_{\text{aff}}(\mathbf{a}, \mathbf{b})
+    = \frac{1}{8 \cdot 64 \cdot |\mathcal{K}|}
+      \sum_{k \in \mathcal{K}} \sum_{w=0}^{7}
+      \text{popcount}\!\bigl(\pi_k(\mathbf{a})_w \;\mathbin{\&}\; \mathbf{b}_w\bigr)
+  \label{eq:affine_coupling}
+\end{equation}
+where $\mathcal{K} = \{1, 4, 16, 64\}$ are the rotation exponents
+(base-4 exponential spacing: $4^0, 4^1, 4^2, 4^3$), and $\pi_k$ is an
+affine permutation that rotates word indices by $k$ and bit positions
+within each word by $(3k) \bmod 64$:
+\begin{equation}
+  \pi_k(\mathbf{a})_w
+    = \texttt{rotl}\!\bigl(\mathbf{a}_{(w+k) \bmod 8},\; (3k) \bmod 64\bigr)
+  \label{eq:affine_permutation}
+\end{equation}
+
+The multiplier 3 is chosen because $\gcd(3, 64) = 1$, ensuring that
+the composed shift visits many distinct bit phases as $k$ sweeps the
+exponential scale.  The resulting shifts $\{3, 12, 48, 0\} \bmod 64$
+span the full 64-bit lane.
+
+Affine coupling returns a value in $[0, 1]$ where $1$ indicates
+perfect alignment at all scales.  The coupling threshold for eigenmode
+membership is $\theta_C = 0.15$, deliberately below the chance-overlap
+level for random 512-bit vectors ($\approx 0.25$) because eigenmode
+assignment is a two-stage gate: nodes must also pass the phase
+coherence check.
+
+\subsubsection{Phase Coherence: Surprisal Velocity Alignment}
+
+Structural alignment alone is insufficient for mode membership.  Two
+nodes may have similar affinity vectors but be in complementary
+learning states (one absorbing novelty while the other consolidates).
+Phase coherence captures this dynamic alignment by comparing
+\emph{surprisal velocities}:
+\begin{equation}
+  v_i = \bar{S}_i^{(t)} - \bar{S}_i^{(t-1)}
+  \label{eq:phase_velocity}
+\end{equation}
+where $\bar{S}_i^{(t)}$ is node $i$'s mean surprisal at epoch $t$.
+The phase coupling between two nodes is:
+\begin{equation}
+  C_{\text{phase}}(i, j)
+    = \frac{v_i \cdot v_j}{\sqrt{|v_i|} \cdot \sqrt{|v_j|} + \epsilon}
+  \label{eq:phase_coupling}
+\end{equation}
+with $\epsilon = 0.01$ to suppress spurious coupling when both nodes
+are quiescent.  This is a normalized product: $C_{\text{phase}} = +1$
+when both nodes are accelerating or both decelerating (in-phase),
+$C_{\text{phase}} = -1$ when one is rising and the other falling
+(anti-phase), and $C_{\text{phase}} \approx 0$ when at least one node
+is stationary.
+
+The geometric-mean normalization $\sqrt{|v_i| \cdot |v_j|}$ is used
+instead of $\max(|v_i|, |v_j|)^2$ to avoid over-penalizing asymmetric
+velocity pairs---a common case when one node has just begun learning
+while a structurally aligned neighbor is in full swing.
+
+The phase threshold for mode membership is $\theta_P = -0.3$, allowing
+mild transient disagreement during mode formation.
+
+\subsubsection{Eigenmode Detection}
+\label{sec:eigenmode_detection}
+
+Given the set of received digests $\{d_1, \ldots, d_N\}$, the
+\texttt{FieldView} identifies eigenmodes by greedy clustering:
+
+\begin{algorithm}[H]
+\caption{Eigenmode Detection}
+\label{alg:eigenmode}
+\begin{algorithmic}[1]
+\State $\mathcal{M} \leftarrow \emptyset$ \Comment{set of modes}
+\For{each digest $d_i$}
+  \State $m^* \leftarrow \arg\max_{m \in \mathcal{M}}
+    C_{\text{aff}}(\text{center}(m), \mathbf{a}_i)$
+    \textbf{s.t.}\ $C_{\text{aff}} \geq \theta_C$ and
+    $C_{\text{phase}}(\text{seed}(m), d_i) \geq \theta_P$
+  \If{$m^*$ exists}
+    \State Add $d_i$ to $m^*$;
+           update center: $\text{center}(m^*)_w \leftarrow
+           \text{center}(m^*)_w \;\mathbin{|}\; \mathbf{a}_{i,w}$
+    \State $E(m^*) \leftarrow E(m^*) + \bar{S}_i + |v_i|$
+  \Else
+    \State Create new mode $m = \{d_i\}$ with
+           $\text{center}(m) = \mathbf{a}_i$,
+           $E(m) = \bar{S}_i + |v_i|$
+    \State $\mathcal{M} \leftarrow \mathcal{M} \cup \{m\}$
+  \EndIf
+\EndFor
+\State \textbf{Dominant mode:}
+       $m_{\text{dom}} = \arg\max_{m \in \mathcal{M}} E(m)$
+\end{algorithmic}
+\end{algorithm}
+
+The energy of a mode $E(m) = \sum_{i \in m} (\bar{S}_i + |v_i|)$
+aggregates both the absolute surprisal (how much the member nodes are
+learning) and the magnitude of their learning velocity (how actively
+they are changing).  The dominant mode---the one with the highest total
+energy---is what the system ``attends to.''
+
+Mode centers are computed incrementally via bitwise OR, which unions the
+affinity bits of all members.  This makes mode boundaries inclusive:
+a center grows to encompass its members rather than averaging them,
+preventing the centroid-collapse problem of $k$-means in high-dimensional
+binary spaces.
+
+\subsubsection{Asymmetric Field Projection}
+
+Once the dominant mode is identified, the \texttt{FieldView} projects
+asymmetric pressure onto the owning node's MarkovTrie:
+
+\begin{table}[h]
+  \centering
+  \caption{Field pressure multipliers.  The 4$\times$ decay differential
+           and 5$\times$ learning differential produce selection by
+           differential survival.}
+  \label{tab:field_pressure}
+  \begin{tabular}{lcc}
+    \toprule
+    & \textbf{Aligned (in dominant mode)}
+    & \textbf{Misaligned (outside)} \\
+    \midrule
+    Decay multiplier   & $0.5\times$ (suppress) & $2.0\times$ (amplify) \\
+    Learning multiplier & $1.5\times$ (amplify) & $0.3\times$ (suppress) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+These multipliers modulate the base field pressure, which is itself
+derived from the weighted average of coupled neighbors' surprisal and
+growth rates.  For a node with local surprisal $\bar{S}_{\text{local}}$
+and field-averaged surprisal $\bar{S}_{\text{field}}$, the raw pressure
+differentials are:
+\begin{align}
+  \Delta_{\text{decay}}  &= \bar{S}_{\text{field}} - \bar{S}_{\text{local}} \\
+  \Delta_{\text{learn}}  &= \bar{S}_{\text{field}} - \bar{S}_{\text{local}} \\
+  \Delta_{\text{prune}}  &= \dot{N}_{\text{field}} - \dot{N}_{\text{local}}
+\end{align}
+where the field averages are weighted by the product of affine coupling
+and phase coupling:
+$w_{ij} = C_{\text{aff}}(\mathbf{a}_i, \mathbf{a}_j) \cdot
+(1 + C_{\text{phase}}(i, j))$.
+
+The raw pressures are multiplied by the alignment-dependent factors from
+\Cref{tab:field_pressure} and clamped to $[-3.0, +3.0]$ for decay and
+learning (to prevent runaway feedback) and $[-5.0, +5.0]$ for pruning
+(wider because pruning errors are less costly---a pruned node can regrow
+from new data, while a corrupted decay factor distorts all future
+predictions).
+
+\subsubsection{Interpretation as Attention}
+
+The Field mechanism implements attention without the machinery of
+query-key-value projections.  The ``query'' is each node's current
+adaptive state (broadcast as a digest).  The ``key matching'' is affine
+coupling plus phase coherence.  The ``value aggregation'' is the
+weighted field pressure from coupled neighbors.  The ``selection'' is
+the asymmetric fork: amplify the attended mode, suppress the rest.
+
+This produces three effects that are analogous to attention in
+transformer architectures:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Concentration}: aligned nodes retain knowledge longer
+        (suppressed decay) and absorb related input faster (amplified
+        learning), concentrating capacity on the dominant pattern.
+  \item \textbf{Graceful transition}: because the suppression is
+        multiplicative rather than binary, minority modes are dampened
+        but not destroyed.  When the dominant pattern shifts, suppressed
+        nodes still retain enough state to become the new dominant mode.
+  \item \textbf{No catastrophic forgetting}: the 4$\times$ decay
+        differential is strong enough to produce visible divergence
+        within a few epochs but not so extreme that a temporarily
+        misaligned node loses irrecoverable state (the decay multiplier
+        is bounded at $2.0\times$, not $\infty$).
+\end{enumerate}

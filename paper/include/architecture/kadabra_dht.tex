@@ -1,0 +1,92 @@
+% ============================================================================
+% KADABRA DHT: DISTRIBUTED KNOWLEDGE ROUTING
+% ============================================================================
+\subsection{Kadabra: Affinity-Routed Distributed Hash Table}
+\label{sec:kadabra_dht}
+
+The Kadabra layer organizes MarkovTrie instances into a Kademlia-style
+distributed hash table where nodes \emph{are} tries.  Values route to
+tries based on affinity similarity, creating emergent specialization:
+each trie accumulates expertise in the content domain defined by its
+neighborhood in affinity space.
+
+\subsubsection{Routing Architecture}
+
+Each node in the network is identified by a 64-bit \texttt{NodeID} and
+maintains a routing table of 64 $k$-buckets (one per bit of the ID
+space), each holding up to $B = 20$ peer references.  Bucket $i$
+contains peers whose XOR distance from the local node has its highest
+set bit at position $i$:
+\begin{equation}
+  \text{bucket}(a, b)
+    = \bigl\lfloor \log_2(a \oplus b) \bigr\rfloor
+  \label{eq:bucket_index}
+\end{equation}
+This produces the standard Kademlia property that nearby nodes share
+low-index buckets (many common prefix bits) and distant nodes populate
+high-index buckets.
+
+\subsubsection{Affinity-Based Value Routing}
+
+When a Value is published to the network, its 512-bit affinity vector
+(\Cref{sec:entropy_routing}) determines the target nodes.  The system
+computes the XOR distance between the Value's affinity and each
+candidate node's affinity, then routes the Value to the $r = 3$ closest
+nodes (the replication factor).  Because the affinity vector is a
+locality-sensitive hash of the token content
+(\Cref{sec:capacity_analysis}), Values with similar content naturally
+cluster on the same nodes.  This produces \emph{emergent specialization}:
+each trie receives, and therefore learns from, a coherent subset of the
+input stream.
+
+\subsubsection{Adaptive Peer Selection via Multi-Armed Bandit}
+\label{sec:mab_peers}
+
+Peer quality within each bucket is tracked via two online statistics:
+latency (exponential moving average of round-trip time) and success rate
+(fraction of recent queries that returned results).  Every
+$E_{\text{epoch}} = 100$ queries, the system re-evaluates each bucket:
+\begin{enumerate}[nosep]
+  \item Compute a quality score for each peer:
+        $q = \alpha_{\text{success}} \cdot \text{success\_rate}
+           - \alpha_{\text{latency}} \cdot \text{latency\_ema}$.
+  \item With exploration probability $\epsilon$, probe a random
+        candidate not currently in the bucket.
+  \item If the candidate's quality exceeds the worst current peer,
+        swap them.
+\end{enumerate}
+This multi-armed bandit strategy ensures that the routing table
+continuously improves without requiring global coordination.
+
+\subsubsection{Gossip Protocol and Field Digests}
+\label{sec:gossip}
+
+At each epoch boundary, every node broadcasts a compact
+\texttt{FieldDigest} to its routing peers.  A digest contains:
+\begin{itemize}[nosep]
+  \item The originating \texttt{NodeID}.
+  \item The node's 512-bit affinity vector.
+  \item Surprisal mean $\bar{S}$, variance $\sigma_S^2$, and
+        previous-epoch mean $\bar{S}_{\text{prev}}$ (for computing
+        phase velocity).
+  \item Classification entropy $H$.
+  \item Node growth rate $\dot{N}$ (trie node creation rate).
+  \item Effective trie depth $d_{\text{eff}}$.
+  \item Epoch counter.
+\end{itemize}
+Digests are lightweight (a few hundred bytes) relative to the trie state
+they summarize.  Each receiving node absorbs the digest into its
+\texttt{FieldView}, which triggers eigenmode recomputation and field
+projection (\Cref{sec:field}).  Digests are deduplicated by epoch
+number: a digest with an epoch $\leq$ the stored epoch for that origin
+is silently dropped.
+
+\subsubsection{Replication and Redundancy}
+
+Each Value is stored on $r = 3$ nodes selected by affinity proximity.
+This serves two purposes: fault tolerance (any single node failure
+leaves two replicas) and learning diversity (multiple tries learn from
+the same data, potentially extracting different structural patterns
+based on their existing knowledge).  The replication factor is
+configurable but defaults to 3, consistent with standard Kademlia
+deployments.

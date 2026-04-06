@@ -72,8 +72,8 @@ func (udp *UDPMulticast) Read(p []byte) (int, error) {
 	}
 
 	if udp.sub == nil {
-		err := &TransportError{
-			Layer:    "udp",
+		err := &NetworkError{
+			Subsystem:    "udp",
 			Op:       "read",
 			Mode:     TransportFailureNotReady,
 			Systemic: true,
@@ -129,8 +129,8 @@ func (udp *UDPMulticast) Write(p []byte) (int, error) {
 	}
 
 	if udp.pub == nil {
-		err := &TransportError{
-			Layer:    "udp",
+		err := &NetworkError{
+			Subsystem:    "udp",
 			Op:       "write",
 			Mode:     TransportFailureNotReady,
 			Systemic: true,
@@ -186,8 +186,8 @@ func (udp *UDPMulticast) Ready(ctx context.Context) error {
 	_ = ctx
 
 	if udp.pub == nil && udp.sub == nil {
-		err := &TransportError{
-			Layer:    "udp",
+		err := &NetworkError{
+			Subsystem:    "udp",
 			Op:       "ready",
 			Mode:     TransportFailureNotReady,
 			Systemic: true,

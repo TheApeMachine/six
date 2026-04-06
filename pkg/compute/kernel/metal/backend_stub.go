@@ -55,7 +55,7 @@ func Available() int {
 }
 
 func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
-	return NewMetalError(MetalErrorUnavailable, nil, "UniversalBitwise")
+	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "UniversalBitwise")
 }
 
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
