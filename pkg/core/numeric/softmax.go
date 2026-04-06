@@ -2,6 +2,16 @@ package numeric
 
 import "math"
 
+func logEvidenceValue(logEvidence map[string]float64, label string) float64 {
+	val, ok := logEvidence[label]
+
+	if !ok {
+		return math.Inf(-1)
+	}
+
+	return val
+}
+
 /*
 SoftmaxPercentages maps log-domain scores to percentages summing to 100 over labels
 (max-subtraction for numerical stability).
@@ -11,34 +21,41 @@ func SoftmaxPercentages(logEvidence map[string]float64, labels []string) map[str
 	maxLog := math.Inf(-1)
 
 	for _, label := range labels {
-		val, ok := logEvidence[label]
-
-		if !ok {
-			val = math.Inf(-1)
-		}
+		val := logEvidenceValue(logEvidence, label)
 
 		if val > maxLog {
 			maxLog = val
 		}
 	}
 
+	out := make(map[string]float64, len(labels))
+
+	if math.IsNaN(maxLog) {
+		for _, label := range labels {
+			out[label] = 0
+		}
+
+		return out
+	}
+
+	if math.IsInf(maxLog, -1) {
+		for _, label := range labels {
+			out[label] = 0
+		}
+
+		return out
+	}
+
 	sumExp := 0.0
 
 	for _, label := range labels {
-		val, ok := logEvidence[label]
-
-		if !ok {
-			val = math.Inf(-1)
-		}
-
+		val := logEvidenceValue(logEvidence, label)
 		expProbability := math.Exp(val - maxLog)
 		expScores[label] = expProbability
 		sumExp += expProbability
 	}
 
-	out := make(map[string]float64, len(labels))
-
-	if sumExp == 0 {
+	if math.IsNaN(sumExp) || sumExp == 0 {
 		for _, label := range labels {
 			out[label] = 0
 		}

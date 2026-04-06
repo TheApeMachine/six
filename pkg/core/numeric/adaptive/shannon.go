@@ -35,7 +35,7 @@ nonnegative quantities scaled into probabilities by probabilityScale.
 Classifier scores in this repo are percentages; callers pass 1/100 for scale.
 */
 func ShannonEntropyBitsFromMap(scores map[string]float64, probabilityScale float64) float64 {
-	if probabilityScale < 0 {
+	if probabilityScale <= 0 {
 		return math.NaN()
 	}
 

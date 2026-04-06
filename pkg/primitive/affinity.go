@@ -196,14 +196,25 @@ func rotateSelector(count uint64, wordIdx int) uint64 {
 	limit := (^uint64(0) / count) * count
 	var mask uint64
 
+	const maxRejects = 256
+
 	for bit := 0; bit < 64; bit++ {
 		var slot uint64
+
+		rejects := 0
 
 		for {
 			seed = seed*6364136223846793005 + 1442695040888963407
 			v := seed
 
 			if v < limit {
+				slot = v % count
+				break
+			}
+
+			rejects++
+
+			if rejects >= maxRejects {
 				slot = v % count
 				break
 			}

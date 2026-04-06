@@ -11,8 +11,10 @@ func NewSpread() *Spread {
 func (spread *Spread) Next(out float64, values ...float64) (float64, error) {
 	var err error
 
+	ref := out
+
 	for _, observation := range values {
-		deviation := observation - out
+		deviation := observation - ref
 		out, err = spread.smoother.Next(0, deviation*deviation)
 
 		if err != nil {

@@ -75,16 +75,16 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 	old := tokenizer.current
 
 	buf := bufPool.Get().([]byte)
-	buf = buf[:cap(buf)]
-	defer bufPool.Put(buf[:0])
+	full := buf[:cap(buf)]
+	defer bufPool.Put(full[:0])
 
-	if n, err = tokenizer.rb.Read(buf); err != nil {
+	if n, err = tokenizer.rb.Read(full); err != nil {
 		return n, errnie.Error(err)
 	}
 
 	var next *primitive.Value
 
-	next, tokenizer.err = primitive.NewValue(buf[:n])
+	next, tokenizer.err = primitive.NewValue(full[:n])
 
 	if tokenizer.err != nil {
 		return 0, errnie.Error(tokenizer.err)

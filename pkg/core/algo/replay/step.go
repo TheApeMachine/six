@@ -62,9 +62,12 @@ func TryOnce(
 		return nil
 	}
 
-	learningRate := env.LearningRate
+	rawLR := env.LearningRate
+	learningRate := rawLR
 
-	if learningRate == 0 {
+	if rawLR < 0 {
+		learningRate = 0
+	} else if rawLR == 0 {
 		learningRate = 1
 	}
 

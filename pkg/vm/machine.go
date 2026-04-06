@@ -134,7 +134,7 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	for {
 		if n, machine.err = io.CopyBuffer(machine.tokenizer, dataset, buf); machine.err != nil {
-			if machine.err == io.EOF {
+			if errors.Is(machine.err, io.EOF) {
 				return nil
 			}
 

@@ -96,7 +96,13 @@ func Continuations(initialPrefixLen int, hyps []Hypothesis, endToken, joiner str
 	for _, hyp := range hyps {
 		generated := make([]string, 0, len(hyp.Tokens))
 
-		for _, token := range hyp.Tokens[initialPrefixLen:] {
+		start := initialPrefixLen
+
+		if start > len(hyp.Tokens) {
+			start = len(hyp.Tokens)
+		}
+
+		for _, token := range hyp.Tokens[start:] {
 			if token == endToken {
 				continue
 			}

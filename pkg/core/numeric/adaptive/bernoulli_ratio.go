@@ -47,6 +47,6 @@ func (ratio *BernoulliRatio) Ratio() float64 {
 Reset clears hit and trial counters.
 */
 func (ratio *BernoulliRatio) Reset() {
-	atomic.StoreInt64(&ratio.hits, 0)
 	atomic.StoreInt64(&ratio.trials, 0)
+	atomic.StoreInt64(&ratio.hits, 0)
 }

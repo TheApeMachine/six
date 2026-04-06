@@ -1,6 +1,7 @@
 package learned
 
 import (
+	"errors"
 	"math"
 
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
@@ -57,7 +58,7 @@ func (weight *Weight) Next(
 	out float64, values ...float64,
 ) (float64, error) {
 	if weight == nil {
-		return 0, nil
+		return 0, errors.New("learned: Weight.Next nil receiver")
 	}
 
 	if len(values) < 2 {
@@ -109,7 +110,7 @@ Reset clears the Weight back to its initial state.
 */
 func (weight *Weight) Reset() error {
 	if weight == nil {
-		return nil
+		return errors.New("learned: Weight.Reset nil receiver")
 	}
 
 	weight.value = 0

@@ -68,6 +68,7 @@ type MarkovTrieConfig struct {
 	PruneMinimumCount               float64 `mapstructure:"pruneMinimumCount"`
 	ReplayLength                    int     `mapstructure:"replayLength"`
 	ReplayThreshold                 float64 `mapstructure:"replayThreshold"`
+	BeamWidth                       int     `mapstructure:"beamWidth"`
 	UnknownProbability              float64 `mapstructure:"unknownProbability"`
 	AdditiveSmoothing               float64 `mapstructure:"additiveSmoothing"`
 	RecentPenalty                   float64 `mapstructure:"recentPenalty"`
@@ -285,6 +286,7 @@ func NewConfig() *Config {
 			PruneMinimumCount:              WithDefault(viper.GetFloat64("markovtrie.pruneMinimumCount"), 0.05),
 			ReplayLength:                   WithDefault(viper.GetInt("markovtrie.replayLength"), 10),
 			ReplayThreshold:                WithDefault(viper.GetFloat64("markovtrie.replayThreshold"), 85),
+			BeamWidth:                      WithDefault(viper.GetInt("markovtrie.beamWidth"), 3),
 			UnknownProbability:             WithDefault(viper.GetFloat64("markovtrie.unknownProbability"), 0.001),
 			AdditiveSmoothing:              WithDefault(viper.GetFloat64("markovtrie.additiveSmoothing"), 0.1),
 			RecentPenalty:                  WithDefault(viper.GetFloat64("markovtrie.recentPenalty"), 0.5),

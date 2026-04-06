@@ -14,9 +14,9 @@ another observed signal. The result is dimensionless
 and self-scaling.
 
 Ratio expects exactly two values per call: the
-numerator and the denominator. When the denominator
-is zero, the ratio is zero — there is no signal to
-be relative to.
+numerator and the denominator. A zero denominator
+returns an error from Next (see Ratio.Next) so callers
+must handle that case explicitly.
 */
 type Ratio struct {
 	raw      float64

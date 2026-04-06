@@ -186,7 +186,7 @@ func (experience *Experience) Run(
 
 func (experience *Experience) assignLabel(sequence string) (string, bool) {
 	if experience.Online == nil {
-		return core.Cfg.MarkovTrie.ExperienceEmptyLabel, true
+		return core.Cfg.MarkovTrie.ExperienceEmptyLabel, false
 	}
 
 	if len(experience.Online.Labels) == 0 {

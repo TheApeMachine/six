@@ -282,8 +282,9 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		fieldGrowth := weightedGrowth / totalWeight
 
 		rawDecay := fieldSurprisal - local.SurprisalMean
-		rawLearn := fieldGrowth - local.GrowthRate
-		rawPrune := fieldGrowth - local.GrowthRate
+		growthDelta := fieldGrowth - local.GrowthRate
+		rawLearn := growthDelta
+		rawPrune := growthDelta
 
 		var decayMul, learnMul float64
 

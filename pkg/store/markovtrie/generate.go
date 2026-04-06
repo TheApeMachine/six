@@ -1,6 +1,8 @@
 package markovtrie
 
 import (
+	"strings"
+
 	"github.com/theapemachine/six/pkg/core/algo/beam"
 	"github.com/theapemachine/six/pkg/core/numeric/probability"
 )
@@ -22,7 +24,7 @@ func (store *Store) Generate(
 		beamWidth = 3
 	}
 
-	prefix := []string{context}
+	prefix := tokenizeContextWithoutBPE(context)
 	endToken := "$"
 
 	if store.bpe != nil {
@@ -47,7 +49,7 @@ func (store *Store) Generate(
 		default:
 		}
 
-		candidateCap := max(beamWidth*beamWidth, beamWidth)
+		candidateCap := beamWidth * beamWidth
 		nextLayer := make([]beam.Hypothesis, 0, candidateCap)
 
 		for _, hyp := range hyps {
@@ -142,7 +144,7 @@ func rankedChildrenForLabel(
 		}
 	}
 
-	if temperature > 0 {
+	if temperature >= 0 {
 		shaped := make([]probability.Ranked, len(ranked))
 
 		for index := range ranked {
@@ -166,4 +168,18 @@ func rankedChildrenForLabel(
 	}
 
 	return ranked
+}
+
+func tokenizeContextWithoutBPE(context string) []string {
+	fields := strings.Fields(strings.TrimSpace(context))
+
+	if len(fields) > 0 {
+		return fields
+	}
+
+	if context == "" {
+		return []string{""}
+	}
+
+	return []string{context}
 }

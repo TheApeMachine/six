@@ -38,18 +38,20 @@ func (e *NetworkError) Error() string {
 		return ""
 	}
 
-	errFmt := ""
-
-	if e.Err != nil {
-		errFmt = ": %v"
-	}
-
 	if e.Mode != "" && e.Mode != TransportFailureNone {
 		if e.Err == nil {
-			return fmt.Sprintf("[%s] %s (mode=%s)", e.Subsystem, e.Op, e.Mode)
+			if e.Op != "" {
+				return fmt.Sprintf("[%s] %s (mode=%s)", e.Subsystem, e.Op, e.Mode)
+			}
+
+			return fmt.Sprintf("[%s] (mode=%s)", e.Subsystem, e.Mode)
 		}
 
-		return fmt.Sprintf("[%s] %s (mode=%s): %v", e.Subsystem, e.Op, e.Mode, e.Err)
+		if e.Op != "" {
+			return fmt.Sprintf("[%s] %s (mode=%s): %v", e.Subsystem, e.Op, e.Mode, e.Err)
+		}
+
+		return fmt.Sprintf("[%s] (mode=%s): %v", e.Subsystem, e.Mode, e.Err)
 	}
 
 	if e.Op != "" {
@@ -57,7 +59,7 @@ func (e *NetworkError) Error() string {
 			return fmt.Sprintf("[%s] %s", e.Subsystem, e.Op)
 		}
 
-		return fmt.Sprintf("[%s] %s"+errFmt, e.Subsystem, e.Op, e.Err)
+		return fmt.Sprintf("[%s] %s: %v", e.Subsystem, e.Op, e.Err)
 	}
 
 	if e.Msg != "" {
@@ -68,7 +70,7 @@ func (e *NetworkError) Error() string {
 		return fmt.Sprintf("[%s]", e.Subsystem)
 	}
 
-	return fmt.Sprintf("[%s]"+errFmt, e.Subsystem, e.Err)
+	return fmt.Sprintf("[%s]: %v", e.Subsystem, e.Err)
 }
 
 func (e *NetworkError) Unwrap() error {

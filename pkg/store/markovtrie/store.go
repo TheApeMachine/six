@@ -82,7 +82,11 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 	}
 
 	if store.beamWidth <= 0 {
-		store.beamWidth = 3
+		store.beamWidth = core.Cfg.MarkovTrie.BeamWidth
+
+		if store.beamWidth <= 0 {
+			store.beamWidth = 3
+		}
 	}
 
 	return store, validate.Require(map[string]any{
