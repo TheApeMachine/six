@@ -80,10 +80,6 @@ func (store *Store) Generate(
 	return cont[0].Sequence, nil
 }
 
-/*
-rankedChildrenForLabel returns normalized label-conditional masses for outgoing
-edges after walking prefix. It takes a read lock on store.mu for the walk.
-*/
 func rankedChildrenForLabel(
 	store *Store, prefix []string, label string, temperature float64,
 ) beam.RankedTokens {

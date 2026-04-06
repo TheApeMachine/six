@@ -1,6 +1,11 @@
 package replay
 
-import "unicode/utf8"
+import (
+	"errors"
+	"unicode/utf8"
+
+	"github.com/theapemachine/six/pkg/errnie"
+)
 
 /*
 Acceptance is a replay step that passed confidence and novelty gates.
@@ -65,10 +70,11 @@ func TryOnce(
 	rawLR := env.LearningRate
 	learningRate := rawLR
 
-	if rawLR < 0 {
-		learningRate = 0
-	} else if rawLR == 0 {
-		learningRate = 1
+	if rawLR <= 0 {
+		errnie.Error(
+			errors.New("learning rate must be positive"),
+			"learning_rate", rawLR,
+		)
 	}
 
 	env.Train(sequence, label, learningRate)

@@ -15,9 +15,10 @@ import (
 
 var bufPool = sync.Pool{
 	New: func() any {
-		capacity := int(core.Cfg.Value.Region.Tokens.Bits)
-
-		return make([]byte, capacity, capacity)
+		return make(
+			[]byte,
+			int(core.Cfg.Value.Region.Tokens.Bits),
+		)
 	},
 }
 
@@ -75,16 +76,16 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 	old := tokenizer.current
 
 	buf := bufPool.Get().([]byte)
-	full := buf[:cap(buf)]
-	defer bufPool.Put(full[:0])
+	buf = buf[:cap(buf)]
+	defer bufPool.Put(buf[:0])
 
-	if n, err = tokenizer.rb.Read(full); err != nil {
+	if n, err = tokenizer.rb.Read(buf); err != nil {
 		return n, errnie.Error(err)
 	}
 
 	var next *primitive.Value
 
-	next, tokenizer.err = primitive.NewValue(full[:n])
+	next, tokenizer.err = primitive.NewValue(buf[:n])
 
 	if tokenizer.err != nil {
 		return 0, errnie.Error(tokenizer.err)

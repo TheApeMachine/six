@@ -30,7 +30,7 @@ func SoftmaxPercentages(logEvidence map[string]float64, labels []string) map[str
 
 	out := make(map[string]float64, len(labels))
 
-	if math.IsNaN(maxLog) {
+	if math.IsInf(maxLog, -1) {
 		for _, label := range labels {
 			out[label] = 0
 		}
