@@ -96,6 +96,14 @@ After the SIMD pass, an in-band argmin reduction writes:
 so the caller never touches raw distance arrays.
 */
 func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
+	if count > kernel.MaxNearestAffinityCandidates {
+		count = kernel.MaxNearestAffinityCandidates
+	}
+
+	if count <= 0 {
+		return
+	}
+
 	distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
 
 	batchAffinityDistances(

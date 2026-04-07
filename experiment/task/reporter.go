@@ -314,7 +314,7 @@ func barChartData(data any) (tools.BarChartData, error) {
 	}
 }
 
-func extractScores(data []tools.ExperimentalData, field string) []float64 {
+func extractScores(data []tools.ExperimentalData, _ string) []float64 {
 	out := make([]float64, len(data))
 	for i, row := range data {
 		out[i] = row.Scores.Exact

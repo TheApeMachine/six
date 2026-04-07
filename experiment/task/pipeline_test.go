@@ -150,13 +150,14 @@ func TestPipeline(t *testing.T) {
 					PipelineWithExperiment(experiment),
 					PipelineWithReporter(NewProjectorReporter()),
 					PipelineWithSnapshotReporter(),
+					PipelineWithViz(":6600"),
 				)
 
 				So(err, ShouldBeNil)
 				So(pipeline, ShouldNotBeNil)
 
 				Convey("And a machine", func() {
-					machine, err := vm.NewMachine(t.Context())
+					machine, err := vm.NewMachine(t.Context(), vm.MachineWithMesh(5))
 					So(err, ShouldBeNil)
 					So(machine, ShouldNotBeNil)
 					So(machine.Load(experiment.Dataset()), ShouldBeNil)

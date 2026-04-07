@@ -2,7 +2,6 @@ package primitive
 
 import (
 	"context"
-	"math/bits"
 	"testing"
 	"unsafe"
 
@@ -270,9 +269,4 @@ func BenchmarkValue_InBandBias(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-}
-
-// popcount64 counts set bits — used as a signal density metric.
-func popcount64(x uint64) int {
-	return bits.OnesCount64(x)
 }

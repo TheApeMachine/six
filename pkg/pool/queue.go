@@ -3,6 +3,7 @@ package pool
 import (
 	"context"
 	"runtime"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core/data"
@@ -35,6 +36,7 @@ type Queue struct {
 	normal   *data.Ring
 	priority *data.Ring
 	spill    *data.Ring
+	inflight atomic.Int64
 }
 
 /*
@@ -113,10 +115,28 @@ func (queue *Queue) Execute(program any) {
 		return
 	}
 
+	queue.inflight.Add(1)
+
 	backend := queue.backend
 	queue.pool.Submit(func() {
+		defer queue.inflight.Add(-1)
 		backend.CompileAndExecute(program)
 	})
+}
+
+/*
+Drain spins until all inflight Execute tasks have completed. This
+lets callers ensure prior GPU dispatches finish before triggering
+work that would contend on the same resources.
+*/
+func (queue *Queue) Drain() {
+	if queue == nil {
+		return
+	}
+
+	for queue.inflight.Load() > 0 {
+		runtime.Gosched()
+	}
 }
 
 /*

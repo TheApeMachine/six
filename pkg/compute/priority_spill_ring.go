@@ -7,13 +7,6 @@ import (
 )
 
 /*
-prioritySpillRingCapacity is the spill slot count (power of two). Overflowed
-PRIORITY frames block in pushPrioritySpill until the unified queue drains space;
-the capacity bounds worst-case fan-in without unbounded allocations.
-*/
-const prioritySpillRingCapacity = 65536
-
-/*
 spillRingCell is one slot in a Dmitry Vyukov bounded MPMC queue (rigtorp's
 MPMCQueue layout): sequence plus payload. Producers and consumers coordinate
 only through atomics on sequence, head, and tail — no mutex.

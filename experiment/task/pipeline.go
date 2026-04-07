@@ -2,11 +2,15 @@ package task
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pkg/viz"
 )
+
+var vizOnce sync.Once
 
 type runTiming struct {
 	loadDur     time.Duration
@@ -100,6 +104,26 @@ func PipelineWithReporter(reporter Reporter) pipelineOpts {
 func PipelineWithSnapshotReporter() pipelineOpts {
 	return func(pipeline *Pipeline) {
 		pipeline.reporter = NewSnapshotReporter()
+	}
+}
+
+/*
+PipelineWithViz starts the 3D visualization server on the given address
+(default ":6600") and activates the global event bus so all kadabra,
+compute, and field events stream to the browser in real time.
+The server shuts down when the pipeline context is cancelled.
+*/
+func PipelineWithViz(addr string) pipelineOpts {
+	return func(pipeline *Pipeline) {
+		vizOnce.Do(func() {
+			if addr == "" {
+				addr = ":6600"
+			}
+
+			server := viz.NewServer(viz.DefaultBus, addr)
+
+			go server.Start(pipeline.ctx)
+		})
 	}
 }
 

@@ -59,8 +59,9 @@ The compilation has three stages:
     the Value's regions
 */
 type Compiler struct {
-	value  *primitive.Value
-	intent Intent
+	value                  *primitive.Value
+	intent                 Intent
+	useBatchAffinityLayout bool
 }
 
 type compilerOption func(*Compiler)
@@ -90,11 +91,11 @@ func (compiler *Compiler) Compile(
 ) *primitive.Value {
 	switch target {
 	case CPU:
-		compiler.CPU(compiler.value, compiler.intent)
+		compiler.CPU(compiler.value, compiler.intent, compiler.useBatchAffinityLayout)
 	case Metal:
-		compiler.Metal(compiler.value, compiler.intent)
+		compiler.Metal(compiler.value, compiler.intent, compiler.useBatchAffinityLayout)
 	case CUDA:
-		compiler.CUDA(compiler.value, compiler.intent)
+		compiler.CUDA(compiler.value, compiler.intent, compiler.useBatchAffinityLayout)
 	}
 
 	return compiler.value
@@ -111,5 +112,17 @@ func (compiler *Compiler) Frame() *primitive.Value {
 func CompilerWithIntent(intent Intent) compilerOption {
 	return func(compiler *Compiler) {
 		compiler.intent = intent
+	}
+}
+
+/*
+CompilerWithBatchAffinityLayout selects the contiguous 8-word-per-candidate
+layout at word 32 for opcode 0x6 batch nearest-affinity kernels. Without
+this flag, opcode 0x6 still uses the rotation arena for truth-table work
+(e.g. Bind). Only callers that reduce argmin in the batch kernel should set this.
+*/
+func CompilerWithBatchAffinityLayout() compilerOption {
+	return func(compiler *Compiler) {
+		compiler.useBatchAffinityLayout = true
 	}
 }

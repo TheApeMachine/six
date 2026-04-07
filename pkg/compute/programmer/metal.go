@@ -44,7 +44,7 @@ The kernel becomes:
 	value[24 + tid/8] |= extract_byte(signal) << ((tid%8)*8)
 */
 func (compiler *Compiler) Metal(
-	value *primitive.Value, intent Intent,
+	value *primitive.Value, intent Intent, useBatchAffinity bool,
 ) {
 	opcode := intent.Operation
 
@@ -53,14 +53,33 @@ func (compiler *Compiler) Metal(
 		uint64(opcode),
 	)
 
+	if useBatchAffinity {
+		packed := packNearestAffinityCandidates(value, intent.Assets)
+
+		if packed == 0 {
+			for wordIdx := range primitive.AffinityWords {
+				value.Set(32+wordIdx, 0)
+			}
+
+			packed = 1
+		}
+
+		value.Set(124, uint64(packed))
+
+		return
+	}
+
 	passes := len(intent.Assets)
+
 	if passes == 0 {
 		passes = 1
 	}
-	value.Set(
-		core.Cfg.Value.Region.Reserved.Start,
-		uint64(passes),
-	)
+
+	/*
+		Truth-table passes for unified_bitwise — not candidate count
+		at 124 (that slot is only for opcode 0x6 batch distance).
+	*/
+	value.Set(124, uint64(passes))
 
 	cursor := 32
 

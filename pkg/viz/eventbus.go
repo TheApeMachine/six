@@ -46,6 +46,12 @@ const (
 	// Adaptive state.
 	EventAdaptiveUpdate
 
+	// Intra-node field dynamics (trie-to-trie within a single node).
+	EventTrieCoupling   // Coupling strength between two local tries
+	EventTrieMode       // Eigenmode membership assignment for a trie
+	EventTriePressure   // Asymmetric decay/learn pressure applied to a trie
+	EventTrieSignal     // Per-trie signal snapshot (surprisal, entropy, growth)
+
 	// User interaction.
 	EventPrompt
 	EventPromptResult

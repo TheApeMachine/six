@@ -1,6 +1,9 @@
 package kadabra
 
 import (
+	"math/bits"
+
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -63,6 +66,10 @@ func (node *Node) selectOrSpawnTrie(
 		return node.spawnTrie(affinity)
 	}
 
+	if len(tries) > kernel.MaxNearestAffinityCandidates {
+		return node.selectOrSpawnTrieScalar(affinity, tries, threshold, shannonLimit)
+	}
+
 	candidates := make([][]uint64, len(tries))
 
 	for idx, cluster := range tries {
@@ -86,6 +93,7 @@ func (node *Node) selectOrSpawnTrie(
 				Assets:    candidates,
 			},
 		),
+		programmer.CompilerWithBatchAffinityLayout(),
 	)
 
 	node.queue.ExecuteSync(compiler)
@@ -107,8 +115,50 @@ func (node *Node) selectOrSpawnTrie(
 	return node.spawnTrie(affinity)
 }
 
+/*
+selectOrSpawnTrieScalar performs the same argmin-and-threshold policy as the
+batch Value path when too many tries exist to pack below word 124.
+*/
+func (node *Node) selectOrSpawnTrieScalar(
+	affinity *primitive.Affinity,
+	tries []*markovtrie.Store,
+	threshold int,
+	shannonLimit int,
+) *markovtrie.Store {
+	query := affinity.Vector()
+	bestIdx := -1
+	bestDist := int(^uint(0) >> 1)
+
+	for idx, cluster := range tries {
+		cand := cluster.Affinity.Vector()
+		dist := 0
+
+		for wordIdx := range primitive.AffinityWords {
+			dist += bits.OnesCount64(query[wordIdx] ^ cand[wordIdx])
+		}
+
+		if dist < bestDist {
+			bestDist = dist
+			bestIdx = idx
+		}
+	}
+
+	if bestIdx >= 0 && bestIdx < len(tries) && bestDist <= threshold {
+		cluster := tries[bestIdx]
+
+		if cluster.Affinity.Popcount() < shannonLimit {
+			count := cluster.AffinityCount.Load()
+			cluster.AffinityCount.Store(cluster.Affinity.Blend(affinity, count, shannonLimit))
+
+			return cluster
+		}
+	}
+
+	return node.spawnTrie(affinity)
+}
+
 func (node *Node) spawnTrie(affinity *primitive.Affinity) *markovtrie.Store {
-	store, err := markovtrie.NewStore(node.ctx)
+	store, err := markovtrie.NewStore(node.ctx, *affinity)
 
 	if err != nil {
 		tries := node.triesSnapshot()

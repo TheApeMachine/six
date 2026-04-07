@@ -46,7 +46,11 @@ type Option func(*Store)
 /*
 NewStore constructs a Store with token-level defaults.
 */
-func NewStore(ctx context.Context, options ...Option) (*Store, error) {
+func NewStore(
+	ctx context.Context,
+	affinity primitive.Affinity,
+	options ...Option,
+) (*Store, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	store := &Store{
@@ -56,7 +60,7 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 			core.Cfg.MarkovTrie.CoOccurrenceWindow,
 		),
 		classifier: classify.NewClassifier(),
-		Affinity:   primitive.Affinity{},
+		Affinity:   affinity,
 		algorithms: []algo.Algorithm{
 			classify.NewClassifier(),
 			beam.NewSearch(),

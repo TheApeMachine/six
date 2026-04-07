@@ -3,6 +3,7 @@ package classify
 import (
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
@@ -23,6 +24,7 @@ Signals produced:
   - Accuracy: EMA-smoothed classification confidence of the top label.
 */
 type Classifier struct {
+	mu            sync.Mutex
 	prediction    *algo.Prediction
 	entropy       *numeric.Derived
 	accuracy      *numeric.Derived
@@ -65,6 +67,9 @@ log-evidence for each known label and converting to posteriors.
 func (classifier *Classifier) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
+	classifier.mu.Lock()
+	defer classifier.mu.Unlock()
+
 	if prediction == nil || len(prediction.Context) == 0 {
 		return classifier.prediction, nil
 	}
@@ -104,6 +109,9 @@ func (classifier *Classifier) Update(
 }
 
 func (classifier *Classifier) Value() *algo.Prediction {
+	classifier.mu.Lock()
+	defer classifier.mu.Unlock()
+
 	return classifier.prediction
 }
 

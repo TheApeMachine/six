@@ -136,6 +136,62 @@ func AdaptiveUpdateEvent(nodeID uint64, vals map[string]float64) Event {
 	return ev
 }
 
+// --- Intra-node field (trie-to-trie within a single node) ---
+
+func TrieCouplingEvent(nodeID uint64, trieA, trieB int, coupling float64) Event {
+	ev := NewEvent(EventTrieCoupling, fmtNodeID(nodeID))
+	ev.Values = map[string]float64{
+		"trie_a":   float64(trieA),
+		"trie_b":   float64(trieB),
+		"coupling": coupling,
+	}
+
+	return ev
+}
+
+func TrieModeEvent(nodeID uint64, trieIdx int, modeIdx int, aligned bool, energy float64) Event {
+	ev := NewEvent(EventTrieMode, fmtNodeID(nodeID))
+
+	alignedVal := 0.0
+	if aligned {
+		alignedVal = 1.0
+	}
+
+	ev.Values = map[string]float64{
+		"trie_idx":  float64(trieIdx),
+		"mode_idx":  float64(modeIdx),
+		"aligned":   alignedVal,
+		"energy":    energy,
+	}
+
+	return ev
+}
+
+func TriePressureEvent(nodeID uint64, trieIdx int, decay, learn, decayMul, learnMul float64) Event {
+	ev := NewEvent(EventTriePressure, fmtNodeID(nodeID))
+	ev.Values = map[string]float64{
+		"trie_idx":  float64(trieIdx),
+		"decay":     decay,
+		"learn":     learn,
+		"decay_mul": decayMul,
+		"learn_mul": learnMul,
+	}
+
+	return ev
+}
+
+func TrieSignalEvent(nodeID uint64, trieIdx int, surprisal, entropy, growth float64) Event {
+	ev := NewEvent(EventTrieSignal, fmtNodeID(nodeID))
+	ev.Values = map[string]float64{
+		"trie_idx":  float64(trieIdx),
+		"surprisal": surprisal,
+		"entropy":   entropy,
+		"growth":    growth,
+	}
+
+	return ev
+}
+
 // --- Compute Pool ---
 
 func PoolScheduleEvent(action string, queueSize, workers int) Event {

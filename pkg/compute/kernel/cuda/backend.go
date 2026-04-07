@@ -123,6 +123,10 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		opcode := v[16] & 0xF
 		batchCount := v[124]
 
+		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
+			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
+		}
+
 		if opcode == 0x6 && batchCount > 0 {
 			distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
 

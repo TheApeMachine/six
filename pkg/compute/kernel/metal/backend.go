@@ -15,11 +15,21 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 )
+
+/*
+metalMu serializes all CGO calls into Metal. Metal command buffer
+submission from concurrent goroutines triggers a fatal
+"semasleep on Darwin signal stack" crash. A single mutex here is
+the cheapest correct fix — the GPU work itself is still parallel
+on-device; we only serialize the host-side dispatch.
+*/
+var metalMu sync.Mutex
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
 //go:generate xcrun -sdk macosx metallib backend.air -o backend.metallib
@@ -97,6 +107,9 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		return nil
 	}
 
+	metalMu.Lock()
+	defer metalMu.Unlock()
+
 	for _, ptr := range frames {
 		if ptr == nil {
 			continue
@@ -105,6 +118,10 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		v := (*[128]uint64)(ptr)
 		opcode := v[16] & 0xF
 		batchCount := v[124]
+
+		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
+			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
+		}
 
 		if opcode == 0x6 && batchCount > 0 {
 			distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
@@ -175,16 +192,22 @@ func (backend *Backend) NearestAffinity(
 
 	distances := make([]uint32, count)
 
+	metalMu.Lock()
+
 	if C.nearest_affinity_metal(
 		query,
 		candidates,
 		C.uint32_t(count),
 		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
 	) != 0 {
+		metalMu.Unlock()
+
 		return nil, NewMetalKernelError(
 			kernel.KernelErrDispatchFailed, nil, "NearestAffinity",
 		)
 	}
+
+	metalMu.Unlock()
 
 	return distances, nil
 }

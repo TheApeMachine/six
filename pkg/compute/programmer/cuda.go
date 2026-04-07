@@ -34,7 +34,7 @@ optimizes the single Value layout. The kernel
 handles batching.
 */
 func (compiler *Compiler) CUDA(
-	value *primitive.Value, intent Intent,
+	value *primitive.Value, intent Intent, useBatchAffinity bool,
 ) {
 	opcode := intent.Operation
 
@@ -43,16 +43,29 @@ func (compiler *Compiler) CUDA(
 		uint64(opcode),
 	)
 
+	if useBatchAffinity {
+		packed := packNearestAffinityCandidates(value, intent.Assets)
+
+		if packed == 0 {
+			for wordIdx := range primitive.AffinityWords {
+				value.Set(32+wordIdx, 0)
+			}
+
+			packed = 1
+		}
+
+		value.Set(124, uint64(packed))
+
+		return
+	}
+
 	passes := len(intent.Assets)
 
 	if passes == 0 {
 		passes = 1
 	}
 
-	value.Set(
-		core.Cfg.Value.Region.Reserved.Start,
-		uint64(passes),
-	)
+	value.Set(124, uint64(passes))
 
 	cursor := 32
 

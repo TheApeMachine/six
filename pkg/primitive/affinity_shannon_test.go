@@ -33,21 +33,11 @@ func randomTokenBytes() [64]byte {
 	return buf
 }
 
-// affinityPopcount returns how many bits are set across the full 8-word affinity region.
-func affinityPopcount(v *Value) int {
-	start := core.Cfg.Value.Region.Affinity.Start
-	total := 0
-	for i := 0; i < 8; i++ {
-		total += bits.OnesCount64(v[start+i])
-	}
-	return total
-}
-
 // affinityHammingDistance returns popcount(a XOR b) across the 8-word affinity.
 func affinityHammingDistance(a, b *Value) int {
 	start := core.Cfg.Value.Region.Affinity.Start
 	total := 0
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		total += bits.OnesCount64(a[start+i] ^ b[start+i])
 	}
 	return total

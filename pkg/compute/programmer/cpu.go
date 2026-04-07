@@ -24,11 +24,27 @@ batches. Each batch is a straight SIMD pass — no branching, no
 rotation instruction, just load-op-store.
 */
 func (compiler *Compiler) CPU(
-	value *primitive.Value, intent Intent,
+	value *primitive.Value, intent Intent, useBatchAffinity bool,
 ) {
 	opcode := intent.Operation
 
 	value.Set(16, uint64(opcode))
+
+	if useBatchAffinity {
+		packed := packNearestAffinityCandidates(value, intent.Assets)
+
+		if packed == 0 {
+			for wordIdx := range primitive.AffinityWords {
+				value.Set(32+wordIdx, 0)
+			}
+
+			packed = 1
+		}
+
+		value.Set(124, uint64(packed))
+
+		return
+	}
 
 	passes := len(intent.Assets)
 

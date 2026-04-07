@@ -648,10 +648,9 @@ func (dataset *Dataset) streamJSON(reader io.Reader, fn rowVisitor) error {
 
 	if delim, ok := t.(json.Delim); ok && delim.String() == "[" {
 		isArray = true
-	} else if err == nil {
-		dec = json.NewDecoder(bytes.NewReader(data))
 	}
 
+	dec = json.NewDecoder(bytes.NewReader(data))
 	cols := dataset.effectiveTextColumns()
 
 	for {

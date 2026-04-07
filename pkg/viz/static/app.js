@@ -11,7 +11,8 @@ const EK = {
   TriePredict:16, TrieClassify:17, TrieExperience:18,
   PoolSchedule:19, PoolComplete:20,
   AdaptiveUpdate:21,
-  Prompt:22, PromptResult:23,
+  TrieCoupling:22, TrieMode:23, TriePressure:24, TrieSignal:25,
+  Prompt:26, PromptResult:27,
 };
 const KIND_NAMES = Object.fromEntries(Object.entries(EK).map(([k,v])=>[v,k]));
 
@@ -22,16 +23,26 @@ function kindClass(kind) {
   if (kind <= 12) return 'c-field';
   if (kind <= 18) return 'c-trie';
   if (kind <= 20) return 'c-pool';
+  if (kind <= 21) return 'c-node';
+  if (kind <= 25) return 'c-field';
   return 'c-user';
 }
+
+const EDGE_COLORS = {
+  peer: 0x4868a8,
+  gossip: 0xa080e0,
+  replication: 0xe06888,
+  latency: 0x6ea8fe,
+};
 
 const state = {
   nodes: new Map(),
   edges: new Map(),
-  fieldArcs: new Map(),   // nodeA|nodeB → { mesh, coupling }
-  eigenmodeRing: null,    // group showing dominant eigenmode boundary
+  fieldArcs: new Map(),
+  eigenmodeRing: null,
   floaters: [],
   particles: [],
+  edgeParticles: [],
   events: [],
   paused: false,
   scrubPos: -1,
@@ -39,9 +50,15 @@ const state = {
   eventCount: 0,
   droppedCount: 0,
   compute: {
-    substrates: {},       // name → { inflight, lastDurationMs, totalDispatches, emaDurationMs }
+    substrates: {},
     totalDispatches: 0,
-    recentActions: [],    // last 8 compute actions
+    recentActions: [],
+  },
+  throughput: {
+    buckets: new Float32Array(120),
+    idx: 0,
+    countThisSec: 0,
+    lastSec: 0,
   },
 };
 
@@ -64,7 +81,6 @@ controls.minDistance = 12;
 controls.maxDistance = 120;
 controls.maxPolarAngle = Math.PI * 0.8;
 
-// Lighting — bright enough to see detail.
 scene.add(new THREE.AmbientLight(0x606880, 1.5));
 const sun = new THREE.DirectionalLight(0xd0e0ff, 0.8);
 sun.position.set(20, 40, 20);
@@ -73,7 +89,6 @@ const rim = new THREE.DirectionalLight(0x4060a0, 0.3);
 rim.position.set(-20, 5, -20);
 scene.add(rim);
 
-// Subtle ground reference — just a few concentric rings.
 for (let r = 10; r <= 40; r += 10) {
   const ringGeo = new THREE.RingGeometry(r - 0.03, r + 0.03, 80);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x303848, transparent: true, opacity: 0.15, side: THREE.DoubleSide });
@@ -109,7 +124,6 @@ function createNode(id, label) {
   const group = new THREE.Group();
   scene.add(group);
 
-  // Kadabra node — wireframe dodecahedron, recognizable and see-through.
   const coreGeo = new THREE.DodecahedronGeometry(1.4, 0);
   const coreMat = new THREE.MeshPhongMaterial({
     color: 0x6ea8fe, emissive: 0x182840, shininess: 90,
@@ -119,40 +133,44 @@ function createNode(id, label) {
   core.userData.id = id;
   group.add(core);
 
-  // Wireframe overlay.
   const wireGeo = new THREE.DodecahedronGeometry(1.5, 0);
   const wireMat = new THREE.MeshBasicMaterial({ color: 0x6ea8fe, wireframe: true, transparent: true, opacity: 0.25 });
   const wire = new THREE.Mesh(wireGeo, wireMat);
   group.add(wire);
 
-  // Name label.
+  // Health pulse ring — expands/contracts with activity.
+  const pulseGeo = new THREE.RingGeometry(1.8, 1.9, 32);
+  const pulseMat = new THREE.MeshBasicMaterial({ color: 0x6ea8fe, transparent: true, opacity: 0.0, side: THREE.DoubleSide });
+  const pulseRing = new THREE.Mesh(pulseGeo, pulseMat);
+  pulseRing.rotation.x = -Math.PI / 2;
+  group.add(pulseRing);
+
   const nameSprite = textSprite(label || id, '#6ea8fe', 22, true);
   nameSprite.position.y = 2.6;
   nameSprite.scale.set(4.5, 1.1, 1);
   group.add(nameSprite);
 
-  // Live stats panel — high-DPI canvas texture for crisp text.
+  // Stats panel.
   const statsCanvas = document.createElement('canvas');
   statsCanvas.width = 800;
-  statsCanvas.height = 480;
+  statsCanvas.height = 520;
   const statsTex = new THREE.CanvasTexture(statsCanvas);
   statsTex.minFilter = THREE.LinearFilter;
   statsTex.magFilter = THREE.LinearFilter;
   const statsMat = new THREE.SpriteMaterial({ map: statsTex, transparent: true, depthWrite: false });
   const statsSprite = new THREE.Sprite(statsMat);
-  statsSprite.position.y = -3.2;
-  statsSprite.scale.set(8, 4.8, 1);
+  statsSprite.position.y = -3.4;
+  statsSprite.scale.set(8, 5.2, 1);
   group.add(statsSprite);
 
-  // Trie cluster — small shapes that appear below the node.
+  // Trie cluster area.
   const trieGroup = new THREE.Group();
-  trieGroup.position.y = -5;
+  trieGroup.position.y = -5.5;
   group.add(trieGroup);
 
-  // Vertical line connecting node to trie area.
   const stemGeo = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(0, -1.5, 0),
-    new THREE.Vector3(0, -4.5, 0),
+    new THREE.Vector3(0, -5, 0),
   ]);
   const stem = new THREE.Line(stemGeo, new THREE.LineDashedMaterial({
     color: 0x405060, transparent: true, opacity: 0.3,
@@ -162,21 +180,30 @@ function createNode(id, label) {
   group.add(stem);
 
   const nodeData = {
-    group, core, wire, trieGroup,
+    group, core, wire, pulseRing, trieGroup,
     statsCanvas, statsTex, statsSprite,
     targetPos: new THREE.Vector3(),
+    pulseScale: 1.0,
+    pulseAlpha: 0.0,
     data: {
       id, label: label || id,
       vals: {}, pressure: {}, digest: {},
       trieCount: 0,
-      recentSequences: [],     // last N sequences inserted
-      labelCounts: {},         // label → count
+      recentSequences: [],
+      labelCounts: {},
       insertCount: 0,
       predictCount: 0,
       gossipCount: 0,
+      latencies: {},
+      activitySpark: new Float32Array(60),
+      sparkIdx: 0,
     },
     edges: new Set(),
     tries: [],
+    trieCouplings: new Map(),  // "a|b" → { mesh, coupling, glow }
+    trieSignals: [],           // per-trie { surprisal, entropy, growth }
+    trieModes: [],             // per-trie { aligned, modeIdx, energy }
+    triePressures: [],         // per-trie { decay, learn, decayMul, learnMul }
   };
 
   state.nodes.set(id, nodeData);
@@ -184,6 +211,21 @@ function createNode(id, label) {
   renderNodeStats(nodeData);
   updateStats();
 }
+
+function tickNodeActivity(nodeId, amount) {
+  const node = state.nodes.get(nodeId);
+  if (!node) return;
+  node.data.activitySpark[node.data.sparkIdx % 60] += amount;
+}
+
+function advanceSparklines() {
+  for (const [, node] of state.nodes) {
+    node.data.sparkIdx++;
+    node.data.activitySpark[node.data.sparkIdx % 60] = 0;
+  }
+}
+
+setInterval(advanceSparklines, 500);
 
 function renderNodeStats(node) {
   const ctx = node.statsCanvas.getContext('2d');
@@ -193,14 +235,12 @@ function renderNodeStats(node) {
 
   ctx.clearRect(0, 0, w, h);
 
-  // Background panel.
   ctx.fillStyle = 'rgba(14,16,22,0.82)';
   ctx.beginPath(); ctx.roundRect(0, 0, w, h, 12); ctx.fill();
   ctx.strokeStyle = 'rgba(80,110,160,0.25)';
   ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.roundRect(0, 0, w, h, 12); ctx.stroke();
 
-  // Header line.
   ctx.fillStyle = 'rgba(60,80,120,0.15)';
   ctx.fillRect(0, 0, w, 36);
 
@@ -208,7 +248,6 @@ function renderNodeStats(node) {
   ctx.fillStyle = '#6ea8fe';
   ctx.fillText(d.label, 14, 26);
 
-  // Right-aligned ID.
   ctx.font = '16px monospace';
   ctx.fillStyle = '#3a4868';
   ctx.textAlign = 'right';
@@ -223,7 +262,6 @@ function renderNodeStats(node) {
   const label = (text, x) => { ctx.font = '18px monospace'; ctx.fillStyle = '#506080'; ctx.fillText(text, x || 14, y); };
   const value = (text, color, x) => { ctx.font = 'bold 18px monospace'; ctx.fillStyle = color || '#b0c8f0'; ctx.fillText(text, x || COL2, y); };
 
-  // Mini bar for numeric values.
   const bar = (val, max, color, x, barW) => {
     const bx = x || COL2;
     const bw = barW || 200;
@@ -234,7 +272,6 @@ function renderNodeStats(node) {
     ctx.fillRect(bx, y - 12, bw * pct, 10);
   };
 
-  // Row 1: Surprisal + Entropy.
   const s = d.digest.surprisal;
   const sColor = s > 5 ? '#f06060' : s > 2 ? '#e8a840' : '#60d890';
   label('surprisal');
@@ -260,11 +297,9 @@ function renderNodeStats(node) {
   } else { value('—', '#3a4868'); }
   y += ROW;
 
-  // Separator.
   ctx.strokeStyle = 'rgba(60,80,120,0.15)';
   ctx.beginPath(); ctx.moveTo(14, y - 8); ctx.lineTo(w - 14, y - 8); ctx.stroke();
 
-  // Row 2: Field pressure.
   const pr = d.pressure;
   if (pr.decay !== undefined || pr.learning !== undefined) {
     label('decay');
@@ -274,7 +309,6 @@ function renderNodeStats(node) {
     y += ROW;
   }
 
-  // Row 3: Activity counters.
   ctx.strokeStyle = 'rgba(60,80,120,0.15)';
   ctx.beginPath(); ctx.moveTo(14, y - 8); ctx.lineTo(w - 14, y - 8); ctx.stroke();
 
@@ -286,7 +320,39 @@ function renderNodeStats(node) {
   label('gossip', COL3);  value(String(d.gossipCount), '#a080e0', COL3 + 100);
   y += ROW;
 
-  // Label distribution as inline bars.
+  // Activity sparkline.
+  ctx.strokeStyle = 'rgba(60,80,120,0.15)';
+  ctx.beginPath(); ctx.moveTo(14, y - 6); ctx.lineTo(w - 14, y - 6); ctx.stroke();
+
+  const sparkW = w - 28;
+  const sparkH = 24;
+  const sparkY = y;
+  ctx.fillStyle = 'rgba(20,25,38,0.6)';
+  ctx.fillRect(14, sparkY, sparkW, sparkH);
+
+  let sparkMax = 1;
+  for (let i = 0; i < 60; i++) {
+    if (d.activitySpark[i] > sparkMax) sparkMax = d.activitySpark[i];
+  }
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#6ea8fe';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 60; i++) {
+    const si = (d.sparkIdx + 1 + i) % 60;
+    const sx = 14 + (i / 59) * sparkW;
+    const sy = sparkY + sparkH - (d.activitySpark[si] / sparkMax) * sparkH;
+    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  ctx.font = '12px monospace';
+  ctx.fillStyle = '#3a4868';
+  ctx.fillText('activity', 16, sparkY + 11);
+  y += sparkH + 8;
+
+  // Label distribution.
   const labels = Object.entries(d.labelCounts).sort((a,b) => b[1]-a[1]).slice(0, 4);
   if (labels.length) {
     ctx.strokeStyle = 'rgba(60,80,120,0.15)';
@@ -313,7 +379,7 @@ function renderNodeStats(node) {
     y += ROW;
   }
 
-  // Recent sequences — last 3.
+  // Recent sequences.
   const seqs = d.recentSequences.slice(-3).reverse();
   if (seqs.length) {
     ctx.strokeStyle = 'rgba(60,80,120,0.15)';
@@ -322,7 +388,7 @@ function renderNodeStats(node) {
     ctx.font = '15px monospace';
     for (const seq of seqs) {
       ctx.fillStyle = '#407858';
-      const display = seq.length > 60 ? seq.slice(0, 60) + '...' : seq;
+      const display = seq.length > 60 ? `${seq.slice(0, 60)}...` : seq;
       ctx.fillText(display, 14, y + 8);
       y += 20;
     }
@@ -339,44 +405,119 @@ function addTrieVisual(nodeId) {
   const spread = 1.8;
   const offset = (idx - (node.data.trieCount - 1) / 2) * spread;
 
-  // Trie as a small branching shape.
   const trieGroup = new THREE.Group();
   trieGroup.position.x = offset;
 
-  // Trunk.
-  const trunkGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.0, 4);
-  const trunkMat = new THREE.MeshBasicMaterial({ color: 0x60d890, transparent: true, opacity: 0.5 });
+  // Trie represented as a small icosahedron cluster.
+  const trunkGeo = new THREE.IcosahedronGeometry(0.3, 0);
+  const trunkMat = new THREE.MeshPhongMaterial({
+    color: 0x60d890, emissive: 0x102818, transparent: true, opacity: 0.7,
+  });
   const trunk = new THREE.Mesh(trunkGeo, trunkMat);
   trieGroup.add(trunk);
 
-  // Branch tips — represent depth/breadth.
   const branches = new THREE.Group();
-  branches.position.y = 0.5;
-  for (let b = 0; b < 3; b++) {
-    const angle = (b / 3) * Math.PI * 2;
-    const branchGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.5, 3);
-    const branch = new THREE.Mesh(branchGeo, trunkMat.clone());
-    branch.position.set(Math.cos(angle) * 0.3, 0.25, Math.sin(angle) * 0.3);
-    branch.rotation.z = angle * 0.3;
-    branches.add(branch);
-
-    // Leaf node.
-    const leafGeo = new THREE.SphereGeometry(0.08, 4, 4);
-    const leaf = new THREE.Mesh(leafGeo, new THREE.MeshBasicMaterial({ color: 0x80f0b0 }));
-    leaf.position.set(Math.cos(angle) * 0.3, 0.5, Math.sin(angle) * 0.3);
+  branches.position.y = 0.4;
+  for (let b = 0; b < 4; b++) {
+    const angle = (b / 4) * Math.PI * 2;
+    const r = 0.35;
+    const leafGeo = new THREE.OctahedronGeometry(0.08, 0);
+    const leaf = new THREE.Mesh(leafGeo, new THREE.MeshBasicMaterial({ color: 0x80f0b0, transparent: true, opacity: 0.6 }));
+    leaf.position.set(Math.cos(angle) * r, 0.15 + Math.random() * 0.2, Math.sin(angle) * r);
     branches.add(leaf);
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, -0.4, 0),
+      leaf.position.clone(),
+    ]);
+    const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x408060, transparent: true, opacity: 0.3 }));
+    branches.add(line);
   }
   trieGroup.add(branches);
 
-  // Index label.
   const label = textSprite(`T${idx}`, '#60d890', 12);
-  label.position.y = -0.8;
+  label.position.y = -0.6;
   label.scale.set(1.5, 0.4, 1);
   trieGroup.add(label);
 
   node.trieGroup.add(trieGroup);
-  node.tries.push({ group: trieGroup, branches });
+  node.tries.push({ group: trieGroup, branches, trunk, insertFlash: 0 });
   updateStats();
+}
+
+/*
+Intra-node trie coupling arcs: thin colored lines between tries under
+the same node, showing how strongly each pair's affinity vectors correlate.
+*/
+function updateTrieCouplingArc(nodeId, trieA, trieB, coupling) {
+  const node = state.nodes.get(nodeId);
+  if (!node) return;
+  if (trieA >= node.tries.length || trieB >= node.tries.length) return;
+
+  const aid = `${Math.min(trieA,trieB)}|${Math.max(trieA,trieB)}`;
+  const existing = node.trieCouplings.get(aid);
+
+  if (existing) {
+    existing.coupling = coupling;
+    existing.glow = 0.8;
+    return;
+  }
+
+  const tA = node.tries[trieA];
+  const tB = node.tries[trieB];
+  if (!tA || !tB) return;
+
+  const pA = tA.group.position.clone();
+  const pB = tB.group.position.clone();
+  const mid = pA.clone().add(pB).multiplyScalar(0.5);
+  mid.y -= 0.5;
+
+  const curve = new THREE.QuadraticBezierCurve3(pA, mid, pB);
+  const geo = new THREE.TubeGeometry(curve, 8, 0.015 + coupling * 0.02, 3, false);
+  const intensity = Math.min(coupling * 0.8, 0.6);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xe8a840, transparent: true, opacity: intensity,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  node.trieGroup.add(mesh);
+
+  node.trieCouplings.set(aid, { mesh, coupling, glow: 0.8 });
+}
+
+/*
+Color a trie based on its eigenmode alignment and pressure state.
+Aligned tries glow warm (amber); misaligned fade cool (blue-grey).
+Pressure intensity modulates brightness.
+*/
+function updateTrieAppearance(nodeId, trieIdx) {
+  const node = state.nodes.get(nodeId);
+  if (!node || trieIdx >= node.tries.length) return;
+
+  const trie = node.tries[trieIdx];
+  const mode = node.trieModes[trieIdx];
+  const pressure = node.triePressures[trieIdx];
+  const signal = node.trieSignals[trieIdx];
+
+  if (!trie || !mode) return;
+
+  // Aligned = warm amber, misaligned = cool steel.
+  const baseColor = mode.aligned ? 0xf0a848 : 0x607090;
+  const emissiveColor = mode.aligned ? 0x402810 : 0x101820;
+  trie.trunk.material.color.setHex(baseColor);
+  trie.trunk.material.emissive.setHex(emissiveColor);
+
+  // Scale trunk by pressure magnitude.
+  if (pressure) {
+    const pressureMag = Math.abs(pressure.decay) + Math.abs(pressure.learn);
+    const scale = 1.0 + Math.min(pressureMag * 2, 0.8);
+    trie.trunk.scale.setScalar(scale);
+  }
+
+  // Surprisal drives opacity — high surprisal = more opaque/visible.
+  if (signal) {
+    const opacity = 0.4 + Math.min(signal.surprisal / 8, 0.6);
+    trie.trunk.material.opacity = opacity;
+  }
 }
 
 function addEdge(fromId, toId) {
@@ -387,25 +528,39 @@ function addEdge(fromId, toId) {
   const nB = state.nodes.get(toId);
   if (!nA || !nB) return;
 
-  // Curved edge via quadratic bezier.
   const curve = new THREE.QuadraticBezierCurve3(
     nA.group.position.clone(),
     new THREE.Vector3(0, 3, 0),
     nB.group.position.clone(),
   );
   const geo = new THREE.TubeGeometry(curve, 20, 0.04, 4, false);
-  const mat = new THREE.MeshBasicMaterial({ color: 0x4868a8, transparent: true, opacity: 0.2 });
+  const mat = new THREE.MeshBasicMaterial({ color: EDGE_COLORS.peer, transparent: true, opacity: 0.2 });
   const mesh = new THREE.Mesh(geo, mat);
   scene.add(mesh);
 
-  state.edges.set(eid, { mesh, from: fromId, to: toId, activity: 0 });
+  // Edge label sprite (shows latency, flow count).
+  const labelSprite = textSprite('', '#6878a0', 11);
+  labelSprite.scale.set(3, 0.6, 1);
+  labelSprite.visible = false;
+  scene.add(labelSprite);
+
+  state.edges.set(eid, {
+    mesh, from: fromId, to: toId, activity: 0,
+    labelSprite,
+    latencyMs: 0,
+    gossipCount: 0,
+    replicationCount: 0,
+    lastFlowType: 'peer',
+  });
   nA.edges.add(eid);
   nB.edges.add(eid);
   updateStats();
 }
 
-// --- Field visualization: coupling arcs between nodes ---
-
+/*
+Field arcs — the height now scales proportionally to the distance between nodes
+so they never form spikes when nodes are close together.
+*/
 function updateFieldArc(fromId, toId, coupling) {
   const aid = fromId < toId ? `${fromId}|${toId}` : `${toId}|${fromId}`;
   const nA = state.nodes.get(fromId);
@@ -418,13 +573,15 @@ function updateFieldArc(fromId, toId, coupling) {
     return;
   }
 
-  // Create a curved arc above the peer edges to show field coupling.
+  const dist = nA.group.position.distanceTo(nB.group.position);
+  const arcHeight = Math.max(1.5, dist * 0.25 + coupling * 1.5);
+
   const mid = nA.group.position.clone().add(nB.group.position).multiplyScalar(0.5);
-  mid.y += 5 + coupling * 3;
+  mid.y += arcHeight;
   const curve = new THREE.QuadraticBezierCurve3(nA.group.position.clone(), mid, nB.group.position.clone());
-  const geo = new THREE.TubeGeometry(curve, 24, 0.02 + coupling * 0.04, 4, false);
+  const geo = new THREE.TubeGeometry(curve, 24, 0.02 + coupling * 0.03, 4, false);
   const mat = new THREE.MeshBasicMaterial({
-    color: 0xf0a848, transparent: true, opacity: Math.min(coupling * 0.6, 0.5),
+    color: 0xf0a848, transparent: true, opacity: Math.min(coupling * 0.5, 0.4),
   });
   const mesh = new THREE.Mesh(geo, mat);
   scene.add(mesh);
@@ -441,11 +598,7 @@ function pulseFieldArc(fromId, toId) {
 function showEigenmodeCluster(nodeId, modeCount, dominantEnergy) {
   const node = state.nodes.get(nodeId);
   if (!node) return;
-
-  // Mark this node as part of the dominant eigenmode.
   node.data.eigenmode = { modeCount, dominantEnergy, flash: 1.0 };
-
-  // Rebuild the eigenmode ring around the dominant cluster.
   rebuildEigenmodeRing();
 }
 
@@ -461,13 +614,15 @@ function rebuildEigenmodeRing() {
 
   const group = new THREE.Group();
 
-  // Draw golden connecting arcs between eigenmode members.
   for (let i = 0; i < eigenNodes.length; i++) {
     for (let j = i + 1; j < eigenNodes.length; j++) {
       const pA = eigenNodes[i].group.position;
       const pB = eigenNodes[j].group.position;
+      const dist = pA.distanceTo(pB);
+      const arcHeight = Math.max(2, dist * 0.3);
+
       const mid = pA.clone().add(pB).multiplyScalar(0.5);
-      mid.y += 6;
+      mid.y += arcHeight;
       const curve = new THREE.QuadraticBezierCurve3(pA.clone(), mid, pB.clone());
       const geo = new THREE.TubeGeometry(curve, 16, 0.03, 3, false);
       const mat = new THREE.MeshBasicMaterial({
@@ -479,6 +634,37 @@ function rebuildEigenmodeRing() {
 
   scene.add(group);
   state.eigenmodeRing = group;
+}
+
+// --- Edge particle system: shows directional data flow along edges ---
+
+function spawnEdgeParticle(fromId, toId, color) {
+  const nA = state.nodes.get(fromId);
+  const nB = state.nodes.get(toId);
+  if (!nA || !nB) return;
+
+  const geo = new THREE.SphereGeometry(0.08, 6, 6);
+  const mat = new THREE.MeshBasicMaterial({ color: color || 0xa080e0, transparent: true });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(nA.group.position);
+  scene.add(mesh);
+
+  // Trail effect — small fading spheres behind the main particle.
+  const trail = [];
+  for (let i = 0; i < 4; i++) {
+    const tGeo = new THREE.SphereGeometry(0.04 - i * 0.008, 4, 4);
+    const tMat = new THREE.MeshBasicMaterial({ color: color || 0xa080e0, transparent: true, opacity: 0.4 - i * 0.1 });
+    const tMesh = new THREE.Mesh(tGeo, tMat);
+    tMesh.position.copy(nA.group.position);
+    scene.add(tMesh);
+    trail.push(tMesh);
+  }
+
+  state.edgeParticles.push({
+    mesh, trail,
+    from: fromId, to: toId,
+    t: 0, speed: 0.012 + Math.random() * 0.008,
+  });
 }
 
 // --- Compute resource panel (bottom-left HUD overlay) ---
@@ -526,6 +712,64 @@ function renderComputePanel() {
 
 renderComputePanel();
 
+// --- Throughput chart (top-right mini sparkline) ---
+
+const throughputCanvas = document.createElement('canvas');
+throughputCanvas.width = 240;
+throughputCanvas.height = 40;
+throughputCanvas.style.cssText = 'position:fixed;top:40px;right:390px;z-index:10;pointer-events:none;';
+document.getElementById('hud').appendChild(throughputCanvas);
+
+function renderThroughputChart() {
+  const ctx = throughputCanvas.getContext('2d');
+  const w = throughputCanvas.width;
+  const h = throughputCanvas.height;
+  const tp = state.throughput;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(14,16,22,0.7)';
+  ctx.fillRect(0, 0, w, h);
+
+  let max = 1;
+  for (let i = 0; i < 120; i++) { if (tp.buckets[i] > max) max = tp.buckets[i]; }
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#4868a8';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 120; i++) {
+    const bi = (tp.idx + 1 + i) % 120;
+    const x = (i / 119) * w;
+    const y = h - (tp.buckets[bi] / max) * (h - 4);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(72,104,168,0.1)';
+  ctx.fill();
+
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#4a5878';
+  ctx.fillText(`${tp.buckets[tp.idx]|0} evt/s`, 4, 10);
+}
+
+function tickThroughput() {
+  const now = Math.floor(Date.now() / 1000);
+  const tp = state.throughput;
+
+  if (now !== tp.lastSec) {
+    tp.idx = (tp.idx + 1) % 120;
+    tp.buckets[tp.idx] = tp.countThisSec;
+    tp.countThisSec = 0;
+    tp.lastSec = now;
+    renderThroughputChart();
+  }
+
+  tp.countThisSec++;
+}
+
 function pulseEdge(fromId, toId, color) {
   const eid = fromId < toId ? `${fromId}|${toId}` : `${toId}|${fromId}`;
   const edge = state.edges.get(eid);
@@ -534,7 +778,6 @@ function pulseEdge(fromId, toId, color) {
   edge.mesh.material.color.setHex(color || 0xa080e0);
 }
 
-// Floating text that drifts upward and fades — shows actual data.
 function spawnFloater(position, text, color, direction) {
   const sprite = textSprite(text, color || '#c0d0e0', 14);
   sprite.position.copy(position);
@@ -548,19 +791,6 @@ function spawnFloater(position, text, color, direction) {
   );
 
   state.floaters.push({ sprite, velocity: dir, life: 1.0, decay: 0.008 + Math.random() * 0.004 });
-}
-
-function spawnParticle(from, to, color, size) {
-  const geo = new THREE.SphereGeometry(size || 0.1, 4, 4);
-  const mat = new THREE.MeshBasicMaterial({ color: color || 0xe06888, transparent: true });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(from);
-  scene.add(mesh);
-
-  state.particles.push({
-    mesh, from: from.clone(), to: to.clone(),
-    t: 0, speed: 0.015 + Math.random() * 0.01,
-  });
 }
 
 function textSprite(text, color, fontSize, bold) {
@@ -581,9 +811,46 @@ function textSprite(text, color, fontSize, bold) {
   return new THREE.Sprite(mat);
 }
 
+function updateEdgeLabel(edge) {
+  const nA = state.nodes.get(edge.from);
+  const nB = state.nodes.get(edge.to);
+  if (!nA || !nB) return;
+
+  const parts = [];
+  if (edge.latencyMs > 0) parts.push(`${edge.latencyMs.toFixed(1)}ms`);
+  if (edge.gossipCount > 0) parts.push(`g:${edge.gossipCount}`);
+  if (edge.replicationCount > 0) parts.push(`r:${edge.replicationCount}`);
+
+  if (parts.length === 0) {
+    edge.labelSprite.visible = false;
+    return;
+  }
+
+  const text = parts.join(' ');
+  const spr = edge.labelSprite;
+  if (spr.material.map) spr.material.map.dispose();
+  spr.material.dispose();
+
+  const newSpr = textSprite(text, '#7888a8', 10);
+  spr.material = newSpr.material;
+
+  const mid = nA.group.position.clone().add(nB.group.position).multiplyScalar(0.5);
+  mid.y += 2.5;
+  spr.position.copy(mid);
+  spr.visible = true;
+}
+
+function pulseNode(nodeId) {
+  const node = state.nodes.get(nodeId);
+  if (!node) return;
+  node.pulseAlpha = 0.6;
+  node.pulseScale = 1.0;
+}
+
 function handleEvent(ev) {
   state.events.push(ev);
   state.eventCount++;
+  tickThroughput();
   if (state.paused && state.scrubPos >= 0) return;
   applyEvent(ev);
   addLogEntry(ev);
@@ -614,7 +881,11 @@ function applyEvent(ev) {
       scene.remove(node.group);
       for (const eid of node.edges) {
         const e = state.edges.get(eid);
-        if (e) { scene.remove(e.mesh); state.edges.delete(eid); }
+        if (e) {
+          scene.remove(e.mesh);
+          scene.remove(e.labelSprite);
+          state.edges.delete(eid);
+        }
       }
       state.nodes.delete(ev.src);
       repositionNodes();
@@ -628,18 +899,30 @@ function applyEvent(ev) {
       addEdge(ev.src, ev.tgt);
       break;
 
-    case EK.PeerLatency:
-      pulseEdge(ev.src, ev.tgt, 0x6ea8fe);
+    case EK.PeerLatency: {
+      pulseEdge(ev.src, ev.tgt, EDGE_COLORS.latency);
+      const eid = ev.src < ev.tgt ? `${ev.src}|${ev.tgt}` : `${ev.tgt}|${ev.src}`;
+      const edge = state.edges.get(eid);
+      if (edge) {
+        edge.latencyMs = ev.vals?.latency_ms || 0;
+        updateEdgeLabel(edge);
+      }
+      const nA = state.nodes.get(ev.src);
+      const nB = state.nodes.get(ev.tgt);
+      if (nA) nA.data.latencies[ev.tgt] = edge?.latencyMs || 0;
+      if (nB) nB.data.latencies[ev.src] = edge?.latencyMs || 0;
       break;
+    }
 
     case EK.ValuePublished: {
       const node = state.nodes.get(ev.src);
       if (!node) break;
       node.data.insertCount++;
+      tickNodeActivity(ev.src, 1);
+      pulseNode(ev.src);
       if (ev.lbl) {
         node.data.labelCounts[ev.lbl] = (node.data.labelCounts[ev.lbl] || 0) + 1;
       }
-      // Show the label floating up from the node.
       const pos = node.group.position.clone();
       pos.y += 1;
       spawnFloater(pos, ev.lbl || 'publish', '#e06888');
@@ -650,7 +933,16 @@ function applyEvent(ev) {
     case EK.ValueReplicated: {
       const nA = state.nodes.get(ev.src);
       const nB = state.nodes.get(ev.tgt);
-      if (nA && nB) spawnParticle(nA.group.position, nB.group.position, 0xe06888, 0.15);
+      if (nA && nB) {
+        spawnEdgeParticle(ev.src, ev.tgt, EDGE_COLORS.replication);
+        const eid = ev.src < ev.tgt ? `${ev.src}|${ev.tgt}` : `${ev.tgt}|${ev.src}`;
+        const edge = state.edges.get(eid);
+        if (edge) {
+          edge.replicationCount++;
+          edge.lastFlowType = 'replication';
+          updateEdgeLabel(edge);
+        }
+      }
       break;
     }
 
@@ -658,8 +950,18 @@ function applyEvent(ev) {
       const node = state.nodes.get(ev.src);
       if (!node) break;
       node.data.gossipCount++;
-      // Pulse all edges from this node.
-      for (const _ of node.edges) pulseEdge(ev.src, '', 0xa080e0);
+      tickNodeActivity(ev.src, 0.5);
+      for (const eid of node.edges) {
+        const e = state.edges.get(eid);
+        if (!e) continue;
+        const peerId = e.from === ev.src ? e.to : e.from;
+        spawnEdgeParticle(ev.src, peerId, EDGE_COLORS.gossip);
+        e.gossipCount++;
+        e.lastFlowType = 'gossip';
+        updateEdgeLabel(e);
+        pulseEdge(ev.src, peerId, EDGE_COLORS.gossip);
+      }
+      renderNodeStats(node);
       break;
     }
 
@@ -667,8 +969,10 @@ function applyEvent(ev) {
       const nA = state.nodes.get(ev.tgt);
       const nB = state.nodes.get(ev.src);
       if (nA && nB) {
-        pulseEdge(ev.src, ev.tgt, 0xa080e0);
-        spawnParticle(nA.group.position, nB.group.position, 0xa080e0, 0.08);
+        pulseEdge(ev.src, ev.tgt, EDGE_COLORS.gossip);
+        spawnEdgeParticle(ev.src, ev.tgt, EDGE_COLORS.gossip);
+        tickNodeActivity(ev.tgt, 0.5);
+        pulseNode(ev.tgt);
       }
       break;
     }
@@ -677,12 +981,13 @@ function applyEvent(ev) {
       const node = state.nodes.get(ev.src);
       if (!node) break;
       node.data.digest = ev.vals || {};
-      // Color the core by surprisal.
       const s = ev.vals?.surprisal || 0;
       const t = Math.min(s / 8, 1);
       node.core.material.color.setHex(lerpColor(0x60d890, 0xf06060, t));
       node.core.material.emissive.setHex(lerpColor(0x102818, 0x401010, t));
       node.wire.material.color.setHex(lerpColor(0x60d890, 0xf06060, t));
+      node.pulseRing.material.color.setHex(lerpColor(0x60d890, 0xf06060, t));
+      tickNodeActivity(ev.src, 0.3);
       renderNodeStats(node);
       break;
     }
@@ -697,7 +1002,7 @@ function applyEvent(ev) {
         node.wire.material.opacity = 0.6;
         const pos = node.group.position.clone();
         pos.y += 3.5;
-        spawnFloater(pos, `eigenmode ×${modeCount} E=${energy.toFixed(2)}`, '#f0a848');
+        spawnFloater(pos, `eigenmode x${modeCount} E=${energy.toFixed(2)}`, '#f0a848');
         setTimeout(() => { node.wire.material.opacity = 0.25; }, 600);
         showEigenmodeCluster(ev.src, modeCount, energy);
       }
@@ -711,7 +1016,6 @@ function applyEvent(ev) {
       const learn = ev.vals?.learning || 0;
       const decay = ev.vals?.decay || 0;
       node.targetPos.y = Math.max(-3, Math.min(3, (learn - decay) * 3));
-      // Update field arcs from this node to all peers based on pressure magnitude.
       const pressure = Math.abs(learn) + Math.abs(decay);
       for (const eid of node.edges) {
         const e = state.edges.get(eid);
@@ -728,28 +1032,29 @@ function applyEvent(ev) {
       const node = state.nodes.get(ev.src);
       if (!node) break;
       node.data.insertCount++;
+      tickNodeActivity(ev.src, 1);
+      pulseNode(ev.src);
       const seq = ev.meta?.sequence || '';
       if (seq) {
         node.data.recentSequences.push(seq);
         if (node.data.recentSequences.length > 10) node.data.recentSequences.shift();
-        // Show the sequence flowing downward into the trie area.
         const pos = node.group.position.clone();
         pos.y -= 1;
-        const display = seq.length > 30 ? seq.slice(0, 30) + '...' : seq;
+        const display = seq.length > 30 ? `${seq.slice(0, 30)}...` : seq;
         spawnFloater(pos, display, '#60d890', new THREE.Vector3(0, -0.02, 0));
       }
       if (ev.lbl) {
         node.data.labelCounts[ev.lbl] = (node.data.labelCounts[ev.lbl] || 0) + 1;
       }
-      // Grow a trie branch slightly.
       if (node.tries.length > 0) {
         const trie = node.tries[Math.floor(Math.random() * node.tries.length)];
-        if (trie.branches.children.length < 30) {
+        trie.insertFlash = 1.0;
+        if (trie.branches.children.length < 40) {
           const angle = Math.random() * Math.PI * 2;
-          const r = 0.2 + Math.random() * 0.3;
-          const leafGeo = new THREE.SphereGeometry(0.05, 3, 3);
-          const leaf = new THREE.Mesh(leafGeo, new THREE.MeshBasicMaterial({ color: 0x80f0b0 }));
-          leaf.position.set(Math.cos(angle) * r, 0.3 + Math.random() * 0.4, Math.sin(angle) * r);
+          const r = 0.2 + Math.random() * 0.35;
+          const leafGeo = new THREE.OctahedronGeometry(0.05, 0);
+          const leaf = new THREE.Mesh(leafGeo, new THREE.MeshBasicMaterial({ color: 0x80f0b0, transparent: true, opacity: 0.6 }));
+          leaf.position.set(Math.cos(angle) * r, 0.2 + Math.random() * 0.5, Math.sin(angle) * r);
           trie.branches.add(leaf);
         }
       }
@@ -762,6 +1067,8 @@ function applyEvent(ev) {
       const node = state.nodes.get(ev.src);
       if (!node) break;
       node.data.predictCount++;
+      tickNodeActivity(ev.src, 0.8);
+      pulseNode(ev.src);
       const conf = ev.vals?.confidence;
       const txt = ev.lbl + (conf !== undefined ? ` (${(conf*100).toFixed(0)}%)` : '');
       const pos = node.group.position.clone();
@@ -777,12 +1084,16 @@ function applyEvent(ev) {
       const pos = node.group.position.clone();
       pos.y -= 0.5;
       spawnFloater(pos, `exp s=${(ev.vals?.surprisal||0).toFixed(2)}`, '#508068');
+      tickNodeActivity(ev.src, 0.3);
       break;
     }
 
     case EK.AdaptiveUpdate: {
       const node = state.nodes.get(ev.src);
-      if (node) Object.assign(node.data.vals, ev.vals || {});
+      if (node) {
+        Object.assign(node.data.vals, ev.vals || {});
+        tickNodeActivity(ev.src, 0.2);
+      }
       break;
     }
 
@@ -795,7 +1106,7 @@ function applyEvent(ev) {
       state.compute.substrates[name].inflight = inflight;
       state.compute.substrates[name].totalDispatches++;
       state.compute.totalDispatches++;
-      state.compute.recentActions.push(`→ ${name} (inflight:${inflight})`);
+      state.compute.recentActions.push(`-> ${name} (inflight:${inflight})`);
       if (state.compute.recentActions.length > 8) state.compute.recentActions.shift();
       renderComputePanel();
       break;
@@ -811,9 +1122,58 @@ function applyEvent(ev) {
       s.inflight = Math.max(0, s.inflight - 1);
       s.lastDurationMs = durationMs;
       s.emaDurationMs = s.emaDurationMs === 0 ? durationMs : s.emaDurationMs + (durationMs - s.emaDurationMs) * 0.125;
-      state.compute.recentActions.push(`✓ ${name} ${durationMs}ms`);
+      state.compute.recentActions.push(`ok ${name} ${durationMs}ms`);
       if (state.compute.recentActions.length > 8) state.compute.recentActions.shift();
       renderComputePanel();
+      break;
+    }
+
+    case EK.TrieCoupling: {
+      const trieA = ev.vals?.trie_a | 0;
+      const trieB = ev.vals?.trie_b | 0;
+      const coupling = ev.vals?.coupling || 0;
+      updateTrieCouplingArc(ev.src, trieA, trieB, coupling);
+      break;
+    }
+
+    case EK.TrieMode: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      const trieIdx = ev.vals?.trie_idx | 0;
+      const modeIdx = ev.vals?.mode_idx | 0;
+      const aligned = (ev.vals?.aligned || 0) > 0.5;
+      const energy = ev.vals?.energy || 0;
+      while (node.trieModes.length <= trieIdx) node.trieModes.push({ aligned: false, modeIdx: -1, energy: 0 });
+      node.trieModes[trieIdx] = { aligned, modeIdx, energy };
+      updateTrieAppearance(ev.src, trieIdx);
+      break;
+    }
+
+    case EK.TriePressure: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      const trieIdx = ev.vals?.trie_idx | 0;
+      const decay = ev.vals?.decay || 0;
+      const learn = ev.vals?.learn || 0;
+      const decayMul = ev.vals?.decay_mul || 0;
+      const learnMul = ev.vals?.learn_mul || 0;
+      while (node.triePressures.length <= trieIdx) node.triePressures.push({ decay: 0, learn: 0, decayMul: 1, learnMul: 1 });
+      node.triePressures[trieIdx] = { decay, learn, decayMul, learnMul };
+      updateTrieAppearance(ev.src, trieIdx);
+      tickNodeActivity(ev.src, 0.3);
+      break;
+    }
+
+    case EK.TrieSignal: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      const trieIdx = ev.vals?.trie_idx | 0;
+      const surprisal = ev.vals?.surprisal || 0;
+      const entropy = ev.vals?.entropy || 0;
+      const growth = ev.vals?.growth || 0;
+      while (node.trieSignals.length <= trieIdx) node.trieSignals.push({ surprisal: 0, entropy: 0, growth: 0 });
+      node.trieSignals[trieIdx] = { surprisal, entropy, growth };
+      updateTrieAppearance(ev.src, trieIdx);
       break;
     }
 
@@ -854,7 +1214,6 @@ canvas.addEventListener('click', (e) => {
 });
 
 function selectNode(id) {
-  // Deselect previous.
   if (state.selected) {
     const prev = state.nodes.get(state.selected);
     if (prev) prev.wire.material.opacity = 0.25;
@@ -913,6 +1272,17 @@ function refreshInspector() {
   html += `<div class="insp-row"><span class="insp-key">tries</span><span class="insp-val">${d.trieCount}</span></div>`;
   html += '</div>';
 
+  // Peer latencies.
+  const latencyEntries = Object.entries(d.latencies);
+  if (latencyEntries.length) {
+    html += '<div class="insp-section"><h4>peer latencies</h4>';
+    for (const [peerId, ms] of latencyEntries) {
+      const color = ms > 50 ? '#f06060' : ms > 10 ? '#e8a840' : '#60d890';
+      html += `<div class="insp-row"><span class="insp-key">${peerId.substring(0,16)}</span><span class="insp-val" style="color:${color}">${ms.toFixed(1)}ms</span></div>`;
+    }
+    html += '</div>';
+  }
+
   // Labels.
   const labels = Object.entries(d.labelCounts).sort((a,b) => b[1]-a[1]);
   if (labels.length) {
@@ -935,13 +1305,43 @@ function refreshInspector() {
     html += '</div>';
   }
 
-  // Peers.
+  // Per-trie field state.
+  if (d.trieSignals.length > 0 || d.trieModes.length > 0) {
+    html += '<div class="insp-section"><h4>trie field state</h4>';
+    const maxIdx = Math.max(d.trieSignals.length, d.trieModes.length, d.triePressures.length);
+    for (let ti = 0; ti < maxIdx; ti++) {
+      const sig = d.trieSignals[ti];
+      const mode = d.trieModes[ti];
+      const pres = d.triePressures[ti];
+      const modeLabel = mode ? (mode.aligned ? '<span style="color:#f0a848">aligned</span>' : '<span style="color:#607090">misaligned</span>') : '—';
+      html += `<div style="margin-bottom:4px;padding:3px 0;border-bottom:1px solid rgba(60,80,120,0.1);">`;
+      html += `<div class="insp-row"><span class="insp-key">T${ti}</span><span class="insp-val">${modeLabel}</span></div>`;
+      if (sig) {
+        const sColor = sig.surprisal > 5 ? '#f06060' : sig.surprisal > 2 ? '#e8a840' : '#60d890';
+        html += `<div class="insp-row"><span class="insp-key" style="padding-left:8px">surprisal</span><span class="insp-val" style="color:${sColor}">${sig.surprisal.toFixed(4)}</span></div>`;
+        html += `<div class="insp-row"><span class="insp-key" style="padding-left:8px">entropy</span><span class="insp-val">${sig.entropy.toFixed(4)}</span></div>`;
+        html += `<div class="insp-row"><span class="insp-key" style="padding-left:8px">growth</span><span class="insp-val" style="color:${sig.growth > 0 ? '#60d890' : '#e06888'}">${sig.growth >= 0 ? '+' : ''}${sig.growth.toFixed(4)}</span></div>`;
+      }
+      if (pres) {
+        html += `<div class="insp-row"><span class="insp-key" style="padding-left:8px">decay</span><span class="insp-val" style="color:#e06888">${pres.decay.toFixed(6)} (x${pres.decayMul.toFixed(2)})</span></div>`;
+        html += `<div class="insp-row"><span class="insp-key" style="padding-left:8px">learn</span><span class="insp-val" style="color:#60d890">${pres.learn.toFixed(6)} (x${pres.learnMul.toFixed(2)})</span></div>`;
+      }
+      html += `</div>`;
+    }
+    html += '</div>';
+  }
+
+  // Peers with edge stats.
   html += `<div class="insp-section"><h4>peers (${node.edges.size})</h4>`;
   for (const eid of node.edges) {
     const e = state.edges.get(eid);
     if (e) {
       const peer = e.from === state.selected ? e.to : e.from;
-      html += `<div class="insp-row"><span class="insp-key">${peer}</span></div>`;
+      const details = [];
+      if (e.latencyMs > 0) details.push(`${e.latencyMs.toFixed(1)}ms`);
+      if (e.gossipCount > 0) details.push(`gossip:${e.gossipCount}`);
+      if (e.replicationCount > 0) details.push(`repl:${e.replicationCount}`);
+      html += `<div class="insp-row"><span class="insp-key">${peer.substring(0,16)}</span><span class="insp-val">${details.join(' ')}</span></div>`;
     }
   }
   html += '</div>';
@@ -956,7 +1356,7 @@ function addLogEntry(ev) {
   div.className = 'log-entry';
   const ts = new Date(ev.ts / 1000).toISOString().substr(11, 12);
   const kc = kindClass(ev.kind);
-  div.innerHTML = `<span class="log-time">${ts}</span><span class="log-kind ${kc}">${KIND_NAMES[ev.kind]||ev.kind}</span><span class="log-src">${ev.src}${ev.tgt ? ' > '+ev.tgt : ''}</span>${ev.lbl ? ' '+ev.lbl : ''}`;
+  div.innerHTML = `<span class="log-time">${ts}</span><span class="log-kind ${kc}">${KIND_NAMES[ev.kind]||ev.kind}</span><span class="log-src">${ev.src}${ev.tgt ? ` > ${ev.tgt}` : ''}</span>${ev.lbl ? ` ${ev.lbl}` : ''}`;
   if (ev.meta?.sequence) {
     const meta = document.createElement('span');
     meta.className = 'log-meta';
@@ -978,8 +1378,8 @@ function updateTimeline() {
   const total = state.events.length;
   const pos = state.scrubPos >= 0 ? state.scrubPos : total;
   const pct = total > 0 ? (pos / total) * 100 : 0;
-  timelineFill.style.width = pct + '%';
-  timelineCursor.style.left = pct + '%';
+  timelineFill.style.width = `${pct}%`;
+  timelineCursor.style.left = `${pct}%`;
   timelineLabel.textContent = `${pos} / ${total}`;
 }
 
@@ -999,16 +1399,18 @@ function scrubTo(pos) {
 
 function clearScene() {
   for (const [, n] of state.nodes) scene.remove(n.group);
-  for (const [, e] of state.edges) scene.remove(e.mesh);
+  for (const [, e] of state.edges) { scene.remove(e.mesh); scene.remove(e.labelSprite); }
   for (const [, a] of state.fieldArcs) { scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose(); }
   if (state.eigenmodeRing) { scene.remove(state.eigenmodeRing); state.eigenmodeRing = null; }
   for (const f of state.floaters) scene.remove(f.sprite);
   for (const p of state.particles) scene.remove(p.mesh);
+  for (const ep of state.edgeParticles) { scene.remove(ep.mesh); ep.trail.forEach(t => {scene.remove(t)}); }
   state.nodes.clear();
   state.edges.clear();
   state.fieldArcs.clear();
   state.floaters.length = 0;
   state.particles.length = 0;
+  state.edgeParticles.length = 0;
 }
 
 // Buttons.
@@ -1066,9 +1468,7 @@ function connect() {
       const ev = JSON.parse(msg.data);
       if (ev.action) { handleServerResponse(ev); return; }
       handleEvent(ev);
-    } catch(e) {
-      console.error('viz: event parse error', e);
-    }
+    } catch(e) { console.error('viz: event parse error', e); }
   };
   ws.onclose = () => { document.title = 'Six — Disconnected'; clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 2000); };
   ws.onerror = () => { ws.close(); };
@@ -1093,8 +1493,9 @@ function updateStats() {
   document.getElementById('stat-dropped').textContent = state.droppedCount;
 }
 
-// Render loop.
+// --- Render loop ---
 let lastTime = performance.now(), frameCount = 0, fpsTime = 0;
+let statsRedrawTimer = 0;
 
 function animate(now) {
   requestAnimationFrame(animate);
@@ -1104,26 +1505,56 @@ function animate(now) {
 
   controls.update();
 
-  // Smooth node positioning.
+  // Smooth node positioning + pulse ring animation.
   for (const [, node] of state.nodes) {
     node.group.position.lerp(node.targetPos, 0.04);
     node.core.rotation.y += 0.004;
     node.core.rotation.x += 0.001;
     node.wire.rotation.y += 0.004;
     node.wire.rotation.x += 0.001;
+
+    // Pulse ring expands and fades.
+    if (node.pulseAlpha > 0.01) {
+      node.pulseScale += 0.03;
+      node.pulseAlpha *= 0.95;
+      node.pulseRing.material.opacity = node.pulseAlpha;
+      node.pulseRing.scale.setScalar(node.pulseScale);
+    } else {
+      node.pulseRing.material.opacity = 0;
+      node.pulseScale = 1.0;
+      node.pulseRing.scale.setScalar(1.0);
+    }
+
+    // Trie insert flash.
+    for (const trie of node.tries) {
+      if (trie.insertFlash > 0.01) {
+        trie.insertFlash *= 0.93;
+        trie.trunk.material.emissive.setHex(lerpColor(0x102818, 0x40f080, trie.insertFlash));
+      }
+    }
+
+    // Trie coupling arc glow fade.
+    for (const [, arc] of node.trieCouplings) {
+      if (arc.glow > 0.01) {
+        arc.glow *= 0.96;
+        arc.mesh.material.opacity = Math.min(arc.coupling * 0.6 + arc.glow * 0.3, 0.7);
+        arc.mesh.material.color.setHex(arc.glow > 0.4 ? 0xf0d080 : 0xe8a840);
+      } else {
+        arc.mesh.material.opacity = Math.max(arc.mesh.material.opacity - 0.003, Math.min(arc.coupling * 0.3, 0.25));
+      }
+    }
   }
 
   // Update edges.
   for (const [, edge] of state.edges) {
-    // Fade activity.
     if (edge.activity > 0) {
       edge.activity = Math.max(0, edge.activity - 0.02);
       edge.mesh.material.opacity = 0.15 + edge.activity * 0.5;
     } else {
       edge.mesh.material.opacity = Math.max(edge.mesh.material.opacity - 0.005, 0.1);
-      edge.mesh.material.color.setHex(0x4868a8);
+      edge.mesh.material.color.setHex(EDGE_COLORS.peer);
     }
-    // Rebuild curve if nodes moved.
+
     const nA = state.nodes.get(edge.from);
     const nB = state.nodes.get(edge.to);
     if (nA && nB) {
@@ -1136,22 +1567,24 @@ function animate(now) {
     }
   }
 
-  // Field arcs — animate coupling and rebuild geometry when nodes move.
+  // Field arcs — distance-proportional height.
   for (const [, arc] of state.fieldArcs) {
     if (arc.glow > 0) {
       arc.glow = Math.max(0, arc.glow - 0.02);
-      arc.mesh.material.opacity = Math.min(arc.coupling * 0.6 + arc.glow * 0.4, 0.7);
+      arc.mesh.material.opacity = Math.min(arc.coupling * 0.5 + arc.glow * 0.4, 0.6);
       arc.mesh.material.color.setHex(arc.glow > 0.3 ? 0xf0d080 : 0xf0a848);
     } else {
-      arc.mesh.material.opacity = Math.max(arc.mesh.material.opacity - 0.003, Math.min(arc.coupling * 0.3, 0.25));
+      arc.mesh.material.opacity = Math.max(arc.mesh.material.opacity - 0.003, Math.min(arc.coupling * 0.25, 0.2));
     }
     const nA = state.nodes.get(arc.from);
     const nB = state.nodes.get(arc.to);
     if (nA && nB) {
+      const dist = nA.group.position.distanceTo(nB.group.position);
+      const arcHeight = Math.max(1.5, dist * 0.25 + arc.coupling * 1.5);
       const mid = nA.group.position.clone().add(nB.group.position).multiplyScalar(0.5);
-      mid.y += 5 + arc.coupling * 3;
+      mid.y += arcHeight;
       const curve = new THREE.QuadraticBezierCurve3(nA.group.position.clone(), mid, nB.group.position.clone());
-      const newGeo = new THREE.TubeGeometry(curve, 24, 0.02 + arc.coupling * 0.04, 4, false);
+      const newGeo = new THREE.TubeGeometry(curve, 24, 0.02 + arc.coupling * 0.03, 4, false);
       arc.mesh.geometry.dispose();
       arc.mesh.geometry = newGeo;
     }
@@ -1171,7 +1604,7 @@ function animate(now) {
     }
   }
 
-  // Particles.
+  // Arc particles (old style).
   for (let i = state.particles.length - 1; i >= 0; i--) {
     const p = state.particles[i];
     p.t += p.speed;
@@ -1179,6 +1612,57 @@ function animate(now) {
     p.mesh.position.lerpVectors(p.from, p.to, p.t);
     p.mesh.position.y += Math.sin(p.t * Math.PI) * 2;
     p.mesh.material.opacity = 1 - p.t * 0.7;
+  }
+
+  // Edge particles — travel along the edge curve between nodes.
+  for (let i = state.edgeParticles.length - 1; i >= 0; i--) {
+    const ep = state.edgeParticles[i];
+    ep.t += ep.speed;
+
+    if (ep.t >= 1) {
+      scene.remove(ep.mesh);
+      ep.trail.forEach(t => {scene.remove(t)});
+      state.edgeParticles.splice(i, 1);
+      continue;
+    }
+
+    const nA = state.nodes.get(ep.from);
+    const nB = state.nodes.get(ep.to);
+    if (!nA || !nB) { scene.remove(ep.mesh); ep.trail.forEach(t => {scene.remove(t)}); state.edgeParticles.splice(i, 1); continue; }
+
+    const posA = nA.group.position;
+    const posB = nB.group.position;
+    const mid = posA.clone().add(posB).multiplyScalar(0.5);
+    mid.y += 2;
+
+    // Quadratic bezier evaluation.
+    const t1 = ep.t;
+    const omt = 1 - t1;
+    ep.mesh.position.set(
+      omt * omt * posA.x + 2 * omt * t1 * mid.x + t1 * t1 * posB.x,
+      omt * omt * posA.y + 2 * omt * t1 * mid.y + t1 * t1 * posB.y,
+      omt * omt * posA.z + 2 * omt * t1 * mid.z + t1 * t1 * posB.z,
+    );
+    ep.mesh.material.opacity = 1 - ep.t * 0.5;
+
+    // Trail follows with delay.
+    for (let ti = 0; ti < ep.trail.length; ti++) {
+      const tt = Math.max(0, t1 - (ti + 1) * 0.04);
+      const omt2 = 1 - tt;
+      ep.trail[ti].position.set(
+        omt2 * omt2 * posA.x + 2 * omt2 * tt * mid.x + tt * tt * posB.x,
+        omt2 * omt2 * posA.y + 2 * omt2 * tt * mid.y + tt * tt * posB.y,
+        omt2 * omt2 * posA.z + 2 * omt2 * tt * mid.z + tt * tt * posB.z,
+      );
+      ep.trail[ti].material.opacity = (0.4 - ti * 0.1) * (1 - ep.t * 0.5);
+    }
+  }
+
+  // Periodically re-render node stats (sparklines update).
+  statsRedrawTimer += dt;
+  if (statsRedrawTimer > 1000) {
+    statsRedrawTimer = 0;
+    for (const [, node] of state.nodes) renderNodeStats(node);
   }
 
   updateTimeline();

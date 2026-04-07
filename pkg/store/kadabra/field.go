@@ -314,6 +314,12 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 			)
 
 			field.couplingThreshold.Next(coupling)
+
+			viz.DefaultBus.Publish(viz.TrieCouplingEvent(
+				field.owner.ID,
+				idx, jdx,
+				coupling,
+			))
 		}
 	}
 
@@ -358,13 +364,31 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 			continue
 		}
 
+		// Per-trie signal snapshot.
+		viz.DefaultBus.Publish(viz.TrieSignalEvent(
+			field.owner.ID, trieIdx,
+			local.SurprisalMean, local.ClassEntropy, local.GrowthRate,
+		))
+
 		aligned := false
+		modeIdx := -1
 
 		if dominant >= 0 && dominant < len(modes) {
 			if slices.Contains(modes[dominant].Members(), trieID) {
 				aligned = true
+				modeIdx = dominant
 			}
 		}
+
+		viz.DefaultBus.Publish(viz.TrieModeEvent(
+			field.owner.ID, trieIdx, modeIdx, aligned,
+			func() float64 {
+				if modeIdx >= 0 && modeIdx < len(modes) {
+					return modes[modeIdx].Energy()
+				}
+				return 0
+			}(),
+		))
 
 		var (
 			weightedSurprisal float64
@@ -440,6 +464,10 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		learn := clamp(rawLearn*learnMul, clampLimitLearn)
 
 		cluster.ApplyFieldPressure(decay, learn, decay)
+
+		viz.DefaultBus.Publish(viz.TriePressureEvent(
+			field.owner.ID, trieIdx, decay, learn, decayMul, learnMul,
+		))
 
 		viz.DefaultBus.Publish(viz.FieldPressureEvent(
 			field.owner.ID, decay, learn, decay,

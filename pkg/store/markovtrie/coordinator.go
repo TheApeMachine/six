@@ -6,6 +6,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -49,17 +50,17 @@ func NewMultimodalCoordinator(
 
 	coordinator.coactivation.Store(initial)
 
-	if coordinator.Sensory, err = NewStore(ctx, options...); err != nil {
+	if coordinator.Sensory, err = NewStore(ctx, primitive.Affinity{}, options...); err != nil {
 		cancel()
 		return nil, errnie.Error(err)
 	}
 
-	if coordinator.Action, err = NewStore(ctx, options...); err != nil {
+	if coordinator.Action, err = NewStore(ctx, primitive.Affinity{}, options...); err != nil {
 		cancel()
 		return nil, errnie.Error(err)
 	}
 
-	if coordinator.Reward, err = NewStore(ctx, options...); err != nil {
+	if coordinator.Reward, err = NewStore(ctx, primitive.Affinity{}, options...); err != nil {
 		cancel()
 		return nil, errnie.Error(err)
 	}
