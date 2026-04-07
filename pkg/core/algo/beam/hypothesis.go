@@ -19,15 +19,17 @@ Extend branches one hypothesis using ranked masses; keeps up to branchFactor
 branches with positive mass. If none qualify, returns a single-copy slice of
 the input hypothesis.
 */
-func Extend(hyp Hypothesis, ranked RankedTokens, branchFactor int) []Hypothesis {
+func (hypothesis *Hypothesis) Extend(
+	ranked RankedTokens, branchFactor int,
+) []*Hypothesis {
 	if branchFactor <= 0 {
-		return []Hypothesis{hyp}
+		return []*Hypothesis{hypothesis}
 	}
 
 	ranked.SortDescending()
 
 	limit := min(branchFactor, len(ranked))
-	out := make([]Hypothesis, 0, limit*2+1)
+	out := make([]*Hypothesis, 0, limit*2+1)
 
 	for index := range limit {
 		entry := ranked[index]
@@ -36,14 +38,16 @@ func Extend(hyp Hypothesis, ranked RankedTokens, branchFactor int) []Hypothesis 
 			continue
 		}
 
-		out = append(out, Hypothesis{
-			Tokens: append(append([]string(nil), hyp.Tokens...), entry.Token),
-			Score:  hyp.Score + math.Log(entry.Probability),
+		out = append(out, &Hypothesis{
+			Tokens: append(append(
+				[]string(nil), hypothesis.Tokens...,
+			), entry.Token),
+			Score: hypothesis.Score + math.Log(entry.Probability),
 		})
 	}
 
 	if len(out) == 0 {
-		return []Hypothesis{hyp}
+		return []*Hypothesis{hypothesis}
 	}
 
 	return out
@@ -52,7 +56,9 @@ func Extend(hyp Hypothesis, ranked RankedTokens, branchFactor int) []Hypothesis 
 /*
 Prune sorts by descending Score and keeps at most width hypotheses.
 */
-func Prune(hyps []Hypothesis, width int) []Hypothesis {
+func (hypothesis *Hypothesis) Prune(
+	hyps []*Hypothesis, width int,
+) []*Hypothesis {
 	if width <= 0 || len(hyps) == 0 {
 		return hyps
 	}
@@ -62,7 +68,7 @@ func Prune(hyps []Hypothesis, width int) []Hypothesis {
 	})
 
 	if len(hyps) > width {
-		return append([]Hypothesis(nil), hyps[:width]...)
+		return append([]*Hypothesis(nil), hyps[:width]...)
 	}
 
 	return hyps
@@ -71,7 +77,9 @@ func Prune(hyps []Hypothesis, width int) []Hypothesis {
 /*
 LayerOpen is true when some hypothesis is not yet closed on endToken.
 */
-func LayerOpen(hyps []Hypothesis, endToken string) bool {
+func (hypothesis *Hypothesis) LayerOpen(
+	hyps []*Hypothesis, endToken string,
+) bool {
 	for _, hyp := range hyps {
 		if len(hyp.Tokens) == 0 {
 			return true
@@ -90,17 +98,14 @@ Continuations turns surviving hypotheses into surface strings; strips endToken
 from the emitted run and joins with joiner. initialPrefixLen is len(prefix)
 before generation so only generated suffix contributes to Sequence.
 */
-func Continuations(initialPrefixLen int, hyps []Hypothesis, endToken, joiner string) []BeamContinuation {
-	out := make([]BeamContinuation, 0, len(hyps))
+func Continuations(
+	initialPrefixLen int, hyps []*Hypothesis, endToken, joiner string,
+) []*Continuation {
+	out := make([]*Continuation, 0, len(hyps))
 
 	for _, hyp := range hyps {
 		generated := make([]string, 0, len(hyp.Tokens))
-
-		start := initialPrefixLen
-
-		if start > len(hyp.Tokens) {
-			start = len(hyp.Tokens)
-		}
+		start := min(initialPrefixLen, len(hyp.Tokens))
 
 		for _, token := range hyp.Tokens[start:] {
 			if token == endToken {
@@ -110,7 +115,7 @@ func Continuations(initialPrefixLen int, hyps []Hypothesis, endToken, joiner str
 			generated = append(generated, token)
 		}
 
-		out = append(out, BeamContinuation{
+		out = append(out, &Continuation{
 			Sequence: strings.Join(generated, joiner),
 			Score:    hyp.Score,
 		})

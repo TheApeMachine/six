@@ -5,11 +5,28 @@ import (
 	"slices"
 
 	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type Algorithm interface {
-	numeric.Dynamic
+	Value() *Prediction
+	Update(*Prediction) (*Prediction, error)
 }
+
+/*
+SignalType identifies a derived signal that an algorithm produces.
+Using a typed enum prevents typo-driven bugs and lets the compiler
+catch missing cases in switch statements.
+*/
+type SignalType uint
+
+const (
+	Surprisal SignalType = iota
+	Entropy
+	GrowthRate
+	Accuracy
+	Quality
+)
 
 /*
 Label is a predicted label and its confidence score.
@@ -29,10 +46,16 @@ type Continuation struct {
 
 /*
 Prediction is a list of predicted labels and continuations.
+Signals carries the algorithm's derived state — each algorithm
+populates the keys it owns (e.g. "surprisal", "entropy",
+"growth_rate"). The gossip layer reads these without knowing
+which algorithm produced them.
 */
 type Prediction struct {
 	Labels        []Label
 	Continuations []Continuation
+	Context       []primitive.Value
+	Signals       map[SignalType]*numeric.Derived
 }
 
 /*
@@ -42,7 +65,13 @@ func NewPrediction() *Prediction {
 	return &Prediction{
 		Labels:        make([]Label, 0),
 		Continuations: make([]Continuation, 0),
+		Context:       make([]primitive.Value, 0),
+		Signals:       make(map[SignalType]*numeric.Derived),
 	}
+}
+
+func (prediction *Prediction) Value() *Prediction {
+	return prediction
 }
 
 /*
@@ -74,4 +103,24 @@ func (prediction *Prediction) Label() string {
 	})
 
 	return string(prediction.Labels[0].Label)
+}
+
+func (prediction *Prediction) AddLabels(
+	labels ...Label,
+) *Prediction {
+	prediction.Labels = append(
+		prediction.Labels, labels...,
+	)
+
+	return prediction
+}
+
+func (prediction *Prediction) AddContext(
+	context ...primitive.Value,
+) *Prediction {
+	prediction.Context = append(
+		prediction.Context, context...,
+	)
+
+	return prediction
 }

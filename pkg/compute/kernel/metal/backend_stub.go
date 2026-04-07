@@ -54,14 +54,8 @@ func Available() int {
 	return 0
 }
 
-func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
-	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "UniversalBitwise")
-}
-
-func (backend *Backend) BatchDistances(
-	query unsafe.Pointer, candidates unsafe.Pointer, count int, distances []uint32,
-) error {
-	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "BatchDistances")
+func (backend *Backend) Execute(frames []unsafe.Pointer) error {
+	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "Execute")
 }
 
 func (backend *Backend) NearestAffinity(

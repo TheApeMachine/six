@@ -1,12 +1,19 @@
 package kadabra
 
 import (
-	"unsafe"
-
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/markovtrie"
 )
+
+func (node *Node) triesSnapshot() []*markovtrie.Store {
+	p := node.tries.Load()
+	if p == nil {
+		return nil
+	}
+	return *p
+}
 
 /*
 Store persists a replicated record locally and routes its content to
@@ -15,19 +22,15 @@ shard is an atomic pointer to an immutable map snapshot. On insert,
 only the target shard's map (~1/256th of total records) is cloned
 and CAS-swapped. Readers never block.
 */
-func (node *Node) Store(
-	record SequenceRecord,
-) error {
-	keys := make([]uint64, 0)
-
-	node.tries.Range(func(key any, value any) bool {
-		keys = append(keys, key.(uint64))
-		return true
-	})
-
-	// Compare keys (affinity) with the record's affinity
+func (node *Node) Store(record SequenceRecord) error {
 	node.queue.Submit(func() {
-		
+		aff := primitive.NewAffinityFromVector(record.Affinity)
+		trie := node.selectOrSpawnTrie(aff)
+
+		if trie != nil {
+			trie.Load(record.Value, record.Label)
+		}
+	})
 
 	return nil
 }
@@ -37,45 +40,55 @@ selectOrSpawnTrie picks the closest trie within ClusterThreshold that
 has not reached ShannonLimit. When nothing qualifies a fresh trie is
 created, seeded with the incoming affinity, and atomically appended to
 the node's tries slice.
+
+The entire distance computation and argmin reduction happen in-band
+inside the Value frame. The programmer compiles a batch distance
+layout, the backend dispatches it to the best substrate, and the
+kernel writes the winning index and distance into words 22 and 23.
+Go never touches raw distance arrays.
 */
 func (node *Node) selectOrSpawnTrie(
 	affinity *primitive.Affinity,
 ) *markovtrie.Store {
 	threshold := core.Cfg.Kadabra.ClusterThreshold
 	shannonLimit := core.Cfg.Kadabra.ShannonLimit
-	tries := rt.node.triesSnapshot()
+	tries := node.triesSnapshot()
 
-	vectors := make([][primitive.AffinityWords]uint64, len(tries))
+	if len(tries) == 0 {
+		return node.spawnTrie(affinity)
+	}
+
+	candidates := make([][]uint64, len(tries))
 
 	for idx, cluster := range tries {
-		if cluster != nil {
-			vectors[idx] = cluster.Affinity.Vector()
-		}
+		vec := cluster.Affinity.Vector()
+		candidates[idx] = vec[:]
 	}
 
-	bestIdx := -1
-	bestDist := primitive.AffinityWords * 64
+	queryVec := affinity.Vector()
 
-	if len(vectors) > 0 {
-		queryVec := affinity.Vector()
-		udist := make([]uint32, len(vectors))
+	var frame primitive.Value
 
-		rt.backend.BatchDistances(
-			unsafe.Pointer(&queryVec[0]),
-			unsafe.Pointer(&vectors[0][0]),
-			len(vectors),
-			udist,
-		)
-
-		for idx, dist := range udist {
-			if int(dist) < bestDist {
-				bestDist = int(dist)
-				bestIdx = idx
-			}
-		}
+	for idx, word := range queryVec {
+		frame.Set(idx, word)
 	}
 
-	if bestIdx >= 0 && bestDist <= threshold {
+	compiler := programmer.New(
+		&frame,
+		programmer.CompilerWithIntent(
+			programmer.Intent{
+				Operation: programmer.Distance,
+				Assets:    candidates,
+			},
+		),
+	)
+
+	node.queue.ExecuteSync(compiler)
+
+	bestIdx := int(frame[22])
+	bestDist := int(frame[23])
+
+	if bestIdx >= 0 && bestIdx < len(tries) && bestDist <= threshold {
 		cluster := tries[bestIdx]
 
 		if cluster.Affinity.Popcount() < shannonLimit {
@@ -86,28 +99,33 @@ func (node *Node) selectOrSpawnTrie(
 		}
 	}
 
-	store, err := markovtrie.NewStore(rt.node.ctx)
+	return node.spawnTrie(affinity)
+}
+
+func (node *Node) spawnTrie(affinity *primitive.Affinity) *markovtrie.Store {
+	store, err := markovtrie.NewStore(node.ctx)
 
 	if err != nil {
-		return tries[0]
+		tries := node.triesSnapshot()
+		if len(tries) > 0 {
+			return tries[0]
+		}
+		return nil
 	}
 
-	store.Affinity.SetVector(affinity.Vector())
-	store.AffinityCount.Store(1)
-
 	for {
-		old := rt.node.tries.Load()
+		old := node.tries.Load()
 		var prev []*markovtrie.Store
 
 		if old != nil {
-			prev, _ = old.([]*markovtrie.Store)
+			prev = *old
 		}
 
 		next := make([]*markovtrie.Store, len(prev), len(prev)+1)
 		copy(next, prev)
 		next = append(next, store)
 
-		if rt.node.tries.CompareAndSwap(old, next) {
+		if node.tries.CompareAndSwap(old, &next) {
 			break
 		}
 	}

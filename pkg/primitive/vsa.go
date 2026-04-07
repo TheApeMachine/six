@@ -84,7 +84,7 @@ func (value *Value) ComputeAffinityLSH() error {
 		stride := affinityProjections[proj]
 		var word uint64
 
-		for out := 0; out < 64; out++ {
+		for out := range 64 {
 			ones, counted := 0, 0
 
 			for s := 0; s < affinityLSHSamplesPerBit; s++ {

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"sync"
+	"sync/atomic"
 
-	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
@@ -15,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/store/markovtrie"
 )
 
 /*
@@ -24,20 +24,16 @@ and Predict (run inference through the Field). Everything else is
 internal plumbing delegated to composed specialist objects.
 */
 type Node struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	err           error
-	ID            uint64
-	epoch         uint64
-	tries         sync.Map
-	Affinity      *primitive.Affinity
-	affinityCount uint64
-	Field         *Field
-	routing       *RoutingTable
-	gossip        *Gossip
-	random        *rand.Rand
-
-	backend           *compute.Backend
+	ctx               context.Context
+	cancel            context.CancelFunc
+	err               error
+	ID                uint64
+	epoch             uint64
+	tries             atomic.Pointer[[]*markovtrie.Store]
+	Field             *Field
+	routing           *RoutingTable
+	gossip            *Gossip
+	random            *rand.Rand
 	bucketSize        int
 	replicationFactor int
 	epochQueries      int
@@ -46,16 +42,6 @@ type Node struct {
 }
 
 type nodeOption func(*Node)
-
-/*
-WithBackend injects the compute backend so the routing table can
-dispatch affinity distance work to GPU/SIMD substrates.
-*/
-func WithBackend(backend *compute.Backend) nodeOption {
-	return func(node *Node) {
-		node.backend = backend
-	}
-}
 
 /*
 NewNode constructs a Kadabra DHT node.
@@ -88,12 +74,14 @@ func NewNode(
 		ctx:               ctx,
 		cancel:            cancel,
 		ID:                idHash,
-		Affinity:          primitive.NewAffinity(),
 		bucketSize:        core.Cfg.Kadabra.BucketSize,
 		replicationFactor: core.Cfg.Kadabra.ReplicationFactor,
 		epochQueries:      core.Cfg.Kadabra.EpochQueries,
 		queue:             queue,
 	}
+
+	emptyTries := make([]*markovtrie.Store, 0)
+	node.tries.Store(&emptyTries)
 
 	for _, option := range options {
 		option(node)
@@ -103,10 +91,12 @@ func NewNode(
 		node.random = rand.New(rand.NewSource(int64(node.ID) + 1))
 	}
 
-	node.routing = NewRoutingTable(node, node.backend)
+	node.routing = NewRoutingTable(node)
+
 	node.gossip = &Gossip{
 		owner: node,
 	}
+	
 	node.Field = NewField(node)
 
 	return node, validate.Require(map[string]any{
@@ -135,9 +125,7 @@ func (node *Node) Error() error {
 /*
 Publish stores a labeled Value in the local routing table, which
 routes it to the correct MarkovTrie cluster by affinity. Replication
-to remote peers is handled at the gossip layer, not here — calling
-Closest per-value to find replicas was burning a full BatchDistances
-pass 50M times only to return the local node every time.
+to remote peers is handled at the gossip layer, not here.
 */
 func (node *Node) Publish(
 	value *primitive.Value, label string,

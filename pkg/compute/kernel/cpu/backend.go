@@ -7,7 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/core"
+	pospop "github.com/theapemachine/six/pkg/compute/kernel/cpu/csa"
 )
 
 type Backend struct {
@@ -36,115 +36,122 @@ func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
 /*
-UniversalBitwise executes the in-band program carried by each Value.
+Execute reads the opcode from each Value's program region (word 16)
+and dispatches to the appropriate kernel:
 
-A (4 words) is held steady. B (4 words) is expanded into all 16
-rotations (8 bits apart), producing a 64-word A surface and 64-word
-B surface. The 8-word program region supplies one 4-bit opcode per
-rotation. The truth table is applied across the entire 64-word
-surface in a single SIMD pass. Results are written to the 8-word
-Signals region (64 bytes, one per surface element).
-
-The Value's Token and Program regions are never mutated.
+  - 0x0–0xE: truth table ALU via universalBitwiseV2. The programmer
+    pre-compiles B rotations into reserved (words 32-95).
+  - 0x6 with batch marker at word 124: fused XOR+popcount+sum for
+    Hamming distance. Query in tokens (words 0-7), candidates packed
+    contiguously starting at word 32, count at word 124, uint32
+    results written to signals (words 24-31).
+  - 0xF: CSA positional popcount. Word-striped vectors starting at
+    word 32, count at word 124, wordsPerVec at word 125. Results
+    accumulate into the counts array pointed to by words 126-127.
 */
-func (backend *Backend) UniversalBitwise(values []unsafe.Pointer) error {
-	if len(values) == 0 {
+func (backend *Backend) Execute(frames []unsafe.Pointer) error {
+	if len(frames) == 0 {
 		return nil
 	}
 
-	for i := range values {
-		if values[i] == nil {
-			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "UniversalBitwise")
+	for idx := range frames {
+		if frames[idx] == nil {
+			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "Execute")
 		}
 	}
 
-	for _, ptr := range values {
-		execute((*[128]uint64)(ptr))
+	for _, ptr := range frames {
+		v := (*[128]uint64)(ptr)
+		opcode := v[16] & 0xF
+		batchCount := v[124]
+
+		switch {
+		case opcode == 0x6 && batchCount > 0:
+			backend.executeBatchDistance(v, int(batchCount))
+
+		case opcode == 0xF:
+			backend.executeProfile(v)
+
+		default:
+			universalBitwiseV2((*uint64)(ptr), 16)
+		}
 	}
 
 	return nil
 }
 
-func execute(v *[128]uint64) {
-	tokStart := core.Cfg.Value.Region.Tokens.Start
-	progStart := core.Cfg.Value.Region.Program.Start
-	sigStart := core.Cfg.Value.Region.Signals.Start
-
-	a := v[tokStart : tokStart+4]
-
-	// Expand B into 16 rotations × 4 words.
-	var aSurface, bSurface [64]uint64
-	var b [4]uint64
-	b[0] = v[tokStart+4]
-	b[1] = v[tokStart+5]
-	b[2] = v[tokStart+6]
-	b[3] = v[tokStart+7]
-
-	for rot := range 16 {
-		off := rot * 4
-		aSurface[off] = a[0]
-		aSurface[off+1] = a[1]
-		aSurface[off+2] = a[2]
-		aSurface[off+3] = a[3]
-		bSurface[off] = b[0]
-		bSurface[off+1] = b[1]
-		bSurface[off+2] = b[2]
-		bSurface[off+3] = b[3]
-
-		b[0] = bits.RotateLeft64(b[0], 8)
-		b[1] = bits.RotateLeft64(b[1], 8)
-		b[2] = bits.RotateLeft64(b[2], 8)
-		b[3] = bits.RotateLeft64(b[3], 8)
-	}
-
-	// Build per-element opcode masks from the program region.
-	var m0, m1, m2, m3 [64]uint64
-	prog := v[progStart : progStart+8]
-
-	for rot := range 16 {
-		op := uint8((prog[rot/2] >> uint((rot%2)*32)) & 0xF)
-		mask0 := -uint64(op & 1)
-		mask1 := -uint64((op >> 1) & 1)
-		mask2 := -uint64((op >> 2) & 1)
-		mask3 := -uint64((op >> 3) & 1)
-		off := rot * 4
-		m0[off], m0[off+1], m0[off+2], m0[off+3] = mask0, mask0, mask0, mask0
-		m1[off], m1[off+1], m1[off+2], m1[off+3] = mask1, mask1, mask1, mask1
-		m2[off], m2[off+1], m2[off+2], m2[off+3] = mask2, mask2, mask2, mask2
-		m3[off], m3[off+1], m3[off+2], m3[off+3] = mask3, mask3, mask3, mask3
-	}
-
-	// Apply truth table across the full surface via SIMD.
-	universalBitwise(
-		&v[sigStart],
-		&aSurface[0], &bSurface[0],
-		&m0[0], &m1[0], &m2[0], &m3[0],
-	)
-}
-
 /*
-BatchDistances computes Hamming distances from query to count candidate
-affinity vectors using SIMD assembly (NEON 4x unrolled on ARM64, AVX2
-2x unrolled on AMD64). Each vector is 8 × uint64 = 64 bytes.
+executeBatchDistance runs the fused XOR+popcount+sum SIMD kernel
+for Hamming distance. The programmer packed query into words 0-7,
+candidates contiguously at word 32, count into word 124. Results
+are uint32 distances written to signals (words 24+).
+
+After the SIMD pass, an in-band argmin reduction writes:
+
+	word 22: best candidate index
+	word 23: best Hamming distance
+
+so the caller never touches raw distance arrays.
 */
-func (backend *Backend) BatchDistances(
-	query unsafe.Pointer,
-	candidates unsafe.Pointer,
-	count int,
-	distances []uint32,
-) error {
-	if count == 0 {
-		return nil
-	}
+func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
+	distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
 
 	batchAffinityDistances(
-		(*uint64)(query),
-		(*uint64)(candidates),
+		&v[0],
+		&v[32],
 		count,
 		&distances[0],
 	)
 
-	return nil
+	bestIdx := uint64(0)
+	bestDist := uint64(distances[0])
+
+	for idx := 1; idx < count; idx++ {
+		dist := uint64(distances[idx])
+
+		if dist < bestDist {
+			bestDist = dist
+			bestIdx = uint64(idx)
+		}
+	}
+
+	v[22] = bestIdx
+	v[23] = bestDist
+}
+
+/*
+executeProfile runs CSA positional popcount on word-striped vectors
+packed into the Value by the programmer. Word 124 = vector count,
+word 125 = wordsPerVec. Vectors start at word 32. Results are written
+to an external counts array whose address is stored in words 126-127
+as a uintptr split across two uint64s (low, high on 32-bit — on
+64-bit, word 126 holds the full pointer).
+*/
+func (backend *Backend) executeProfile(v *[128]uint64) {
+	vectorCount := int(v[124])
+	wordsPerVec := int(v[125])
+
+	if vectorCount == 0 || wordsPerVec == 0 {
+		return
+	}
+
+	countsPtr := (*[64][64]int)(unsafe.Pointer(uintptr(v[126])))
+	counts := countsPtr[:wordsPerVec]
+
+	for word := range wordsPerVec {
+		counts[word] = [64]int{}
+	}
+
+	stripe := make([]uint64, vectorCount)
+	base := 32
+
+	for word := range wordsPerVec {
+		for vec := range vectorCount {
+			stripe[vec] = v[base+vec*wordsPerVec+word]
+		}
+
+		pospop.Count64(&counts[word], stripe)
+	}
 }
 
 func Popcount(value unsafe.Pointer, startBit, bitLen int) int {

@@ -34,3 +34,44 @@ func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64) {
 		dstSlice[sigWord] |= (result & 0xFF) << sigShift
 	}
 }
+
+/*
+universalBitwiseV2 reads directly from the Value's pre-compiled
+layout. A is at words 0-3, opcode at word 16, B rotations at
+words 32+, signals written to words 24-31.
+
+The programmer package must have already expanded B rotations
+into the reserved region before calling this.
+*/
+func universalBitwiseV2(value *uint64, numRotations int) {
+	v := (*[128]uint64)(unsafe.Pointer(value))
+
+	opcode := uint8(v[16] & 0xF)
+	mask0 := -uint64(opcode & 1)
+	mask1 := -uint64((opcode >> 1) & 1)
+	mask2 := -uint64((opcode >> 2) & 1)
+	mask3 := -uint64((opcode >> 3) & 1)
+
+	for i := range 8 {
+		v[24+i] = 0
+	}
+
+	for rot := range numRotations {
+		bOff := 32 + rot*4
+
+		for word := range 4 {
+			idx := rot*4 + word
+			ai := v[word]
+			bi := v[bOff+word]
+
+			result := (ai & bi & mask0) |
+				(ai & ^bi & mask1) |
+				(^ai & bi & mask2) |
+				(^ai & ^bi & mask3)
+
+			sigWord := idx / 8
+			sigShift := uint((idx % 8) * 8)
+			v[24+sigWord] |= (result & 0xFF) << sigShift
+		}
+	}
+}

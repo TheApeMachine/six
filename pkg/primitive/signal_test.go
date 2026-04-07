@@ -34,7 +34,7 @@ func setupSignalTest(tb testing.TB) {
 func cpuRunner(v *Value) error {
 	backend := cpu.NewBackend(context.Background())
 	ptrs := []unsafe.Pointer{unsafe.Pointer(v)}
-	return backend.UniversalBitwise(ptrs)
+	return backend.Execute(ptrs)
 }
 
 /*

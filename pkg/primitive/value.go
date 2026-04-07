@@ -243,3 +243,13 @@ func (value *Value) String() string {
 		)[startByte:],
 	)
 }
+
+/*
+Bytes returns the bytes of the Value.
+*/
+func (value *Value) Bytes() []byte {
+	return unsafe.Slice(
+		(*byte)(unsafe.Pointer(&value[0])),
+		core.Cfg.Value.Bytes,
+	)
+}

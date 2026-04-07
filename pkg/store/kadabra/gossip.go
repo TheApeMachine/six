@@ -2,6 +2,8 @@ package kadabra
 
 import (
 	"sync/atomic"
+
+	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -14,8 +16,10 @@ type Gossip struct {
 }
 
 /*
-Digests produces one Digest per local trie cluster. Each trie is a
-participant in the field with its own affinity and adaptive signals.
+Digests produces one Digest per local trie cluster. Signals are pulled
+directly from the algorithms that own them via Store.Signal — no
+intermediate adaptive state. Each algorithm populates its Prediction
+with the Derived chains it tracks; gossip just reads the latest values.
 */
 func (gossip *Gossip) Digests() []Digest {
 	tries := gossip.owner.triesSnapshot()
@@ -29,8 +33,11 @@ func (gossip *Gossip) Digests() []Digest {
 			continue
 		}
 
-		sig := cluster.Adaptive
 		origin := (gossip.owner.ID << 32) | uint64(uint32(trieIdx+1))
+
+		surprisalMean := cluster.Signal(algo.Surprisal)
+		classEntropy := cluster.Signal(algo.Entropy)
+		growthRate := cluster.Signal(algo.GrowthRate)
 
 		var prevSurprisal float64
 
@@ -38,17 +45,14 @@ func (gossip *Gossip) Digests() []Digest {
 			prevSurprisal = prev.SurprisalMean
 		}
 
-		surprisalMean := sig.SurprisalStats.Value()
-
 		out = append(out, Digest{
 			Origin:          origin,
 			Affinity:        cluster.Affinity.Vector(),
 			SurprisalMean:   surprisalMean,
 			SurprisalGrowth: surprisalMean - prevSurprisal,
 			SurprisalPrev:   prevSurprisal,
-			ClassEntropy:    sig.EntropySmooth.Value(),
-			GrowthRate:      sig.GrowthRateSmooth.Value(),
-			Depth:           len(sig.DepthWeights),
+			ClassEntropy:    classEntropy,
+			GrowthRate:      growthRate,
 			Epoch:           epoch,
 		})
 	}

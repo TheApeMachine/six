@@ -4,11 +4,9 @@ import (
 	"math/rand"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -50,14 +48,13 @@ type RoutingTable struct {
 /*
 NewRoutingTable constructs a routing table for the given node.
 */
-func NewRoutingTable(node *Node, backend *compute.Backend) *RoutingTable {
+func NewRoutingTable(node *Node) *RoutingTable {
 	rt := &RoutingTable{
 		nodeID:      node.ID,
 		bucketSize:  core.Cfg.Kadabra.BucketSize,
 		routingBits: core.Cfg.Kadabra.Bits,
 		buckets:     make([]*Bucket, core.Cfg.Kadabra.Bits),
 		node:        node,
-		backend:     backend,
 		random:      rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
@@ -117,95 +114,75 @@ func (rt *RoutingTable) AddPeer(peer *Node, rtt float64) {
 	})
 }
 
-/*
-Closest returns up to limit nodes from the routing table sorted by
-affinity Hamming distance. The owning node is always included.
+// /*
+// Closest returns up to limit nodes from the routing table sorted by
+// affinity Hamming distance. The owning node is always included.
 
-Kademlia XOR buckets are mutually exclusive so deduplication is
-unnecessary. Distances are computed in a single SIMD batch pass,
-then bucket-sorted in O(N) using the bounded [0,512] distance range
-instead of comparison-sorting in O(N log N).
-*/
-func (rt *RoutingTable) Closest(
-	target *primitive.Affinity, limit int,
-) []*Node {
-	if limit <= 0 {
-		return nil
-	}
+// Distances are computed through the programmer → backend → kernel
+// path. The programmer compiles a batch distance Value and the kernel
+// writes uint32 results into signals. Bucket-sorted in O(N) using
+// the bounded [0,512] distance range.
+// */
+// func (rt *RoutingTable) Closest(
+// 	target *primitive.Affinity, limit int,
+// ) []*Node {
+// 	if limit <= 0 {
+// 		return nil
+// 	}
 
-	nodes := make([]*Node, 0, 256)
-	nodes = append(nodes, rt.node)
+// 	nodes := make([]*Node, 0, 256)
+// 	nodes = append(nodes, rt.node)
 
-	for _, bucket := range rt.buckets {
-		if bucket == nil {
-			continue
-		}
+// 	for _, bucket := range rt.buckets {
+// 		if bucket == nil {
+// 			continue
+// 		}
 
-		st := bucket.state.Load()
+// 		st := bucket.state.Load()
 
-		if st == nil {
-			continue
-		}
+// 		if st == nil {
+// 			continue
+// 		}
 
-		for _, entry := range st.Entries {
-			if entry != nil && entry.Node != nil && entry.ID != rt.nodeID {
-				nodes = append(nodes, entry.Node)
-			}
-		}
-	}
+// 		for _, entry := range st.Entries {
+// 			if entry != nil && entry.Node != nil && entry.ID != rt.nodeID {
+// 				nodes = append(nodes, entry.Node)
+// 			}
+// 		}
+// 	}
 
-	count := len(nodes)
-	vectors := make([][primitive.AffinityWords]uint64, count)
+// 	count := len(nodes)
 
-	for idx, node := range nodes {
-		if node.Affinity != nil {
-			vectors[idx] = node.Affinity.Vector()
-		}
-	}
+// 	// Collect candidate vectors for the programmer.
+// 	candidates := make([][]uint64, count)
 
-	distances := make([]int32, count)
+// 	for idx, node := range nodes {
+// 		if node.Affinity != nil {
+// 			vec := node.Affinity.Vector()
+// 			candidates[idx] = vec[:]
+// 		} else {
+// 			candidates[idx] = make([]uint64, primitive.AffinityWords)
+// 		}
+// 	}
 
-	queryVec := target.Vector()
-	udist := make([]uint32, count)
+// 	// Bucket sort by distance (bounded [0,512]).
+// 	var bucketHeads [513]int32
+// 	var bucketTails [513]int32
 
-	rt.backend.BatchDistances(
-		unsafe.Pointer(&queryVec[0]),
-		unsafe.Pointer(&vectors[0][0]),
-		count,
-		udist,
-	)
+// 	var offset int32
 
-	for idx := range udist {
-		distances[idx] = int32(udist[idx])
-	}
+// 	for dist := range bucketHeads {
+// 		n := bucketHeads[dist]
+// 		bucketHeads[dist] = offset
+// 		bucketTails[dist] = offset
+// 		offset += n
+// 	}
 
-	var bucketHeads [513]int32
-	var bucketTails [513]int32
+// 	sorted := make([]*Node, count)
 
-	for idx := range distances {
-		bucketHeads[distances[idx]]++
-	}
+// 	if limit > count {
+// 		limit = count
+// 	}
 
-	var offset int32
-
-	for dist := range bucketHeads {
-		n := bucketHeads[dist]
-		bucketHeads[dist] = offset
-		bucketTails[dist] = offset
-		offset += n
-	}
-
-	sorted := make([]*Node, count)
-
-	for idx, dist := range distances {
-		pos := bucketTails[dist]
-		sorted[pos] = nodes[idx]
-		bucketTails[dist]++
-	}
-
-	if limit > count {
-		limit = count
-	}
-
-	return sorted[:limit]
-}
+// 	return sorted[:limit]
+// }

@@ -309,16 +309,12 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 				continue
 			}
 
-			clusterAff := cluster.Affinity
-			digestAff := primitive.NewAffinityFromVector(digest.Affinity)
-			coupling := clusterAff.Coupling(digestAff)
-
-			if coupling < digestCouplingFloor {
-				continue
-			}
-
 			phaseCoupling := field.phase.Coupling(local.SurprisalGrowth, digest.SurprisalGrowth)
-			weight := coupling * (1.0 + phaseCoupling)
+			weight := primitive.NewAffinityFromVector(
+				local.Affinity,
+			).Coupling(
+				primitive.NewAffinityFromVector(digest.Affinity),
+			) * (1.0 + phaseCoupling)
 
 			if weight <= 0 {
 				continue

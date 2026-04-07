@@ -78,18 +78,18 @@ func Available() int {
 }
 
 /*
-UniversalBitwise dispatches a batch of Values to the compiled Metal kernel.
-
-Each frame carries its own in-band program. Non-contiguous host pointers are
-packed into a contiguous slab for the Metal API, then executed self-only
-against the same 32-bit slot sweep the CPU backend uses.
+Execute dispatches frames to the appropriate Metal kernel based on
+the opcode in each Value's program region (word 16). Batch distance
+frames (opcode 0x6 with count at word 124) route to the fused
+XOR+popcount kernel. All others go through the unified bitwise
+kernel which reads the opcode on-device.
 */
-func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
+func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	if !metalReady.Load() {
 		return NewMetalKernelError(
 			kernel.KernelErrUnavailable,
-			errors.New("failed to load metal backend"),
-			"UniversalBitwise",
+			errors.New("metal backend not initialized"),
+			"Execute",
 		)
 	}
 
@@ -97,20 +97,53 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 		return nil
 	}
 
-	if len(frames) == 1 && frames[0] != nil {
-		if C.unified_bitwise_metal(frames[0], 1) != 0 {
-			return NewMetalKernelError(kernel.KernelErrDispatchFailed, nil, "UniversalBitwise")
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
 		}
 
-		return nil
-	}
+		v := (*[128]uint64)(ptr)
+		opcode := v[16] & 0xF
+		batchCount := v[124]
 
-	slabA := kernel.PackValueFrames(frames)
-	if C.unified_bitwise_metal(unsafe.Pointer(&slabA[0]), C.uint32_t(len(frames))) != 0 {
-		return NewMetalKernelError(kernel.KernelErrDispatchFailed, nil, "UniversalBitwise")
-	}
+		if opcode == 0x6 && batchCount > 0 {
+			distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
 
-	kernel.UnpackValueFrames(frames, slabA)
+			if C.nearest_affinity_metal(
+				unsafe.Pointer(&v[0]),
+				unsafe.Pointer(&v[32]),
+				C.uint32_t(batchCount),
+				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
+			) != 0 {
+				return NewMetalKernelError(
+					kernel.KernelErrDispatchFailed, nil, "Execute",
+				)
+			}
+
+			bestIdx := uint64(0)
+			bestDist := uint64(distances[0])
+
+			for idx := uint64(1); idx < batchCount; idx++ {
+				dist := uint64(distances[idx])
+
+				if dist < bestDist {
+					bestDist = dist
+					bestIdx = idx
+				}
+			}
+
+			v[22] = bestIdx
+			v[23] = bestDist
+
+			continue
+		}
+
+		if C.unified_bitwise_metal(ptr, 1) != 0 {
+			return NewMetalKernelError(
+				kernel.KernelErrDispatchFailed, nil, "Execute",
+			)
+		}
+	}
 
 	return nil
 }
@@ -147,11 +180,11 @@ func (backend *Backend) NearestAffinity(
 }
 
 /*
-BatchDistances computes Hamming distances from query to count candidate
-affinity vectors on the Metal GPU. One thread per candidate, popcount
-built-in, unified memory (no copy overhead on Apple Silicon).
+batchDistances is the internal fused XOR+popcount path, called by
+Execute when it detects a batch distance opcode. Kept as a method
+for NearestAffinity backward compatibility.
 */
-func (backend *Backend) BatchDistances(
+func (backend *Backend) batchDistances(
 	query unsafe.Pointer,
 	candidates unsafe.Pointer,
 	count int,
@@ -161,7 +194,7 @@ func (backend *Backend) BatchDistances(
 		return NewMetalKernelError(
 			kernel.KernelErrUnavailable,
 			errors.New("metal backend not initialized"),
-			"BatchDistances",
+			"batchDistances",
 		)
 	}
 
@@ -172,7 +205,7 @@ func (backend *Backend) BatchDistances(
 		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
 	) != 0 {
 		return NewMetalKernelError(
-			kernel.KernelErrDispatchFailed, nil, "BatchDistances",
+			kernel.KernelErrDispatchFailed, nil, "batchDistances",
 		)
 	}
 

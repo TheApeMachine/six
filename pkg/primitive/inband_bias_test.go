@@ -66,7 +66,7 @@ func runSurface(t *testing.T, v *Value) {
 	backend := cpu.NewBackend(context.Background())
 	ptrs := []unsafe.Pointer{unsafe.Pointer(v)}
 
-	if err := backend.UniversalBitwise(ptrs); err != nil {
+	if err := backend.Execute(ptrs); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -266,7 +266,7 @@ func BenchmarkValue_InBandBias(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		if err := backend.UniversalBitwise(ptrs); err != nil {
+		if err := backend.Execute(ptrs); err != nil {
 			b.Fatal(err)
 		}
 	}

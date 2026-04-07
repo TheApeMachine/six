@@ -6,8 +6,11 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/algo/bpe"
 	"github.com/theapemachine/six/pkg/core/algo/cooccurrence"
 	"github.com/theapemachine/six/pkg/core/algo/episodic"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -17,6 +20,7 @@ counter. The trie composes this as a field and calls Step
 for every insert.
 */
 type Online struct {
+	encoder     *bpe.Encoder
 	Labels      []string
 	labelSet    map[string]struct{}
 	ClassTotals map[string]float64
@@ -36,22 +40,32 @@ type Online struct {
 	Episodic       *episodic.Buffer
 	Cooccurrence   *cooccurrence.Matrix
 	ConceptCounter int
+	prediction     *algo.Prediction
 }
 
 /*
 NewOnline constructs a training driver.
 */
-func NewOnline(
-	decayFactor float64,
-	cooc *cooccurrence.Matrix,
-) *Online {
+func NewOnline() *Online {
 	return &Online{
+		encoder:                 bpe.NewEncoder(),
 		labelSet:                make(map[string]struct{}),
 		ClassTotals:             make(map[string]float64),
 		classTotalsLastNormStep: make(map[string]int),
-		DecayFactor:             decayFactor,
-		Cooccurrence:            cooc,
+		DecayFactor:             0,
+		Cooccurrence:            cooccurrence.NewMatrix(0),
+		prediction:              algo.NewPrediction(),
 	}
+}
+
+func (online *Online) Update(
+	prediction *algo.Prediction,
+) (*algo.Prediction, error) {
+	return prediction, nil
+}
+
+func (online *Online) Value() *algo.Prediction {
+	return online.prediction
 }
 
 /*
@@ -63,8 +77,7 @@ insertion with the returned step.
 func (online *Online) Step(
 	label string,
 	learningRate float64,
-	tokens []string,
-	contentTokens []string,
+	value primitive.Value,
 ) {
 	label = strings.TrimSpace(label)
 
@@ -72,11 +85,12 @@ func (online *Online) Step(
 		return
 	}
 
+	tokens := online.encoder.Encode(value.String())
+
 	online.AddLabel(label)
 	online.CurrentStep++
 
-	online.normalizeClassTotalForStep(label, online.CurrentStep)
-
+	online.normalize(label, online.CurrentStep)
 	online.ClassTotals[label] += learningRate
 
 	if online.Episodic != nil {
@@ -84,14 +98,14 @@ func (online *Online) Step(
 	}
 
 	if online.Cooccurrence != nil {
-		online.Cooccurrence.Update(contentTokens)
+		online.Cooccurrence.Update(tokens)
 	}
 }
 
 /*
 AddLabel registers a label if not already known.
 */
-func (online *Online) normalizeClassTotalForStep(label string, step int) {
+func (online *Online) normalize(label string, step int) {
 	lastNormStep, exists := online.classTotalsLastNormStep[label]
 
 	if !exists {
@@ -101,7 +115,9 @@ func (online *Online) normalizeClassTotalForStep(label string, step int) {
 	delta := step - lastNormStep
 
 	if delta > 0 {
-		online.ClassTotals[label] *= math.Pow(online.DecayFactor, float64(delta))
+		online.ClassTotals[label] *= math.Pow(
+			online.DecayFactor, float64(delta),
+		)
 	}
 
 	online.classTotalsLastNormStep[label] = step
@@ -120,7 +136,12 @@ func (online *Online) AddLabel(label string) {
 NextConceptLabel generates a new auto-incremented concept label.
 */
 func (online *Online) NextConceptLabel() string {
-	label := fmt.Sprintf("%s%d", core.Cfg.MarkovTrie.ConceptLabelPrefix, online.ConceptCounter)
+	label := fmt.Sprintf(
+		"%s%d",
+		core.Cfg.MarkovTrie.ConceptLabelPrefix,
+		online.ConceptCounter,
+	)
+
 	online.ConceptCounter++
 
 	return label

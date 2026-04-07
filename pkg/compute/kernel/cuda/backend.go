@@ -103,90 +103,80 @@ func Available() int {
 }
 
 /*
-UniversalBitwise dispatches a batch of Values to the compiled CUDA kernel.
-
-Each Value carries its own 32-bit in-band program. The CUDA kernel executes the
-configured program slot sweep against the frame itself only, matching the
-self-only CPU backend contract.
+Execute dispatches frames to the appropriate CUDA kernel based on
+the opcode in each Value's program region (word 16). Batch distance
+frames (opcode 0x6 with count at word 124) route to the fused
+XOR+popcount kernel. All others go through the unified bitwise
+kernel which reads the opcode on-device.
 */
-func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
-
+func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	if len(frames) == 0 {
 		return nil
 	}
 
-	if len(frames) == 1 && frames[0] != nil {
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		v := (*[128]uint64)(ptr)
+		opcode := v[16] & 0xF
+		batchCount := v[124]
+
+		if opcode == 0x6 && batchCount > 0 {
+			distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
+
+			if C.nearest_affinity_cuda(
+				C.int(backend.deviceIdx),
+				unsafe.Pointer(&v[0]),
+				unsafe.Pointer(&v[32]),
+				C.uint32_t(batchCount),
+				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
+			) != 0 {
+				return NewCUDAKernelError(
+					kernel.KernelErrDispatchFailed,
+					errors.New("batch distance dispatch failed"),
+					"Execute",
+					int(batchCount),
+				)
+			}
+
+			bestIdx := uint64(0)
+			bestDist := uint64(distances[0])
+
+			for idx := uint64(1); idx < batchCount; idx++ {
+				dist := uint64(distances[idx])
+
+				if dist < bestDist {
+					bestDist = dist
+					bestIdx = idx
+				}
+			}
+
+			v[22] = bestIdx
+			v[23] = bestDist
+
+			continue
+		}
+
 		if C.unified_bitwise_cuda(
 			C.int(backend.deviceIdx),
-			frames[0],
+			ptr,
 			C.uint32_t(1),
 		) != 0 {
 			err := NewCUDAKernelError(
 				kernel.KernelErrDispatchFailed,
-				errors.New("failed to dispatch unified bitwise operation"),
-				"UniversalBitwise",
+				errors.New("unified bitwise dispatch failed"),
+				"Execute",
 				1,
 			)
 			backend.observer.Error(
-				"cuda.Backend.UniversalBitwise",
+				"cuda.Backend.Execute",
 				err,
 				"device_idx", backend.deviceIdx,
 			)
 			return err
 		}
-
-		return nil
-	}
-
-	slabA := kernel.PackValueFrames(frames)
-
-	if C.unified_bitwise_cuda(
-		C.int(backend.deviceIdx),
-		unsafe.Pointer(&slabA[0]),
-		C.uint32_t(len(frames)),
-	) != 0 {
-		err := NewCUDAKernelError(
-			kernel.KernelErrDispatchFailed,
-			errors.New("failed to dispatch unified bitwise operation"),
-			"UniversalBitwise",
-			1,
-		)
-		backend.observer.Error(
-			"cuda.Backend.UniversalBitwise",
-			err,
-			"device_idx", backend.deviceIdx,
-		)
-		return err
-	}
-
-	kernel.UnpackValueFrames(frames, slabA)
-
-	return nil
-}
-
-/*
-BatchDistances computes Hamming distances from query to count candidate
-affinity vectors on the CUDA GPU. One thread per candidate with __popcll.
-*/
-func (backend *Backend) BatchDistances(
-	query unsafe.Pointer,
-	candidates unsafe.Pointer,
-	count int,
-	distances []uint32,
-) error {
-	if C.nearest_affinity_cuda(
-		C.int(backend.deviceIdx),
-		query,
-		candidates,
-		C.uint32_t(count),
-		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
-	) != 0 {
-		return NewCUDAKernelError(
-			kernel.KernelErrDispatchFailed,
-			errors.New("batch distances dispatch failed"),
-			"BatchDistances",
-			count,
-		)
 	}
 
 	return nil

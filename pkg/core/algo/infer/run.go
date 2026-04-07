@@ -3,9 +3,9 @@ package infer
 import "github.com/theapemachine/six/pkg/core/algo/beam"
 
 /*
-Continuation re-exports beam.BeamContinuation to avoid duplicate types.
+Continuation re-exports beam.Continuation to avoid duplicate types.
 */
-type Continuation = beam.BeamContinuation
+type Continuation = beam.Continuation
 
 /*
 Outcome is the unified inference product: winner label, scores, and ranked paths.

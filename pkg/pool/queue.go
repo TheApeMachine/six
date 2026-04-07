@@ -11,6 +11,15 @@ import (
 )
 
 /*
+Executor is the interface that the compute backend satisfies. It
+allows the Queue to dispatch compiled programs without importing
+the compute package (which already imports pool).
+*/
+type Executor interface {
+	CompileAndExecute(program any) error
+}
+
+/*
 Queue is the universal work scheduler. It owns the goroutine pool and
 three priority-tiered lock-free ring buffers. Every subsystem that needs
 to schedule work (tokenizer, compute backend, routing) receives a Queue
@@ -22,6 +31,7 @@ type Queue struct {
 	cancel   context.CancelFunc
 	err      error
 	pool     *Pool
+	backend  Executor
 	normal   *data.Ring
 	priority *data.Ring
 	spill    *data.Ring
@@ -83,6 +93,44 @@ func (queue *Queue) Submit(task func()) {
 	}
 
 	queue.pool.Submit(task)
+}
+
+/*
+SetBackend wires the compute backend into the queue so Execute
+can defer compilation to the moment a substrate is picked.
+*/
+func (queue *Queue) SetBackend(backend Executor) {
+	queue.backend = backend
+}
+
+/*
+Execute submits an uncompiled program to the pool. The backend
+picks the best hardware substrate, compiles for that target, and
+executes — all inside a pooled goroutine.
+*/
+func (queue *Queue) Execute(program any) {
+	if queue == nil || queue.backend == nil {
+		return
+	}
+
+	backend := queue.backend
+	queue.pool.Submit(func() {
+		backend.CompileAndExecute(program)
+	})
+}
+
+/*
+ExecuteSync compiles and executes a program in the calling goroutine,
+blocking until completion. Use this when the caller needs to read
+results from the Value immediately after execution — typically inside
+a Submit callback that is already running on a pooled goroutine.
+*/
+func (queue *Queue) ExecuteSync(program any) error {
+	if queue == nil || queue.backend == nil {
+		return nil
+	}
+
+	return queue.backend.CompileAndExecute(program)
 }
 
 /*

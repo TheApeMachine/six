@@ -52,7 +52,7 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 		frame[core.Cfg.Value.Region.State.Accumulator] = 42
 		installSlot(&frame, 0, encode32(0x6, 0, 1))
 
-		err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&frame)})
+		err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&frame)})
 
 		So(err, ShouldBeNil)
 		So(frame[1], ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))

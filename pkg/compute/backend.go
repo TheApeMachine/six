@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -10,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
@@ -31,15 +33,15 @@ Backend acts as an intelligent Multi-Substrate Load Balancer. It tracks
 in-flight depth and exponential moving average service time per substrate,
 dispatching work to whichever has the least pressure.
 
-Both GPU and CPU substrates stay saturated because the selection is
-per-call: a burst of requests fans out across all available hardware
-rather than queueing behind whichever substrate was "first".
+All compute flows through Execute. The programmer compiles intent into
+the Value's layout; the substrate reads the opcode and dispatches to
+the appropriate kernel.
 */
 type Backend struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	states   []*substrateState
-	queue    *pool.Queue
+	ctx    context.Context
+	cancel context.CancelFunc
+	states []*substrateState
+	queue  *pool.Queue
 }
 
 /*
@@ -153,23 +155,69 @@ func (st *substrateState) observe(elapsed time.Duration) {
 }
 
 /*
-BatchDistances computes Hamming distances from a query affinity vector
-to a contiguous array of candidate vectors. Selects the substrate with
-lowest pressure (inflight × EMA latency), tracks timing, and updates
-the EMA so subsequent calls rebalance automatically.
+Execute dispatches pre-compiled Value frames to the best available
+substrate. The programmer must have already compiled the intent into
+each Value's layout before calling this. The substrate reads the
+opcode from the program region and dispatches internally.
 */
-func (backend *Backend) BatchDistances(
-	query unsafe.Pointer,
-	candidates unsafe.Pointer,
-	count int,
-	distances []uint32,
+func (backend *Backend) Execute(
+	frames []unsafe.Pointer,
 ) error {
 	st := backend.pick()
 
 	st.inflight.Add(1)
 	start := time.Now()
 
-	err := st.substrate.BatchDistances(query, candidates, count, distances)
+	err := st.substrate.Execute(frames)
+
+	st.inflight.Add(-1)
+	st.observe(time.Since(start))
+
+	return err
+}
+
+/*
+targetFor maps a substrate's Name to the programmer.Target so the
+compiler emits the correct layout just before execution.
+*/
+func targetFor(substrate kernel.Substrate) programmer.Target {
+	switch substrate.Name() {
+	case "metal":
+		return programmer.Metal
+	case "cuda":
+		return programmer.CUDA
+	default:
+		return programmer.CPU
+	}
+}
+
+/*
+CompileAndExecute picks the lowest-pressure substrate, compiles the
+program for that specific target, and executes the resulting frame.
+This is the deferred-compilation path: callers build an uncompiled
+Compiler and hand it off — the backend decides which hardware to
+target at dispatch time.
+*/
+func (backend *Backend) CompileAndExecute(
+	program any,
+) error {
+	compiler, ok := program.(*programmer.Compiler)
+
+	if !ok {
+		return errnie.Error(fmt.Errorf("CompileAndExecute: expected *programmer.Compiler"))
+	}
+
+	st := backend.pick()
+
+	target := targetFor(st.substrate)
+	value := compiler.Compile(target)
+
+	st.inflight.Add(1)
+	start := time.Now()
+
+	err := st.substrate.Execute([]unsafe.Pointer{
+		unsafe.Pointer(value),
+	})
 
 	st.inflight.Add(-1)
 	st.observe(time.Since(start))

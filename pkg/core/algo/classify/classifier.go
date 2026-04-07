@@ -3,6 +3,7 @@ package classify
 import (
 	"math"
 
+	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
 )
 
@@ -11,7 +12,30 @@ Classifier computes Bayesian label posteriors from per-token log-probabilities
 produced by a suffix-interpolated language model. The classifier itself holds
 no state — it receives everything it needs per call.
 */
-type Classifier struct{}
+type Classifier struct {
+	labels        []string
+	classTotals   map[string]float64
+	currentStep   int
+	unknownFloor  float64
+	contextTokens []string
+	prediction    *algo.Prediction
+}
+
+func NewClassifier() *Classifier {
+	return &Classifier{
+		prediction: algo.NewPrediction(),
+	}
+}
+
+func (classifier *Classifier) Update(
+	prediction *algo.Prediction,
+) (*algo.Prediction, error) {
+	return prediction, nil
+}
+
+func (classifier *Classifier) Value() *algo.Prediction {
+	return classifier.prediction
+}
 
 /*
 LogEvidence computes per-label log-probability from token-level conditionals.

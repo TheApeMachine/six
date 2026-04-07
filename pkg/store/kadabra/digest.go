@@ -18,7 +18,6 @@ type Digest struct {
 	SurprisalPrev   float64
 	ClassEntropy    float64
 	GrowthRate      float64
-	Depth           int
 	Epoch           uint64
 }
 

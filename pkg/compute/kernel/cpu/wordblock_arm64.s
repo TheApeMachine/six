@@ -275,6 +275,364 @@ ub_loop:
 
 
 // ============================================================================
+// universalBitwiseV2: reads directly from Value's pre-compiled layout.
+//
+// func universalBitwiseV2(value *uint64, numRotations int)
+//   value+0(FP)         — pointer to 128 uint64s (the full Value)
+//   numRotations+8(FP)  — number of rotations (always 16)
+//
+// Layout (word offsets, each word = 8 bytes):
+//   [0-3]    A (query, 4 words = 32 bytes)
+//   [16]     opcode (low 4 bits)
+//   [24-31]  signals output (8 words = 64 bytes)
+//   [32-95]  B rotations (16 rotations × 4 words, pre-compiled)
+//
+// Register allocation:
+//   V16-V17  A pinned (2 × 128-bit = 4 words)
+//   V20-V23  opcode masks m0-m3 (broadcast)
+//   V28-V29  signal accumulators (zero-initialized)
+//   V31      all-ones for NOT
+//   V0-V15   B loads + truth table computation (4 rotations/iter)
+//
+// Processes 4 rotations per iteration, 4 iterations total.
+// Each rotation: load 4 words of B, apply truth table against A,
+// extract low byte from each result word, pack into signals.
+// ============================================================================
+TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
+	MOVD	value+0(FP), R0
+
+	// Pin A in V16-V17 (words 0-3, bytes 0-31).
+	VLD1	(R0), [V16.B16, V17.B16]
+
+	// Load opcode from word 16 (byte offset 128).
+	MOVD	128(R0), R1
+	AND	$0xF, R1, R1
+
+	// Broadcast mask bits into V20-V23.
+	// m0 = -uint64(op & 1), m1 = -uint64((op>>1)&1), etc.
+	// -1 = all ones, -0 = all zeros.
+	AND	$1, R1, R2
+	NEG	R2, R2
+	VMOV	R2, V20.D[0]
+	VDUP	V20.D[0], V20.D2
+
+	LSR	$1, R1, R3
+	AND	$1, R3, R3
+	NEG	R3, R3
+	VMOV	R3, V21.D[0]
+	VDUP	V21.D[0], V21.D2
+
+	LSR	$2, R1, R4
+	AND	$1, R4, R4
+	NEG	R4, R4
+	VMOV	R4, V22.D[0]
+	VDUP	V22.D[0], V22.D2
+
+	LSR	$3, R1, R5
+	AND	$1, R5, R5
+	NEG	R5, R5
+	VMOV	R5, V23.D[0]
+	VDUP	V23.D[0], V23.D2
+
+	// V31 = all ones for NOT.
+	WORD	$0x6F00E7FF		// movi v31.16b, #0xff
+
+	// Zero signal accumulators V28-V31 → V28-V29 (8 words).
+	VEOR	V28.B16, V28.B16, V28.B16
+	VEOR	V29.B16, V29.B16, V29.B16
+
+	// R1 = pointer to B rotations (word 32 = byte 256).
+	ADD	$256, R0, R1
+
+	// R2 = signal base (word 24 = byte 192).
+	ADD	$192, R0, R2
+
+	// R3 = rotation counter.
+	MOVD	ZR, R3
+
+ubv2_loop:
+	// Load 4 rotations × 4 words = 16 words = 128 bytes.
+	// Rotation 0: V0-V1 (4 words)
+	VLD1.P	16(R1), [V0.B16]
+	VLD1.P	16(R1), [V1.B16]
+	// Rotation 1: V2-V3
+	VLD1.P	16(R1), [V2.B16]
+	VLD1.P	16(R1), [V3.B16]
+	// Rotation 2: V4-V5
+	VLD1.P	16(R1), [V4.B16]
+	VLD1.P	16(R1), [V5.B16]
+	// Rotation 3: V6-V7
+	VLD1.P	16(R1), [V6.B16]
+	VLD1.P	16(R1), [V7.B16]
+
+	// === Rotation 0: truth table on V0-V1 against V16-V17 ===
+	// ~a
+	VEOR	V16.B16, V31.B16, V8.B16	// ~a[0:1]
+	VEOR	V17.B16, V31.B16, V9.B16	// ~a[2:3]
+	// ~b
+	VEOR	V0.B16, V31.B16, V10.B16	// ~b[0:1]
+	VEOR	V1.B16, V31.B16, V11.B16	// ~b[2:3]
+
+	// a & b & m0 (low half)
+	VAND	V16.B16, V0.B16, V12.B16
+	VAND	V12.B16, V20.B16, V12.B16
+	// a & ~b & m1
+	VAND	V16.B16, V10.B16, V13.B16
+	VAND	V13.B16, V21.B16, V13.B16
+	// ~a & b & m2
+	VAND	V8.B16, V0.B16, V14.B16
+	VAND	V14.B16, V22.B16, V14.B16
+	// ~a & ~b & m3
+	VAND	V8.B16, V10.B16, V15.B16
+	VAND	V15.B16, V23.B16, V15.B16
+	// OR all terms → V12 = result[0:1]
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V14.B16, V15.B16, V14.B16
+	VORR	V12.B16, V14.B16, V12.B16
+
+	// High half (words 2-3)
+	VAND	V17.B16, V1.B16, V13.B16
+	VAND	V13.B16, V20.B16, V13.B16
+	VAND	V17.B16, V11.B16, V14.B16
+	VAND	V14.B16, V21.B16, V14.B16
+	VAND	V9.B16, V1.B16, V15.B16
+	VAND	V15.B16, V22.B16, V15.B16
+	VAND	V9.B16, V11.B16, V0.B16
+	VAND	V0.B16, V23.B16, V0.B16
+	VORR	V13.B16, V14.B16, V13.B16
+	VORR	V15.B16, V0.B16, V15.B16
+	VORR	V13.B16, V15.B16, V13.B16
+	// V12 = result words 0-1, V13 = result words 2-3
+
+	// Extract low byte from each uint64 lane and scatter.
+	// Rotation index = R3*4 + {0,1,2,3}
+	LSL	$4, R3, R4		// R4 = element_base = R3*16
+
+	// Extract 4 bytes from V12[d0], V12[d1], V13[d0], V13[d1]
+	VMOV	V12.D[0], R5
+	AND	$0xFF, R5, R5
+	VMOV	V12.D[1], R6
+	AND	$0xFF, R6, R6
+	VMOV	V13.D[0], R7
+	AND	$0xFF, R7, R7
+	VMOV	V13.D[1], R8
+	AND	$0xFF, R8, R8
+
+	// Pack: byte[rot_base+0..3] into signal word
+	// sig_word = rot_base / 8, sig_shift = (rot_base % 8) * 8
+	AND	$7, R4, R9
+	LSL	$3, R9, R9		// shift for byte 0
+	LSL	R9, R5, R5
+	ADD	$8, R9, R10
+	AND	$63, R10, R10
+	LSL	R10, R6, R6
+	ADD	$8, R10, R11
+	AND	$63, R11, R11
+	LSL	R11, R7, R7
+	ADD	$8, R11, R12
+	AND	$63, R12, R12
+	LSL	R12, R8, R8
+
+	// Determine which signal word(s) to OR into
+	LSR	$3, R4, R13		// sig_word index
+	LSL	$3, R13, R14		// byte offset
+	ADD	R2, R14, R14		// absolute address
+
+	// rot_base is always 4-aligned, rot_base%8 ∈ {0,4}.
+	// 4 bytes at positions [rot_base%8 .. rot_base%8+3] always
+	// fit within one 8-byte signal word (max 4+3=7 < 8).
+	MOVD	(R14), R15
+	ORR	R5, R15, R15
+	ORR	R6, R15, R15
+	ORR	R7, R15, R15
+	ORR	R8, R15, R15
+	MOVD	R15, (R14)
+
+	// === Rotation 1: V2-V3 against V16-V17 ===
+	VEOR	V2.B16, V31.B16, V10.B16
+	VEOR	V3.B16, V31.B16, V11.B16
+
+	VAND	V16.B16, V2.B16, V12.B16
+	VAND	V12.B16, V20.B16, V12.B16
+	VAND	V16.B16, V10.B16, V13.B16
+	VAND	V13.B16, V21.B16, V13.B16
+	VAND	V8.B16, V2.B16, V14.B16
+	VAND	V14.B16, V22.B16, V14.B16
+	VAND	V8.B16, V10.B16, V15.B16
+	VAND	V15.B16, V23.B16, V15.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V14.B16, V15.B16, V14.B16
+	VORR	V12.B16, V14.B16, V12.B16
+
+	VAND	V17.B16, V3.B16, V13.B16
+	VAND	V13.B16, V20.B16, V13.B16
+	VAND	V17.B16, V11.B16, V14.B16
+	VAND	V14.B16, V21.B16, V14.B16
+	VAND	V9.B16, V3.B16, V15.B16
+	VAND	V15.B16, V22.B16, V15.B16
+	VAND	V9.B16, V11.B16, V0.B16
+	VAND	V0.B16, V23.B16, V0.B16
+	VORR	V13.B16, V14.B16, V13.B16
+	VORR	V15.B16, V0.B16, V15.B16
+	VORR	V13.B16, V15.B16, V13.B16
+
+	ADD	$4, R4, R4
+	VMOV	V12.D[0], R5
+	AND	$0xFF, R5, R5
+	VMOV	V12.D[1], R6
+	AND	$0xFF, R6, R6
+	VMOV	V13.D[0], R7
+	AND	$0xFF, R7, R7
+	VMOV	V13.D[1], R8
+	AND	$0xFF, R8, R8
+	AND	$7, R4, R9
+	LSL	$3, R9, R9
+	LSL	R9, R5, R5
+	ADD	$8, R9, R10
+	AND	$63, R10, R10
+	LSL	R10, R6, R6
+	ADD	$8, R10, R11
+	AND	$63, R11, R11
+	LSL	R11, R7, R7
+	ADD	$8, R11, R12
+	AND	$63, R12, R12
+	LSL	R12, R8, R8
+	LSR	$3, R4, R13
+	LSL	$3, R13, R14
+	ADD	R2, R14, R14
+	MOVD	(R14), R15
+	ORR	R5, R15, R15
+	ORR	R6, R15, R15
+	ORR	R7, R15, R15
+	ORR	R8, R15, R15
+	MOVD	R15, (R14)
+
+	// === Rotation 2: V4-V5 against V16-V17 ===
+	VEOR	V4.B16, V31.B16, V10.B16
+	VEOR	V5.B16, V31.B16, V11.B16
+
+	VAND	V16.B16, V4.B16, V12.B16
+	VAND	V12.B16, V20.B16, V12.B16
+	VAND	V16.B16, V10.B16, V13.B16
+	VAND	V13.B16, V21.B16, V13.B16
+	VAND	V8.B16, V4.B16, V14.B16
+	VAND	V14.B16, V22.B16, V14.B16
+	VAND	V8.B16, V10.B16, V15.B16
+	VAND	V15.B16, V23.B16, V15.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V14.B16, V15.B16, V14.B16
+	VORR	V12.B16, V14.B16, V12.B16
+
+	VAND	V17.B16, V5.B16, V13.B16
+	VAND	V13.B16, V20.B16, V13.B16
+	VAND	V17.B16, V11.B16, V14.B16
+	VAND	V14.B16, V21.B16, V14.B16
+	VAND	V9.B16, V5.B16, V15.B16
+	VAND	V15.B16, V22.B16, V15.B16
+	VAND	V9.B16, V11.B16, V0.B16
+	VAND	V0.B16, V23.B16, V0.B16
+	VORR	V13.B16, V14.B16, V13.B16
+	VORR	V15.B16, V0.B16, V15.B16
+	VORR	V13.B16, V15.B16, V13.B16
+
+	ADD	$4, R4, R4
+	VMOV	V12.D[0], R5
+	AND	$0xFF, R5, R5
+	VMOV	V12.D[1], R6
+	AND	$0xFF, R6, R6
+	VMOV	V13.D[0], R7
+	AND	$0xFF, R7, R7
+	VMOV	V13.D[1], R8
+	AND	$0xFF, R8, R8
+	AND	$7, R4, R9
+	LSL	$3, R9, R9
+	LSL	R9, R5, R5
+	ADD	$8, R9, R10
+	AND	$63, R10, R10
+	LSL	R10, R6, R6
+	ADD	$8, R10, R11
+	AND	$63, R11, R11
+	LSL	R11, R7, R7
+	ADD	$8, R11, R12
+	AND	$63, R12, R12
+	LSL	R12, R8, R8
+	LSR	$3, R4, R13
+	LSL	$3, R13, R14
+	ADD	R2, R14, R14
+	MOVD	(R14), R15
+	ORR	R5, R15, R15
+	ORR	R6, R15, R15
+	ORR	R7, R15, R15
+	ORR	R8, R15, R15
+	MOVD	R15, (R14)
+
+	// === Rotation 3: V6-V7 against V16-V17 ===
+	VEOR	V6.B16, V31.B16, V10.B16
+	VEOR	V7.B16, V31.B16, V11.B16
+
+	VAND	V16.B16, V6.B16, V12.B16
+	VAND	V12.B16, V20.B16, V12.B16
+	VAND	V16.B16, V10.B16, V13.B16
+	VAND	V13.B16, V21.B16, V13.B16
+	VAND	V8.B16, V6.B16, V14.B16
+	VAND	V14.B16, V22.B16, V14.B16
+	VAND	V8.B16, V10.B16, V15.B16
+	VAND	V15.B16, V23.B16, V15.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V14.B16, V15.B16, V14.B16
+	VORR	V12.B16, V14.B16, V12.B16
+
+	VAND	V17.B16, V7.B16, V13.B16
+	VAND	V13.B16, V20.B16, V13.B16
+	VAND	V17.B16, V11.B16, V14.B16
+	VAND	V14.B16, V21.B16, V14.B16
+	VAND	V9.B16, V7.B16, V15.B16
+	VAND	V15.B16, V22.B16, V15.B16
+	VAND	V9.B16, V11.B16, V0.B16
+	VAND	V0.B16, V23.B16, V0.B16
+	VORR	V13.B16, V14.B16, V13.B16
+	VORR	V15.B16, V0.B16, V15.B16
+	VORR	V13.B16, V15.B16, V13.B16
+
+	ADD	$4, R4, R4
+	VMOV	V12.D[0], R5
+	AND	$0xFF, R5, R5
+	VMOV	V12.D[1], R6
+	AND	$0xFF, R6, R6
+	VMOV	V13.D[0], R7
+	AND	$0xFF, R7, R7
+	VMOV	V13.D[1], R8
+	AND	$0xFF, R8, R8
+	AND	$7, R4, R9
+	LSL	$3, R9, R9
+	LSL	R9, R5, R5
+	ADD	$8, R9, R10
+	AND	$63, R10, R10
+	LSL	R10, R6, R6
+	ADD	$8, R10, R11
+	AND	$63, R11, R11
+	LSL	R11, R7, R7
+	ADD	$8, R11, R12
+	AND	$63, R12, R12
+	LSL	R12, R8, R8
+	LSR	$3, R4, R13
+	LSL	$3, R13, R14
+	ADD	R2, R14, R14
+	MOVD	(R14), R15
+	ORR	R5, R15, R15
+	ORR	R6, R15, R15
+	ORR	R7, R15, R15
+	ORR	R8, R15, R15
+	MOVD	R15, (R14)
+
+	ADD	$1, R3, R3
+	CMP	$4, R3
+	BLT	ubv2_loop
+
+	RET
+
+
+// ============================================================================
 // batchAffinityDistances: NEON 4x-unrolled batch Hamming distance.
 //
 // func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
