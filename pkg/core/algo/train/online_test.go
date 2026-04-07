@@ -1,6 +1,7 @@
 package train
 
 import (
+	"sync"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -61,6 +62,46 @@ func TestOnlineUpdate(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(online.CurrentStep, ShouldEqual, before+1)
 		So(online.ClassTotals["classA"], ShouldBeGreaterThan, 0)
+	})
+}
+
+func TestOnlineUpdateConcurrent(t *testing.T) {
+	t.Parallel()
+
+	Convey("Update from many goroutines keeps class totals and step coherent", t, func() {
+		online := NewOnline()
+
+		const workers = 64
+		const rounds = 50
+
+		var wait sync.WaitGroup
+
+		wait.Add(workers)
+
+		for worker := 0; worker < workers; worker++ {
+			go func() {
+				defer wait.Done()
+
+				var stub primitive.Value
+
+				for round := 0; round < rounds; round++ {
+					prediction := algo.NewPrediction()
+					prediction.Labels = append(prediction.Labels, algo.Label{
+						Label:      []byte("L"),
+						Confidence: 1,
+					})
+					prediction.Context = append(prediction.Context, stub)
+
+					_, _ = online.Update(prediction)
+				}
+			}()
+		}
+
+		wait.Wait()
+
+		So(online.CurrentStep, ShouldEqual, workers*rounds)
+		So(online.ClassTotals["L"], ShouldBeGreaterThan, 0)
+		So(len(online.Labels), ShouldEqual, 1)
 	})
 }
 
@@ -138,20 +179,24 @@ func TestOnlineValue(t *testing.T) {
 
 func BenchmarkOnlineUpdate(b *testing.B) {
 	online := NewOnline()
-	payload, _ := primitive.NewValue([]byte("training text"))
+	payload, err := primitive.NewValue([]byte("training text"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	defer payload.Close()
+
+	prediction := algo.NewPrediction()
+	prediction.Labels = append(prediction.Labels, algo.Label{
+		Label:      []byte("lbl"),
+		Confidence: 1,
+	})
+	prediction.Context = append(prediction.Context, *payload)
 
 	b.ResetTimer()
 
 	for b.Loop() {
-		prediction := algo.NewPrediction()
-		prediction.Labels = append(prediction.Labels, algo.Label{
-			Label:      []byte("lbl"),
-			Confidence: 1,
-		})
-		prediction.Context = append(prediction.Context, *payload)
-
 		_, _ = online.Update(prediction)
 	}
 }

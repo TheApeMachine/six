@@ -19,7 +19,9 @@ func TestDiscoveryLearn(t *testing.T) {
 				label = "b"
 			}
 
-			_, err := graph.Update(graphPrediction(label, 10, 20, "s", "t"))
+			pred, release := graphPrediction(label, 10, 20, "s", "t")
+			_, err := graph.Update(pred)
+			release()
 
 			So(err, ShouldBeNil)
 		}
@@ -73,7 +75,9 @@ func BenchmarkDiscoveryLearn(b *testing.B) {
 			label = "b"
 		}
 
-		_, _ = graph.Update(graphPrediction(label, 50+uint64(idx), 60, "m", "n"))
+		pred, release := graphPrediction(label, 50+uint64(idx), 60, "m", "n")
+		_, _ = graph.Update(pred)
+		release()
 	}
 
 	discovery := NewDiscovery(graph)

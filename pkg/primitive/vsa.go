@@ -158,16 +158,19 @@ func (value *Value) ComputeAffinityFromContext(context []byte) error {
 			h := fnvHash(context[i : i+ngramWidth])
 			wordIdx := h % uint64(AffinityWords)
 
-			maxBit := uint64(63)
+			bitsPerWord := 64
+
 			if wordIdx == uint64(AffinityWords-1) {
-				maxBit = 0
+				bitsPerWord = 1
 			}
 
-			bitIdx := h >> 6
-			if maxBit > 0 {
-				bitIdx &= maxBit
+			hashPart := h >> 6
+			var bitIdx uint64
+
+			if bitsPerWord == 64 {
+				bitIdx = hashPart & 63
 			} else {
-				bitIdx = 0
+				bitIdx = hashPart % uint64(bitsPerWord)
 			}
 
 			aff[wordIdx] |= 1 << uint(bitIdx)
@@ -255,7 +258,6 @@ func LFSRAdvance(state uint64, n int) uint64 {
 	}
 	return state
 }
-
 
 /*
 XORDistance returns the XOR distance between two 64-bit Affinity words.

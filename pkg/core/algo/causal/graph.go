@@ -460,6 +460,13 @@ func (graph *Graph) ObserveResidual(
 	predAff := predicted.AffinityVector()
 	obsAff := observed.AffinityVector()
 
+	/*
+		residual is RegionWords-wide because observed.AccumulateGradient
+		consumes a full region buffer. Only indices below AffinityWords are
+		filled from the affinity XOR; RegionWords >= AffinityWords, so the
+		tail stays zero by design and is still passed through as part of the
+		gradient slice shape.
+	*/
 	var residual [primitive.RegionWords]uint64
 	var dist int
 

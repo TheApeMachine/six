@@ -31,6 +31,7 @@ const (
 	FieldSurprisal
 	FieldGrowth
 	FieldDecayMul
+	BreakBeam
 )
 
 /*
@@ -42,11 +43,14 @@ type Label struct {
 }
 
 /*
-Continuation is a predicted sequence and its score.
+Continuation is a predicted sequence and its score. Origin identifies
+which trie produced it so the node-level beam can trace selections
+back to their source without extra bookkeeping.
 */
 type Continuation struct {
 	Sequence []byte
 	Score    float64
+	Origin   uint64
 }
 
 /*
@@ -61,6 +65,7 @@ type Prediction struct {
 	Continuations []Continuation
 	Context       []primitive.Value
 	Signals       map[SignalType]*numeric.Derived
+	Rejected      []uint64
 }
 
 /*
@@ -101,7 +106,7 @@ func (prediction *Prediction) String() string {
 		return ""
 	}
 
-	slices.SortFunc(prediction.Continuations, func(a, b Continuation) int {
+	slices.SortStableFunc(prediction.Continuations, func(a, b Continuation) int {
 		return cmp.Compare(b.Score, a.Score)
 	})
 
@@ -116,7 +121,7 @@ func (prediction *Prediction) Label() string {
 		return ""
 	}
 
-	slices.SortFunc(prediction.Labels, func(a, b Label) int {
+	slices.SortStableFunc(prediction.Labels, func(a, b Label) int {
 		return cmp.Compare(b.Confidence, a.Confidence)
 	})
 

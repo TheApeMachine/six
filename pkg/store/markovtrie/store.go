@@ -7,13 +7,13 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
-	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/algo/beam"
 	"github.com/theapemachine/six/pkg/core/algo/causal"
 	"github.com/theapemachine/six/pkg/core/algo/classify"
 	"github.com/theapemachine/six/pkg/core/algo/cooccurrence"
 	"github.com/theapemachine/six/pkg/core/algo/episodic"
 	"github.com/theapemachine/six/pkg/core/algo/train"
+	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -30,6 +30,7 @@ type Store struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	root          *Node
+	ID            uint64
 	Affinity      primitive.Affinity
 	AffinityCount atomic.Uint64
 	cooccurrence  *cooccurrence.Matrix
@@ -139,6 +140,57 @@ func (store *Store) Load(
 }
 
 /*
+Predict runs the same algorithm stack as Load, but with an unlabeled
+observation built from the trie path for value's token. Classifier
+posteriors and beam continuations are merged into one Prediction for
+Prompt/VM callers; other algorithms update their internal signals without
+writing into that merged view.
+*/
+func (store *Store) Predict(value primitive.Value) *algo.Prediction {
+	if store == nil || store.root == nil {
+		return algo.NewPrediction()
+	}
+
+	token := value.String()
+	child := store.root.Child(token)
+	observation := algo.NewPrediction()
+	observation.TruncateForUpdate()
+	observation.AddContext(store.root.value)
+
+	if child != nil {
+		observation.AddContext(child.value)
+	} else {
+		observation.AddContext(value)
+	}
+
+	for _, algorithm := range store.algorithms {
+		_, _ = algorithm.Update(observation)
+	}
+
+	merged := algo.NewPrediction()
+
+	for _, algorithm := range store.algorithms {
+		partial := algorithm.Value()
+
+		if partial == nil {
+			continue
+		}
+
+		switch algorithm.(type) {
+		case *classify.Classifier:
+			merged.Labels = append(merged.Labels, partial.Labels...)
+		case *beam.Search:
+			for _, cont := range partial.Continuations {
+				cont.Origin = store.ID
+				merged.Continuations = append(merged.Continuations, cont)
+			}
+		}
+	}
+
+	return merged
+}
+
+/*
 Signals returns the merged signal map from all algorithms on this
 Store. Each algorithm populates the keys it owns on its Prediction;
 this method flattens them into a single view. Duplicate keys are
@@ -181,6 +233,14 @@ func (store *Store) Signal(signal algo.SignalType) float64 {
 	}
 
 	return 0
+}
+
+/*
+Algorithms returns the algorithm stack for external iteration.
+The node-level beam uses this to send break signals directly.
+*/
+func (store *Store) Algorithms() []algo.Algorithm {
+	return store.algorithms
 }
 
 /*

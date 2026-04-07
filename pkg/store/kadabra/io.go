@@ -116,6 +116,95 @@ func (node *Node) selectOrSpawnTrie(
 }
 
 /*
+nearestTrie returns the existing trie cluster whose centroid affinity is
+closest to the query. Unlike selectOrSpawnTrie, it never allocates a new
+cluster — used for read paths (Predict) where routing must land on trained
+state.
+*/
+func (node *Node) nearestTrie(affinity *primitive.Affinity) *markovtrie.Store {
+	tries := node.triesSnapshot()
+
+	if len(tries) == 0 {
+		return nil
+	}
+
+	if len(tries) > kernel.MaxNearestAffinityCandidates {
+		return node.nearestTrieScalar(affinity, tries)
+	}
+
+	candidates := make([][]uint64, len(tries))
+
+	for idx, cluster := range tries {
+		vec := cluster.Affinity.Vector()
+		candidates[idx] = vec[:]
+	}
+
+	queryVec := affinity.Vector()
+
+	var frame primitive.Value
+
+	for idx, word := range queryVec {
+		frame.Set(idx, word)
+	}
+
+	compiler := programmer.New(
+		&frame,
+		programmer.CompilerWithIntent(
+			programmer.Intent{
+				Operation: programmer.Distance,
+				Assets:    candidates,
+			},
+		),
+		programmer.CompilerWithBatchAffinityLayout(),
+	)
+
+	node.queue.ExecuteSync(compiler)
+
+	bestIdx := int(frame[22])
+
+	if bestIdx < 0 || bestIdx >= len(tries) {
+		return tries[0]
+	}
+
+	return tries[bestIdx]
+}
+
+func (node *Node) nearestTrieScalar(
+	affinity *primitive.Affinity,
+	tries []*markovtrie.Store,
+) *markovtrie.Store {
+	query := affinity.Vector()
+	bestIdx := -1
+	bestDist := int(^uint(0) >> 1)
+
+	for idx, cluster := range tries {
+		cand := cluster.Affinity.Vector()
+		dist := 0
+
+		for wordIdx := range primitive.AffinityWords {
+			xor := query[wordIdx] ^ cand[wordIdx]
+
+			if wordIdx == primitive.AffinityWords-1 {
+				xor &= primitive.AffinityLastWordMask
+			}
+
+			dist += bits.OnesCount64(xor)
+		}
+
+		if dist < bestDist {
+			bestDist = dist
+			bestIdx = idx
+		}
+	}
+
+	if bestIdx < 0 {
+		return tries[0]
+	}
+
+	return tries[bestIdx]
+}
+
+/*
 selectOrSpawnTrieScalar performs the same argmin-and-threshold policy as the
 batch Value path when too many tries exist to pack below word 124.
 */
@@ -184,6 +273,7 @@ func (node *Node) spawnTrie(affinity *primitive.Affinity) *markovtrie.Store {
 
 		next := make([]*markovtrie.Store, len(prev), len(prev)+1)
 		copy(next, prev)
+		store.ID = (node.ID << 32) | uint64(uint32(len(next)+1))
 		next = append(next, store)
 
 		if node.tries.CompareAndSwap(old, &next) {

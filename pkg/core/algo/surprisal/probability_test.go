@@ -71,22 +71,32 @@ func TestProbabilityValue(t *testing.T) {
 func BenchmarkProbabilityUpdate(b *testing.B) {
 	probability := NewProbability()
 
-	history, _ := primitive.NewValue([]byte("aaa bbb ccc ddd"))
-	query, _ := primitive.NewValue([]byte("aaa"))
+	history, err := primitive.NewValue([]byte("aaa bbb ccc ddd"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	defer history.Close()
+
+	query, err := primitive.NewValue([]byte("aaa"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	defer query.Close()
+
+	prediction := algo.NewPrediction()
+	prediction.Context = append(
+		prediction.Context,
+		*history,
+		*query,
+	)
 
 	b.ResetTimer()
 
 	for b.Loop() {
-		prediction := algo.NewPrediction()
-		prediction.Context = append(
-			prediction.Context,
-			*history,
-			*query,
-		)
-
 		_, _ = probability.Update(prediction)
 	}
 }

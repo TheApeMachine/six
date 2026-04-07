@@ -2,6 +2,7 @@ package causal
 
 import (
 	"math"
+	"math/bits"
 	"sync"
 )
 
@@ -81,7 +82,7 @@ Learn runs the full PC algorithm over the current edge statistics:
  1. Build complete undirected skeleton from all observed edges.
  2. For conditioning set sizes 0, 1, 2, ... up to maxConditionSize:
     - For each adjacent pair (X, Y), test conditional independence
-      given every subset of Adj(X)\{Y} of the current size.
+    given every subset of Adj(X)\{Y} of the current size.
     - If X ⊥ Y | S, remove edge and record S as the separation set.
  3. Orient v-structures: for each triple X - Z - Y where X and Y are
     not adjacent, if Z is NOT in SepSet(X, Y), orient as X → Z ← Y.
@@ -648,25 +649,36 @@ func enumerateSubsets(items []uint64, size int) [][]uint64 {
 		return [][]uint64{{}}
 	}
 
-	if size > len(items) {
+	n := len(items)
+
+	if n == 0 || size > n {
 		return nil
+	}
+
+	if n > 63 {
+		items = items[:63]
+		n = 63
 	}
 
 	if size > 20 {
 		size = 20
 	}
 
-	total := uint64(1) << uint(len(items))
+	if size > n {
+		return nil
+	}
+
+	total := uint64(1) << uint(n)
 	var result [][]uint64
 
 	for mask := uint64(0); mask < total; mask++ {
-		if popcount64(mask) != size {
+		if bits.OnesCount64(mask) != size {
 			continue
 		}
 
 		subset := make([]uint64, 0, size)
 
-		for bit := range len(items) {
+		for bit := 0; bit < n; bit++ {
 			if mask&(1<<uint(bit)) != 0 {
 				subset = append(subset, items[bit])
 			}
@@ -676,14 +688,6 @@ func enumerateSubsets(items []uint64, size int) [][]uint64 {
 	}
 
 	return result
-}
-
-func popcount64(x uint64) int {
-	x = x - ((x >> 1) & 0x5555555555555555)
-	x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333)
-	x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f
-
-	return int((x * 0x0101010101010101) >> 56)
 }
 
 /*

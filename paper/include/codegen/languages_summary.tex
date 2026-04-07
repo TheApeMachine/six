@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+116 & JavaScript & 0.0000 & 0.1600 & 0.1600 & 0.0727 \\
+260 & Java & 0.0000 & 0.1200 & 0.1200 & 0.0545 \\
+209 & Java & 0.0000 & 0.1000 & 0.1000 & 0.0455 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
 599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-598 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-597 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+195 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+198 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{from typing import List···def has\_close\_\ldots}} & \multicolumn{2}{l}{\texttt{return True··    return False·}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{from typing import List···def separate\_p\ldots}} & \multicolumn{2}{l}{\texttt{current\_string.clear()··    return resul\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{/* Given a string, find out how many dis\ldots}} & \multicolumn{2}{l}{\texttt{return (new Set(string.toLowerCase())).s\ldots}} & \multicolumn{2}{l}{\texttt{(regard (regard (regard (regard (regard}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{ult += i;·        \}·        return resul\ldots}} & \multicolumn{2}{l}{\texttt{import import import import import}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{List List List List List}} \\
+\multicolumn{2}{l}{\texttt{/*·  Given a dictionary, return true if \ldots}} & \multicolumn{2}{l}{\texttt{= 0) || c == 0) \{ return false \}·  retur\ldots}} & \multicolumn{2}{l}{\texttt{/* /* /* /* /*}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 600\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Mean score: 0.0170} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0727} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

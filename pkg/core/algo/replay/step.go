@@ -2,6 +2,8 @@ package replay
 
 import (
 	"unicode/utf8"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -67,6 +69,11 @@ func TryOnce(
 	learningRate := env.LearningRate
 
 	if learningRate <= 0 {
+		errnie.Warn("replay.TryOnce: Env.LearningRate invalid, using default",
+			"invalid_learning_rate", env.LearningRate,
+			"default_learning_rate", 1.0,
+		)
+
 		learningRate = 1.0
 	}
 

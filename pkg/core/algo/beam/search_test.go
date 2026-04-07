@@ -46,7 +46,7 @@ func TestSearchUpdate(t *testing.T) {
 		out, err := search.Update(prediction)
 
 		So(err, ShouldBeNil)
-		So(len(out.Continuations), ShouldBeGreaterThanOrEqualTo, 0)
+		So(len(out.Continuations), ShouldBeGreaterThan, 0)
 	})
 }
 
@@ -63,10 +63,20 @@ func TestSearchValue(t *testing.T) {
 func BenchmarkSearchUpdate(b *testing.B) {
 	search := NewSearch()
 
-	left, _ := primitive.NewValue([]byte("alpha beta gamma"))
-	right, _ := primitive.NewValue([]byte("beta gamma delta"))
+	left, err := primitive.NewValue([]byte("alpha beta gamma"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	defer left.Close()
+
+	right, err := primitive.NewValue([]byte("beta gamma delta"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	defer right.Close()
 
 	b.ResetTimer()
@@ -79,6 +89,10 @@ func BenchmarkSearchUpdate(b *testing.B) {
 			*right,
 		)
 
-		_, _ = search.Update(prediction)
+		_, err := search.Update(prediction)
+
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

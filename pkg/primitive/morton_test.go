@@ -194,8 +194,21 @@ func TestNeighbourKeys(t *testing.T) {
 				morton.Encode(6, 6): {},
 			}
 
+			neighbourSet := make(map[uint64]struct{}, len(neighbours))
+
+			for _, neighbour := range neighbours {
+				neighbourSet[neighbour] = struct{}{}
+			}
+
 			for _, neighbour := range neighbours {
 				_, found := expected[neighbour]
+
+				So(found, ShouldBeTrue)
+			}
+
+			for key := range expected {
+				_, found := neighbourSet[key]
+
 				So(found, ShouldBeTrue)
 			}
 		})

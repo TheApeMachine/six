@@ -32,8 +32,11 @@ func TestBufferPush(t *testing.T) {
 		buffer.Push([]string{"c"}, "L", 3)
 
 		So(buffer.Len(), ShouldEqual, 2)
-		So(buffer.events[0].Tokens[0], ShouldEqual, "b")
-		So(buffer.events[1].Tokens[0], ShouldEqual, "c")
+
+		snap := buffer.Snapshot(nil)
+
+		So(snap[0].Tokens[0], ShouldEqual, "b")
+		So(snap[1].Tokens[0], ShouldEqual, "c")
 	})
 }
 

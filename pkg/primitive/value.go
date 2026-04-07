@@ -433,9 +433,10 @@ func (value *Value) SetMetaWord(offset int, val uint64) {
 }
 
 /*
-IncrementMeta atomically increments a meta word. Suitable for use-count
-and intervention-count tracking. Not lock-free — callers serialising
-through a trie's update path need no additional synchronisation.
+IncrementMeta performs a non-atomic read-modify-write on a meta word
+via (*value)[idx]++. Suitable for use-count and intervention-count
+tracking; callers must serialize through a trie's update path — there
+is no atomic or lock-free guarantee on the underlying store word.
 */
 func (value *Value) IncrementMeta(offset int) {
 	if value == nil || offset < 0 || offset >= RegionWords {

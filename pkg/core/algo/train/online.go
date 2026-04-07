@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
@@ -27,6 +28,13 @@ Signals produced:
     step count delta, not a magic constant)
 */
 type Online struct {
+	/*
+		mu serializes map mutations and counters. markovtrie.Store.Load may be
+		invoked from many pool workers against one cluster, so trainer state must
+		not allow concurrent writers on labelSet, ClassTotals, or
+		classTotalsLastNormStep.
+	*/
+	mu          sync.Mutex
 	encoder     *bpe.Encoder
 	Labels      []string
 	labelSet    map[string]struct{}
@@ -115,6 +123,9 @@ func (online *Online) Update(
 		return online.prediction, nil
 	}
 
+	online.mu.Lock()
+	defer online.mu.Unlock()
+
 	online.applyFieldPressure(prediction)
 
 	if len(prediction.Labels) == 0 {
@@ -139,13 +150,16 @@ func (online *Online) Update(
 	}
 
 	for _, value := range prediction.Context {
-		online.Step(label, online.lastRate, value)
+		online.stepUnlocked(label, online.lastRate, value)
 	}
 
 	return online.prediction, nil
 }
 
 func (online *Online) Value() *algo.Prediction {
+	online.mu.Lock()
+	defer online.mu.Unlock()
+
 	return online.prediction
 }
 
@@ -154,6 +168,9 @@ LearningRate returns the current derived learning rate. The Store
 reads this after Update to pass into the trie insertion.
 */
 func (online *Online) LearningRate() float64 {
+	online.mu.Lock()
+	defer online.mu.Unlock()
+
 	return online.lastRate
 }
 
@@ -201,6 +218,17 @@ func (online *Online) Step(
 	learningRate float64,
 	value primitive.Value,
 ) {
+	online.mu.Lock()
+	defer online.mu.Unlock()
+
+	online.stepUnlocked(label, learningRate, value)
+}
+
+func (online *Online) stepUnlocked(
+	label string,
+	learningRate float64,
+	value primitive.Value,
+) {
 	label = strings.TrimSpace(label)
 
 	if label == "" || learningRate <= 0 {
@@ -209,10 +237,10 @@ func (online *Online) Step(
 
 	tokens := online.encoder.Encode(value.String())
 
-	online.AddLabel(label)
+	online.addLabelUnlocked(label)
 	online.CurrentStep++
 
-	online.normalize(label, online.CurrentStep)
+	online.normalizeUnlocked(label, online.CurrentStep)
 	online.ClassTotals[label] += learningRate
 
 	if online.Episodic != nil {
@@ -224,7 +252,7 @@ func (online *Online) Step(
 	}
 }
 
-func (online *Online) normalize(label string, step int) {
+func (online *Online) normalizeUnlocked(label string, step int) {
 	lastNormStep, exists := online.classTotalsLastNormStep[label]
 
 	if !exists {
@@ -243,6 +271,13 @@ func (online *Online) normalize(label string, step int) {
 }
 
 func (online *Online) AddLabel(label string) {
+	online.mu.Lock()
+	defer online.mu.Unlock()
+
+	online.addLabelUnlocked(label)
+}
+
+func (online *Online) addLabelUnlocked(label string) {
 	if _, exists := online.labelSet[label]; exists {
 		return
 	}
@@ -286,6 +321,9 @@ func (online *Online) contextNovelty(prediction *algo.Prediction) float64 {
 NextConceptLabel generates a new auto-incremented concept label.
 */
 func (online *Online) NextConceptLabel() string {
+	online.mu.Lock()
+	defer online.mu.Unlock()
+
 	label := fmt.Sprintf(
 		"%s%d",
 		core.Cfg.MarkovTrie.ConceptLabelPrefix,

@@ -9,7 +9,14 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
-func graphPrediction(label string, fromID, toID uint64, leftText, rightText string) *algo.Prediction {
+/*
+graphPrediction builds a two-node Prediction using pooled Values. Call
+release once the caller is done with the prediction (after Update or when
+discarding) so the allocations return to the Value pool.
+*/
+func graphPrediction(
+	label string, fromID, toID uint64, leftText, rightText string,
+) (*algo.Prediction, func()) {
 	left, err := primitive.NewValue([]byte(leftText))
 
 	if err != nil {
@@ -30,9 +37,6 @@ func graphPrediction(label string, fromID, toID uint64, leftText, rightText stri
 	leftCopy := *left
 	rightCopy := *right
 
-	left.Close()
-	right.Close()
-
 	prediction := algo.NewPrediction()
 	prediction.Labels = append(prediction.Labels, algo.Label{
 		Label:      []byte(label),
@@ -40,7 +44,12 @@ func graphPrediction(label string, fromID, toID uint64, leftText, rightText stri
 	})
 	prediction.Context = append(prediction.Context, leftCopy, rightCopy)
 
-	return prediction
+	release := func() {
+		left.Close()
+		right.Close()
+	}
+
+	return prediction, release
 }
 
 func TestGraphUpdate(t *testing.T) {
@@ -74,7 +83,9 @@ func TestGraphUpdate(t *testing.T) {
 				label = "b"
 			}
 
-			_, err := graph.Update(graphPrediction(label, 1, 2, "x", "y"))
+			pred, release := graphPrediction(label, 1, 2, "x", "y")
+			_, err := graph.Update(pred)
+			release()
 
 			So(err, ShouldBeNil)
 		}
@@ -117,7 +128,9 @@ func TestGraphIntervene(t *testing.T) {
 				label = "b"
 			}
 
-			_, err := graph.Update(graphPrediction(label, 7, 9, "p", "q"))
+			pred, release := graphPrediction(label, 7, 9, "p", "q")
+			_, err := graph.Update(pred)
+			release()
 
 			So(err, ShouldBeNil)
 		}
@@ -140,7 +153,7 @@ func TestGraphIntervene(t *testing.T) {
 
 		severed := graph.Intervene(working, 9, forced, parentAff)
 
-		So(len(severed), ShouldBeGreaterThanOrEqualTo, 0)
+		So(severed, ShouldResemble, []uint64{7})
 	})
 }
 
@@ -150,6 +163,8 @@ func BenchmarkGraphUpdate(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, _ = graph.Update(graphPrediction("a", 3, 4, "l", "r"))
+		pred, release := graphPrediction("a", 3, 4, "l", "r")
+		_, _ = graph.Update(pred)
+		release()
 	}
 }

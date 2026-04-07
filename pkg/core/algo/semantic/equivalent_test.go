@@ -23,8 +23,6 @@ func TestNewEquivalent(t *testing.T) {
 }
 
 func TestEquivalentRun(t *testing.T) {
-	t.Parallel()
-
 	Convey("Run maps identical token to itself with similarity 1 when co-occurrence matches", t, func() {
 		vocab := []string{"same", "other"}
 		co := map[string]map[string]float64{

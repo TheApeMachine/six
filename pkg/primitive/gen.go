@@ -107,12 +107,17 @@ func main() {
 		writeMacro(&content, "AFFINITY_WORDS", affWords)
 		writeMacro(&content, "AFFINITY_BITS", affBits)
 
-		lastWordMask := 1
+		var lastWordMask uint64
+
 		remainder := affBits % 64
-		if remainder > 0 {
-			lastWordMask = (1 << remainder) - 1
+
+		if remainder == 0 {
+			lastWordMask = ^uint64(0)
+		} else {
+			lastWordMask = (uint64(1) << uint(remainder)) - 1
 		}
-		writeMacro(&content, "AFFINITY_LAST_WORD_MASK", lastWordMask)
+
+		writeMacro64(&content, "AFFINITY_LAST_WORD_MASK", lastWordMask)
 	}
 
 	if viper.IsSet("value.region.meta.start") {
@@ -147,4 +152,8 @@ func main() {
 
 func writeMacro(b *strings.Builder, name string, val int) {
 	fmt.Fprintf(b, "#define %-40s %d\n", name, val)
+}
+
+func writeMacro64(b *strings.Builder, name string, val uint64) {
+	fmt.Fprintf(b, "#define %-40s 0x%016XULL\n", name, val)
 }

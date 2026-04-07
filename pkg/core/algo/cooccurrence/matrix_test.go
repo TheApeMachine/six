@@ -9,12 +9,17 @@ import (
 func TestNewMatrix(t *testing.T) {
 	t.Parallel()
 
-	Convey("NewMatrix initializes empty structures", t, func() {
+	Convey("Given a window size", t, func() {
 		matrix := NewMatrix(2)
 
-		So(matrix.Window, ShouldEqual, 2)
-		So(len(matrix.VocabularyOrder), ShouldEqual, 0)
-		So(len(matrix.Counts), ShouldEqual, 0)
+		Convey("It should initialize with the correct window", func() {
+			So(matrix.Window, ShouldEqual, 2)
+		})
+
+		Convey("It should have empty structures", func() {
+			So(len(matrix.VocabularyOrder), ShouldEqual, 0)
+			So(len(matrix.Counts), ShouldEqual, 0)
+		})
 	})
 }
 
@@ -32,7 +37,7 @@ func TestMatrixUpdate(t *testing.T) {
 	})
 
 	Convey("Update deduplicates vocabulary order", t, func() {
-		matrix := NewMatrix(0)
+		matrix := NewMatrix(1)
 		matrix.Update([]string{"x", "x"})
 
 		So(len(matrix.VocabularyOrder), ShouldEqual, 1)

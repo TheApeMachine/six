@@ -9,6 +9,16 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+/*
+reservedProbeWordIndexA/B are arbitrary frame indices in the untouched
+region of the test layout; UniversalBitwise must not clobber them when
+only slots inside the programmed region are active.
+*/
+const (
+	reservedProbeWordIndexA = 50
+	reservedProbeWordIndexB = 60
+)
+
 func encode32(op uint8, src, dst int) uint32 {
 	return uint32(op&0xF) | uint32(src&0x3FFF)<<4 | uint32(dst&0x3FFF)<<18
 }
@@ -48,10 +58,8 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 		frame[0] = 0xAAAAAAAAAAAAAAAA
 		frame[1] = 0xCCCCCCCCCCCCCCCC
 
-		probeWordA := 50
-		probeWordB := 60
-		frame[probeWordA] = 11
-		frame[probeWordB] = 42
+		frame[reservedProbeWordIndexA] = 11
+		frame[reservedProbeWordIndexB] = 42
 
 		installSlot(&frame, 0, encode32(0x6, 0, 1))
 
@@ -59,8 +67,8 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 
 		So(err, ShouldBeNil)
 		So(frame[1], ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
-		So(frame[probeWordA], ShouldEqual, uint64(11))
-		So(frame[probeWordB], ShouldEqual, uint64(42))
+		So(frame[reservedProbeWordIndexA], ShouldEqual, uint64(11))
+		So(frame[reservedProbeWordIndexB], ShouldEqual, uint64(42))
 	})
 }
 

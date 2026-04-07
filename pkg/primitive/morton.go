@@ -1,6 +1,10 @@
 package primitive
 
-import "math/bits"
+import (
+	"fmt"
+	"math"
+	"math/bits"
+)
 
 /*
 Morton implements Z-order curve encoding that interleaves the bits of
@@ -32,6 +36,10 @@ NewMorton constructs a Morton encoder for the given dimensionality.
 The maximum useful bits per coordinate is 64/dimensions.
 */
 func NewMorton(dimensions int) *Morton {
+	if dimensions > 64 {
+		dimensions = 64
+	}
+
 	if dimensions < 2 {
 		dimensions = 2
 	}
@@ -48,10 +56,18 @@ single uint64. Coordinate bits are deposited at positions
 bit*dimensions+dim, producing the Z-order curve key.
 */
 func (morton *Morton) Encode(coords ...uint32) uint64 {
+	if len(coords) != morton.dimensions {
+		panic(fmt.Sprintf(
+			"primitive.Morton.Encode: expected %d coordinates, got %d",
+			morton.dimensions,
+			len(coords),
+		))
+	}
+
 	var code uint64
 
 	for bit := 0; bit < morton.bitsPerCoord; bit++ {
-		for dim := 0; dim < morton.dimensions && dim < len(coords); dim++ {
+		for dim := 0; dim < morton.dimensions; dim++ {
 			code |= (uint64(coords[dim]>>uint(bit)) & 1) << uint(bit*morton.dimensions+dim)
 		}
 	}
@@ -135,6 +151,8 @@ func (morton *Morton) neighbourRecurse(
 		return
 	}
 
+	maxCoord := maxEncodableCoord(morton.bitsPerCoord)
+
 	for _, offset := range offsets {
 		val := int64(center[dim]) + int64(offset)
 
@@ -142,9 +160,21 @@ func (morton *Morton) neighbourRecurse(
 			continue
 		}
 
+		if val > int64(maxCoord) {
+			continue
+		}
+
 		current[dim] = uint32(val)
 		morton.neighbourRecurse(center, offsets, current, dim+1, out)
 	}
+}
+
+func maxEncodableCoord(bitsPerCoord int) uint32 {
+	if bitsPerCoord >= 32 {
+		return math.MaxUint32
+	}
+
+	return (uint32(1) << uint(bitsPerCoord)) - 1
 }
 
 /*

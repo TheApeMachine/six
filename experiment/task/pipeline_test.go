@@ -149,7 +149,6 @@ func TestPipeline(t *testing.T) {
 					t.Context(),
 					PipelineWithExperiment(experiment),
 					PipelineWithReporter(NewProjectorReporter()),
-					PipelineWithSnapshotReporter(),
 					PipelineWithViz("127.0.0.1:0"),
 				)
 
@@ -188,14 +187,6 @@ func TestPipeline(t *testing.T) {
 							Convey(
 								fmt.Sprintf("It should match holdout for [%d] %s", idx, prompt),
 								func() {
-									errnie.Debug(
-										"experiment",
-										"prompt", prompt,
-										"holdout", string(holdoutBytes),
-										"generation", prediction.String(),
-										"classification", prediction.Label(),
-									)
-
 									if strings.TrimSpace(prediction.String()) != "" {
 										So(
 											prediction.String(),

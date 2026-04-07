@@ -87,7 +87,9 @@ func TestClassifierValue(t *testing.T) {
 
 		cloned.Labels[0].Label[0] = 'z'
 
-		So(string(classifier.prediction.Labels[0].Label), ShouldEqual, "k")
+		again := classifier.Value()
+
+		So(string(again.Labels[0].Label), ShouldEqual, "k")
 	})
 }
 

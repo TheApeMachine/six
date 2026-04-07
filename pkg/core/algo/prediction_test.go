@@ -45,13 +45,51 @@ func TestPredictionString(t *testing.T) {
 	t.Parallel()
 
 	Convey("String picks highest scoring continuation text", t, func() {
-		prediction := NewPrediction()
-		prediction.Continuations = append(prediction.Continuations,
-			Continuation{Sequence: []byte("low"), Score: 1})
-		prediction.Continuations = append(prediction.Continuations,
-			Continuation{Sequence: []byte("high"), Score: 9})
+		Convey("when Continuations is empty, It should return an empty string", func() {
+			prediction := NewPrediction()
 
-		So(prediction.String(), ShouldEqual, "high")
+			So(prediction.String(), ShouldEqual, "")
+		})
+
+		Convey("when scores differ, It should pick the max", func() {
+			prediction := NewPrediction()
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("low"), Score: 1})
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("high"), Score: 9})
+
+			So(prediction.String(), ShouldEqual, "high")
+		})
+
+		Convey("when top scores tie, It should keep earlier slice order", func() {
+			prediction := NewPrediction()
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("first"), Score: 3})
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("second"), Score: 3})
+
+			So(prediction.String(), ShouldEqual, "first")
+		})
+
+		Convey("when all scores are non-positive, It should still pick the highest", func() {
+			prediction := NewPrediction()
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("worst"), Score: -9})
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("less_bad"), Score: -2})
+
+			So(prediction.String(), ShouldEqual, "less_bad")
+		})
+
+		Convey("when a zero score beats a negative one", func() {
+			prediction := NewPrediction()
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("neg"), Score: -1})
+			prediction.Continuations = append(prediction.Continuations,
+				Continuation{Sequence: []byte("zero"), Score: 0})
+
+			So(prediction.String(), ShouldEqual, "zero")
+		})
 	})
 }
 
@@ -59,23 +97,49 @@ func TestPredictionLabel(t *testing.T) {
 	t.Parallel()
 
 	Convey("Label picks highest confidence name", t, func() {
-		prediction := NewPrediction()
-		prediction.Labels = append(prediction.Labels,
-			Label{Label: []byte("a"), Confidence: 0.2})
-		prediction.Labels = append(prediction.Labels,
-			Label{Label: []byte("b"), Confidence: 0.8})
+		Convey("when Labels is empty, It should return an empty string", func() {
+			prediction := NewPrediction()
 
-		So(prediction.Label(), ShouldEqual, "b")
-	})
-}
+			So(prediction.Label(), ShouldEqual, "")
+		})
 
-func TestPredictionValue(t *testing.T) {
-	t.Parallel()
+		Convey("when confidences differ inside [0,1], It should pick the max", func() {
+			prediction := NewPrediction()
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("a"), Confidence: 0.2})
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("b"), Confidence: 0.8})
 
-	Convey("Value returns receiver", t, func() {
-		prediction := NewPrediction()
+			So(prediction.Label(), ShouldEqual, "b")
+		})
 
-		So(prediction.Value(), ShouldEqual, prediction)
+		Convey("when confidences tie, It should keep earlier slice order", func() {
+			prediction := NewPrediction()
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("first"), Confidence: 0.5})
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("second"), Confidence: 0.5})
+
+			So(prediction.Label(), ShouldEqual, "first")
+		})
+
+		Convey("when confidences sit outside [0,1], It still ranks by numeric order", func() {
+			prediction := NewPrediction()
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("low"), Confidence: -0.25})
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("high"), Confidence: 1.25})
+
+			So(prediction.Label(), ShouldEqual, "high")
+
+			prediction.Labels = prediction.Labels[:0]
+			prediction.Labels = append(prediction.Labels,
+				Label{Label: []byte("a"), Confidence: 2},
+				Label{Label: []byte("b"), Confidence: 1.5},
+			)
+
+			So(prediction.Label(), ShouldEqual, "a")
+		})
 	})
 }
 

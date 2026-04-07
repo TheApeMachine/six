@@ -35,18 +35,21 @@ func TestRankedTokensSortDescending(t *testing.T) {
 }
 
 func BenchmarkRankedTokensSortDescending(b *testing.B) {
-	ranked := make(RankedTokens, 128)
+	template := make(RankedTokens, 128)
 
-	for idx := range ranked {
-		ranked[idx] = RankedToken{
+	for idx := range template {
+		template[idx] = RankedToken{
 			Token:       string(rune('a' + (idx % 26))),
 			Probability: float64(idx%17) / 100,
 		}
 	}
 
+	ranked := make(RankedTokens, 128)
+
 	b.ResetTimer()
 
 	for b.Loop() {
+		copy(ranked, template)
 		ranked.SortDescending()
 	}
 }

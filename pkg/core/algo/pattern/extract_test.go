@@ -1,6 +1,7 @@
 package pattern
 
 import (
+	"math"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -45,10 +46,26 @@ func TestExtract(t *testing.T) {
 			},
 		}
 
-		symbols := Extract(root, []string{"L1", "L2"}, visitor, 5, 0, 10)
+		/*
+			Combined mass for "a" is 12 (L1=10, L2=2), so minTotal 5 passes. The L2-only
+			row is still scored; minScore filters out that weak arm so only the L1 symbol
+			remains.
+		*/
+		symbols := Extract(root, []string{"L1", "L2"}, visitor, 5, 0.25, 10)
 
-		So(len(symbols), ShouldBeGreaterThan, 0)
+		So(len(symbols), ShouldEqual, 1)
 		So(symbols[0].Symbol, ShouldEqual, "a")
+		So(symbols[0].Label, ShouldEqual, "L1")
+
+		expected := 10.0 / 12.0 * math.Log1p(10) * math.Sqrt(1)
+
+		So(symbols[0].Score, ShouldAlmostEqual, expected, 1e-9)
+
+		Convey("with minScore 11 nothing clears the bar", func() {
+			out := Extract(root, []string{"L1", "L2"}, visitor, 5, 11, 10)
+
+			So(out, ShouldHaveLength, 0)
+		})
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/algo/beam"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -32,6 +33,7 @@ type Node struct {
 	epoch             uint64
 	tries             atomic.Pointer[[]*markovtrie.Store]
 	Field             *Field
+	beam              *beam.Search
 	routing           *RoutingTable
 	gossip            *Gossip
 	random            *rand.Rand
@@ -97,8 +99,9 @@ func NewNode(
 	node.gossip = &Gossip{
 		owner: node,
 	}
-	
+
 	node.Field = NewField(node)
+	node.beam = beam.NewSearch()
 
 	viz.DefaultBus.Publish(viz.NodeCreated(node.ID, id))
 
@@ -173,7 +176,10 @@ func (node *Node) Publish(
 }
 
 /*
-Predict runs inference on the given value through the Field.
+Predict fans the prompt to all tries and feeds their predictions
+directly into the node-level beam. The beam selects which trie
+continuations compose well (via Origin on each Continuation) and
+breaks non-contributing trie beams so they re-search.
 */
 func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 	if node.err = validate.Require(map[string]any{
@@ -182,15 +188,57 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		return nil, errnie.Error(node.err)
 	}
 
-	prediction, err := node.Field.Project(value)
+	pv, ok := value.(*primitive.Value)
 
-	if prediction != nil && len(prediction.Labels) > 0 {
-		viz.DefaultBus.Publish(viz.TriePredictEvent(
-			node.ID,
-			string(prediction.Labels[0].Label),
-			prediction.Labels[0].Confidence,
+	if !ok {
+		return nil, errnie.Error(fmt.Errorf(
+			"kadabra.Predict requires *primitive.Value",
 		))
 	}
 
-	return prediction, err
+	_, _ = node.Field.Project(pv)
+
+	observation := algo.NewPrediction()
+	observation.AddContext(*pv)
+
+	for _, trie := range node.triesSnapshot() {
+		triePred := trie.Predict(*pv)
+		observation.Continuations = append(observation.Continuations, triePred.Continuations...)
+		observation.Labels = append(observation.Labels, triePred.Labels...)
+	}
+
+	result, _ := node.beam.Update(observation)
+	node.breakRejected(result.Rejected)
+
+	return result, nil
+}
+
+/*
+breakRejected sends a BreakBeam signal to tries whose Origins were
+rejected by the node-level beam. Those tries reset their beam state
+so they can re-search on the next round.
+*/
+func (node *Node) breakRejected(rejected []uint64) {
+	if len(rejected) == 0 {
+		return
+	}
+
+	rejectedSet := make(map[uint64]bool, len(rejected))
+
+	for _, origin := range rejected {
+		rejectedSet[origin] = true
+	}
+
+	breakSignal := algo.NewPrediction()
+	breakSignal.Signals[algo.BreakBeam] = numeric.NewDerivedFrom(1)
+
+	for _, trie := range node.triesSnapshot() {
+		if !rejectedSet[trie.ID] {
+			continue
+		}
+
+		for _, algorithm := range trie.Algorithms() {
+			algorithm.Update(breakSignal)
+		}
+	}
 }
