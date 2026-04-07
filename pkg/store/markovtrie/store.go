@@ -2,6 +2,7 @@ package markovtrie
 
 import (
 	"context"
+	"log"
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -104,7 +105,15 @@ func (store *Store) Load(
 		observation.AddContext(value)
 
 		for _, algorithm := range store.algorithms {
-			_, _ = algorithm.Update(observation)
+			_, err := algorithm.Update(observation)
+
+			if err != nil {
+				log.Printf(
+					"markovtrie.Store.Load: algorithm %T failed: %v",
+					algorithm,
+					err,
+				)
+			}
 		}
 	}
 

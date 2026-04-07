@@ -23,9 +23,9 @@ Signals produced:
   - Accuracy: EMA-smoothed classification confidence of the top label.
 */
 type Classifier struct {
-	prediction   *algo.Prediction
-	entropy      *numeric.Derived
-	accuracy     *numeric.Derived
+	prediction    *algo.Prediction
+	entropy       *numeric.Derived
+	accuracy      *numeric.Derived
 	labelProfiles map[string]map[string]float64
 	labelTotals   map[string]float64
 	observations  float64
@@ -153,7 +153,7 @@ func (classifier *Classifier) classify(
 
 		for _, token := range tokens {
 			count := profile[token]
-			prob := (count + 0.1) / (total + 0.1*vocabSize)
+			prob := (count + 1.0) / (total + 1.0*vocabSize)
 			logProb += math.Log(prob)
 		}
 

@@ -49,14 +49,15 @@ computes the mean surprisal of the newest observation against it.
 func (probability *Probability) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
-	if prediction == nil || len(prediction.Context) == 0 {
+	if prediction == nil || len(prediction.Context) < 2 {
 		return probability.prediction, nil
 	}
 
+	context := prediction.Context
 	freq := make(map[string]float64)
 	var total float64
 
-	for _, value := range prediction.Context {
+	for _, value := range context[:len(context)-1] {
 		for token := range strings.FieldsSeq(value.String()) {
 			freq[token]++
 			total++
@@ -67,18 +68,22 @@ func (probability *Probability) Update(
 		return probability.prediction, nil
 	}
 
-	var bits float64
-	var count float64
+	vocabSize := float64(len(freq))
+	last := context[len(context)-1]
 
-	for token, n := range freq {
-		_ = token
-		prob := n / total
-		bits += -n * math.Log2(prob)
-		count += n
+	var bits float64
+	var tokenCount float64
+
+	for token := range strings.FieldsSeq(last.String()) {
+		count := freq[token]
+		p := (count + 1.0) / (total + vocabSize)
+
+		bits += -math.Log2(p)
+		tokenCount++
 	}
 
-	if count > 0 {
-		probability.surprisal.Next(bits / count)
+	if tokenCount > 0 {
+		probability.surprisal.Next(bits / tokenCount)
 	}
 
 	return probability.prediction, nil

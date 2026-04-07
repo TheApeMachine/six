@@ -2,6 +2,7 @@ package kadabra
 
 import (
 	"maps"
+	"math"
 	"slices"
 	"sync/atomic"
 
@@ -11,6 +12,12 @@ import (
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
 )
+
+/*
+minAlignmentRatio floors alignmentRatio before reciprocals so misaligned
+learn/decay multipliers cannot diverge when dominant energy is tiny.
+*/
+const minAlignmentRatio = 1e-3
 
 /*
 digestMap is an immutable snapshot of remote trie digests for eigenmode work.
@@ -34,9 +41,9 @@ across all the Markov Tries that the node acts as a routing hub for.
 
 All thresholds and multipliers are Derived chains — no magic numbers.
 The coupling threshold tracks the mean observed coupling and gates
-above it. Pressure clamps derive from the observed range of pressure
-values. Alignment multipliers emerge from the ratio of dominant mode
-energy to total energy.
+above it. Decay and learn pressure clamps each track their own spread.
+Alignment multipliers emerge from the ratio of dominant mode energy
+to total energy.
 */
 type Field struct {
 	digests    atomic.Pointer[digestMap]
@@ -44,9 +51,10 @@ type Field struct {
 	owner      *Node
 	phase      *geometry.Phase
 
-	couplingThreshold *numeric.Derived
-	pressureClamp     *numeric.Derived
-	alignmentRatio    *numeric.Derived
+	couplingThreshold  *numeric.Derived
+	pressureDecayClamp *numeric.Derived
+	pressureLearnClamp *numeric.Derived
+	alignmentRatio     *numeric.Derived
 }
 
 /*
@@ -61,7 +69,11 @@ func NewField(owner *Node) *Field {
 			numeric.WithDynamics(adaptive.NewEMA()),
 		),
 
-		pressureClamp: numeric.NewDerived(
+		pressureDecayClamp: numeric.NewDerived(
+			numeric.WithDynamics(adaptive.NewSpread()),
+		),
+
+		pressureLearnClamp: numeric.NewDerived(
 			numeric.WithDynamics(adaptive.NewSpread()),
 		),
 
@@ -240,7 +252,7 @@ The field selects by differential survival.
 
 All multipliers are derived:
   - Coupling threshold: smoothed mean of observed coupling values
-  - Pressure clamp: smoothed spread (variance) of raw pressure values
+  - Pressure clamps: separate smoothed spread for decay and learn streams
   - Alignment ratio: dominant mode energy / total energy, smoothed
 */
 func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
@@ -261,7 +273,14 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 	participants := make([]geometry.ModeParticipant, 0, len(digestSnap))
 	var totalEnergy float64
 
+	affinityByOrigin := make(
+		map[uint64]*primitive.Affinity,
+		len(digestSnap),
+	)
+
 	for origin, digest := range digestSnap {
+		affinityByOrigin[origin] = primitive.NewAffinityFromVector(digest.Affinity)
+
 		participants = append(participants, geometry.ModeParticipant{
 			Origin: origin,
 			Energy: digest.SurprisalMean,
@@ -271,9 +290,8 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 	}
 
 	couplingFn := func(a, b uint64) float64 {
-		dA, dB := digestSnap[a], digestSnap[b]
-		affA := primitive.NewAffinityFromVector(dA.Affinity)
-		affB := primitive.NewAffinityFromVector(dB.Affinity)
+		affA := affinityByOrigin[a]
+		affB := affinityByOrigin[b]
 
 		return affA.Coupling(affB)
 	}
@@ -369,15 +387,18 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		rawDecay := fieldSurprisal - local.SurprisalMean
 		rawLearn := fieldGrowth - local.GrowthRate
 
-		// Feed raw pressures into the clamp chain so it tracks
-		// the observed spread and can bound outliers.
-		field.pressureClamp.Next(rawDecay)
-		field.pressureClamp.Next(rawLearn)
+		field.pressureDecayClamp.Next(rawDecay)
+		field.pressureLearnClamp.Next(rawLearn)
 
-		clampLimit := field.pressureClamp.Value()
+		clampLimitDecay := field.pressureDecayClamp.Value()
+		clampLimitLearn := field.pressureLearnClamp.Value()
 
-		if clampLimit <= 0 {
-			clampLimit = 1
+		if clampLimitDecay <= 0 {
+			clampLimitDecay = 1
+		}
+
+		if clampLimitLearn <= 0 {
+			clampLimitLearn = 1
 		}
 
 		// Alignment ratio acts as the asymmetric multiplier.
@@ -386,23 +407,21 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		// opposite. The ratio itself is derived from mode
 		// energy distribution — no config constants needed.
 		ratio := field.alignmentRatio.Value()
-
-		if ratio <= 0 {
-			ratio = 1
-		}
+		safeRatio := math.Max(ratio, minAlignmentRatio)
+		inv := 1.0 / safeRatio
 
 		var decayMul, learnMul float64
 
 		if aligned {
-			decayMul = 1.0 / ratio
-			learnMul = ratio
+			decayMul = inv
+			learnMul = safeRatio
 		} else {
-			decayMul = ratio
-			learnMul = 1.0 / ratio
+			decayMul = safeRatio
+			learnMul = inv
 		}
 
-		decay := clamp(rawDecay*decayMul, clampLimit)
-		learn := clamp(rawLearn*learnMul, clampLimit)
+		decay := clamp(rawDecay*decayMul, clampLimitDecay)
+		learn := clamp(rawLearn*learnMul, clampLimitLearn)
 
 		cluster.ApplyFieldPressure(decay, learn, decay)
 	}

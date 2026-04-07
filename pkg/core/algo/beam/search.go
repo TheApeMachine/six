@@ -85,8 +85,7 @@ func (search *Search) Update(
 		maxHops = 5
 	}
 
-	for hop := range maxHops {
-		_ = hop
+	for range maxHops {
 		var next []*Hypothesis
 
 		for _, hyp := range beams {
@@ -101,13 +100,21 @@ func (search *Search) Update(
 	}
 
 	continuations := Continuations(len(prefix), beams, endToken, " ")
-	search.prediction.Continuations = make([]algo.Continuation, len(continuations))
 
-	for idx, cont := range continuations {
-		search.prediction.Continuations[idx] = algo.Continuation{
-			Sequence: []byte(cont.Sequence),
-			Score:    cont.Score,
-		}
+	if search.prediction.Continuations == nil {
+		search.prediction.Continuations = make([]algo.Continuation, 0, len(continuations))
+	}
+
+	search.prediction.Continuations = search.prediction.Continuations[:0]
+
+	for _, cont := range continuations {
+		search.prediction.Continuations = append(
+			search.prediction.Continuations,
+			algo.Continuation{
+				Sequence: []byte(cont.Sequence),
+				Score:    cont.Score,
+			},
+		)
 	}
 
 	if len(beams) > 0 {
