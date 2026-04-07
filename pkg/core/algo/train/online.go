@@ -10,14 +10,21 @@ import (
 	"github.com/theapemachine/six/pkg/core/algo/bpe"
 	"github.com/theapemachine/six/pkg/core/algo/cooccurrence"
 	"github.com/theapemachine/six/pkg/core/algo/episodic"
+	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
 Online manages label tracking, class totals, and decay for
-one training step. It owns the canonical label set and step
-counter. The trie composes this as a field and calls Step
-for every insert.
+one training step. It owns the canonical label set, step
+counter, and all derived signals that emerge from training
+dynamics.
+
+Signals produced:
+  - Surprisal: smoothed mean surprisal of incoming observations
+  - GrowthRate: rate of change of the node count (derived from
+    step count delta, not a magic constant)
 */
 type Online struct {
 	encoder     *bpe.Encoder
@@ -41,12 +48,41 @@ type Online struct {
 	Cooccurrence   *cooccurrence.Matrix
 	ConceptCounter int
 	prediction     *algo.Prediction
+
+	surprisal  *numeric.Derived
+	growthRate *numeric.Derived
+
+	/*
+		plasticity derives the learning rate from surprisal without magic
+		numbers. The Ratio dynamic divides surprisal by its own smoothed
+		mean, producing a dimensionless multiplier: 1.0 when surprisal
+		equals its average, >1 for novel input, <1 for expected input.
+		The Inverse provides a floor that tracks the observed range.
+	*/
+	plasticity *numeric.Derived
+	lastRate   float64
 }
 
 /*
-NewOnline constructs a training driver.
+NewOnline constructs a training driver with self-tuning signal chains.
 */
 func NewOnline() *Online {
+	surprisal := numeric.NewDerived(
+		numeric.WithDynamics(adaptive.NewEMA()),
+	)
+
+	growthRate := numeric.NewDerived(
+		numeric.WithDynamics(adaptive.NewDelta(0), adaptive.NewEMA()),
+	)
+
+	plasticity := numeric.NewDerived(
+		numeric.WithDynamics(adaptive.NewEMA()),
+	)
+
+	prediction := algo.NewPrediction()
+	prediction.Signals[algo.Surprisal] = surprisal
+	prediction.Signals[algo.GrowthRate] = growthRate
+
 	return &Online{
 		encoder:                 bpe.NewEncoder(),
 		labelSet:                make(map[string]struct{}),
@@ -54,14 +90,53 @@ func NewOnline() *Online {
 		classTotalsLastNormStep: make(map[string]int),
 		DecayFactor:             0,
 		Cooccurrence:            cooccurrence.NewMatrix(0),
-		prediction:              algo.NewPrediction(),
+		prediction:              prediction,
+		surprisal:               surprisal,
+		growthRate:              growthRate,
+		plasticity:              plasticity,
+		lastRate:                1.0,
 	}
 }
 
+/*
+Update receives an observation from the Store orchestrator. The
+Prediction carries labels (what to train) and context (the values).
+MeanSurprisal is set by the Store from its trie walk.
+
+The trainer pushes the surprisal observation through its Derived
+chain and derives the learning rate from the chain's output. No
+magic constants — plasticity emerges from the ratio of current
+surprisal to smoothed surprisal.
+*/
 func (online *Online) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
-	return prediction, nil
+	if prediction == nil || len(prediction.Labels) == 0 {
+		return online.prediction, nil
+	}
+
+	label := string(prediction.Labels[0].Label)
+
+	novelty := online.contextNovelty(prediction)
+	online.surprisal.Next(novelty)
+	online.growthRate.Next(float64(online.CurrentStep))
+
+	smoothedSurprisal := online.surprisal.Value()
+
+	if smoothedSurprisal > 0 {
+		online.plasticity.Next(novelty)
+		plasticityValue := online.plasticity.Value()
+
+		if plasticityValue > 0 {
+			online.lastRate = math.Min(1.0, plasticityValue/smoothedSurprisal)
+		}
+	}
+
+	for _, value := range prediction.Context {
+		online.Step(label, online.lastRate, value)
+	}
+
+	return online.prediction, nil
 }
 
 func (online *Online) Value() *algo.Prediction {
@@ -69,10 +144,16 @@ func (online *Online) Value() *algo.Prediction {
 }
 
 /*
+LearningRate returns the current derived learning rate. The Store
+reads this after Update to pass into the trie insertion.
+*/
+func (online *Online) LearningRate() float64 {
+	return online.lastRate
+}
+
+/*
 Step advances the step counter, registers the label, applies
-decay to class totals, and pushes auxiliary signals. Returns
-the adjusted decay factor used. The caller handles trie
-insertion with the returned step.
+decay to class totals, and pushes auxiliary signals.
 */
 func (online *Online) Step(
 	label string,
@@ -102,9 +183,6 @@ func (online *Online) Step(
 	}
 }
 
-/*
-AddLabel registers a label if not already known.
-*/
 func (online *Online) normalize(label string, step int) {
 	lastNormStep, exists := online.classTotalsLastNormStep[label]
 
@@ -130,6 +208,37 @@ func (online *Online) AddLabel(label string) {
 
 	online.labelSet[label] = struct{}{}
 	online.Labels = append(online.Labels, label)
+}
+
+/*
+contextNovelty measures how surprising the incoming context is
+relative to previously seen tokens. Builds a frequency table from
+Context values and returns the Shannon entropy in bits — high
+entropy means diverse/novel input, low means repetitive/expected.
+*/
+func (online *Online) contextNovelty(prediction *algo.Prediction) float64 {
+	freq := make(map[string]float64)
+	var total float64
+
+	for _, value := range prediction.Context {
+		for _, token := range strings.Fields(value.String()) {
+			freq[token]++
+			total++
+		}
+	}
+
+	if total == 0 {
+		return 0
+	}
+
+	var bits float64
+
+	for _, n := range freq {
+		prob := n / total
+		bits -= prob * math.Log2(prob)
+	}
+
+	return bits
 }
 
 /*

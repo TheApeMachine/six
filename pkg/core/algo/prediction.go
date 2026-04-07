@@ -70,6 +70,19 @@ func NewPrediction() *Prediction {
 	}
 }
 
+/*
+TruncateForUpdate clears Labels, Continuations, and Context so a
+Prediction may be reused as a disposable payload for Algorithm.Update.
+Signals are left intact — use this only on observers allocated for
+that purpose (e.g. NewPrediction in the caller), never on an
+algorithm's canonical Value().
+*/
+func (prediction *Prediction) TruncateForUpdate() {
+	prediction.Labels = prediction.Labels[:0]
+	prediction.Continuations = prediction.Continuations[:0]
+	prediction.Context = prediction.Context[:0]
+}
+
 func (prediction *Prediction) Value() *Prediction {
 	return prediction
 }

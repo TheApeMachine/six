@@ -2,28 +2,15 @@ package kadabra
 
 import (
 	"maps"
-	"math"
 	"slices"
 	"sync/atomic"
 
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
 )
-
-/*
-modeCouplingThreshold is the minimum affinity coupling for two digests
-to be considered part of the same eigenmode. Below this, they are
-structurally unrelated regardless of phase.
-*/
-const modeCouplingThreshold = 0.15
-
-const digestCouplingFloor = 0.01
-
-const clampDecayLearnLimit = 3.0
-
-const clampPruneLimit = 5.0
 
 /*
 digestMap is an immutable snapshot of remote trie digests for eigenmode work.
@@ -44,12 +31,22 @@ type modesProjection struct {
 /*
 Field lives in the context of a Kadabra Node, and forms a mesh
 across all the Markov Tries that the node acts as a routing hub for.
+
+All thresholds and multipliers are Derived chains — no magic numbers.
+The coupling threshold tracks the mean observed coupling and gates
+above it. Pressure clamps derive from the observed range of pressure
+values. Alignment multipliers emerge from the ratio of dominant mode
+energy to total energy.
 */
 type Field struct {
 	digests    atomic.Pointer[digestMap]
 	projection atomic.Pointer[modesProjection]
 	owner      *Node
 	phase      *geometry.Phase
+
+	couplingThreshold *numeric.Derived
+	pressureClamp     *numeric.Derived
+	alignmentRatio    *numeric.Derived
 }
 
 /*
@@ -59,6 +56,18 @@ func NewField(owner *Node) *Field {
 	return &Field{
 		owner: owner,
 		phase: geometry.NewPhase(),
+
+		couplingThreshold: numeric.NewDerived(
+			numeric.WithDynamics(adaptive.NewEMA()),
+		),
+
+		pressureClamp: numeric.NewDerived(
+			numeric.WithDynamics(adaptive.NewSpread()),
+		),
+
+		alignmentRatio: numeric.NewDerived(
+			numeric.WithDynamics(adaptive.NewRatio(0)),
+		),
 	}
 }
 
@@ -228,6 +237,11 @@ Misaligned tries (outside the dominant mode, or anti-phase):
 
 This asymmetric fork IS the attention mechanism. No matrices, no softmax.
 The field selects by differential survival.
+
+All multipliers are derived:
+  - Coupling threshold: smoothed mean of observed coupling values
+  - Pressure clamp: smoothed spread (variance) of raw pressure values
+  - Alignment ratio: dominant mode energy / total energy, smoothed
 */
 func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 	_ = values
@@ -245,30 +259,52 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 	digestSnap := maps.Clone(dm.m)
 
 	participants := make([]geometry.ModeParticipant, 0, len(digestSnap))
+	var totalEnergy float64
 
 	for origin, digest := range digestSnap {
 		participants = append(participants, geometry.ModeParticipant{
 			Origin: origin,
 			Energy: digest.SurprisalMean,
 		})
+
+		totalEnergy += digest.SurprisalMean
 	}
+
+	couplingFn := func(a, b uint64) float64 {
+		dA, dB := digestSnap[a], digestSnap[b]
+		affA := primitive.NewAffinityFromVector(dA.Affinity)
+		affB := primitive.NewAffinityFromVector(dB.Affinity)
+
+		return affA.Coupling(affB)
+	}
+
+	// Feed all pairwise coupling values into the threshold chain
+	// so it learns the distribution and can gate meaningfully.
+	for idx := range participants {
+		for jdx := idx + 1; jdx < len(participants); jdx++ {
+			coupling := couplingFn(
+				participants[idx].Origin,
+				participants[jdx].Origin,
+			)
+
+			field.couplingThreshold.Next(coupling)
+		}
+	}
+
+	threshold := field.couplingThreshold.Value()
 
 	modes, dominant := geometry.DetectModes(
 		participants,
-		modeCouplingThreshold,
-		func(a, b uint64) float64 {
-			dA, dB := digestSnap[a], digestSnap[b]
-			affA := primitive.NewAffinityFromVector(dA.Affinity)
-			affB := primitive.NewAffinityFromVector(dB.Affinity)
-
-			return affA.Coupling(affB)
-		},
+		threshold,
+		couplingFn,
 	)
 
 	field.projection.Store(&modesProjection{modes: modes, dominant: dominant})
 
-	clamp := func(val, limit float64) float64 {
-		return math.Max(-limit, math.Min(limit, val))
+	// Derive alignment ratio from mode energy distribution.
+	if dominant >= 0 && dominant < len(modes) && totalEnergy > 0 {
+		dominantEnergy := modes[dominant].Energy()
+		field.alignmentRatio.Next(dominantEnergy, totalEnergy)
 	}
 
 	tries := field.owner.triesSnapshot()
@@ -291,9 +327,7 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		aligned := false
 
 		if dominant >= 0 && dominant < len(modes) {
-			dominantMode := modes[dominant]
-
-			if slices.Contains(dominantMode.Members(), trieID) {
+			if slices.Contains(modes[dominant].Members(), trieID) {
 				aligned = true
 			}
 		}
@@ -333,26 +367,57 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		fieldGrowth := weightedGrowth / totalWeight
 
 		rawDecay := fieldSurprisal - local.SurprisalMean
-		growthDelta := fieldGrowth - local.GrowthRate
-		rawLearn := growthDelta
-		rawPrune := growthDelta
+		rawLearn := fieldGrowth - local.GrowthRate
+
+		// Feed raw pressures into the clamp chain so it tracks
+		// the observed spread and can bound outliers.
+		field.pressureClamp.Next(rawDecay)
+		field.pressureClamp.Next(rawLearn)
+
+		clampLimit := field.pressureClamp.Value()
+
+		if clampLimit <= 0 {
+			clampLimit = 1
+		}
+
+		// Alignment ratio acts as the asymmetric multiplier.
+		// Aligned tries get the ratio as learn boost and its
+		// inverse as decay suppression. Misaligned get the
+		// opposite. The ratio itself is derived from mode
+		// energy distribution — no config constants needed.
+		ratio := field.alignmentRatio.Value()
+
+		if ratio <= 0 {
+			ratio = 1
+		}
 
 		var decayMul, learnMul float64
 
 		if aligned {
-			decayMul = core.Cfg.Kadabra.AlignedDecayMultiplier
-			learnMul = core.Cfg.Kadabra.AlignedLearnMultiplier
+			decayMul = 1.0 / ratio
+			learnMul = ratio
 		} else {
-			decayMul = core.Cfg.Kadabra.MisalignedDecayMultiplier
-			learnMul = core.Cfg.Kadabra.MisalignedLearnMultiplier
+			decayMul = ratio
+			learnMul = 1.0 / ratio
 		}
 
-		cluster.ApplyFieldPressure(
-			clamp(rawDecay*decayMul, clampDecayLearnLimit),
-			clamp(rawLearn*learnMul, clampDecayLearnLimit),
-			clamp(rawPrune, clampPruneLimit),
-		)
+		decay := clamp(rawDecay*decayMul, clampLimit)
+		learn := clamp(rawLearn*learnMul, clampLimit)
+
+		cluster.ApplyFieldPressure(decay, learn, decay)
 	}
 
 	return nil, nil
+}
+
+func clamp(val, limit float64) float64 {
+	if val > limit {
+		return limit
+	}
+
+	if val < -limit {
+		return -limit
+	}
+
+	return val
 }

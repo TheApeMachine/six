@@ -50,11 +50,7 @@ type KadabraConfig struct {
 	SecurityThreshold         float64   `mapstructure:"securityThreshold"`
 	BucketSecurityThresholds  []float64 `mapstructure:"bucketSecurityThresholds"`
 	ShannonLimit              int       `mapstructure:"shannonLimit"`
-	ClusterThreshold          int       `mapstructure:"clusterThreshold"`
-	AlignedDecayMultiplier    float64   `mapstructure:"alignedDecayMultiplier"`
-	AlignedLearnMultiplier    float64   `mapstructure:"alignedLearnMultiplier"`
-	MisalignedDecayMultiplier float64   `mapstructure:"misalignedDecayMultiplier"`
-	MisalignedLearnMultiplier float64   `mapstructure:"misalignedLearnMultiplier"`
+	ClusterThreshold int `mapstructure:"clusterThreshold"`
 }
 
 type MarkovTrieConfig struct {
@@ -251,10 +247,6 @@ func NewConfig() *Config {
 			EpochQueries:              WithDefault(viper.GetInt("kadabra.epochQueries"), 100),
 			Penalty:                   WithDefault(viper.GetFloat64("kadabra.penalty"), 0.1),
 			SecurityThreshold:         WithDefault(viper.GetFloat64("kadabra.securityThreshold"), 0.5),
-			AlignedDecayMultiplier:    WithDefault(viper.GetFloat64("kadabra.alignedDecayMultiplier"), 0.1),
-			AlignedLearnMultiplier:    WithDefault(viper.GetFloat64("kadabra.alignedLearnMultiplier"), 1.0),
-			MisalignedDecayMultiplier: WithDefault(viper.GetFloat64("kadabra.misalignedDecayMultiplier"), 1.0),
-			MisalignedLearnMultiplier: WithDefault(viper.GetFloat64("kadabra.misalignedLearnMultiplier"), 0.1),
 			// ShannonLimit is the maximum popcount (set bits) a cluster
 			// centroid may reach before it is considered full. At 50% set bits
 			// (256/512) a random vector's expected Hamming distance equals that

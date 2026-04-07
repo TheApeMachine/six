@@ -24,17 +24,17 @@ Trie shape and per-node statistics use atomic snapshots so concurrent
 learners and readers do not serialize on a single RWMutex.
 */
 type Store struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	root         *Node
+	ctx           context.Context
+	cancel        context.CancelFunc
+	root          *Node
 	Affinity      primitive.Affinity
 	AffinityCount atomic.Uint64
-	cooccurrence *cooccurrence.Matrix
-	episodic     *episodic.Buffer
-	algorithms   []algo.Algorithm
-	generator    *beam.Search
-	classifier   *classify.Classifier
-	trainer      *train.Online
+	cooccurrence  *cooccurrence.Matrix
+	episodic      *episodic.Buffer
+	algorithms    []algo.Algorithm
+	generator     *beam.Search
+	classifier    *classify.Classifier
+	trainer       *train.Online
 }
 
 /*
@@ -86,6 +86,28 @@ func (store *Store) Load(
 		return
 	}
 
+	var triePath []primitive.Value
+
+	store.Walk(store.root, func(node *Node) {
+		triePath = append(triePath, node.value)
+	})
+
+	observation := algo.NewPrediction()
+
+	for _, label := range labels {
+		observation.TruncateForUpdate()
+		observation.AddLabels(algo.Label{
+			Label:      []byte(label),
+			Confidence: 1,
+		})
+		observation.AddContext(triePath...)
+		observation.AddContext(value)
+
+		for _, algorithm := range store.algorithms {
+			_, _ = algorithm.Update(observation)
+		}
+	}
+
 	if store.root == nil {
 		store.root = NewNode(value)
 	} else {
@@ -93,15 +115,6 @@ func (store *Store) Load(
 			ID:    value.ID(),
 			value: value,
 		})
-	}
-
-	for _, label := range labels {
-		for _, algorithm := range store.algorithms {
-			algorithm.Update(algorithm.Value().AddLabels(algo.Label{
-				Label:      []byte(label),
-				Confidence: 1,
-			}))
-		}
 	}
 }
 
