@@ -26,6 +26,11 @@ const (
 	GrowthRate
 	Accuracy
 	Quality
+	CausalStrength
+	InterventionResidual
+	FieldSurprisal
+	FieldGrowth
+	FieldDecayMul
 )
 
 /*

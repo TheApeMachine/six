@@ -120,9 +120,15 @@ value:
     signals:
       start: 24
       bits: 512
+    context:
+      start: 39
+      bits: 512
+    gradient:
+      start: 47
+      bits: 512
     reserved:
-      start: 32
-      bits: 5952
+      start: 55
+      bits: 4480
     prev:
       start: 125
       bits: 64

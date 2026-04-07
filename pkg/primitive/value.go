@@ -228,6 +228,130 @@ func (value *Value) AffinityVector() [AffinityWords]uint64 {
 }
 
 /*
+ContextVector returns the 512-bit context region. This region holds
+XOR-bound variable bindings — the compositional context that enables
+do-calculus operations via bind/unbind.
+*/
+func (value *Value) ContextVector() [AffinityWords]uint64 {
+	var ctx [AffinityWords]uint64
+
+	if value == nil {
+		return ctx
+	}
+
+	start := core.Cfg.Value.Region.Context.Start
+
+	for wordIdx := range AffinityWords {
+		idx := start + wordIdx
+
+		if idx >= len(*value) {
+			break
+		}
+
+		ctx[wordIdx] = (*value)[idx]
+	}
+
+	return ctx
+}
+
+/*
+SetContextVector writes the full context region.
+*/
+func (value *Value) SetContextVector(ctx [AffinityWords]uint64) {
+	if value == nil {
+		return
+	}
+
+	start := core.Cfg.Value.Region.Context.Start
+
+	for wordIdx := range AffinityWords {
+		idx := start + wordIdx
+
+		if idx >= len(*value) {
+			break
+		}
+
+		(*value)[idx] = ctx[wordIdx]
+	}
+}
+
+/*
+BindContext XORs the given affinity vector into the context region,
+creating a compositional binding. XOR is its own inverse: binding
+twice with the same vector unbinds it. This is the substrate for
+Pearl's do-operator — severing a variable from its causal parents
+is an unbind, forcing a new value is a rebind.
+*/
+func (value *Value) BindContext(binding [AffinityWords]uint64) {
+	if value == nil {
+		return
+	}
+
+	start := core.Cfg.Value.Region.Context.Start
+
+	for wordIdx := range AffinityWords {
+		idx := start + wordIdx
+
+		if idx >= len(*value) {
+			break
+		}
+
+		(*value)[idx] ^= binding[wordIdx]
+	}
+}
+
+/*
+GradientVector returns the 512-bit gradient region. Under causal
+framing this tracks intervention residual — the difference between
+predicted and observed outcomes when a variable was intervened on.
+Accumulated over multiple interventions, this is the noise term
+in a structural causal model.
+*/
+func (value *Value) GradientVector() [AffinityWords]uint64 {
+	var grad [AffinityWords]uint64
+
+	if value == nil {
+		return grad
+	}
+
+	start := core.Cfg.Value.Region.Gradient.Start
+
+	for wordIdx := range AffinityWords {
+		idx := start + wordIdx
+
+		if idx >= len(*value) {
+			break
+		}
+
+		grad[wordIdx] = (*value)[idx]
+	}
+
+	return grad
+}
+
+/*
+AccumulateGradient XORs a residual vector into the gradient region,
+building up the latent noise term from repeated interventions.
+*/
+func (value *Value) AccumulateGradient(residual [AffinityWords]uint64) {
+	if value == nil {
+		return
+	}
+
+	start := core.Cfg.Value.Region.Gradient.Start
+
+	for wordIdx := range AffinityWords {
+		idx := start + wordIdx
+
+		if idx >= len(*value) {
+			break
+		}
+
+		(*value)[idx] ^= residual[wordIdx]
+	}
+}
+
+/*
 String returns the string representation of the
 Value's token region, which stores the original
 bytes of the data that was used to create the Value.

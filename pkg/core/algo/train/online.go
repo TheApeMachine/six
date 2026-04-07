@@ -111,7 +111,13 @@ surprisal to smoothed surprisal.
 func (online *Online) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
-	if prediction == nil || len(prediction.Labels) == 0 {
+	if prediction == nil {
+		return online.prediction, nil
+	}
+
+	online.applyFieldPressure(prediction)
+
+	if len(prediction.Labels) == 0 {
 		return online.prediction, nil
 	}
 
@@ -149,6 +155,41 @@ reads this after Update to pass into the trie insertion.
 */
 func (online *Online) LearningRate() float64 {
 	return online.lastRate
+}
+
+/*
+applyFieldPressure checks for field pressure signals in the incoming
+Prediction and modulates decay and learning rate accordingly. Each
+algorithm owns its own response to pressure — the Store just
+broadcasts.
+*/
+func (online *Online) applyFieldPressure(prediction *algo.Prediction) {
+	if prediction.Signals == nil {
+		return
+	}
+
+	if decayMul, ok := prediction.Signals[algo.FieldDecayMul]; ok {
+		mul := decayMul.Value()
+
+		if mul != 0 {
+			online.DecayFactor = math.Max(0, math.Min(1,
+				core.Cfg.MarkovTrie.DecayFactor*mul,
+			))
+		}
+	}
+
+	if growth, ok := prediction.Signals[algo.FieldGrowth]; ok {
+		fieldGrowth := growth.Value()
+		pressureMul := 1.0
+
+		if fieldGrowth > 0 {
+			pressureMul = 1.0 + fieldGrowth
+		} else {
+			pressureMul = 1.0 / (1.0 - fieldGrowth)
+		}
+
+		online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*pressureMul))
+	}
 }
 
 /*

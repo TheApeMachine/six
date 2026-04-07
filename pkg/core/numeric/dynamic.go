@@ -144,6 +144,15 @@ func cloneDynamic(d Dynamic) Dynamic {
 }
 
 /*
+NewDerivedFrom creates a Derived pre-seeded with a constant value
+and no dynamics chain. Used to pass snapshot values through the
+Prediction signal map without building a full adaptive pipeline.
+*/
+func NewDerivedFrom(value float64) *Derived {
+	return &Derived{lastValue: value}
+}
+
+/*
 WithDynamics sets the dynamics for the derived chain.
 */
 func WithDynamics(dynamics ...Dynamic) DerivedOption {

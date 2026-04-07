@@ -1,12 +1,14 @@
 package kadabra
 
 import (
+	"math/bits"
 	"math/rand"
 	"sync/atomic"
 	"time"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -119,75 +121,101 @@ func (rt *RoutingTable) AddPeer(peer *Node, rtt float64) {
 	viz.DefaultBus.Publish(viz.PeerLatency(rt.nodeID, peer.ID, rtt))
 }
 
-// /*
-// Closest returns up to limit nodes from the routing table sorted by
-// affinity Hamming distance. The owning node is always included.
+/*
+Closest returns up to limit nodes from the routing table sorted by
+affinity Hamming distance to target. The owning node is always
+included as a candidate.
 
-// Distances are computed through the programmer → backend → kernel
-// path. The programmer compiles a batch distance Value and the kernel
-// writes uint32 results into signals. Bucket-sorted in O(N) using
-// the bounded [0,512] distance range.
-// */
-// func (rt *RoutingTable) Closest(
-// 	target *primitive.Affinity, limit int,
-// ) []*Node {
-// 	if limit <= 0 {
-// 		return nil
-// 	}
+Distances are computed via popcount XOR on the 512-bit affinity
+vectors. Bucket-sorted in O(N) using the bounded [0,512] distance
+range — no comparison sort needed.
+*/
+func (rt *RoutingTable) Closest(
+	target *primitive.Affinity, limit int,
+) []*Node {
+	if limit <= 0 || target == nil {
+		return nil
+	}
 
-// 	nodes := make([]*Node, 0, 256)
-// 	nodes = append(nodes, rt.node)
+	type candidate struct {
+		node *Node
+		dist int
+	}
 
-// 	for _, bucket := range rt.buckets {
-// 		if bucket == nil {
-// 			continue
-// 		}
+	candidates := make([]candidate, 0, 256)
+	targetVec := target.Vector()
 
-// 		st := bucket.state.Load()
+	affinityDist := func(aff *primitive.Affinity) int {
+		if aff == nil {
+			return primitive.AffinityWords * 64
+		}
 
-// 		if st == nil {
-// 			continue
-// 		}
+		vec := aff.Vector()
+		dist := 0
 
-// 		for _, entry := range st.Entries {
-// 			if entry != nil && entry.Node != nil && entry.ID != rt.nodeID {
-// 				nodes = append(nodes, entry.Node)
-// 			}
-// 		}
-// 	}
+		for wordIdx := range primitive.AffinityWords {
+			dist += bits.OnesCount64(targetVec[wordIdx] ^ vec[wordIdx])
+		}
 
-// 	count := len(nodes)
+		return dist
+	}
 
-// 	// Collect candidate vectors for the programmer.
-// 	candidates := make([][]uint64, count)
+	candidates = append(candidates, candidate{
+		node: rt.node,
+		dist: primitive.AffinityWords * 64,
+	})
 
-// 	for idx, node := range nodes {
-// 		if node.Affinity != nil {
-// 			vec := node.Affinity.Vector()
-// 			candidates[idx] = vec[:]
-// 		} else {
-// 			candidates[idx] = make([]uint64, primitive.AffinityWords)
-// 		}
-// 	}
+	for _, bucket := range rt.buckets {
+		if bucket == nil {
+			continue
+		}
 
-// 	// Bucket sort by distance (bounded [0,512]).
-// 	var bucketHeads [513]int32
-// 	var bucketTails [513]int32
+		st := bucket.state.Load()
 
-// 	var offset int32
+		if st == nil {
+			continue
+		}
 
-// 	for dist := range bucketHeads {
-// 		n := bucketHeads[dist]
-// 		bucketHeads[dist] = offset
-// 		bucketTails[dist] = offset
-// 		offset += n
-// 	}
+		for _, entry := range st.Entries {
+			if entry != nil && entry.Node != nil && entry.ID != rt.nodeID {
+				candidates = append(candidates, candidate{
+					node: entry.Node,
+					dist: affinityDist(entry.Affinity),
+				})
+			}
+		}
+	}
 
-// 	sorted := make([]*Node, count)
+	count := len(candidates)
 
-// 	if limit > count {
-// 		limit = count
-// 	}
+	if count == 0 {
+		return nil
+	}
 
-// 	return sorted[:limit]
-// }
+	if limit > count {
+		limit = count
+	}
+
+	var bucketCounts [513]int
+	for idx := range candidates {
+		bucketCounts[candidates[idx].dist]++
+	}
+
+	var bucketOffsets [513]int
+	offset := 0
+
+	for dist := range bucketOffsets {
+		bucketOffsets[dist] = offset
+		offset += bucketCounts[dist]
+	}
+
+	sorted := make([]*Node, count)
+
+	for idx := range candidates {
+		dist := candidates[idx].dist
+		sorted[bucketOffsets[dist]] = candidates[idx].node
+		bucketOffsets[dist]++
+	}
+
+	return sorted[:limit]
+}

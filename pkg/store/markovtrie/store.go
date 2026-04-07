@@ -7,7 +7,9 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/algo/beam"
+	"github.com/theapemachine/six/pkg/core/algo/causal"
 	"github.com/theapemachine/six/pkg/core/algo/classify"
 	"github.com/theapemachine/six/pkg/core/algo/cooccurrence"
 	"github.com/theapemachine/six/pkg/core/algo/episodic"
@@ -65,6 +67,7 @@ func NewStore(
 			classify.NewClassifier(),
 			beam.NewSearch(),
 			train.NewOnline(),
+			causal.NewGraph(),
 		},
 	}
 
@@ -79,8 +82,10 @@ func NewStore(
 }
 
 /*
-Load a value into the trie. Values are stored by value; edge keys use
-Value.String() so the token region drives trie structure.
+Load inserts a value into the trie. Edge keys use Value.String()
+so the token region drives trie structure. If a path already
+exists, the value lands at the existing branch; otherwise a new
+child is created.
 */
 func (store *Store) Load(
 	value primitive.Value,
@@ -90,11 +95,24 @@ func (store *Store) Load(
 		return
 	}
 
-	var triePath []primitive.Value
+	if store.root == nil {
+		store.root = NewNode(value)
+	}
 
-	store.Walk(store.root, func(node *Node) {
-		triePath = append(triePath, node.value)
-	})
+	token := value.String()
+	existing := store.root.Child(token)
+
+	if existing != nil {
+		existing.TotalVisits.Add(1)
+	} else {
+		child := NewNode(value)
+		store.root.storeChild(value, child)
+		existing = child
+	}
+
+	var triePath []primitive.Value
+	triePath = append(triePath, store.root.value)
+	triePath = append(triePath, existing.value)
 
 	observation := algo.NewPrediction()
 
@@ -105,7 +123,6 @@ func (store *Store) Load(
 			Confidence: 1,
 		})
 		observation.AddContext(triePath...)
-		observation.AddContext(value)
 
 		for _, algorithm := range store.algorithms {
 			_, err := algorithm.Update(observation)
@@ -118,15 +135,6 @@ func (store *Store) Load(
 				)
 			}
 		}
-	}
-
-	if store.root == nil {
-		store.root = NewNode(value)
-	} else {
-		store.root.storeChild(value, &Node{
-			ID:    value.ID(),
-			value: value,
-		})
 	}
 }
 
@@ -176,8 +184,9 @@ func (store *Store) Signal(signal algo.SignalType) float64 {
 }
 
 /*
-ApplyFieldPressure sets external field forces
-that modulate adaptive behavior.
+ApplyFieldPressure broadcasts field forces to all algorithms via
+the standard Update path. Each algorithm decides internally how
+(or whether) to respond to the pressure signals.
 */
 func (store *Store) ApplyFieldPressure(
 	fieldSurprisal float64,
@@ -186,5 +195,14 @@ func (store *Store) ApplyFieldPressure(
 ) {
 	if store == nil {
 		return
+	}
+
+	pressure := algo.NewPrediction()
+	pressure.Signals[algo.FieldSurprisal] = numeric.NewDerivedFrom(fieldSurprisal)
+	pressure.Signals[algo.FieldGrowth] = numeric.NewDerivedFrom(fieldGrowth)
+	pressure.Signals[algo.FieldDecayMul] = numeric.NewDerivedFrom(decayMul)
+
+	for _, algorithm := range store.algorithms {
+		algorithm.Update(pressure)
 	}
 }
