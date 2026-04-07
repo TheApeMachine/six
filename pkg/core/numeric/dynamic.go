@@ -3,6 +3,7 @@ package numeric
 import (
 	"sync"
 
+	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
@@ -98,6 +99,48 @@ func (derived *Derived) Value() float64 {
 	defer derived.mu.RUnlock()
 
 	return derived.lastValue
+}
+
+/*
+Clone returns a deep copy of the dynamic chain and lastValue so mutations
+via Next on the clone do not affect the source. Supported concrete
+dynamics are cloned explicitly; unknown types are shared as a last resort.
+*/
+func (derived *Derived) Clone() *Derived {
+	if derived == nil {
+		return nil
+	}
+
+	derived.mu.RLock()
+	last := derived.lastValue
+	src := derived.dynamics
+	derived.mu.RUnlock()
+
+	out := make([]Dynamic, len(src))
+
+	for idx, d := range src {
+		out[idx] = cloneDynamic(d)
+	}
+
+	return &Derived{
+		dynamics:  out,
+		lastValue: last,
+	}
+}
+
+func cloneDynamic(d Dynamic) Dynamic {
+	if d == nil {
+		return nil
+	}
+
+	switch x := d.(type) {
+	case *adaptive.EMA:
+		return x.Clone()
+	case *adaptive.SigmaClamp:
+		return x.Clone()
+	default:
+		return d
+	}
 }
 
 /*

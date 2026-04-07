@@ -52,11 +52,11 @@ func applyBatchAffinityLayout(value *primitive.Value, assets [][]uint64) {
 
 	if packed == 0 {
 		for wordIdx := range primitive.AffinityWords {
-			value.Set(32+wordIdx, 0)
+			value.Set(kernel.NearestAffinityCandidatesStartWord+wordIdx, 0)
 		}
 
 		packed = 1
 	}
 
-	value.Set(124, uint64(packed))
+	value.Set(kernel.NearestAffinityBatchWord, uint64(packed))
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -126,7 +127,13 @@ func PipelineWithViz(addr string) pipelineOpts {
 			server := viz.NewServer(viz.DefaultBus, addr)
 
 			go func() {
-				_ = server.Start(context.Background())
+				if err := server.Start(context.Background()); err != nil {
+					errnie.Warn(
+						"task.PipelineWithViz: viz server exited",
+						"addr", addr,
+						"err", err,
+					)
+				}
 			}()
 		})
 	}

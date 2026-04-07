@@ -126,24 +126,26 @@ func (classifier *Classifier) Value() *algo.Prediction {
 		Signals:       make(map[algo.SignalType]*numeric.Derived, len(src.Signals)),
 	}
 
-	for idx := range src.Labels {
-		label := src.Labels[idx]
+	for idx, label := range src.Labels {
 		out.Labels[idx] = algo.Label{
 			Label:      append([]byte(nil), label.Label...),
 			Confidence: label.Confidence,
 		}
 	}
 
-	for idx := range src.Continuations {
-		cont := src.Continuations[idx]
+	for idx, cont := range src.Continuations {
 		out.Continuations[idx] = algo.Continuation{
 			Sequence: append([]byte(nil), cont.Sequence...),
 			Score:    cont.Score,
 		}
 	}
 
-	for signalType, derived := range src.Signals {
-		out.Signals[signalType] = derived
+	for signalType, signal := range src.Signals {
+		if signal == nil {
+			continue
+		}
+
+		out.Signals[signalType] = signal.Clone()
 	}
 
 	return out

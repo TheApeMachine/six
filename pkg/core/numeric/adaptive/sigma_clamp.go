@@ -98,3 +98,20 @@ func (clamp *SigmaClamp) Reset() error {
 
 	return nil
 }
+
+/*
+Clone returns an independent SigmaClamp with copied moments and parameters.
+*/
+func (clamp *SigmaClamp) Clone() *SigmaClamp {
+	if clamp == nil {
+		return nil
+	}
+
+	return &SigmaClamp{
+		moments: clamp.moments,
+		kSigma:  clamp.kSigma,
+		minObs:  clamp.minObs,
+		alpha:   clamp.alpha,
+		epsilon: clamp.epsilon,
+	}
+}
