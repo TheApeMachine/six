@@ -25,7 +25,21 @@ type Substrate interface {
 	// UniversalBitwise calls on the same frames without external sync.
 	UniversalBitwise(frames []unsafe.Pointer) error
 
+	// BatchDistances computes Hamming distances from a single query
+	// affinity vector to count contiguous candidate vectors. Each vector
+	// is AffinityWords × uint64 (64 bytes). Results are written as uint32
+	// distances into the caller-provided output slice.
+	//
+	// CPU substrates dispatch to SIMD assembly (NEON/AVX2). GPU substrates
+	// launch one thread per candidate for massively parallel popcount.
+	BatchDistances(
+		query unsafe.Pointer,
+		candidates unsafe.Pointer,
+		count int,
+		distances []uint32,
+	) error
+
 	// Name returns a human-readable identifier for
-	// the substrate (e.g. "cpu", "cuda", "metal").
+	// the substrate (e.g. “cpu”, “cuda”, “metal”).
 	Name() string
 }

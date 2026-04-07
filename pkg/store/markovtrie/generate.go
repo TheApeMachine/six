@@ -87,13 +87,10 @@ func rankedChildrenForLabel(
 		return nil
 	}
 
-	store.mu.RLock()
-	defer store.mu.RUnlock()
-
 	node := store.root
 
 	for _, token := range prefix {
-		child := node.Children[token]
+		child := node.childAt(token)
 
 		if child == nil {
 			return nil
@@ -112,13 +109,17 @@ func rankedChildrenForLabel(
 	sum := 0.0
 
 	for index := range ranked {
-		child := node.Children[ranked[index].Token]
+		child := node.childAt(ranked[index].Token)
 
 		if child == nil {
 			continue
 		}
 
-		weight := child.ClassCounts[label]
+		weight := 0.0
+
+		if counts := labelFloatMapOf(child); counts != nil {
+			weight = counts[label]
+		}
 
 		if weight < 0 {
 			weight = 0

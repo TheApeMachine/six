@@ -24,9 +24,9 @@ construction time. It implements io.ReadWriteCloser so that Value
 frames flow through the same interface regardless of the underlying wire.
 */
 type UniConn struct {
-	err          error
 	ctx          context.Context
 	cancel       context.CancelFunc
+	err          error
 	transports   map[UniConnType]ManagedTransport
 	activeType   UniConnType
 	active       ManagedTransport
@@ -83,13 +83,6 @@ func (conn *UniConn) Write(p []byte) (int, error) {
 	return conn.sources.Write(p)
 }
 
-// Ready blocks until the configured transport reaches a protocol-specific
-// ready state. For IPC/UDP this is immediate; QUIC listener mode accepts and
-// primes the first stream under the hood.
-func (conn *UniConn) Ready() error {
-	return conn.ensureReady()
-}
-
 /*
 Close tears down the connection context and the underlying transport.
 */
@@ -112,6 +105,15 @@ func (conn *UniConn) Close() error {
 	}
 
 	return firstErr
+}
+
+/*
+Ready blocks until the configured transport reaches a protocol-specific
+ready state. For IPC/UDP this is immediate; QUIC listener mode accepts and
+primes the first stream under the hood.
+*/
+func (conn *UniConn) Ready() error {
+	return conn.ensureReady()
 }
 
 func (conn *UniConn) ensureReady() error {
@@ -182,6 +184,7 @@ func UniConnWithTransport(
 		}
 
 		conn.transports[transportType] = transport
+		
 		if conn.active != nil {
 			return
 		}
@@ -223,7 +226,9 @@ need to handle that failure).
 */
 func UniConnWithActiveTransport(transportType UniConnType) uniConnOption {
 	return func(conn *UniConn) {
-		_ = conn.SetActiveTransport(transportType)
+		if err := conn.SetActiveTransport(transportType); err != nil {
+			return
+		}
 	}
 }
 

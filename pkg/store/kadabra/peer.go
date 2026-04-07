@@ -4,16 +4,8 @@ import (
 	"sort"
 
 	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/primitive"
 )
-
-/*
-PeerInfo describes a peer known by a Kadabra node.
-*/
-type PeerInfo struct {
-	ID     uint64
-	RTT    float64
-	Bucket int
-}
 
 /*
 UnknownPeerBucket marks LookupNodes entries for the local node,
@@ -31,32 +23,31 @@ const UnknownPeerRTT = -1
 Peer represents a routing candidate inside a Kadabra bucket.
 */
 type Peer struct {
-	ID   uint64
-	Node *Node
-	RTT  float64
-}
-
-/*
-Clone returns a shallow copy of the peer.
-*/
-func (peer *Peer) Clone() *Peer {
-	if peer == nil {
-		return nil
-	}
-
-	return &Peer{
-		ID:   peer.ID,
-		Node: peer.Node,
-		RTT:  peer.RTT,
-	}
-}
-
-/*
-PeerSample tracks per-peer query statistics within a bucket epoch.
-*/
-type PeerSample struct {
+	ID           uint64
+	Affinity     *primitive.Affinity
+	Node         *Node
+	RTT          float64
+	Bucket       int
 	Queries      int
 	LatencyTotal float64
+}
+
+func NewPeer(
+	id uint64,
+	affinity *primitive.Affinity,
+	node *Node,
+	rtt float64,
+	bucket int,
+	queries int,
+	latencyTotal float64,
+) *Peer {
+	return &Peer{
+		ID:       id,
+		Affinity: affinity,
+		Node:     node,
+		RTT:      rtt,
+		Bucket:   bucket,
+	}
 }
 
 /*
@@ -181,20 +172,6 @@ func (peers PeerSet) SortByDistance(target uint64) {
 
 		return leftDist < rightDist
 	})
-}
-
-/*
-Clone returns a deep copy of the peer set where each peer
-is individually cloned.
-*/
-func (peers PeerSet) Clone() PeerSet {
-	cloned := make(PeerSet, 0, len(peers))
-
-	for _, peer := range peers {
-		cloned = append(cloned, peer.Clone())
-	}
-
-	return cloned
 }
 
 /*

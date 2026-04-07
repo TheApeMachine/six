@@ -2,7 +2,8 @@ package markovtrie
 
 import (
 	"context"
-	"sync"
+	"math"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo/bpe"
@@ -18,15 +19,17 @@ import (
 Store is a labeled trie with lazy-decayed counts. Higher-level concerns
 (classification, episodic memory, co-occurrence, pattern extraction) are
 composed as separate objects from the algo and numeric packages.
+
+Trie shape and per-node statistics use atomic snapshots so concurrent
+learners and readers do not serialize on a single RWMutex.
 */
 type Store struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
-	mu           sync.RWMutex
 	root         *Node
-	nodeCount    uint64
+	nodeCount    atomic.Uint64
 	decayFactor  float64
-	currentStep  int
+	currentStep  atomic.Int32
 	cooccurrence *cooccurrence.Matrix
 	episodic     *episodic.Buffer
 	classifier   *classify.Classifier
@@ -35,7 +38,8 @@ type Store struct {
 	bpe          *bpe.Encoder
 	beamWidth    int
 
-	Affinity *primitive.Affinity
+	Affinity      *primitive.Affinity
+	AffinityCount atomic.Uint64
 }
 
 /*
@@ -53,9 +57,7 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 		ctx:    ctx,
 		cancel: cancel,
 		root: &Node{
-			ID:          "root",
-			Children:    make(map[string]*Node),
-			ClassCounts: make(map[string]float64),
+			ID: "root",
 		},
 		cooccurrence: cooccurrence.NewMatrix(core.Cfg.MarkovTrie.CoOccurrenceWindow),
 		classifier:   &classify.Classifier{},
@@ -97,56 +99,51 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 }
 
 /*
-Load a value into the trie.
+Load a value into the trie. Values are stored by value; edge keys use
+Value.String() so the token region drives trie structure.
 */
-func (store *Store) Load(value *primitive.Value) {
-	if store == nil || value == nil {
+func (store *Store) Load(value primitive.Value) {
+	if store == nil {
 		return
 	}
 
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	var zero primitive.Value
 
-	if store.root.Value == nil {
+	if store.root.Value == zero {
 		store.root.Value = value
 		store.root.Token = value.String()
 
 		return
 	}
 
-	store.root.Children[value.String()] = &Node{
-		Value:       value,
-		Token:       value.String(),
-		Children:    make(map[string]*Node),
-		ClassCounts: make(map[string]float64),
-	}
+	store.root.storeChild(value.String(), &Node{
+		ID:    value.String(),
+		Value: value,
+		Token: value.String(),
+	})
 }
 
 /*
-Insert records one labeled sequence at full learning rate.
+Insert records one labeled sequence at full learning rate. The sequence
+text is taken from value.String() for BPE tokenization.
 */
-func (store *Store) Insert(sequence string, label string) {
+func (store *Store) Insert(value primitive.Value, label string) {
 	if store == nil {
 		return
 	}
 
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
+	sequence := value.String()
 	tokens := store.bpe.Encode(sequence)
+
 	store.trainer.Step(label, 1, tokens, tokens)
+	store.currentStep.Store(int32(store.trainer.CurrentStep))
 }
 
 /*
 Flush applies pruning and rebuilds extracted pattern symbols.
 */
 func (store *Store) Flush() {
-	if store == nil {
-		return
-	}
-
-	store.mu.Lock()
-	defer store.mu.Unlock()
+	_ = store
 }
 
 /*
@@ -157,10 +154,7 @@ func (store *Store) ApplyFieldPressure(decay, learning, prune float64) {
 		return
 	}
 
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
-	store.Adaptive.fieldDecayPressure = decay
-	store.Adaptive.fieldLearningPressure = learning
-	store.Adaptive.fieldPrunePressure = prune
+	store.Adaptive.fieldDecayPressure.Store(math.Float64bits(decay))
+	store.Adaptive.fieldLearningPressure.Store(math.Float64bits(learning))
+	store.Adaptive.fieldPrunePressure.Store(math.Float64bits(prune))
 }

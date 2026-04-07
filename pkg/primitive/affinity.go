@@ -51,20 +51,6 @@ func (affinity *Affinity) SetVector(vector [AffinityWords]uint64) {
 }
 
 /*
-Distance returns the Hamming distance between two affinity vectors.
-Lower distance means more similar content specialization.
-*/
-func (affinity *Affinity) Distance(other *Affinity) int {
-	total := 0
-
-	for wordIdx := range AffinityWords {
-		total += bits.OnesCount64(affinity.vector[wordIdx] ^ other.vector[wordIdx])
-	}
-
-	return total
-}
-
-/*
 Popcount returns the total number of set bits across the vector.
 Used to detect saturation toward the Shannon limit where all
 distance measurements become meaningless.

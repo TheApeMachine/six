@@ -98,9 +98,13 @@ func main() {
 	writeMacro(&content, "NUM_ROTATIONS", numRotations)
 	writeMacro(&content, "SURFACE_ELEMENTS", surfaceElements)
 
-	// Affinity region (optional, for future use).
 	if viper.IsSet("value.region.affinity.start") {
-		writeMacro(&content, "AFFINITY_START_WORD", viper.GetInt("value.region.affinity.start"))
+		affStart := viper.GetInt("value.region.affinity.start")
+		affBits := viper.GetInt("value.region.affinity.bits")
+		affWords := (affBits + 63) / 64
+
+		writeMacro(&content, "AFFINITY_START_WORD", affStart)
+		writeMacro(&content, "AFFINITY_WORDS", affWords)
 	}
 
 	content.WriteString("\n#endif // SUBSTRATE_PRIMITIVES_H\n")

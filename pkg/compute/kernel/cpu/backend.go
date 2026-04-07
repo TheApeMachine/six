@@ -122,6 +122,31 @@ func execute(v *[128]uint64) {
 	)
 }
 
+/*
+BatchDistances computes Hamming distances from query to count candidate
+affinity vectors using SIMD assembly (NEON 4x unrolled on ARM64, AVX2
+2x unrolled on AMD64). Each vector is 8 × uint64 = 64 bytes.
+*/
+func (backend *Backend) BatchDistances(
+	query unsafe.Pointer,
+	candidates unsafe.Pointer,
+	count int,
+	distances []uint32,
+) error {
+	if count == 0 {
+		return nil
+	}
+
+	batchAffinityDistances(
+		(*uint64)(query),
+		(*uint64)(candidates),
+		count,
+		&distances[0],
+	)
+
+	return nil
+}
+
 func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
 	v := (*[128]uint64)(value)
 

@@ -16,5 +16,6 @@
 #define NUM_ROTATIONS                            16
 #define SURFACE_ELEMENTS                         64
 #define AFFINITY_START_WORD                      8
+#define AFFINITY_WORDS                           8
 
 #endif // SUBSTRATE_PRIMITIVES_H

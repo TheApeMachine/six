@@ -58,6 +58,18 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "UniversalBitwise")
 }
 
+func (backend *Backend) BatchDistances(
+	query unsafe.Pointer, candidates unsafe.Pointer, count int, distances []uint32,
+) error {
+	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "BatchDistances")
+}
+
+func (backend *Backend) NearestAffinity(
+	query unsafe.Pointer, candidates unsafe.Pointer, count int,
+) ([]uint32, error) {
+	return nil, NewMetalKernelError(kernel.KernelErrUnavailable, nil, "NearestAffinity")
+}
+
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	return job(context.Background())
 }

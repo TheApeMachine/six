@@ -83,3 +83,27 @@ kernel void unified_bitwise_kernel(
         A[base + SIGNALS_START_WORD + i] = signals[i];
     }
 }
+
+/*
+NearestAffinity kernel — parallel Hamming distance search.
+
+One thread per candidate. Each thread computes the Hamming distance
+between the query vector (buffer 1) and its candidate vector
+(buffer 0, stride AFFINITY_WORDS), then writes the distance to an
+output buffer. The host reduces the argmin from the distance array.
+*/
+kernel void nearest_affinity_kernel(
+    device const ulong* candidates [[buffer(0)]],
+    device const ulong* query      [[buffer(1)]],
+    device uint*        distances  [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    uint base = id * AFFINITY_WORDS;
+    uint dist = 0;
+
+    for (int w = 0; w < AFFINITY_WORDS; w++) {
+        dist += popcount(candidates[base + w] ^ query[w]);
+    }
+
+    distances[id] = dist;
+}

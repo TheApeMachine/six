@@ -9,6 +9,7 @@ int cuda_device_count();
 void cleanup_cuda_pools();
 
 int unified_bitwise_cuda(int device_id, void* a_host, uint32_t num_values);
+int nearest_affinity_cuda(int device_id, void* query_host, void* candidates_host, uint32_t count, uint32_t* distances_host);
 */
 import "C"
 import (
@@ -97,6 +98,7 @@ Available returns the number of CUDA-capable GPUs.
 func Available() int {
 	b := NewBackend(0)
 	b.init()
+
 	return b.deviceCount
 }
 
@@ -160,6 +162,61 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	kernel.UnpackValueFrames(frames, slabA)
 
 	return nil
+}
+
+/*
+BatchDistances computes Hamming distances from query to count candidate
+affinity vectors on the CUDA GPU. One thread per candidate with __popcll.
+*/
+func (backend *Backend) BatchDistances(
+	query unsafe.Pointer,
+	candidates unsafe.Pointer,
+	count int,
+	distances []uint32,
+) error {
+	if C.nearest_affinity_cuda(
+		C.int(backend.deviceIdx),
+		query,
+		candidates,
+		C.uint32_t(count),
+		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
+	) != 0 {
+		return NewCUDAKernelError(
+			kernel.KernelErrDispatchFailed,
+			errors.New("batch distances dispatch failed"),
+			"BatchDistances",
+			count,
+		)
+	}
+
+	return nil
+}
+
+/*
+NearestAffinity computes Hamming distances from query to all candidates
+on the GPU and returns per-candidate distances. The caller reduces argmin.
+*/
+func (backend *Backend) NearestAffinity(
+	query unsafe.Pointer, candidates unsafe.Pointer, count int,
+) ([]uint32, error) {
+	distances := make([]uint32, count)
+
+	if C.nearest_affinity_cuda(
+		C.int(backend.deviceIdx),
+		query,
+		candidates,
+		C.uint32_t(count),
+		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
+	) != 0 {
+		return nil, NewCUDAKernelError(
+			kernel.KernelErrDispatchFailed,
+			errors.New("nearest_affinity dispatch failed"),
+			"NearestAffinity",
+			count,
+		)
+	}
+
+	return distances, nil
 }
 
 // Schedule runs the job with Context(); cancellation is tied to Shutdown.

@@ -4,11 +4,13 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include "metal.h"
+#include "../shared/primitives.h"
 
 static id<MTLDevice>       device       = nil;
 static id<MTLCommandQueue> commandQueue = nil;
 
-static id<MTLComputePipelineState> pipelineUnifiedBitwise = nil;
+static id<MTLComputePipelineState> pipelineUnifiedBitwise  = nil;
+static id<MTLComputePipelineState> pipelineNearestAffinity = nil;
 
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
@@ -82,6 +84,13 @@ int init_metal(const char* metallib_path) {
             commandQueue = nil; device = nil; initResult = -4; return;
         }
 
+        pipelineNearestAffinity = makePipeline(library, @"nearest_affinity_kernel", &error);
+
+        if (!pipelineNearestAffinity) {
+            NSLog(@"metal: failed to create nearest_affinity pipeline: %@", error);
+            commandQueue = nil; device = nil; initResult = -5; return;
+        }
+
         initResult = 0;
     });
 
@@ -144,6 +153,59 @@ int unified_bitwise_metal(void* a_host, uint32_t num_values) {
 
         memcpy(a_host, [poolA contents], reqBytes);
         return 0;
+    }
+}
+
+/*
+NearestAffinity dispatch — computes Hamming distances from one query
+vector to count candidate vectors, writing uint32 distances to the
+caller's buffer. The host performs the argmin reduction.
+*/
+int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t count, uint32_t* distances_host) {
+    if (!pipelineNearestAffinity || !query_host || !candidates_host || !distances_host || count == 0) return -1;
+
+    @autoreleasepool {
+        NSUInteger qBytes    = AFFINITY_WORDS * sizeof(uint64_t);
+        NSUInteger candBytes = (NSUInteger)count * qBytes;
+        NSUInteger distBytes = (NSUInteger)count * sizeof(uint32_t);
+
+        id<MTLBuffer> bufQuery = [device newBufferWithBytes:query_host
+                                                     length:qBytes
+                                                    options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufCand  = [device newBufferWithBytes:candidates_host
+                                                     length:candBytes
+                                                    options:MTLResourceStorageModeShared];
+        id<MTLBuffer> bufDist  = [device newBufferWithLength:distBytes
+                                                     options:MTLResourceStorageModeShared];
+
+        if (!bufQuery || !bufCand || !bufDist) {
+            if (bufQuery) [bufQuery release];
+            if (bufCand)  [bufCand release];
+            if (bufDist)  [bufDist release];
+            return -2;
+        }
+
+        id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
+
+        [enc setBuffer:bufCand  offset:0 atIndex:0];
+        [enc setBuffer:bufQuery offset:0 atIndex:1];
+        [enc setBuffer:bufDist  offset:0 atIndex:2];
+
+        dispatchKernel(enc, pipelineNearestAffinity, count);
+        [enc endEncoding];
+
+        int r = commitAndWait(cb);
+
+        if (r == 0) {
+            memcpy(distances_host, [bufDist contents], distBytes);
+        }
+
+        [bufQuery release];
+        [bufCand release];
+        [bufDist release];
+
+        return r;
     }
 }
 

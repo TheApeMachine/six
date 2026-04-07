@@ -6,10 +6,10 @@ import (
 	"sync"
 
 	"github.com/smallnest/ringbuffer"
-	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -17,7 +17,7 @@ var bufPool = sync.Pool{
 	New: func() any {
 		return make(
 			[]byte,
-			int(core.Cfg.Value.Region.Tokens.Bits),
+			int(core.Cfg.Value.Region.Tokens.Bits/8),
 		)
 	},
 }
@@ -29,20 +29,22 @@ type Tokenizer struct {
 	rb      *ringbuffer.RingBuffer
 	pr      *ringbuffer.PipeReader
 	pw      *ringbuffer.PipeWriter
-	pool    *compute.Pool
+	queue   *pool.Queue
 	current *primitive.Value
 }
 
 type tokenizerOption func(*Tokenizer)
 
 func NewTokenizer(
-	ctx context.Context, opts ...tokenizerOption,
+	ctx context.Context,
+	queue *pool.Queue,
+	opts ...tokenizerOption,
 ) (*Tokenizer, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	rb := ringbuffer.New(
 		int(
-			core.Cfg.Value.Region.Tokens.Bits * uint64(core.Cfg.Value.Bytes),
+			(core.Cfg.Value.Region.Tokens.Bits / 8) * uint64(core.Cfg.Value.Bytes),
 		),
 	)
 
@@ -120,10 +122,4 @@ func (tokenizer *Tokenizer) Close() (err error) {
 		tokenizer.pw.Close(),
 		tokenizer.pr.Close(),
 	)
-}
-
-func TokenizerWithPool(pool *compute.Pool) tokenizerOption {
-	return func(tokenizer *Tokenizer) {
-		tokenizer.pool = pool
-	}
 }

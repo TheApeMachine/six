@@ -11,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/network"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/kadabra"
 )
@@ -25,7 +26,8 @@ type Machine struct {
 	cancel    context.CancelFunc
 	err       error
 	host      *network.Host
-	pool      *compute.Pool
+	queue     *pool.Queue
+	backend   *compute.Backend
 	tokenizer *Tokenizer
 	kadabra   *kadabra.Node
 }
@@ -50,24 +52,22 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	if machine.kadabra, machine.err = kadabra.NewNode(
-		ctx,
-		machine.host.Name,
-	); machine.err != nil {
+	if machine.queue, machine.err = pool.NewQueue(ctx); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
 
-	if machine.pool, machine.err = compute.NewPool(
+	machine.backend = compute.NewBackend(ctx, machine.queue)
+
+	if machine.kadabra, machine.err = kadabra.NewNode(
 		ctx,
-		compute.PoolWithContext(ctx),
-		compute.PoolWithErrBuffer(1),
+		machine.host.Name,
+		kadabra.WithBackend(machine.backend),
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
 
 	if machine.tokenizer, machine.err = NewTokenizer(
-		ctx,
-		TokenizerWithPool(machine.pool),
+		ctx, machine.queue,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -77,7 +77,8 @@ func NewMachine(
 		"cancel":    machine.cancel,
 		"host":      machine.host,
 		"kadabra":   machine.kadabra,
-		"pool":      machine.pool,
+		"queue":     machine.queue,
+		"backend":   machine.backend,
 		"tokenizer": machine.tokenizer,
 	})
 }
@@ -108,6 +109,12 @@ func (machine *Machine) Close() error {
 		}
 	}
 
+	if machine.queue != nil {
+		if err := machine.queue.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -131,18 +138,28 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 	var n int64
 
 	buf := make([]byte, 1024)
+	breaking := false
 
-	for {
-		if n, machine.err = io.CopyBuffer(machine.tokenizer, dataset, buf); machine.err != nil {
-			if errors.Is(machine.err, io.EOF) {
-				return nil
+	for !breaking {
+		select {
+		case <-machine.ctx.Done():
+			return machine.ctx.Err()
+		default:
+			if n, machine.err = io.CopyBuffer(
+				machine.tokenizer,
+				dataset,
+				buf,
+			); machine.err != nil {
+				if errors.Is(machine.err, io.EOF) {
+					return nil
+				}
+
+				return errnie.Error(machine.err)
 			}
 
-			return errnie.Error(machine.err)
-		}
-
-		if n == 0 {
-			break
+			if n == 0 {
+				breaking = true
+			}
 		}
 	}
 

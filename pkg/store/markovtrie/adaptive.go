@@ -1,6 +1,8 @@
 package markovtrie
 
 import (
+	"sync/atomic"
+
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
@@ -8,6 +10,9 @@ import (
 
 /*
 AdaptiveState tracks online statistics for self-tuned trie behavior.
+
+Field pressure scalars are stored as atomic float bit patterns so routing
+threads can publish pressure without contending on a trie-wide mutex.
 */
 type AdaptiveState struct {
 	DepthHits             []float64
@@ -24,9 +29,9 @@ type AdaptiveState struct {
 	LastPruneStep         int
 	GrowthRateSmooth      *numeric.Derived
 	PruneThreshold        float64
-	fieldDecayPressure    float64
-	fieldLearningPressure float64
-	fieldPrunePressure    float64
+	fieldDecayPressure    atomic.Uint64
+	fieldLearningPressure atomic.Uint64
+	fieldPrunePressure    atomic.Uint64
 
 	enabled bool
 }

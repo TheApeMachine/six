@@ -1,27 +1,87 @@
 package kadabra
 
 import (
+	"maps"
+	"math"
 	"math/bits"
-	"sync"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric"
 )
 
 /*
-Bucket holds the routing entries and candidate peers for one
-XOR distance prefix in the Kadabra routing table.
+bucketState is an immutable routing bucket snapshot swapped atomically so
+peer bookkeeping never takes a per-bucket mutex.
 */
-type Bucket struct {
-	mu              sync.RWMutex
-	Index           int
+type bucketState struct {
 	Entries         PeerSet
 	Candidates      map[uint64]*Peer
 	PreviousEntries PeerSet
 	PreviousScore   float64
 	ExploreNext     bool
 	QueryCount      int
-	Samples         map[uint64]*PeerSample
+}
+
+/*
+Bucket holds the routing entries and candidate peers for one
+XOR distance prefix in the Kadabra routing table.
+*/
+type Bucket struct {
+	Index int
+	state atomic.Pointer[bucketState]
+}
+
+func newBucketState() *bucketState {
+	return &bucketState{
+		Candidates:    make(map[uint64]*Peer),
+		PreviousScore: math.Inf(-1),
+	}
+}
+
+/*
+CloneState returns a deep copy of the current bucket state for
+copy-on-write CAS mutations.
+*/
+func (bucket *Bucket) CloneState(source *bucketState) *bucketState {
+	if source == nil {
+		return newBucketState()
+	}
+
+	return &bucketState{
+		Entries:         append(PeerSet(nil), source.Entries...),
+		Candidates:      maps.Clone(source.Candidates),
+		PreviousEntries: append(PeerSet(nil), source.PreviousEntries...),
+		PreviousScore:   source.PreviousScore,
+		ExploreNext:     source.ExploreNext,
+		QueryCount:      source.QueryCount,
+	}
+}
+
+/*
+CAS applies a lock-free copy-on-write mutation to the bucket state.
+The mutator receives a cloned snapshot; on CAS failure it retries
+with a fresh clone.
+*/
+func (bucket *Bucket) CAS(mut func(*bucketState)) {
+	for {
+		old := bucket.state.Load()
+
+		if old == nil {
+			if !bucket.state.CompareAndSwap(nil, newBucketState()) {
+				continue
+			}
+
+			old = bucket.state.Load()
+		}
+
+		next := bucket.CloneState(old)
+		mut(next)
+
+		if bucket.state.CompareAndSwap(old, next) {
+			return
+		}
+	}
 }
 
 /*
@@ -40,5 +100,5 @@ func IndexFor(local uint64, remote uint64, routingBits int) int {
 		return -1
 	}
 
-	return int(bits.LeadingZeros64(distance))
+	return bits.LeadingZeros64(distance)
 }

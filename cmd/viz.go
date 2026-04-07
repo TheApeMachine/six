@@ -1,15 +1,7 @@
 package cmd
 
 import (
-	"context"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/viz"
 )
 
 var vizAddr string
@@ -19,36 +11,38 @@ var vizCmd = &cobra.Command{
 	Short: "Start the 3D system visualization server",
 	Long:  vizLong,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel := signal.NotifyContext(
-			context.Background(), os.Interrupt, syscall.SIGTERM,
-		)
+		// ctx, cancel := signal.NotifyContext(
+		// 	context.Background(), os.Interrupt, syscall.SIGTERM,
+		// )
 
-		defer cancel()
+		// defer cancel()
 
-		// Wire compute pool telemetry into the viz bus.
-		compute.SetPoolEmitFunc(func(ev compute.PoolEvent) {
-			if ev.Action == "complete" || ev.Action == "done" {
-				viz.DefaultBus.Publish(
-					viz.PoolCompleteEvent(
-						ev.Action, ev.DurationMs,
-					),
-				)
-			} else {
-				viz.DefaultBus.Publish(
-					viz.PoolScheduleEvent(
-						ev.Action,
-						ev.QueueSize,
-						ev.Workers,
-					),
-				)
-			}
-		})
+		// // Wire compute pool telemetry into the viz bus.
+		// compute.SetPoolEmitFunc(func(ev compute.PoolEvent) {
+		// 	if ev.Action == "complete" || ev.Action == "done" {
+		// 		viz.DefaultBus.Publish(
+		// 			viz.PoolCompleteEvent(
+		// 				ev.Action, ev.DurationMs,
+		// 			),
+		// 		)
+		// 	} else {
+		// 		viz.DefaultBus.Publish(
+		// 			viz.PoolScheduleEvent(
+		// 				ev.Action,
+		// 				ev.QueueSize,
+		// 				ev.Workers,
+		// 			),
+		// 		)
+		// 	}
+		// })
 
-		server := viz.NewServer(viz.DefaultBus, vizAddr)
+		// server := viz.NewServer(viz.DefaultBus, vizAddr)
 
-		errnie.Info("viz.start", "addr", vizAddr)
+		// errnie.Info("viz.start", "addr", vizAddr)
 
-		return server.Start(ctx)
+		// return server.Start(ctx)
+
+		return nil
 	},
 }
 

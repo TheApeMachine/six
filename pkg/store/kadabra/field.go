@@ -3,7 +3,8 @@ package kadabra
 import (
 	"maps"
 	"math"
-	"sync"
+	"slices"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
@@ -25,16 +26,30 @@ const clampDecayLearnLimit = 3.0
 const clampPruneLimit = 5.0
 
 /*
+digestMap is an immutable snapshot of remote trie digests for eigenmode work.
+*/
+type digestMap struct {
+	m map[uint64]Digest
+}
+
+/*
+modesProjection stores the latest DetectModes result without a mutex so
+readers can query mode membership lock-free.
+*/
+type modesProjection struct {
+	modes    []geometry.Eigenmode
+	dominant int
+}
+
+/*
 Field lives in the context of a Kadabra Node, and forms a mesh
 across all the Markov Tries that the node acts as a routing hub for.
 */
 type Field struct {
-	mu           sync.RWMutex
-	digests      map[uint64]Digest
-	owner        *Node
-	modes        []geometry.Eigenmode
-	dominantMode int
-	phase        *geometry.Phase
+	digests    atomic.Pointer[digestMap]
+	projection atomic.Pointer[modesProjection]
+	owner      *Node
+	phase      *geometry.Phase
 }
 
 /*
@@ -42,12 +57,28 @@ NewField constructs a new Field for the given node.
 */
 func NewField(owner *Node) *Field {
 	return &Field{
-		digests:      make(map[uint64]Digest),
-		owner:        owner,
-		modes:        make([]geometry.Eigenmode, 0),
-		dominantMode: -1,
-		phase:        geometry.NewPhase(),
+		owner: owner,
+		phase: geometry.NewPhase(),
 	}
+}
+
+/*
+digestLookup returns one digest origin if present.
+*/
+func (field *Field) digestLookup(origin uint64) (Digest, bool) {
+	if field == nil {
+		return Digest{}, false
+	}
+
+	dm := field.digests.Load()
+
+	if dm == nil || dm.m == nil {
+		return Digest{}, false
+	}
+
+	d, ok := dm.m[origin]
+
+	return d, ok
 }
 
 /*
@@ -58,10 +89,13 @@ func (field *Field) ModeCount() int {
 		return 0
 	}
 
-	field.mu.RLock()
-	defer field.mu.RUnlock()
+	proj := field.projection.Load()
 
-	return len(field.modes)
+	if proj == nil {
+		return 0
+	}
+
+	return len(proj.modes)
 }
 
 /*
@@ -73,14 +107,13 @@ func (field *Field) ModeMembers(modeIdx int) []uint64 {
 		return nil
 	}
 
-	field.mu.RLock()
-	defer field.mu.RUnlock()
+	proj := field.projection.Load()
 
-	if modeIdx >= len(field.modes) {
+	if proj == nil || modeIdx >= len(proj.modes) {
 		return nil
 	}
 
-	members := field.modes[modeIdx].Members()
+	members := proj.modes[modeIdx].Members()
 	out := make([]uint64, len(members))
 	copy(out, members)
 
@@ -96,14 +129,13 @@ func (field *Field) ModeEnergy(modeIdx int) float64 {
 		return 0
 	}
 
-	field.mu.RLock()
-	defer field.mu.RUnlock()
+	proj := field.projection.Load()
 
-	if modeIdx >= len(field.modes) {
+	if proj == nil || modeIdx >= len(proj.modes) {
 		return 0
 	}
 
-	return field.modes[modeIdx].Energy()
+	return proj.modes[modeIdx].Energy()
 }
 
 /*
@@ -115,10 +147,13 @@ func (field *Field) DominantModeIndex() int {
 		return -1
 	}
 
-	field.mu.RLock()
-	defer field.mu.RUnlock()
+	proj := field.projection.Load()
 
-	return field.dominantMode
+	if proj == nil {
+		return -1
+	}
+
+	return proj.dominant
 }
 
 /*
@@ -130,14 +165,13 @@ func (field *Field) DominantModeEnergy() float64 {
 		return 0
 	}
 
-	field.mu.RLock()
-	defer field.mu.RUnlock()
+	proj := field.projection.Load()
 
-	if field.dominantMode < 0 || field.dominantMode >= len(field.modes) {
+	if proj == nil || proj.dominant < 0 || proj.dominant >= len(proj.modes) {
 		return 0
 	}
 
-	return field.modes[field.dominantMode].Energy()
+	return proj.modes[proj.dominant].Energy()
 }
 
 /*
@@ -145,19 +179,39 @@ Absorb integrates a received digest, recomputes eigenmodes,
 and projects field pressure onto the owning node's tries.
 */
 func (field *Field) Absorb(digest Digest) {
-	field.mu.Lock()
-
-	if existing, ok := field.digests[digest.Origin]; ok {
-		if digest.Epoch <= existing.Epoch {
-			field.mu.Unlock()
-			return
-		}
+	if field == nil {
+		return
 	}
 
-	field.digests[digest.Origin] = digest
-	field.mu.Unlock()
+	if !field.absorbDigest(digest) {
+		return
+	}
 
-	field.Project()
+	_, _ = field.Project()
+}
+
+func (field *Field) absorbDigest(digest Digest) bool {
+	for {
+		old := field.digests.Load()
+		var base map[uint64]Digest
+
+		if old != nil && old.m != nil {
+			if existing, ok := old.m[digest.Origin]; ok && digest.Epoch <= existing.Epoch {
+				return false
+			}
+
+			base = maps.Clone(old.m)
+		} else {
+			base = make(map[uint64]Digest)
+		}
+
+		base[digest.Origin] = digest
+		newSnap := &digestMap{m: base}
+
+		if field.digests.CompareAndSwap(old, newSnap) {
+			return true
+		}
+	}
 }
 
 /*
@@ -176,52 +230,56 @@ This asymmetric fork IS the attention mechanism. No matrices, no softmax.
 The field selects by differential survival.
 */
 func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
+	_ = values
+
 	if field.owner == nil {
 		return nil, nil
 	}
 
-	field.mu.Lock()
+	dm := field.digests.Load()
 
-	if len(field.digests) < 2 {
-		field.mu.Unlock()
-
+	if dm == nil || dm.m == nil || len(dm.m) < 2 {
 		return nil, nil
 	}
 
-	participants := make([]geometry.ModeParticipant, 0, len(field.digests))
+	digestSnap := maps.Clone(dm.m)
 
-	for origin, digest := range field.digests {
+	participants := make([]geometry.ModeParticipant, 0, len(digestSnap))
+
+	for origin, digest := range digestSnap {
 		participants = append(participants, geometry.ModeParticipant{
 			Origin: origin,
 			Energy: digest.SurprisalMean,
 		})
 	}
 
-	field.modes, field.dominantMode = geometry.DetectModes(
+	modes, dominant := geometry.DetectModes(
 		participants,
 		modeCouplingThreshold,
 		func(a, b uint64) float64 {
-			dA, dB := field.digests[a], field.digests[b]
+			dA, dB := digestSnap[a], digestSnap[b]
 			affA := primitive.NewAffinityFromVector(dA.Affinity)
 			affB := primitive.NewAffinityFromVector(dB.Affinity)
+
 			return affA.Coupling(affB)
 		},
 	)
 
-	digestSnap := maps.Clone(field.digests)
-	modesSnap := field.modes
-	dominantSnap := field.dominantMode
-	field.mu.Unlock()
+	field.projection.Store(&modesProjection{modes: modes, dominant: dominant})
 
 	clamp := func(val, limit float64) float64 {
 		return math.Max(-limit, math.Min(limit, val))
 	}
 
-	field.owner.triesMu.RLock()
-	defer field.owner.triesMu.RUnlock()
+	tries := field.owner.triesSnapshot()
 
-	for trieIdx := range field.owner.Tries {
-		cluster := field.owner.Tries[trieIdx]
+	for trieIdx := range tries {
+		cluster := tries[trieIdx]
+
+		if cluster == nil {
+			continue
+		}
+
 		trieID := (field.owner.ID << 32) | uint64(uint32(trieIdx+1))
 
 		local, hasLocal := digestSnap[trieID]
@@ -232,14 +290,11 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 
 		aligned := false
 
-		if dominantSnap >= 0 && dominantSnap < len(modesSnap) {
-			dominant := modesSnap[dominantSnap]
+		if dominant >= 0 && dominant < len(modes) {
+			dominantMode := modes[dominant]
 
-			for _, memberID := range dominant.Members() {
-				if memberID == trieID {
-					aligned = true
-					break
-				}
+			if slices.Contains(dominantMode.Members(), trieID) {
+				aligned = true
 			}
 		}
 

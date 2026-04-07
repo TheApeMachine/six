@@ -346,3 +346,148 @@ ub_avx_loop:
 
 	VZEROUPPER
 	RET
+
+
+// =========================================================================
+// batchAffinityDistances: AVX2 2x-unrolled batch Hamming distance.
+//
+// func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
+//
+// Computes Hamming distance from query (8 × uint64 = 64 bytes) to each of
+// count contiguous candidate vectors. Writes uint32 distances to out[i].
+// 2 candidates per iteration for ILP across execution ports.
+// =========================================================================
+TEXT ·batchAffinityDistances(SB), NOSPLIT, $0-32
+	MOVQ	query+0(FP), DI
+	MOVQ	candidates+8(FP), SI
+	MOVQ	count+16(FP), CX
+	MOVQ	out+24(FP), R10
+
+	TESTQ	CX, CX
+	JZ	bad_done
+
+	VMOVDQU	popcnt_lut<>(SB), Y14
+	VMOVDQU	mask_0f<>(SB), Y13
+	VPXOR	Y15, Y15, Y15
+
+	VMOVDQU	0(DI), Y10
+	VMOVDQU	32(DI), Y11
+
+	// R11 = count / 2, R12 = count % 2
+	MOVQ	CX, R11
+	SHRQ	$1, R11
+	MOVQ	CX, R12
+	ANDQ	$1, R12
+
+	TESTQ	R11, R11
+	JZ	bad_tail
+
+bad_loop2:
+	// Candidate A
+	VMOVDQU	0(SI), Y0
+	VMOVDQU	32(SI), Y1
+	// Candidate B
+	VMOVDQU	64(SI), Y4
+	VMOVDQU	96(SI), Y5
+
+	VPXOR	Y10, Y0, Y0
+	VPXOR	Y11, Y1, Y1
+	VPXOR	Y10, Y4, Y4
+	VPXOR	Y11, Y5, Y5
+
+	// Popcount A: Y0
+	VMOVDQU	Y0, Y2
+	VPSRLW	$4, Y2, Y2
+	VPAND	Y13, Y2, Y2
+	VPAND	Y13, Y0, Y0
+	VPSHUFB	Y2, Y14, Y2
+	VPSHUFB	Y0, Y14, Y0
+	VPADDB	Y2, Y0, Y0
+	VPSADBW	Y15, Y0, Y0
+
+	// Popcount A: Y1
+	VMOVDQU	Y1, Y3
+	VPSRLW	$4, Y3, Y3
+	VPAND	Y13, Y3, Y3
+	VPAND	Y13, Y1, Y1
+	VPSHUFB	Y3, Y14, Y3
+	VPSHUFB	Y1, Y14, Y1
+	VPADDB	Y3, Y1, Y1
+	VPSADBW	Y15, Y1, Y1
+
+	// Popcount B: Y4
+	VMOVDQU	Y4, Y6
+	VPSRLW	$4, Y6, Y6
+	VPAND	Y13, Y6, Y6
+	VPAND	Y13, Y4, Y4
+	VPSHUFB	Y6, Y14, Y6
+	VPSHUFB	Y4, Y14, Y4
+	VPADDB	Y6, Y4, Y4
+	VPSADBW	Y15, Y4, Y4
+
+	// Popcount B: Y5
+	VMOVDQU	Y5, Y7
+	VPSRLW	$4, Y7, Y7
+	VPAND	Y13, Y7, Y7
+	VPAND	Y13, Y5, Y5
+	VPSHUFB	Y7, Y14, Y7
+	VPSHUFB	Y5, Y14, Y5
+	VPADDB	Y7, Y5, Y5
+	VPSADBW	Y15, Y5, Y5
+
+	// Horizontal sum A
+	VPADDQ	Y1, Y0, Y0
+	VEXTRACTI128	$1, Y0, X1
+	VPADDQ	X1, X0, X0
+	VMOVQ	X0, AX
+	MOVL	AX, (R10)
+
+	// Horizontal sum B
+	VPADDQ	Y5, Y4, Y4
+	VEXTRACTI128	$1, Y4, X5
+	VPADDQ	X5, X4, X4
+	VMOVQ	X4, AX
+	MOVL	AX, 4(R10)
+
+	ADDQ	$8, R10
+	ADDQ	$128, SI
+	DECQ	R11
+	JNZ	bad_loop2
+
+bad_tail:
+	TESTQ	R12, R12
+	JZ	bad_done
+
+	VMOVDQU	0(SI), Y0
+	VMOVDQU	32(SI), Y1
+
+	VPXOR	Y10, Y0, Y0
+	VPXOR	Y11, Y1, Y1
+
+	VMOVDQU	Y0, Y2
+	VPSRLW	$4, Y2, Y2
+	VPAND	Y13, Y2, Y2
+	VPAND	Y13, Y0, Y0
+	VPSHUFB	Y2, Y14, Y2
+	VPSHUFB	Y0, Y14, Y0
+	VPADDB	Y2, Y0, Y0
+	VPSADBW	Y15, Y0, Y0
+
+	VMOVDQU	Y1, Y3
+	VPSRLW	$4, Y3, Y3
+	VPAND	Y13, Y3, Y3
+	VPAND	Y13, Y1, Y1
+	VPSHUFB	Y3, Y14, Y3
+	VPSHUFB	Y1, Y14, Y1
+	VPADDB	Y3, Y1, Y1
+	VPSADBW	Y15, Y1, Y1
+
+	VPADDQ	Y1, Y0, Y0
+	VEXTRACTI128	$1, Y0, X1
+	VPADDQ	X1, X0, X0
+	VMOVQ	X0, AX
+	MOVL	AX, (R10)
+
+bad_done:
+	VZEROUPPER
+	RET

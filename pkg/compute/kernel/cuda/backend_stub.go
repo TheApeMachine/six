@@ -91,6 +91,18 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	return NewCUDAKernelError(kernel.KernelErrUnavailable, nil, "UniversalBitwise", 0)
 }
 
+func (backend *Backend) BatchDistances(
+	query unsafe.Pointer, candidates unsafe.Pointer, count int, distances []uint32,
+) error {
+	return NewCUDAKernelError(kernel.KernelErrUnavailable, nil, "BatchDistances", 0)
+}
+
+func (backend *Backend) NearestAffinity(
+	query unsafe.Pointer, candidates unsafe.Pointer, count int,
+) ([]uint32, error) {
+	return nil, NewCUDAKernelError(kernel.KernelErrUnavailable, nil, "NearestAffinity", 0)
+}
+
 // Schedule runs the job with Context(); cancellation is tied to Shutdown.
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	return job(backend.ctx)

@@ -5,13 +5,6 @@ import (
 )
 
 /*
-NewBackgroundBackend returns NewBackend(context.Background(), opts...).
-*/
-func NewBackgroundBackend(opts ...BackendOption) *Backend {
-	return NewBackend(context.Background(), opts...)
-}
-
-/*
 WithContext sets the context for the backend.
 */
 func WithContext(ctx context.Context) BackendOption {
@@ -20,14 +13,5 @@ func WithContext(ctx context.Context) BackendOption {
 			ctx = context.Background()
 		}
 		backend.ctx, backend.cancel = context.WithCancel(ctx)
-	}
-}
-
-/*
-WithPool injects the worker pool for job scheduling.
-*/
-func WithPool(p *Pool) BackendOption {
-	return func(backend *Backend) {
-		backend.pool = p
 	}
 }

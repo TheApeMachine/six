@@ -115,6 +115,70 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	return nil
 }
 
+/*
+NearestAffinity computes Hamming distances from query to all candidates
+on the GPU and returns per-candidate distances. The caller reduces argmin.
+*/
+func (backend *Backend) NearestAffinity(
+	query unsafe.Pointer, candidates unsafe.Pointer, count int,
+) ([]uint32, error) {
+	if !metalReady.Load() {
+		return nil, NewMetalKernelError(
+			kernel.KernelErrUnavailable,
+			errors.New("metal backend not initialized"),
+			"NearestAffinity",
+		)
+	}
+
+	distances := make([]uint32, count)
+
+	if C.nearest_affinity_metal(
+		query,
+		candidates,
+		C.uint32_t(count),
+		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
+	) != 0 {
+		return nil, NewMetalKernelError(
+			kernel.KernelErrDispatchFailed, nil, "NearestAffinity",
+		)
+	}
+
+	return distances, nil
+}
+
+/*
+BatchDistances computes Hamming distances from query to count candidate
+affinity vectors on the Metal GPU. One thread per candidate, popcount
+built-in, unified memory (no copy overhead on Apple Silicon).
+*/
+func (backend *Backend) BatchDistances(
+	query unsafe.Pointer,
+	candidates unsafe.Pointer,
+	count int,
+	distances []uint32,
+) error {
+	if !metalReady.Load() {
+		return NewMetalKernelError(
+			kernel.KernelErrUnavailable,
+			errors.New("metal backend not initialized"),
+			"BatchDistances",
+		)
+	}
+
+	if C.nearest_affinity_metal(
+		query,
+		candidates,
+		C.uint32_t(count),
+		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
+	) != 0 {
+		return NewMetalKernelError(
+			kernel.KernelErrDispatchFailed, nil, "BatchDistances",
+		)
+	}
+
+	return nil
+}
+
 func init() {
 	tmpFile, err := os.CreateTemp("", "backend-*.metallib")
 

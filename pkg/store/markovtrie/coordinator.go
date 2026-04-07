@@ -2,11 +2,19 @@ package markovtrie
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 )
+
+/*
+float64StringMap holds coactivation weights keyed by LinkKey strings.
+It is swapped atomically so multimodal bookkeeping stays mutex-free.
+*/
+type float64StringMap struct {
+	m map[string]float64
+}
 
 /*
 MultimodalCoordinator binds sensory, action, and reward tries while tracking
@@ -14,15 +22,13 @@ coactivated terminal nodes so reward expectations can be queried from paired
 sensory-action histories without a separate simulator graph.
 */
 type MultimodalCoordinator struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	Sensory *Store
-	Action  *Store
-	Reward  *Store
-
-	coactivationMu sync.RWMutex
-	coactivation   map[string]float64
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	Sensory      *Store
+	Action       *Store
+	Reward       *Store
+	coactivation atomic.Pointer[float64StringMap]
 }
 
 /*
@@ -31,38 +37,30 @@ parity but maintain isolated trie roots and vocabularies.
 */
 func NewMultimodalCoordinator(
 	ctx context.Context, options ...Option,
-) (*MultimodalCoordinator, error) {
+) (coordinator *MultimodalCoordinator, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	coordinator := &MultimodalCoordinator{
-		ctx:          ctx,
-		cancel:       cancel,
-		coactivation: make(map[string]float64),
+	initial := &float64StringMap{m: make(map[string]float64)}
+
+	coordinator = &MultimodalCoordinator{
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
-	var err error
+	coordinator.coactivation.Store(initial)
 
-	coordinator.Sensory, err = NewStore(ctx, options...)
-
-	if err != nil {
+	if coordinator.Sensory, err = NewStore(ctx, options...); err != nil {
 		cancel()
-
 		return nil, errnie.Error(err)
 	}
 
-	coordinator.Action, err = NewStore(ctx, options...)
-
-	if err != nil {
+	if coordinator.Action, err = NewStore(ctx, options...); err != nil {
 		cancel()
-
 		return nil, errnie.Error(err)
 	}
 
-	coordinator.Reward, err = NewStore(ctx, options...)
-
-	if err != nil {
+	if coordinator.Reward, err = NewStore(ctx, options...); err != nil {
 		cancel()
-
 		return nil, errnie.Error(err)
 	}
 
@@ -72,7 +70,7 @@ func NewMultimodalCoordinator(
 		"Sensory":      coordinator.Sensory,
 		"Action":       coordinator.Action,
 		"Reward":       coordinator.Reward,
-		"coactivation": coordinator.coactivation,
+		"coactivation": coordinator.coactivation.Load(),
 	})
 }
 

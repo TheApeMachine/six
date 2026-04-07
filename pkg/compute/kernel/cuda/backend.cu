@@ -85,6 +85,32 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
     }
 }
 
+/*
+NearestAffinity kernel — parallel Hamming distance search.
+
+One thread per candidate. Each thread computes the Hamming distance
+between the query vector and its candidate vector, writing the scalar
+distance to an output buffer. The host reduces the argmin.
+*/
+__global__ void nearest_affinity_kernel(
+    const uint64_t* candidates,
+    const uint64_t* query,
+    uint32_t*       distances,
+    uint32_t        count
+) {
+    uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= count) return;
+
+    uint32_t base = id * AFFINITY_WORDS;
+    uint32_t dist = 0;
+
+    for (int w = 0; w < AFFINITY_WORDS; w++) {
+        dist += __popcll(candidates[base + w] ^ query[w]);
+    }
+
+    distances[id] = dist;
+}
+
 static uint64_t* d_pool_A = nullptr;
 static uint32_t pool_capacity = 0;
 
@@ -103,6 +129,33 @@ static int ensure_pool(uint32_t num_values) {
     return 0;
 }
 
+static uint64_t*  d_aff_candidates = nullptr;
+static uint64_t*  d_aff_query      = nullptr;
+static uint32_t*  d_aff_distances  = nullptr;
+static uint32_t   aff_pool_cap     = 0;
+
+static int ensure_aff_pool(uint32_t count) {
+    if (aff_pool_cap >= count) return 0;
+
+    if (d_aff_candidates) { cudaFree(d_aff_candidates); d_aff_candidates = nullptr; }
+    if (d_aff_query)      { cudaFree(d_aff_query);      d_aff_query      = nullptr; }
+    if (d_aff_distances)  { cudaFree(d_aff_distances);   d_aff_distances  = nullptr; }
+
+    uint32_t cap = count * 2;
+    if (cap < 256) cap = 256;
+
+    size_t cand_bytes = (size_t)cap * AFFINITY_WORDS * sizeof(uint64_t);
+    size_t dist_bytes = (size_t)cap * sizeof(uint32_t);
+    size_t q_bytes    = AFFINITY_WORDS * sizeof(uint64_t);
+
+    if (cudaMalloc((void**)&d_aff_candidates, cand_bytes) != cudaSuccess) return -1;
+    if (cudaMalloc((void**)&d_aff_query,      q_bytes)    != cudaSuccess) return -1;
+    if (cudaMalloc((void**)&d_aff_distances,  dist_bytes) != cudaSuccess) return -1;
+
+    aff_pool_cap = cap;
+    return 0;
+}
+
 extern "C" {
 
     int cuda_device_count() {
@@ -112,8 +165,43 @@ extern "C" {
     }
 
     void cleanup_cuda_pools() {
-        if (d_pool_A) { cudaFree(d_pool_A); d_pool_A = nullptr; }
+        if (d_pool_A)          { cudaFree(d_pool_A);          d_pool_A          = nullptr; }
+        if (d_aff_candidates)  { cudaFree(d_aff_candidates);  d_aff_candidates  = nullptr; }
+        if (d_aff_query)       { cudaFree(d_aff_query);       d_aff_query       = nullptr; }
+        if (d_aff_distances)   { cudaFree(d_aff_distances);   d_aff_distances   = nullptr; }
         pool_capacity = 0;
+        aff_pool_cap  = 0;
+    }
+
+    int nearest_affinity_cuda(
+        int device_id,
+        void* query_host,
+        void* candidates_host,
+        uint32_t count,
+        uint32_t* distances_host
+    ) {
+        if (!query_host || !candidates_host || !distances_host || count == 0) return -1;
+        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+        if (ensure_aff_pool(count) != 0) return -1;
+
+        size_t q_bytes    = AFFINITY_WORDS * sizeof(uint64_t);
+        size_t cand_bytes = (size_t)count * AFFINITY_WORDS * sizeof(uint64_t);
+        size_t dist_bytes = (size_t)count * sizeof(uint32_t);
+
+        if (cudaMemcpy(d_aff_query,      query_host,      q_bytes,    cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemcpy(d_aff_candidates,  candidates_host, cand_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+
+        const int tpb = 256;
+        int blocks = (int)((count + tpb - 1) / tpb);
+        if (blocks < 1) blocks = 1;
+
+        nearest_affinity_kernel<<<blocks, tpb>>>(d_aff_candidates, d_aff_query, d_aff_distances, count);
+
+        if (cudaGetLastError()        != cudaSuccess) return -3;
+        if (cudaDeviceSynchronize()   != cudaSuccess) return -4;
+        if (cudaMemcpy(distances_host, d_aff_distances, dist_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+
+        return 0;
     }
 
     int unified_bitwise_cuda(

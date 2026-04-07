@@ -1,7 +1,6 @@
 package kadabra
 
 import (
-	"sync"
 	"sync/atomic"
 )
 
@@ -11,9 +10,7 @@ Each local trie cluster produces its own digest — its voice in the
 emergent field.
 */
 type Gossip struct {
-	mu      sync.RWMutex
-	digests map[uint64]Digest
-	owner   *Node
+	owner *Node
 }
 
 /*
@@ -21,26 +18,25 @@ Digests produces one Digest per local trie cluster. Each trie is a
 participant in the field with its own affinity and adaptive signals.
 */
 func (gossip *Gossip) Digests() []Digest {
-	gossip.owner.triesMu.RLock()
-	defer gossip.owner.triesMu.RUnlock()
-
+	tries := gossip.owner.triesSnapshot()
 	epoch := atomic.LoadUint64(&gossip.owner.epoch)
-	out := make([]Digest, 0, len(gossip.owner.Tries))
+	out := make([]Digest, 0, len(tries))
 
-	for trieIdx := range gossip.owner.Tries {
-		cluster := gossip.owner.Tries[trieIdx]
+	for trieIdx := range tries {
+		cluster := tries[trieIdx]
+
+		if cluster == nil {
+			continue
+		}
+
 		sig := cluster.Adaptive
 		origin := (gossip.owner.ID << 32) | uint64(uint32(trieIdx+1))
 
 		var prevSurprisal float64
 
-		gossip.owner.Field.mu.RLock()
-
-		if prev, ok := gossip.owner.Field.digests[origin]; ok {
+		if prev, ok := gossip.owner.Field.digestLookup(origin); ok {
 			prevSurprisal = prev.SurprisalMean
 		}
-
-		gossip.owner.Field.mu.RUnlock()
 
 		surprisalMean := sig.SurprisalStats.Value()
 

@@ -272,3 +272,163 @@ ub_loop:
 	BLT	ub_loop
 
 	RET
+
+
+// ============================================================================
+// batchAffinityDistances: NEON 4x-unrolled batch Hamming distance.
+//
+// func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
+//
+// Computes Hamming distance from query (8 × uint64 = 64 bytes) to each of
+// count contiguous candidate vectors. Writes uint32 distances to out[i].
+// 4 candidates per iteration using all 32 NEON registers.
+// ============================================================================
+TEXT ·batchAffinityDistances(SB), NOSPLIT|NOFRAME, $0-32
+	MOVD	query+0(FP), R0
+	MOVD	candidates+8(FP), R1
+	MOVD	count+16(FP), R2
+	MOVD	out+24(FP), R3
+
+	CBZ	R2, bad_done
+
+	// Load query into V16-V19
+	VLD1.P	16(R0), [V16.B16]
+	VLD1.P	16(R0), [V17.B16]
+	VLD1.P	16(R0), [V18.B16]
+	VLD1	(R0), [V19.B16]
+
+	// R5 = count / 4, R6 = count % 4
+	LSR	$2, R2, R5
+	AND	$3, R2, R6
+
+	CBZ	R5, bad_tail
+
+bad_loop4:
+	// Load 4 candidates (64 bytes each = 256 bytes total)
+	VLD1.P	16(R1), [V0.B16]
+	VLD1.P	16(R1), [V1.B16]
+	VLD1.P	16(R1), [V2.B16]
+	VLD1.P	16(R1), [V3.B16]
+
+	VLD1.P	16(R1), [V4.B16]
+	VLD1.P	16(R1), [V5.B16]
+	VLD1.P	16(R1), [V6.B16]
+	VLD1.P	16(R1), [V7.B16]
+
+	VLD1.P	16(R1), [V8.B16]
+	VLD1.P	16(R1), [V9.B16]
+	VLD1.P	16(R1), [V10.B16]
+	VLD1.P	16(R1), [V11.B16]
+
+	VLD1.P	16(R1), [V12.B16]
+	VLD1.P	16(R1), [V13.B16]
+	VLD1.P	16(R1), [V14.B16]
+	VLD1.P	16(R1), [V15.B16]
+
+	// XOR all with query
+	VEOR	V16.B16, V0.B16, V0.B16
+	VEOR	V17.B16, V1.B16, V1.B16
+	VEOR	V18.B16, V2.B16, V2.B16
+	VEOR	V19.B16, V3.B16, V3.B16
+	VEOR	V16.B16, V4.B16, V4.B16
+	VEOR	V17.B16, V5.B16, V5.B16
+	VEOR	V18.B16, V6.B16, V6.B16
+	VEOR	V19.B16, V7.B16, V7.B16
+	VEOR	V16.B16, V8.B16, V8.B16
+	VEOR	V17.B16, V9.B16, V9.B16
+	VEOR	V18.B16, V10.B16, V10.B16
+	VEOR	V19.B16, V11.B16, V11.B16
+	VEOR	V16.B16, V12.B16, V12.B16
+	VEOR	V17.B16, V13.B16, V13.B16
+	VEOR	V18.B16, V14.B16, V14.B16
+	VEOR	V19.B16, V15.B16, V15.B16
+
+	// VCNT all
+	VCNT	V0.B16, V0.B16
+	VCNT	V1.B16, V1.B16
+	VCNT	V2.B16, V2.B16
+	VCNT	V3.B16, V3.B16
+	VCNT	V4.B16, V4.B16
+	VCNT	V5.B16, V5.B16
+	VCNT	V6.B16, V6.B16
+	VCNT	V7.B16, V7.B16
+	VCNT	V8.B16, V8.B16
+	VCNT	V9.B16, V9.B16
+	VCNT	V10.B16, V10.B16
+	VCNT	V11.B16, V11.B16
+	VCNT	V12.B16, V12.B16
+	VCNT	V13.B16, V13.B16
+	VCNT	V14.B16, V14.B16
+	VCNT	V15.B16, V15.B16
+
+	// Reduce each candidate to one register
+	VADD	V1.B16, V0.B16, V0.B16
+	VADD	V3.B16, V2.B16, V2.B16
+	VADD	V2.B16, V0.B16, V0.B16
+
+	VADD	V5.B16, V4.B16, V4.B16
+	VADD	V7.B16, V6.B16, V6.B16
+	VADD	V6.B16, V4.B16, V4.B16
+
+	VADD	V9.B16, V8.B16, V8.B16
+	VADD	V11.B16, V10.B16, V10.B16
+	VADD	V10.B16, V8.B16, V8.B16
+
+	VADD	V13.B16, V12.B16, V12.B16
+	VADD	V15.B16, V14.B16, V14.B16
+	VADD	V14.B16, V12.B16, V12.B16
+
+	// UADDLV + store for each candidate
+	WORD	$0x6E303800    // UADDLV H0, V0.16B
+	VMOV	V0.D[0], R7
+	MOVW	R7, (R3)
+
+	WORD	$0x6E303884    // UADDLV H4, V4.16B
+	VMOV	V4.D[0], R7
+	MOVW	R7, 4(R3)
+
+	WORD	$0x6E303908    // UADDLV H8, V8.16B
+	VMOV	V8.D[0], R7
+	MOVW	R7, 8(R3)
+
+	WORD	$0x6E30398C    // UADDLV H12, V12.16B
+	VMOV	V12.D[0], R7
+	MOVW	R7, 12(R3)
+
+	ADD	$16, R3, R3
+	SUB	$1, R5, R5
+	CBNZ	R5, bad_loop4
+
+bad_tail:
+	CBZ	R6, bad_done
+
+bad_loop1:
+	VLD1.P	16(R1), [V0.B16]
+	VLD1.P	16(R1), [V1.B16]
+	VLD1.P	16(R1), [V2.B16]
+	VLD1.P	16(R1), [V3.B16]
+
+	VEOR	V16.B16, V0.B16, V0.B16
+	VEOR	V17.B16, V1.B16, V1.B16
+	VEOR	V18.B16, V2.B16, V2.B16
+	VEOR	V19.B16, V3.B16, V3.B16
+
+	VCNT	V0.B16, V0.B16
+	VCNT	V1.B16, V1.B16
+	VCNT	V2.B16, V2.B16
+	VCNT	V3.B16, V3.B16
+
+	VADD	V1.B16, V0.B16, V0.B16
+	VADD	V3.B16, V2.B16, V2.B16
+	VADD	V2.B16, V0.B16, V0.B16
+
+	WORD	$0x6E303800
+	VMOV	V0.D[0], R7
+	MOVW	R7, (R3)
+	ADD	$4, R3, R3
+
+	SUB	$1, R6, R6
+	CBNZ	R6, bad_loop1
+
+bad_done:
+	RET

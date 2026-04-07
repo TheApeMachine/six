@@ -1,4 +1,9 @@
-.PHONY: build metal cuda paper pprof pprof-mem dump capnp
+.PHONY: build run test metal cuda paper pprof pprof-mem dump capnp
+
+# The pool package uses go:linkname to access runtime scheduling
+# primitives (dropg, readgstatus) for zero-overhead goroutine parking.
+# Go 1.26 restricts these by default; -checklinkname=0 preserves access.
+LDFLAGS := -ldflags='-checklinkname=0'
 
 DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.capnp'
 # Source extensions plus only visualizer/static/index.html (no other HTML).
@@ -30,13 +35,21 @@ CAPNP_STD ?= ../../capnproto/go-capnp/std
 
 build: capnp
 	go generate ./pkg/primitive/...
-	
+
 	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
-		
+
 	cd pkg/compute/kernel/cuda \
 		&& go generate
+
+	go build $(LDFLAGS) -o six .
+
+run: build
+	./six
+
+test:
+	go test $(LDFLAGS) ./...
 
 metal:
 	go generate ./pkg/primitive/...

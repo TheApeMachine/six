@@ -2,19 +2,19 @@ package kadabra
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
 	"sync"
 
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/store/markovtrie"
 )
 
 /*
@@ -29,8 +29,7 @@ type Node struct {
 	err           error
 	ID            uint64
 	epoch         uint64
-	Tries         []*markovtrie.Store
-	triesMu       sync.RWMutex
+	tries         sync.Map
 	Affinity      *primitive.Affinity
 	affinityCount uint64
 	Field         *Field
@@ -38,19 +37,34 @@ type Node struct {
 	gossip        *Gossip
 	random        *rand.Rand
 
+	backend           *compute.Backend
 	bucketSize        int
 	replicationFactor int
 	epochQueries      int
 	securityThreshold float64
+	queue             *pool.Queue
 }
 
 type nodeOption func(*Node)
 
 /*
+WithBackend injects the compute backend so the routing table can
+dispatch affinity distance work to GPU/SIMD substrates.
+*/
+func WithBackend(backend *compute.Backend) nodeOption {
+	return func(node *Node) {
+		node.backend = backend
+	}
+}
+
+/*
 NewNode constructs a Kadabra DHT node.
 */
 func NewNode(
-	ctx context.Context, id string, options ...nodeOption,
+	ctx context.Context,
+	id string,
+	queue *pool.Queue,
+	options ...nodeOption,
 ) (*Node, error) {
 	if ctx == nil {
 		return nil, errnie.Error(fmt.Errorf("kadabra.NewNode: nil context"))
@@ -75,10 +89,10 @@ func NewNode(
 		cancel:            cancel,
 		ID:                idHash,
 		Affinity:          primitive.NewAffinity(),
-		Tries:             make([]*markovtrie.Store, 0, 8),
 		bucketSize:        core.Cfg.Kadabra.BucketSize,
 		replicationFactor: core.Cfg.Kadabra.ReplicationFactor,
 		epochQueries:      core.Cfg.Kadabra.EpochQueries,
+		queue:             queue,
 	}
 
 	for _, option := range options {
@@ -89,10 +103,9 @@ func NewNode(
 		node.random = rand.New(rand.NewSource(int64(node.ID) + 1))
 	}
 
-	node.routing = NewRoutingTable(node)
+	node.routing = NewRoutingTable(node, node.backend)
 	node.gossip = &Gossip{
-		digests: make(map[uint64]Digest),
-		owner:   node,
+		owner: node,
 	}
 	node.Field = NewField(node)
 
@@ -100,6 +113,7 @@ func NewNode(
 		"ctx":    node.ctx,
 		"cancel": node.cancel,
 		"ID":     node.ID,
+		"queue":  node.queue,
 	})
 }
 
@@ -119,17 +133,22 @@ func (node *Node) Error() error {
 }
 
 /*
-Publish routes a labeled Value to the closest DHT nodes by affinity
-and stores the sequence on each replica's MarkovTrie. The Value
-must have a computed affinity (non-zero AffinityVector).
+Publish stores a labeled Value in the local routing table, which
+routes it to the correct MarkovTrie cluster by affinity. Replication
+to remote peers is handled at the gossip layer, not here — calling
+Closest per-value to find replicas was burning a full BatchDistances
+pass 50M times only to return the local node every time.
 */
 func (node *Node) Publish(
-	value Routable, label string,
+	value *primitive.Value, label string,
 ) (SequenceRecord, error) {
-	content := value.String()
+	if value == nil {
+		return SequenceRecord{}, errnie.Error(fmt.Errorf("kadabra: nil Value"))
+	}
 
 	record := SequenceRecord{
-		Sequence:  content,
+		Value:     *value,
+		Affinity:  value.AffinityVector(),
 		Label:     label,
 		Publisher: node.ID,
 	}
@@ -146,32 +165,8 @@ func (node *Node) Publish(
 		))
 	}
 
-	replicas := node.routing.Closest(
-		valueAff, node.replicationFactor,
-	)
-
-	var storeErrs []error
-
-	for _, replica := range replicas {
-		if replica == nil {
-			continue
-		}
-
-		var err error
-
-		if replica == node || replica.ID == node.ID {
-			err = node.routing.Store(record, valueAff)
-		} else {
-			err = replica.routing.Store(record, valueAff)
-		}
-
-		if err != nil {
-			storeErrs = append(storeErrs, err)
-		}
-	}
-
-	if len(storeErrs) > 0 {
-		return record, errnie.Error(errors.Join(storeErrs...))
+	if err := node.Store(record); err != nil {
+		return record, errnie.Error(err)
 	}
 
 	return record, nil
