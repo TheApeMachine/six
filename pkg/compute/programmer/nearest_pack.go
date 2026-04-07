@@ -42,3 +42,21 @@ func packNearestAffinityCandidates(value *primitive.Value, assets [][]uint64) in
 
 	return packed
 }
+
+/*
+applyBatchAffinityLayout packs nearest-affinity candidates into the Value
+frame for opcode 0x6 batch kernels. Shared by CPU, Metal, and CUDA paths.
+*/
+func applyBatchAffinityLayout(value *primitive.Value, assets [][]uint64) {
+	packed := packNearestAffinityCandidates(value, assets)
+
+	if packed == 0 {
+		for wordIdx := range primitive.AffinityWords {
+			value.Set(32+wordIdx, 0)
+		}
+
+		packed = 1
+	}
+
+	value.Set(124, uint64(packed))
+}

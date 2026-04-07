@@ -150,7 +150,7 @@ func TestPipeline(t *testing.T) {
 					PipelineWithExperiment(experiment),
 					PipelineWithReporter(NewProjectorReporter()),
 					PipelineWithSnapshotReporter(),
-					PipelineWithViz(":6600"),
+					PipelineWithViz("127.0.0.1:0"),
 				)
 
 				So(err, ShouldBeNil)

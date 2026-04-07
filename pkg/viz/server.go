@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,7 +77,6 @@ func NewServer(bus *Bus, addr string) *Server {
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
 
 	s.srv = &http.Server{
-		Addr:    addr,
 		Handler: mux,
 	}
 
@@ -92,7 +94,14 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.consume(ctx, ch)
 	go s.broadcastStats(ctx)
 
-	log.Printf("viz: serving on http://localhost%s", s.addr)
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return err
+	}
+
+	s.addr = ln.Addr().String()
+
+	log.Printf("viz: serving on http://%s", s.addr)
 
 	go func() {
 		<-ctx.Done()
@@ -102,7 +111,7 @@ func (s *Server) Start(ctx context.Context) error {
 		s.bus.Unsubscribe(ch)
 	}()
 
-	if err := s.srv.ListenAndServe(); err != http.ErrServerClosed {
+	if err := s.srv.Serve(ln); err != http.ErrServerClosed {
 		return err
 	}
 
@@ -262,8 +271,42 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// Start the serialized write loop.
 	go s.writeLoop(ctx, client)
 
-	// Send timeline history so new clients catch up.
 	history := s.timeline.Range(0, s.timeline.Len())
+
+	// One synthetic control message so the client can materialize nodes even
+	// when the retained window no longer contains NodeCreated / PeerAdded.
+	nodeSeen := make(map[string]struct{})
+
+	for _, ev := range history {
+		if strings.HasPrefix(ev.Source, "node_") {
+			nodeSeen[ev.Source] = struct{}{}
+		}
+
+		if strings.HasPrefix(ev.Target, "node_") {
+			nodeSeen[ev.Target] = struct{}{}
+		}
+	}
+
+	nodeIDs := make([]string, 0, len(nodeSeen))
+
+	for id := range nodeSeen {
+		nodeIDs = append(nodeIDs, id)
+	}
+
+	sort.Strings(nodeIDs)
+
+	boot, err := json.Marshal(map[string]any{
+		"action": "bootstrap",
+		"nodes":  nodeIDs,
+	})
+	if err == nil {
+		select {
+		case client.outbound <- boot:
+		default:
+		}
+	}
+
+	// Send timeline history so new clients catch up.
 	for _, ev := range history {
 		data, err := json.Marshal(ev)
 		if err != nil {

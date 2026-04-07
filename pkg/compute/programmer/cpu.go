@@ -31,17 +31,7 @@ func (compiler *Compiler) CPU(
 	value.Set(16, uint64(opcode))
 
 	if useBatchAffinity {
-		packed := packNearestAffinityCandidates(value, intent.Assets)
-
-		if packed == 0 {
-			for wordIdx := range primitive.AffinityWords {
-				value.Set(32+wordIdx, 0)
-			}
-
-			packed = 1
-		}
-
-		value.Set(124, uint64(packed))
+		applyBatchAffinityLayout(value, intent.Assets)
 
 		return
 	}

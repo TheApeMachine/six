@@ -380,14 +380,14 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 			}
 		}
 
+		energy := 0.0
+
+		if modeIdx >= 0 && modeIdx < len(modes) {
+			energy = modes[modeIdx].Energy()
+		}
+
 		viz.DefaultBus.Publish(viz.TrieModeEvent(
-			field.owner.ID, trieIdx, modeIdx, aligned,
-			func() float64 {
-				if modeIdx >= 0 && modeIdx < len(modes) {
-					return modes[modeIdx].Energy()
-				}
-				return 0
-			}(),
+			field.owner.ID, trieIdx, modeIdx, aligned, energy,
 		))
 
 		var (

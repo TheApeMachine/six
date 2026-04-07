@@ -35,6 +35,13 @@ const EDGE_COLORS = {
   latency: 0x6ea8fe,
 };
 
+/*
+Cap trie column geometry: TrieSignal/TrieMode/TriePressure indices are real
+Markov trie slots. TrieCoupling must never grow this list — Go publishes
+pairwise participants over digest origins there, not node.tries indices.
+*/
+const MAX_VIZ_TRIE_VISUALS = 64;
+
 const state = {
   nodes: new Map(),
   edges: new Map(),
@@ -60,6 +67,7 @@ const state = {
     countThisSec: 0,
     lastSec: 0,
   },
+  statsDirty: false,
 };
 
 const canvas = document.getElementById('canvas');
@@ -225,7 +233,11 @@ function advanceSparklines() {
   }
 }
 
-setInterval(advanceSparklines, 500);
+const sparklineIntervalId = setInterval(advanceSparklines, 500);
+
+window.addEventListener('beforeunload', () => {
+  clearInterval(sparklineIntervalId);
+});
 
 function renderNodeStats(node) {
   const ctx = node.statsCanvas.getContext('2d');
@@ -400,6 +412,7 @@ function renderNodeStats(node) {
 function addTrieVisual(nodeId) {
   const node = state.nodes.get(nodeId);
   if (!node) return;
+  if (node.tries.length >= MAX_VIZ_TRIE_VISUALS) return;
 
   const idx = node.tries.length;
   const spread = 1.8;
@@ -793,7 +806,7 @@ function spawnFloater(position, text, color, direction) {
   state.floaters.push({ sprite, velocity: dir, life: 1.0, decay: 0.008 + Math.random() * 0.004 });
 }
 
-function textSprite(text, color, fontSize, bold) {
+function textMaterialFromText(text, color, fontSize, bold) {
   const scale = 2;
   const fs = (fontSize || 16) * scale;
   const c = document.createElement('canvas');
@@ -807,8 +820,11 @@ function textSprite(text, color, fontSize, bold) {
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
-  return new THREE.Sprite(mat);
+  return new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+}
+
+function textSprite(text, color, fontSize, bold) {
+  return new THREE.Sprite(textMaterialFromText(text, color, fontSize, bold));
 }
 
 function updateEdgeLabel(edge) {
@@ -831,8 +847,7 @@ function updateEdgeLabel(edge) {
   if (spr.material.map) spr.material.map.dispose();
   spr.material.dispose();
 
-  const newSpr = textSprite(text, '#7888a8', 10);
-  spr.material = newSpr.material;
+  spr.material = textMaterialFromText(text, '#7888a8', 10);
 
   const mid = nA.group.position.clone().add(nB.group.position).multiplyScalar(0.5);
   mid.y += 2.5;
@@ -847,12 +862,87 @@ function pulseNode(nodeId) {
   node.pulseScale = 1.0;
 }
 
+/*
+The timeline ring on the server only keeps the last N events. After heavy
+TrieCoupling/field traffic, replay for a new browser tab may no longer
+contain NodeCreated / PeerAdded, so every handler that does
+state.nodes.get(ev.src) would no-op. Lazily materialize kadabra nodes from
+their stable id prefix so the scene can render.
+*/
+function normalizeVizEvent(ev) {
+  if (!ev || typeof ev !== 'object' || ev.action !== undefined) return;
+  ev.kind = Number(ev.kind);
+}
+
+function ensureTopologyForEvent(ev) {
+  if (ev == null || ev.kind === undefined) return;
+  if (ev.kind === EK.NodeCreated || ev.kind === EK.NodeRemoved) return;
+
+  const stub = (id) => {
+    if (typeof id !== 'string' || !id.startsWith('node_')) return;
+    if (!state.nodes.has(id)) createNode(id, id);
+  };
+
+  stub(ev.src);
+  stub(ev.tgt);
+}
+
+/*
+Trie field events reference trie_idx for real columns. TrieCoupling uses
+different indices server-side; never allocate tries from it (see top comment).
+*/
+function ensureTrieCapacityForEvent(ev) {
+  if (ev == null || ev.kind === undefined) return;
+
+  const nodeId = ev.src;
+  if (typeof nodeId !== 'string' || !nodeId.startsWith('node_')) return;
+
+  let maxIdx = -1;
+  switch (ev.kind) {
+    case EK.TrieMode:
+      maxIdx = ev.vals?.trie_idx | 0;
+      break;
+    case EK.TriePressure:
+      maxIdx = ev.vals?.trie_idx | 0;
+      break;
+    case EK.TrieSignal:
+      maxIdx = ev.vals?.trie_idx | 0;
+      break;
+    default:
+      return;
+  }
+
+  if (maxIdx < 0) return;
+
+  maxIdx = Math.min(maxIdx, MAX_VIZ_TRIE_VISUALS - 1);
+
+  const node = state.nodes.get(nodeId);
+  if (!node) return;
+
+  while (node.tries.length <= maxIdx && node.tries.length < MAX_VIZ_TRIE_VISUALS) {
+    node.data.trieCount = node.tries.length + 1;
+    addTrieVisual(nodeId);
+  }
+}
+
+function replayEvent(ev) {
+  normalizeVizEvent(ev);
+  try {
+    ensureTopologyForEvent(ev);
+    ensureTrieCapacityForEvent(ev);
+    applyEvent(ev);
+  } catch (err) {
+    console.warn('viz: replayEvent', err);
+  }
+}
+
 function handleEvent(ev) {
   state.events.push(ev);
   state.eventCount++;
   tickThroughput();
+  state.statsDirty = true;
   if (state.paused && state.scrubPos >= 0) return;
-  applyEvent(ev);
+  replayEvent(ev);
   addLogEntry(ev);
 }
 
@@ -866,7 +956,7 @@ function applyEvent(ev) {
       const node = state.nodes.get(ev.src);
       if (!node) break;
       if (ev.vals?.trie_count !== undefined) {
-        const newCount = Math.floor(ev.vals.trie_count);
+        const newCount = Math.min(Math.floor(ev.vals.trie_count), MAX_VIZ_TRIE_VISUALS);
         for (let i = node.data.trieCount; i < newCount; i++) addTrieVisual(ev.src);
         node.data.trieCount = newCount;
         renderNodeStats(node);
@@ -1129,10 +1219,14 @@ function applyEvent(ev) {
     }
 
     case EK.TrieCoupling: {
+      // trie_a / trie_b are digest-participant indices in kadabra.Field, not
+      // node.tries[] slots; only draw an arc when both already exist as visuals.
       const trieA = ev.vals?.trie_a | 0;
       const trieB = ev.vals?.trie_b | 0;
       const coupling = ev.vals?.coupling || 0;
-      updateTrieCouplingArc(ev.src, trieA, trieB, coupling);
+      if (trieA < MAX_VIZ_TRIE_VISUALS && trieB < MAX_VIZ_TRIE_VISUALS) {
+        updateTrieCouplingArc(ev.src, trieA, trieB, coupling);
+      }
       break;
     }
 
@@ -1393,8 +1487,9 @@ function scrubTo(pos) {
   pos = Math.max(0, Math.min(pos, state.events.length));
   state.scrubPos = pos;
   clearScene();
-  for (let i = 0; i < pos; i++) applyEvent(state.events[i]);
+  for (let i = 0; i < pos; i++) replayEvent(state.events[i]);
   updateTimeline();
+  state.statsDirty = true;
 }
 
 function clearScene() {
@@ -1418,7 +1513,7 @@ document.getElementById('btn-pause').addEventListener('click', function() {
   state.paused = !state.paused;
   this.textContent = state.paused ? 'resume' : 'pause';
   this.classList.toggle('active', state.paused);
-  if (!state.paused) { state.scrubPos = -1; clearScene(); for (const ev of state.events) applyEvent(ev); }
+  if (!state.paused) { state.scrubPos = -1; clearScene(); for (const ev of state.events) replayEvent(ev); state.statsDirty = true; }
 });
 document.getElementById('btn-log').addEventListener('click', function() { logEl.classList.toggle('open'); this.classList.toggle('active'); });
 document.getElementById('btn-prompt').addEventListener('click', function() {
@@ -1467,6 +1562,7 @@ function connect() {
     try {
       const ev = JSON.parse(msg.data);
       if (ev.action) { handleServerResponse(ev); return; }
+      normalizeVizEvent(ev);
       handleEvent(ev);
     } catch(e) { console.error('viz: event parse error', e); }
   };
@@ -1474,7 +1570,12 @@ function connect() {
   ws.onerror = () => { ws.close(); };
 }
 function handleServerResponse(resp) {
-  if (resp.action === 'scrub_result' && resp.events) { clearScene(); for (const ev of resp.events) applyEvent(ev); }
+  if (resp.action === 'bootstrap' && Array.isArray(resp.nodes)) {
+    for (const id of resp.nodes) {
+      if (typeof id === 'string' && id.startsWith('node_')) createNode(id, id);
+    }
+    state.statsDirty = true;
+  } else if (resp.action === 'scrub_result' && resp.events) { clearScene(); for (const ev of resp.events) replayEvent(ev); state.statsDirty = true; }
   else if (resp.action === 'stats') { state.droppedCount = resp.dropped || 0; updateStats(); }
 }
 connect();
@@ -1502,6 +1603,11 @@ function animate(now) {
   const dt = now - lastTime; lastTime = now;
   frameCount++; fpsTime += dt;
   if (fpsTime > 1000) { document.getElementById('stat-fps').textContent = frameCount; frameCount = 0; fpsTime = 0; }
+
+  if (state.statsDirty) {
+    state.statsDirty = false;
+    updateStats();
+  }
 
   controls.update();
 

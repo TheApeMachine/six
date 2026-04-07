@@ -3,6 +3,7 @@ package pool
 import (
 	"context"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -28,15 +29,17 @@ rather than a raw Pool — this centralizes backpressure, priority, and
 spill management in one place.
 */
 type Queue struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	err      error
-	pool     *Pool
-	backend  Executor
-	normal   *data.Ring
-	priority *data.Ring
-	spill    *data.Ring
-	inflight atomic.Int64
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	pool      *Pool
+	backend   Executor
+	normal    *data.Ring
+	priority  *data.Ring
+	spill     *data.Ring
+	inflight  atomic.Int64
+	drainMu   sync.Mutex
+	drainWait *sync.Cond
 }
 
 /*
@@ -59,6 +62,8 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	if queue.err != nil {
 		return nil, errnie.Error(queue.err)
 	}
+
+	queue.drainWait = sync.NewCond(&queue.drainMu)
 
 	return queue, validate.Require(map[string]any{
 		"ctx":      queue.ctx,
@@ -119,7 +124,14 @@ func (queue *Queue) Execute(program any) {
 
 	backend := queue.backend
 	queue.pool.Submit(func() {
-		defer queue.inflight.Add(-1)
+		defer func() {
+			if queue.inflight.Add(-1) == 0 {
+				queue.drainMu.Lock()
+				queue.drainWait.Broadcast()
+				queue.drainMu.Unlock()
+			}
+		}()
+
 		backend.CompileAndExecute(program)
 	})
 }
@@ -134,9 +146,13 @@ func (queue *Queue) Drain() {
 		return
 	}
 
+	queue.drainMu.Lock()
+
 	for queue.inflight.Load() > 0 {
-		runtime.Gosched()
+		queue.drainWait.Wait()
 	}
+
+	queue.drainMu.Unlock()
 }
 
 /*

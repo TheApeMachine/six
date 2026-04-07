@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -16,6 +17,8 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/kadabra"
 )
+
+const maxMeshPeers = 4096
 
 /*
 Machine is a central orchestrator that moves Values through a
@@ -78,20 +81,28 @@ func NewMachine(
 
 	// Spin up peer nodes and wire a full mesh for gossip/field dynamics.
 	if machine.meshSize > 1 {
-		peerNames := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"}
+		wantPeers := machine.meshSize - 1
+		effective := wantPeers
 
-		count := machine.meshSize - 1
-		if count > len(peerNames) {
-			count = len(peerNames)
+		if wantPeers > maxMeshPeers {
+			effective = maxMeshPeers
+
+			errnie.Warn(
+				"machine: meshSize trimmed to peer cap",
+				"requested_mesh_size", machine.meshSize,
+				"effective_peer_count", effective,
+				"cap", maxMeshPeers,
+			)
 		}
 
 		allNodes := []*kadabra.Node{machine.kadabra}
 
-		for idx := 0; idx < count; idx++ {
-			peer, pErr := kadabra.NewNode(ctx, peerNames[idx], machine.queue)
+		for idx := 0; idx < effective; idx++ {
+			name := fmt.Sprintf("peer-%d", idx+1)
+			peer, pErr := kadabra.NewNode(ctx, name, machine.queue)
 
 			if pErr != nil {
-				errnie.Warn("machine: peer node failed", "name", peerNames[idx], "err", pErr)
+				errnie.Warn("machine: peer node failed", "name", name, "err", pErr)
 				continue
 			}
 
@@ -266,12 +277,20 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		rn, rErr := machine.tokenizer.Read(readBuf)
 
 		if rErr != nil || rn == 0 {
+			errnie.Debug(
+				"machine.Load: tokenizer read short or error",
+				"err", rErr, "rn", rn,
+			)
 			continue
 		}
 
 		value, vErr := primitive.NewValue(readBuf[:rn])
 
 		if vErr != nil {
+			errnie.Debug(
+				"machine.Load: skipping bad value",
+				"err", vErr, "rn", rn,
+			)
 			continue
 		}
 

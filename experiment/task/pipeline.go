@@ -111,10 +111,13 @@ func PipelineWithSnapshotReporter() pipelineOpts {
 PipelineWithViz starts the 3D visualization server on the given address
 (default ":6600") and activates the global event bus so all kadabra,
 compute, and field events stream to the browser in real time.
-The server shuts down when the pipeline context is cancelled.
+
+The server runs under a long-lived context so the first pipeline finishing
+(or being cancelled) does not tear down viz for later pipelines in the
+same process. Use tests with "127.0.0.1:0" for an ephemeral port.
 */
 func PipelineWithViz(addr string) pipelineOpts {
-	return func(pipeline *Pipeline) {
+	return func(_ *Pipeline) {
 		vizOnce.Do(func() {
 			if addr == "" {
 				addr = ":6600"
@@ -122,7 +125,9 @@ func PipelineWithViz(addr string) pipelineOpts {
 
 			server := viz.NewServer(viz.DefaultBus, addr)
 
-			go server.Start(pipeline.ctx)
+			go func() {
+				_ = server.Start(context.Background())
+			}()
 		})
 	}
 }

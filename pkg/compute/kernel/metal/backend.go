@@ -193,6 +193,7 @@ func (backend *Backend) NearestAffinity(
 	distances := make([]uint32, count)
 
 	metalMu.Lock()
+	defer metalMu.Unlock()
 
 	if C.nearest_affinity_metal(
 		query,
@@ -200,14 +201,10 @@ func (backend *Backend) NearestAffinity(
 		C.uint32_t(count),
 		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
 	) != 0 {
-		metalMu.Unlock()
-
 		return nil, NewMetalKernelError(
 			kernel.KernelErrDispatchFailed, nil, "NearestAffinity",
 		)
 	}
-
-	metalMu.Unlock()
 
 	return distances, nil
 }

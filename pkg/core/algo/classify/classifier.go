@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -112,7 +113,40 @@ func (classifier *Classifier) Value() *algo.Prediction {
 	classifier.mu.Lock()
 	defer classifier.mu.Unlock()
 
-	return classifier.prediction
+	if classifier.prediction == nil {
+		return nil
+	}
+
+	src := classifier.prediction
+
+	out := &algo.Prediction{
+		Labels:        make([]algo.Label, len(src.Labels)),
+		Continuations: make([]algo.Continuation, len(src.Continuations)),
+		Context:       append([]primitive.Value(nil), src.Context...),
+		Signals:       make(map[algo.SignalType]*numeric.Derived, len(src.Signals)),
+	}
+
+	for idx := range src.Labels {
+		label := src.Labels[idx]
+		out.Labels[idx] = algo.Label{
+			Label:      append([]byte(nil), label.Label...),
+			Confidence: label.Confidence,
+		}
+	}
+
+	for idx := range src.Continuations {
+		cont := src.Continuations[idx]
+		out.Continuations[idx] = algo.Continuation{
+			Sequence: append([]byte(nil), cont.Sequence...),
+			Score:    cont.Score,
+		}
+	}
+
+	for signalType, derived := range src.Signals {
+		out.Signals[signalType] = derived
+	}
+
+	return out
 }
 
 /*
