@@ -115,9 +115,14 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 				C.uint32_t(batchCount),
 				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
 			) != 0 {
-				return NewMetalKernelError(
+				err := NewMetalKernelError(
 					kernel.KernelErrDispatchFailed, nil, "Execute",
 				)
+
+				kv := kernel.CorrelationKeyvals(ptr)
+				backend.observer.Error("metal.Backend.Execute", err, kv...)
+
+				return err
 			}
 
 			bestIdx := uint64(0)
@@ -139,9 +144,14 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		if C.unified_bitwise_metal(ptr, 1) != 0 {
-			return NewMetalKernelError(
+			err := NewMetalKernelError(
 				kernel.KernelErrDispatchFailed, nil, "Execute",
 			)
+
+			kv := kernel.CorrelationKeyvals(ptr)
+			backend.observer.Error("metal.Backend.Execute", err, kv...)
+
+			return err
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -78,7 +79,10 @@ func NewField(owner *Node) *Field {
 		),
 
 		alignmentRatio: numeric.NewDerived(
-			numeric.WithDynamics(adaptive.NewRatio(0)),
+			numeric.WithDynamics(
+				adaptive.NewRatio(0),
+				adaptive.NewSigmaClamp(3, 8, 0.0625),
+			),
 		),
 	}
 }
@@ -208,6 +212,10 @@ func (field *Field) Absorb(digest Digest) {
 		return
 	}
 
+	viz.DefaultBus.Publish(viz.GossipReceived(
+		field.owner.ID, digest.Origin, digest.Epoch,
+	))
+
 	_, _ = field.Project()
 }
 
@@ -319,6 +327,14 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 
 	field.projection.Store(&modesProjection{modes: modes, dominant: dominant})
 
+	if dominant >= 0 && dominant < len(modes) {
+		viz.DefaultBus.Publish(viz.EigenmodeDetected(
+			field.owner.ID,
+			len(modes),
+			modes[dominant].Energy(),
+		))
+	}
+
 	// Derive alignment ratio from mode energy distribution.
 	if dominant >= 0 && dominant < len(modes) && totalEnergy > 0 {
 		dominantEnergy := modes[dominant].Energy()
@@ -424,6 +440,10 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		learn := clamp(rawLearn*learnMul, clampLimitLearn)
 
 		cluster.ApplyFieldPressure(decay, learn, decay)
+
+		viz.DefaultBus.Publish(viz.FieldPressureEvent(
+			field.owner.ID, decay, learn, decay,
+		))
 	}
 
 	return nil, nil

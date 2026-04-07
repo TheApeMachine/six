@@ -100,6 +100,14 @@ func (compiler *Compiler) Compile(
 	return compiler.value
 }
 
+/*
+Frame returns the Value the compiler mutates so callers can attach
+correlation and observe residency hints before CompileAndExecute.
+*/
+func (compiler *Compiler) Frame() *primitive.Value {
+	return compiler.value
+}
+
 func CompilerWithIntent(intent Intent) compilerOption {
 	return func(compiler *Compiler) {
 		compiler.intent = intent

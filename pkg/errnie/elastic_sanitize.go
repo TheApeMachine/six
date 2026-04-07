@@ -72,6 +72,11 @@ func sanitizeJSONValue(value interface{}) interface{} {
 				continue
 			}
 
+			if key == "correlation_id" {
+				typed["correlation_id"] = stringifyForElasticsearchNumericKey(sanitizeJSONValue(inner))
+				continue
+			}
+
 			typed[key] = sanitizeJSONValue(inner)
 		}
 		return typed

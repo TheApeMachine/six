@@ -63,6 +63,17 @@ func TestSanitizeLogLineForElasticsearch(t *testing.T) {
 			So(s, ShouldEqual, huge)
 		})
 
+		Convey("It should force correlation_id to decimal string for huge uint64", func() {
+			huge := strconv.FormatUint(math.MaxUint64, 10)
+			in := []byte(`{"correlation_id":` + huge + `}`)
+			out := sanitizeLogLineForElasticsearch(in)
+			var decoded map[string]interface{}
+			So(json.Unmarshal(out, &decoded), ShouldBeNil)
+			s, ok := decoded["correlation_id"].(string)
+			So(ok, ShouldBeTrue)
+			So(s, ShouldEqual, huge)
+		})
+
 		Convey("It should pass through invalid JSON unchanged", func() {
 			in := []byte(`not-json`)
 			out := sanitizeLogLineForElasticsearch(in)

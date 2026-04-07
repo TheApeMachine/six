@@ -7,6 +7,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -110,8 +111,12 @@ func (rt *RoutingTable) AddPeer(peer *Node, rtt float64) {
 			for pos := len(st.Entries) - 1; pos > 0 && st.Entries[pos].ID < st.Entries[pos-1].ID; pos-- {
 				st.Entries[pos], st.Entries[pos-1] = st.Entries[pos-1], st.Entries[pos]
 			}
+
+			viz.DefaultBus.Publish(viz.PeerAdded(rt.nodeID, peer.ID, idx))
 		}
 	})
+
+	viz.DefaultBus.Publish(viz.PeerLatency(rt.nodeID, peer.ID, rtt))
 }
 
 // /*

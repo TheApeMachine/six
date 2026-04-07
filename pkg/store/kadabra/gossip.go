@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -55,6 +56,17 @@ func (gossip *Gossip) Digests() []Digest {
 			GrowthRate:      growthRate,
 			Epoch:           epoch,
 		})
+	}
+
+	for _, digest := range out {
+		viz.DefaultBus.Publish(viz.FieldDigestEvent(
+			gossip.owner.ID,
+			digest.SurprisalMean,
+			digest.ClassEntropy,
+			digest.GrowthRate,
+		))
+
+		viz.DefaultBus.Publish(viz.GossipSent(gossip.owner.ID, digest.Epoch))
 	}
 
 	return out

@@ -15,6 +15,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -23,6 +24,7 @@ make informed dispatch decisions without locks. All fields are atomically
 updated from the dispatch hot path.
 */
 type substrateState struct {
+	idx       int
 	substrate kernel.Substrate
 	inflight  atomic.Int64
 	emaNanos  atomic.Int64
@@ -33,21 +35,37 @@ Backend acts as an intelligent Multi-Substrate Load Balancer. It tracks
 in-flight depth and exponential moving average service time per substrate,
 dispatching work to whichever has the least pressure.
 
+Frames may carry a residency tag (word 121). When present, pick adds
+transferPenalty to scores for substrates that would pull the buffer
+across a physical hop relative to where it last completed.
+
 All compute flows through Execute. The programmer compiles intent into
 the Value's layout; the substrate reads the opcode and dispatches to
 the appropriate kernel.
 */
 type Backend struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	states []*substrateState
-	queue  *pool.Queue
+	ctx             context.Context
+	cancel          context.CancelFunc
+	states          []*substrateState
+	queue           *pool.Queue
+	transferPenalty int64
+	correlationSeq  atomic.Uint64
 }
 
 /*
 BackendOption configures the multi-substrate router.
 */
 type BackendOption func(*Backend)
+
+/*
+WithTransferPenalty sets the additive pressure cost (same units as
+inflight×ema) for moving a frame off its last executing substrate.
+*/
+func WithTransferPenalty(nanosProduct int64) BackendOption {
+	return func(backend *Backend) {
+		backend.transferPenalty = nanosProduct
+	}
+}
 
 /*
 NewBackend initializes the unified Load Balancer by probing for
@@ -62,9 +80,10 @@ func NewBackend(
 	ctx, cancel := context.WithCancel(ctx)
 
 	backend := &Backend{
-		ctx:    ctx,
-		cancel: cancel,
-		states: make([]*substrateState, 0),
+		ctx:             ctx,
+		cancel:          cancel,
+		states:          make([]*substrateState, 0),
+		transferPenalty: 1 << 20,
 	}
 
 	for _, opt := range opts {
@@ -79,22 +98,31 @@ func NewBackend(
 		return nil
 	}
 
-	for idx := 0; idx < cuda.Available(); idx++ {
+	idx := 0
+
+	for device := 0; device < cuda.Available(); device++ {
 		errnie.Info("compute.backend: CUDA substrate registered")
 		backend.states = append(backend.states, &substrateState{
-			substrate: cuda.NewBackend(idx),
+			idx:       idx,
+			substrate: cuda.NewBackend(device),
 		})
+
+		idx++
 	}
 
-	for idx := 0; idx < metal.Available(); idx++ {
+	for device := 0; device < metal.Available(); device++ {
 		errnie.Info("compute.backend: Metal substrate registered")
 		backend.states = append(backend.states, &substrateState{
-			substrate: metal.NewBackend(idx),
+			idx:       idx,
+			substrate: metal.NewBackend(device),
 		})
+
+		idx++
 	}
 
 	errnie.Info("compute.backend: CPU substrate registered")
 	backend.states = append(backend.states, &substrateState{
+		idx:       idx,
 		substrate: cpu.NewBackend(backend.ctx),
 	})
 
@@ -110,11 +138,24 @@ func NewBackend(
 
 /*
 pick selects the substrate with the lowest pressure score.
-Score = inflight * emaServiceTime. This naturally favors idle substrates
-and fast substrates equally — a GPU with 2 in-flight but 100ns EMA
-scores the same as a CPU with 1 in-flight and 200ns EMA.
+Score = inflight * emaServiceTime plus transferPenalty when the frame's
+residency tag disagrees with the candidate slot.
 */
-func (backend *Backend) pick() *substrateState {
+func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
+	residentIdx := -1
+
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		if idx := kernel.ResidencySubstrateIndex(ptr); idx >= 0 {
+			residentIdx = idx
+
+			break
+		}
+	}
+
 	var best *substrateState
 	bestScore := int64(^uint64(0) >> 1)
 
@@ -127,6 +168,10 @@ func (backend *Backend) pick() *substrateState {
 		}
 
 		score := inflight * ema
+
+		if residentIdx >= 0 && residentIdx != st.idx && backend.transferPenalty > 0 {
+			score += backend.transferPenalty
+		}
 
 		if score < bestScore {
 			bestScore = score
@@ -154,6 +199,22 @@ func (st *substrateState) observe(elapsed time.Duration) {
 	st.emaNanos.Store(old + (nanos-old)>>3)
 }
 
+func (backend *Backend) stampResidency(frames []unsafe.Pointer, st *substrateState) {
+	if st == nil {
+		return
+	}
+
+	for _, ptr := range frames {
+		kernel.StampFrameResidency(ptr, st.idx)
+	}
+}
+
+func (backend *Backend) ensureCorrelationIDs(frames []unsafe.Pointer) {
+	for _, ptr := range frames {
+		kernel.EnsureFrameCorrelationSeq(&backend.correlationSeq, ptr)
+	}
+}
+
 /*
 Execute dispatches pre-compiled Value frames to the best available
 substrate. The programmer must have already compiled the intent into
@@ -163,15 +224,34 @@ opcode from the program region and dispatches internally.
 func (backend *Backend) Execute(
 	frames []unsafe.Pointer,
 ) error {
-	st := backend.pick()
+	backend.ensureCorrelationIDs(frames)
+
+	st := backend.pick(frames)
 
 	st.inflight.Add(1)
+
+	viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+		st.substrate.Name(),
+		int(st.inflight.Load()),
+		len(backend.states),
+	))
+
 	start := time.Now()
 
 	err := st.substrate.Execute(frames)
 
+	elapsed := time.Since(start)
 	st.inflight.Add(-1)
-	st.observe(time.Since(start))
+	st.observe(elapsed)
+
+	viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+		st.substrate.Name(),
+		int(elapsed.Milliseconds()),
+	))
+
+	if err == nil {
+		backend.stampResidency(frames, st)
+	}
 
 	return err
 }
@@ -207,20 +287,41 @@ func (backend *Backend) CompileAndExecute(
 		return errnie.Error(fmt.Errorf("CompileAndExecute: expected *programmer.Compiler"))
 	}
 
-	st := backend.pick()
+	framePtr := unsafe.Pointer(compiler.Frame())
+
+	backend.ensureCorrelationIDs([]unsafe.Pointer{framePtr})
+
+	st := backend.pick([]unsafe.Pointer{framePtr})
 
 	target := targetFor(st.substrate)
 	value := compiler.Compile(target)
 
 	st.inflight.Add(1)
+
+	viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+		st.substrate.Name(),
+		int(st.inflight.Load()),
+		len(backend.states),
+	))
+
 	start := time.Now()
 
 	err := st.substrate.Execute([]unsafe.Pointer{
 		unsafe.Pointer(value),
 	})
 
+	elapsed := time.Since(start)
 	st.inflight.Add(-1)
-	st.observe(time.Since(start))
+	st.observe(elapsed)
+
+	viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+		st.substrate.Name(),
+		int(elapsed.Milliseconds()),
+	))
+
+	if err == nil {
+		backend.stampResidency([]unsafe.Pointer{unsafe.Pointer(value)}, st)
+	}
 
 	return err
 }

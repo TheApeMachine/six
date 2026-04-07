@@ -15,6 +15,7 @@ import (
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/markovtrie"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -99,12 +100,21 @@ func NewNode(
 	
 	node.Field = NewField(node)
 
+	viz.DefaultBus.Publish(viz.NodeCreated(node.ID, id))
+
 	return node, validate.Require(map[string]any{
 		"ctx":    node.ctx,
 		"cancel": node.cancel,
 		"ID":     node.ID,
 		"queue":  node.queue,
 	})
+}
+
+/*
+Gossip returns the node's gossip layer for digest propagation.
+*/
+func (node *Node) Gossip() *Gossip {
+	return node.gossip
 }
 
 /*
@@ -157,6 +167,8 @@ func (node *Node) Publish(
 		return record, errnie.Error(err)
 	}
 
+	viz.DefaultBus.Publish(viz.ValuePublished(node.ID, record.Key, label))
+
 	return record, nil
 }
 
@@ -170,5 +182,15 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		return nil, errnie.Error(node.err)
 	}
 
-	return node.Field.Project(value)
+	prediction, err := node.Field.Project(value)
+
+	if prediction != nil && len(prediction.Labels) > 0 {
+		viz.DefaultBus.Publish(viz.TriePredictEvent(
+			node.ID,
+			string(prediction.Labels[0].Label),
+			prediction.Labels[0].Confidence,
+		))
+	}
+
+	return prediction, err
 }

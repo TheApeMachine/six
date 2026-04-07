@@ -11,23 +11,44 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 //go:embed static/*
 var staticFS embed.FS
 
-// Server serves the 3D visualization UI and streams events over WebSocket.
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+/*
+wsClient wraps a gorilla websocket connection with a serialized write
+channel. All writes go through the outbound channel so the single
+writer goroutine is the only thing touching conn.WriteMessage.
+*/
+type wsClient struct {
+	conn     *websocket.Conn
+	outbound chan []byte
+	cancel   context.CancelFunc
+}
+
+/*
+Server serves the 3D visualization UI and streams events over WebSocket.
+*/
 type Server struct {
 	bus      *Bus
 	addr     string
 	srv      *http.Server
 	mu       sync.RWMutex
-	clients  map[*websocket.Conn]context.CancelFunc
+	clients  map[*wsClient]struct{}
 	timeline *Timeline
 }
 
-// NewServer creates a visualization server bound to the given address.
+/*
+NewServer creates a visualization server bound to the given address.
+*/
 func NewServer(bus *Bus, addr string) *Server {
 	if addr == "" {
 		addr = ":6600"
@@ -36,20 +57,19 @@ func NewServer(bus *Bus, addr string) *Server {
 	s := &Server{
 		bus:      bus,
 		addr:     addr,
-		clients:  make(map[*websocket.Conn]context.CancelFunc),
-		timeline: NewTimeline(100_000), // ~100k events in ring buffer
+		clients:  make(map[*wsClient]struct{}),
+		timeline: NewTimeline(100_000),
 	}
 
 	mux := http.NewServeMux()
 
-	// Serve static files from embedded FS.
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		panic(fmt.Sprintf("viz: embedded static fs: %v", err))
 	}
 
 	mux.Handle("/", http.FileServer(http.FS(staticSub)))
-	mux.Handle("/ws", websocket.Handler(s.handleWS))
+	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/snapshot", s.handleSnapshot)
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
 
@@ -61,14 +81,16 @@ func NewServer(bus *Bus, addr string) *Server {
 	return s
 }
 
-// Start activates the event bus, begins consuming events, and starts the HTTP server.
+/*
+Start activates the event bus, begins consuming events, and starts the HTTP server.
+*/
 func (s *Server) Start(ctx context.Context) error {
 	s.bus.Activate()
 
-	// Subscribe to all events.
 	ch := s.bus.Subscribe(8192, nil)
 
 	go s.consume(ctx, ch)
+	go s.broadcastStats(ctx)
 
 	log.Printf("viz: serving on http://localhost%s", s.addr)
 
@@ -87,7 +109,9 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-// consume drains the event channel and fans out to WebSocket clients + timeline.
+/*
+consume drains the event channel and fans out to WebSocket clients + timeline.
+*/
 func (s *Server) consume(ctx context.Context, ch chan Event) {
 	for {
 		select {
@@ -98,71 +122,145 @@ func (s *Server) consume(ctx context.Context, ch chan Event) {
 				return
 			}
 
-			// Record in timeline for scrubbing.
 			s.timeline.Record(ev)
-
-			// Broadcast to connected clients.
-			s.broadcast(ev)
+			s.broadcastEvent(ev)
 		}
 	}
 }
 
-func (s *Server) broadcastExcept(ev Event, exclude *websocket.Conn) {
+/*
+broadcastStats periodically sends bus statistics to all connected clients
+so the UI can display dropped event counts accurately.
+*/
+func (s *Server) broadcastStats(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			msg, _ := json.Marshal(map[string]any{
+				"action":  "stats",
+				"dropped": s.bus.Dropped(),
+			})
+
+			s.send(msg, nil)
+		}
+	}
+}
+
+/*
+send pushes a pre-serialized message to all connected clients (or all
+except `exclude`). Non-blocking: if a client's outbound channel is full
+the message is dropped for that client.
+*/
+func (s *Server) send(data []byte, exclude *wsClient) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for client := range s.clients {
+		if client == exclude {
+			continue
+		}
+
+		select {
+		case client.outbound <- data:
+		default:
+		}
+	}
+}
+
+func (s *Server) broadcastEvent(ev Event) {
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for conn := range s.clients {
-		if conn == exclude {
-			continue
-		}
-		_ = conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-		if _, err := conn.Write(data); err != nil {
-			continue
-		}
-	}
+	s.send(data, nil)
 }
 
-func (s *Server) broadcast(ev Event) {
+func (s *Server) broadcastExcept(ev Event, exclude *wsClient) {
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.send(data, exclude)
+}
 
-	for conn := range s.clients {
-		// Non-blocking write with small timeout.
-		_ = conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-		if _, err := conn.Write(data); err != nil {
-			// Will be cleaned up by the read loop detecting disconnect.
-			continue
+/*
+writeLoop is the single goroutine that owns writes to a connection.
+All outbound data is funneled through client.outbound so gorilla
+never sees concurrent WriteMessage calls.
+*/
+func (s *Server) writeLoop(ctx context.Context, client *wsClient) {
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case msg, ok := <-client.outbound:
+			if !ok {
+				return
+			}
+
+			_ = client.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			if err := client.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+
+		case <-pingTicker.C:
+			_ = client.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
 
-func (s *Server) handleWS(conn *websocket.Conn) {
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("viz: ws upgrade failed: %v", err)
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
+	client := &wsClient{
+		conn:     conn,
+		outbound: make(chan []byte, 4096),
+		cancel:   cancel,
+	}
+
 	s.mu.Lock()
-	s.clients[conn] = cancel
+	s.clients[client] = struct{}{}
 	clientCount := len(s.clients)
 	s.mu.Unlock()
 
 	log.Printf("viz: ws client connected (%d total)", clientCount)
 
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
 	defer func() {
 		s.mu.Lock()
-		delete(s.clients, conn)
+		delete(s.clients, client)
 		s.mu.Unlock()
 		cancel()
 		conn.Close()
 	}()
+
+	// Start the serialized write loop.
+	go s.writeLoop(ctx, client)
 
 	// Send timeline history so new clients catch up.
 	history := s.timeline.Range(0, s.timeline.Len())
@@ -171,66 +269,64 @@ func (s *Server) handleWS(conn *websocket.Conn) {
 		if err != nil {
 			continue
 		}
-		if _, err := conn.Write(data); err != nil {
-			return
+
+		select {
+		case client.outbound <- data:
+		default:
 		}
 	}
 
-	// Read loop: handle client commands (pause, scrub, prompt).
-	buf := make([]byte, 4096)
-
+	// Read loop: handle client commands.
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		n, err := conn.Read(buf)
-
+		_, message, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
 
-		// Try as a command first; if it has no "action" field, try as an
-		// inbound event (from a remote BridgeToRemote publisher).
 		var cmd ClientCommand
-		if json.Unmarshal(buf[:n], &cmd) == nil && cmd.Action != "" {
-			s.handleCommand(conn, cmd)
+		if json.Unmarshal(message, &cmd) == nil && cmd.Action != "" {
+			s.handleCommand(client, cmd)
 		} else {
 			var ev Event
-			if json.Unmarshal(buf[:n], &ev) == nil && ev.Timestamp != 0 {
+			if json.Unmarshal(message, &ev) == nil && ev.Timestamp != 0 {
 				log.Printf("viz: inbound event kind=%d src=%s", ev.Kind, ev.Source)
 				s.timeline.Record(ev)
-				s.broadcastExcept(ev, conn)
+				s.broadcastExcept(ev, client)
 			}
 		}
 	}
 }
 
-// ClientCommand is a message from the browser to the server.
+/*
+ClientCommand is a message from the browser to the server.
+*/
 type ClientCommand struct {
-	Action string          `json:"action"` // "pause", "resume", "scrub", "prompt", "save", "load"
+	Action string          `json:"action"`
 	Data   json.RawMessage `json:"data"`
 }
 
-func (s *Server) handleCommand(conn *websocket.Conn, cmd ClientCommand) {
+func (s *Server) handleCommand(client *wsClient, cmd ClientCommand) {
 	switch cmd.Action {
 	case "scrub":
 		var req struct {
 			From int `json:"from"`
 			To   int `json:"to"`
 		}
+
 		if json.Unmarshal(cmd.Data, &req) != nil {
 			return
 		}
+
 		events := s.timeline.Range(req.From, req.To)
 		resp, _ := json.Marshal(map[string]any{
 			"action": "scrub_result",
 			"events": events,
 		})
-		_, _ = conn.Write(resp)
+
+		select {
+		case client.outbound <- resp:
+		default:
+		}
 
 	case "snapshot_save":
 		data := s.timeline.Snapshot()
@@ -238,11 +334,17 @@ func (s *Server) handleCommand(conn *websocket.Conn, cmd ClientCommand) {
 			"action":   "snapshot_data",
 			"snapshot": data,
 		})
-		_, _ = conn.Write(resp)
+
+		select {
+		case client.outbound <- resp:
+		default:
+		}
 	}
 }
 
-// handleSnapshot returns a JSON snapshot of the full timeline.
+/*
+handleSnapshot returns a JSON snapshot of the full timeline.
+*/
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		data := s.timeline.Snapshot()
@@ -257,6 +359,7 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
+
 		s.timeline.Load(events)
 		w.WriteHeader(204)
 		return
@@ -265,10 +368,11 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "method not allowed", 405)
 }
 
-// promptHandler is set externally to inject prompts into the running system.
 var promptHandler func(prompt string) (string, map[string]float64)
 
-// SetPromptHandler installs the callback used when the viz UI sends a prompt.
+/*
+SetPromptHandler installs the callback used when the viz UI sends a prompt.
+*/
 func SetPromptHandler(fn func(string) (string, map[string]float64)) {
 	promptHandler = fn
 }
@@ -282,6 +386,7 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt string `json:"prompt"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), 400)
 		return

@@ -71,7 +71,6 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 	return store, validate.Require(map[string]any{
 		"ctx":    store.ctx,
 		"cancel": store.cancel,
-		"root":   store.root,
 	})
 }
 

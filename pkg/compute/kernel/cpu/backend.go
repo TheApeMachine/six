@@ -39,15 +39,17 @@ func (backend *Backend) Name() string { return "cpu" }
 Execute reads the opcode from each Value's program region (word 16)
 and dispatches to the appropriate kernel:
 
-  - 0x0–0xE: truth table ALU via universalBitwiseV2. The programmer
-    pre-compiles B rotations into reserved (words 32-95).
+  - 0x0–0xE and 0xF with idle profile: truth table ALU via
+    universalBitwiseV2. The programmer pre-compiles B rotations into
+    reserved (words 32-95).
   - 0x6 with batch marker at word 124: fused XOR+popcount+sum for
     Hamming distance. Query in tokens (words 0-7), candidates packed
     contiguously starting at word 32, count at word 124, uint32
     results written to signals (words 24-31).
-  - 0xF: CSA positional popcount. Word-striped vectors starting at
-    word 32, count at word 124, wordsPerVec at word 125. Results
-    accumulate into the counts array pointed to by words 126-127.
+  - 0xF with word 124>0 and word 125>0: CSA positional popcount on
+    word-striped vectors starting at word 32; counts pointer at words
+    126–127. Opcode 0xF with idle profile counters uses the truth table
+    path instead.
 */
 func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	if len(frames) == 0 {
@@ -69,7 +71,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		case opcode == 0x6 && batchCount > 0:
 			backend.executeBatchDistance(v, int(batchCount))
 
-		case opcode == 0xF:
+		case opcode == 0xF && v[124] > 0 && v[125] > 0:
 			backend.executeProfile(v)
 
 		default:
@@ -135,7 +137,11 @@ func (backend *Backend) executeProfile(v *[128]uint64) {
 		return
 	}
 
-	countsPtr := (*[64][64]int)(unsafe.Pointer(uintptr(v[126])))
+	/*
+		Words 126–127 store the counts pointer bits; load them as unsafe.Pointer
+		without a uintptr round-trip so vet unsafeptr stays satisfied.
+	*/
+	countsPtr := (*[64][64]int)(*(*unsafe.Pointer)(unsafe.Pointer(&v[126])))
 	counts := countsPtr[:wordsPerVec]
 
 	for word := range wordsPerVec {

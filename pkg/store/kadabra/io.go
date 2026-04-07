@@ -5,6 +5,7 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/markovtrie"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 func (node *Node) triesSnapshot() []*markovtrie.Store {
@@ -29,6 +30,10 @@ func (node *Node) Store(record SequenceRecord) error {
 
 		if trie != nil {
 			trie.Load(record.Value, record.Label)
+
+			viz.DefaultBus.Publish(viz.TrieInsertEvent(
+				node.ID, record.Value.String(), record.Label,
+			))
 		}
 	})
 
@@ -126,6 +131,10 @@ func (node *Node) spawnTrie(affinity *primitive.Affinity) *markovtrie.Store {
 		next = append(next, store)
 
 		if node.tries.CompareAndSwap(old, &next) {
+			viz.DefaultBus.Publish(viz.NodeUpdated(node.ID, map[string]float64{
+				"trie_count": float64(len(next)),
+			}))
+
 			break
 		}
 	}

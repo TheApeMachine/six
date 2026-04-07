@@ -234,8 +234,9 @@ Structured logs are shipped to Elasticsearch via a bulk indexer with configurabl
 # Full build (generates primitives, compiles Metal shader, generates CUDA bindings)
 make build
 
-# Run tests
-go test ./...
+# Run tests (linker flag required: pool uses go:linkname into runtime)
+make test
+# or: go test -ldflags='-checklinkname=0' ./...
 
 # Generate experiment paper
 make paper

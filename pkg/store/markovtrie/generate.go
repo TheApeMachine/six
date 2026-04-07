@@ -36,5 +36,9 @@ func (store *Store) Walk(node *Node, visitor func(node *Node)) {
 	}
 
 	visitor(node)
-	store.Walk(*node.children.Load(), visitor)
+
+	child := node.children.Load()
+	if child != nil {
+		store.Walk(*child, visitor)
+	}
 }

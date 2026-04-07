@@ -133,12 +133,21 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 				C.uint32_t(batchCount),
 				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
 			) != 0 {
-				return NewCUDAKernelError(
+				err := NewCUDAKernelError(
 					kernel.KernelErrDispatchFailed,
 					errors.New("batch distance dispatch failed"),
 					"Execute",
 					int(batchCount),
 				)
+
+				kv := append(
+					[]any{"device_idx", backend.deviceIdx},
+					kernel.CorrelationKeyvals(ptr)...,
+				)
+
+				backend.observer.Error("cuda.Backend.Execute", err, kv...)
+
+				return err
 			}
 
 			bestIdx := uint64(0)
@@ -170,11 +179,14 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 				"Execute",
 				1,
 			)
-			backend.observer.Error(
-				"cuda.Backend.Execute",
-				err,
-				"device_idx", backend.deviceIdx,
+
+			kv := append(
+				[]any{"device_idx", backend.deviceIdx},
+				kernel.CorrelationKeyvals(ptr)...,
 			)
+
+			backend.observer.Error("cuda.Backend.Execute", err, kv...)
+
 			return err
 		}
 	}
