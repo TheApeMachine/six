@@ -120,24 +120,32 @@ type ValueConfig struct {
 
 /*
 ValueRegionConfig holds the configuration for a Value's region.
+
+Layout (128 uint64 words = 1 KiB):
+
+	Tokens:   words  0– 7  (512 bits)
+	Program:  words  8–15  (512 bits)
+	Signals:  words 16–23  (512 bits)
+	Context:  words 24–31  (512 bits)
+	Gradient: words 32–39  (512 bits)
+	Meta:     words 40–47  (512 bits)
+	Reserved: words 48–119
+	Prev:     word  120
+	Next:     word  121
+	ID:       word  122
+	Affinity: words 123–127 (257 bits, Fermat prime width)
 */
 type ValueRegionConfig struct {
 	Tokens   ValueOffsetConfig `mapstructure:"tokens"`
-	Affinity ValueOffsetConfig `mapstructure:"affinity"`
 	Program  ValueOffsetConfig `mapstructure:"program"`
 	Signals  ValueOffsetConfig `mapstructure:"signals"`
 	Context  ValueOffsetConfig `mapstructure:"context"`
 	Gradient ValueOffsetConfig `mapstructure:"gradient"`
-	Reserved ValueOffsetConfig `mapstructure:"reserved"`
+	Meta     ValueOffsetConfig `mapstructure:"meta"`
 	Prev     ValueOffsetConfig `mapstructure:"prev"`
 	Next     ValueOffsetConfig `mapstructure:"next"`
 	ID       ValueOffsetConfig `mapstructure:"id"`
-
-	// Legacy fields kept for backward compatibility during migration.
-	// TODO: remove once all consumers are updated.
-	State     ValueRegionConfigState `mapstructure:"state"`
-	Registers ValueRegistersConfig   `mapstructure:"registers"`
-	PC        ValueOffsetConfig      `mapstructure:"pc"`
+	Affinity ValueOffsetConfig `mapstructure:"affinity"`
 }
 
 /*
@@ -149,36 +157,6 @@ type ValueOffsetConfig struct {
 	Bits  uint64 `mapstructure:"bits"`
 }
 
-/*
-ValueRegionConfigState holds the configuration
-for a Value's region state.
-*/
-type ValueRegionConfigState struct {
-	Index       int `mapstructure:"index"`
-	Sequence    int `mapstructure:"sequence"`
-	Accumulator int `mapstructure:"accumulator"`
-}
-
-/*
-ValueRegistersConfig holds the configuration
-for a Value's registers.
-*/
-type ValueRegistersConfig struct {
-	Start int `mapstructure:"start"`
-	Bits  int `mapstructure:"bits"`
-	R0    int `mapstructure:"r0"`
-	R1    int `mapstructure:"r1"`
-	R2    int `mapstructure:"r2"`
-	R3    int `mapstructure:"r3"`
-	R4    int `mapstructure:"r4"`
-	R5    int `mapstructure:"r5"`
-	R6    int `mapstructure:"r6"`
-	R7    int `mapstructure:"r7"`
-	R8    int `mapstructure:"r8"`
-	R9    int `mapstructure:"r9"`
-	FW    int `mapstructure:"fw"`
-	PC    int `mapstructure:"pc"`
-}
 
 /*
 ValueOpcodesConfig holds the configuration
@@ -382,58 +360,41 @@ func NewConfig() *Config {
 					Start: WithDefault(viper.GetInt("value.region.tokens.start"), 0),
 					Bits:  WithDefault(viper.GetUint64("value.region.tokens.bits"), 512),
 				},
-				ID: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.id.start"), 8),
-					Bits:  WithDefault(viper.GetUint64("value.region.id.bits"), 64),
-				},
-				Prev: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.prev.start"), 125),
-					Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
-				},
-				Next: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.next.start"), 126),
-					Bits:  WithDefault(viper.GetUint64("value.region.next.bits"), 64),
-				},
-				State: ValueRegionConfigState{
-					Index:       WithDefault(viper.GetInt("value.region.state.index"), 32),
-					Sequence:    WithDefault(viper.GetInt("value.region.state.sequence"), 33),
-					Accumulator: WithDefault(viper.GetInt("value.region.state.accumulator"), 34),
-				},
-				Affinity: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.affinity.start"), 8),
-					Bits:  WithDefault(viper.GetUint64("value.region.affinity.bits"), 512),
-				},
-				Registers: ValueRegistersConfig{
-					Start: WithDefault(viper.GetInt("value.region.registers.start"), 27),
-					Bits:  WithDefault(viper.GetInt("value.region.registers.bits"), 768),
-					R0:    WithDefault(viper.GetInt("value.region.registers.r0"), 27),
-					R1:    WithDefault(viper.GetInt("value.region.registers.r1"), 28),
-					R2:    WithDefault(viper.GetInt("value.region.registers.r2"), 29),
-					R3:    WithDefault(viper.GetInt("value.region.registers.r3"), 30),
-					R4:    WithDefault(viper.GetInt("value.region.registers.r4"), 31),
-					R5:    WithDefault(viper.GetInt("value.region.registers.r5"), 32),
-					R6:    WithDefault(viper.GetInt("value.region.registers.r6"), 33),
-					R7:    WithDefault(viper.GetInt("value.region.registers.r7"), 34),
-					R8:    WithDefault(viper.GetInt("value.region.registers.r8"), 35),
-					R9:    WithDefault(viper.GetInt("value.region.registers.r9"), 36),
-					FW:    WithDefault(viper.GetInt("value.region.registers.fw"), 37),
-					PC:    WithDefault(viper.GetInt("value.region.registers.pc"), 38),
-				},
 				Program: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.program.start"), 16),
+					Start: WithDefault(viper.GetInt("value.region.program.start"), 8),
 					Bits:  WithDefault(viper.GetUint64("value.region.program.bits"), 512),
 				},
 				Signals: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.signals.start"), 24),
+					Start: WithDefault(viper.GetInt("value.region.signals.start"), 16),
 					Bits:  WithDefault(viper.GetUint64("value.region.signals.bits"), 512),
 				},
 				Context: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.context.start"), 39),
+					Start: WithDefault(viper.GetInt("value.region.context.start"), 24),
 					Bits:  WithDefault(viper.GetUint64("value.region.context.bits"), 512),
 				},
 				Gradient: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 47),
+					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 32),
 					Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
+				},
+				Meta: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.meta.start"), 40),
+					Bits:  WithDefault(viper.GetUint64("value.region.meta.bits"), 512),
+				},
+				Prev: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
+					Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
+				},
+				Next: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.next.start"), 121),
+					Bits:  WithDefault(viper.GetUint64("value.region.next.bits"), 64),
+				},
+				ID: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.id.start"), 122),
+					Bits:  WithDefault(viper.GetUint64("value.region.id.bits"), 64),
+				},
+				Affinity: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.affinity.start"), 123),
+					Bits:  WithDefault(viper.GetUint64("value.region.affinity.bits"), 257),
 				},
 			},
 			Opcodes: ValueOpcodesConfig{

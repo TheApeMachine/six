@@ -21,9 +21,9 @@ func setupAffinityTest(tb testing.TB) {
 	core.Cfg.Value.Bytes = 1024
 	core.Cfg.Value.Region.Tokens.Start = 0
 	core.Cfg.Value.Region.Tokens.Bits = 512
-	core.Cfg.Value.Region.Affinity.Start = 8
-	core.Cfg.Value.Region.Affinity.Bits = 512
-	core.Cfg.Value.Region.ID.Start = 127
+	core.Cfg.Value.Region.Affinity.Start = 123
+	core.Cfg.Value.Region.Affinity.Bits = 257
+	core.Cfg.Value.Region.ID.Start = 122
 }
 
 // randomTokenBytes fills the 64-byte token region with cryptographic randomness.
@@ -33,13 +33,24 @@ func randomTokenBytes() [64]byte {
 	return buf
 }
 
-// affinityHammingDistance returns popcount(a XOR b) across the 8-word affinity.
+/*
+affinityHammingDistance returns popcount(a XOR b) across the affinity region,
+masking the last word to AffinityBits.
+*/
 func affinityHammingDistance(a, b *Value) int {
 	start := core.Cfg.Value.Region.Affinity.Start
 	total := 0
-	for i := range 8 {
-		total += bits.OnesCount64(a[start+i] ^ b[start+i])
+
+	for i := range AffinityWords {
+		xor := a[start+i] ^ b[start+i]
+
+		if i == AffinityWords-1 {
+			xor &= AffinityLastWordMask
+		}
+
+		total += bits.OnesCount64(xor)
 	}
+
 	return total
 }
 

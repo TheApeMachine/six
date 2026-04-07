@@ -134,7 +134,13 @@ func (node *Node) selectOrSpawnTrieScalar(
 		dist := 0
 
 		for wordIdx := range primitive.AffinityWords {
-			dist += bits.OnesCount64(query[wordIdx] ^ cand[wordIdx])
+			xor := query[wordIdx] ^ cand[wordIdx]
+
+			if wordIdx == primitive.AffinityWords-1 {
+				xor &= primitive.AffinityLastWordMask
+			}
+
+			dist += bits.OnesCount64(xor)
 		}
 
 		if dist < bestDist {

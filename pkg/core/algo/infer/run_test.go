@@ -53,3 +53,33 @@ func TestAppendIfNewSequence(t *testing.T) {
 		So(len(next), ShouldEqual, 1)
 	})
 }
+
+func BenchmarkRun(b *testing.B) {
+	env := Env{
+		ShouldSkip: func(string) bool {
+			return false
+		},
+		MeanSurprisalBits: func(string) float64 {
+			return 0
+		},
+		SurprisalGate: 100,
+		Classify: func(string) map[string]float64 {
+			return map[string]float64{"L": 0.9}
+		},
+		BestLabel: func(m map[string]float64) (string, float64) {
+			return "L", m["L"]
+		},
+		BeamSearch: func(string, string, int, int) []Continuation {
+			return nil
+		},
+		Generate: func(string, string, float64, int) string {
+			return "gen"
+		},
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = Run("payload", env)
+	}
+}

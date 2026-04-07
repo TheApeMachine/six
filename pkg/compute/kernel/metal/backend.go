@@ -116,15 +116,15 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		v := (*[128]uint64)(ptr)
-		opcode := v[16] & 0xF
-		batchCount := v[124]
+		opcode := v[kernel.ProgramStartWord] & 0xF
+		batchCount := v[kernel.NearestAffinityBatchWord]
 
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
 
 		if opcode == 0x6 && batchCount > 0 {
-			distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
+			distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 
 			if C.nearest_affinity_metal(
 				unsafe.Pointer(&v[0]),

@@ -64,8 +64,8 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 	for _, ptr := range frames {
 		v := (*[128]uint64)(ptr)
-		opcode := v[16] & 0xF
-		batchCount := v[124]
+		opcode := v[kernel.ProgramStartWord] & 0xF
+		batchCount := v[kernel.NearestAffinityBatchWord]
 
 		switch {
 		case opcode == 0x6 && batchCount > 0:
@@ -104,7 +104,7 @@ func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
 		return
 	}
 
-	distances := (*[256]uint32)(unsafe.Pointer(&v[24]))
+	distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 
 	batchAffinityDistances(
 		&v[0],

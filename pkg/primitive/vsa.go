@@ -32,7 +32,7 @@ are too close together (e.g. all in [71,89]) reduces the diversity of sampling
 patterns, weakening the LSH's ability to distinguish inputs that differ only
 in specific bit regions.
 */
-var affinityProjections = [8]int{73, 97, 113, 131, 151, 167, 181, 199}
+var affinityProjections = [AffinityWords]int{73, 97, 113, 131, 151}
 
 /*
 affinityLSHSamplesPerBit controls how many token bits vote for each output
@@ -80,11 +80,17 @@ func (value *Value) ComputeAffinityLSH() error {
 	affStart := core.Cfg.Value.Region.Affinity.Start
 	affWords := int(core.Cfg.Value.Region.Affinity.Bits+63) / 64
 
-	for proj := 0; proj < affWords && proj < 8; proj++ {
+	for proj := 0; proj < affWords && proj < AffinityWords; proj++ {
 		stride := affinityProjections[proj]
+
+		outBits := 64
+		if proj == AffinityWords-1 {
+			outBits = 1
+		}
+
 		var word uint64
 
-		for out := range 64 {
+		for out := range outBits {
 			ones, counted := 0, 0
 
 			for s := 0; s < affinityLSHSamplesPerBit; s++ {
@@ -142,20 +148,38 @@ func (value *Value) ComputeAffinityFromContext(context []byte) error {
 	// We use two n-gram scales (4 and 8 bytes) so the fingerprint
 	// captures both keyword-level and phrase-level structure.
 	var aff [AffinityWords]uint64
+
 	for _, ngramWidth := range []int{4, 8} {
 		if ngramWidth > len(context) {
 			continue
 		}
+
 		for i := 0; i <= len(context)-ngramWidth; i++ {
 			h := fnvHash(context[i : i+ngramWidth])
-			wordIdx := (h >> 6) & 7 // which of 8 words
-			bitIdx := h & 63        // which bit in that word
+			wordIdx := h % uint64(AffinityWords)
+
+			maxBit := uint64(63)
+			if wordIdx == uint64(AffinityWords-1) {
+				maxBit = 0
+			}
+
+			bitIdx := h >> 6
+			if maxBit > 0 {
+				bitIdx &= maxBit
+			} else {
+				bitIdx = 0
+			}
+
 			aff[wordIdx] |= 1 << uint(bitIdx)
 		}
 	}
 
 	for wordIdx := 0; wordIdx < affWords && wordIdx < AffinityWords; wordIdx++ {
 		(*value)[affStart+wordIdx] = aff[wordIdx]
+	}
+
+	if affStart+AffinityWords-1 < core.Cfg.Value.Words {
+		(*value)[affStart+AffinityWords-1] &= AffinityLastWordMask
 	}
 
 	return nil
@@ -232,51 +256,6 @@ func LFSRAdvance(state uint64, n int) uint64 {
 	return state
 }
 
-/*
-AdvanceSequence advances the Value's StateSequence word by one LFSR step.
-*/
-func (value *Value) AdvanceSequence() {
-	value[core.Cfg.Value.Region.State.Sequence] = LFSRStep(
-		value[core.Cfg.Value.Region.State.Sequence],
-	)
-}
-
-/*
-AccumulateDelta XORs the Tokens region of current and previous into the
-StateAccumulator word. This captures the "change" between two states
-as a compressed differential sketch.
-*/
-func AccumulateDelta(current, previous *Value) uint64 {
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	base := core.Cfg.Value.Region.Tokens.Start
-	var delta uint64
-	for i := range nWords {
-		idx := base + i
-		if idx >= core.Cfg.Value.Words {
-			break
-		}
-		delta ^= current[idx] ^ previous[idx]
-	}
-	current[core.Cfg.Value.Region.State.Accumulator] = delta
-	return delta
-}
-
-/*
-ApplyDelta generates a predicted next token region by XORing the current
-Tokens with the accumulated delta stored in StateAccumulator.
-*/
-func ApplyDelta(dst, current *Value) {
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	base := core.Cfg.Value.Region.Tokens.Start
-	delta := current[core.Cfg.Value.Region.State.Accumulator]
-	for i := range nWords {
-		idx := base + i
-		if idx >= core.Cfg.Value.Words {
-			break
-		}
-		dst[idx] = current[idx] ^ delta
-	}
-}
 
 /*
 XORDistance returns the XOR distance between two 64-bit Affinity words.

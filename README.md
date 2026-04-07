@@ -35,7 +35,7 @@ Six has four layers. Each is useful on its own, but the interesting behavior eme
 └──────────────┬─────────────────┘
                │ store / retrieve
 ┌──────────────▼────────────────┐
-│         MarkovTrie           │
+│          MarkovTrie           │
 │  Adaptive probabilistic trie  │
 │  Classification + generation  │
 └──────────────┬────────────────┘
@@ -54,11 +54,11 @@ The `Value` type comes from the idea that machine intelligence currently lacks i
 A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
 ```text
-┌───────────┬────────────┬────────────┬────────────┬─────────────┬──────┬──────┬─────┐
-│  Tokens   │  Affinity  │  Program   │  Signals   │  Reserved   │ Prev │ Next │ ID  │
-│ 512 bits  │  512 bits  │  512 bits  │  512 bits  │  6464 bits  │  64  │  64  │ 64  │
-│ words 0-7 │ words 8-15 │ words16-23 │ words24-31 │ words32-124 │  125 │  126 │ 127 │
-└───────────┴────────────┴────────────┴────────────┴─────────────┴──────┴──────┴─────┘
+┌───────────┬────────────┬────────────┬────────────┬────────────┬─────────────┬──────┬──────┬─────┬────────────┐
+│  Tokens   │  Program   │  Signals   │  Context   │    Meta    │  Reserved   │ Prev │ Next │ ID  │  Affinity  │
+│ 512 bits  │  512 bits  │  512 bits  │  512 bits  │  512 bits  │  6464 bits  │  64  │  64  │ 64  │  257 bits  │
+│ words 0-7 │ words16-23 │ words24-31 │ words24-31 │ words24-31 │ words32-124 │  125 │  126 │ 127 │ words 8-15 │
+└───────────┴────────────┴────────────┴────────────┴────────────┴─────────────┴──────┴──────┴─────┴────────────┘
 ```
 
 - **Token region**: Raw input data, encoded as bits across 8 words.

@@ -357,8 +357,8 @@ ub_avx_loop:
 //
 // Layout (word offsets, each word = 8 bytes):
 //   [0-3]    A (query, 4 words = 32 bytes)
-//   [16]     opcode (low 4 bits)
-//   [24-31]  signals output (8 words = 64 bytes)
+//   [8]      opcode (low 4 bits)
+//   [16-23]  signals output (8 words = 64 bytes)
 //   [32-95]  B rotations (16 rotations × 4 words, pre-compiled)
 //
 // Register allocation (YMM):
@@ -375,8 +375,8 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT, $0-16
 	// Pin A in Y10 (words 0-3, bytes 0-31).
 	VMOVDQU	(DI), Y10
 
-	// Load opcode from word 16 (byte offset 128).
-	MOVQ	128(DI), AX
+	// Load opcode from word 8 (byte offset 64).
+	MOVQ	64(DI), AX
 	ANDQ	$0xF, AX
 
 	// Broadcast mask bits into Y11-Y14.
@@ -410,16 +410,16 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT, $0-16
 	// Y15 = all ones for NOT.
 	VPCMPEQD	Y15, Y15, Y15
 
-	// Zero signal output (words 24-31, bytes 192-255).
+	// Zero signal output (words 16-23, bytes 128-191).
 	VPXOR	Y0, Y0, Y0
-	VMOVDQU	Y0, 192(DI)
-	VMOVDQU	Y0, 224(DI)
+	VMOVDQU	Y0, 128(DI)
+	VMOVDQU	Y0, 160(DI)
 
 	// SI = pointer to B rotations (word 32 = byte 256).
 	LEAQ	256(DI), SI
 
-	// R8 = signal base (word 24 = byte 192).
-	LEAQ	192(DI), R8
+	// R8 = signal base (word 16 = byte 128).
+	LEAQ	128(DI), R8
 
 	// CX = outer loop counter (0..7).
 	XORQ	CX, CX

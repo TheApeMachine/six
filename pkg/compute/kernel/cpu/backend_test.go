@@ -13,17 +13,21 @@ import (
 func init() {
 	core.Cfg.Value.Region.Tokens.Start = 0
 	core.Cfg.Value.Region.Tokens.Bits = 512
-	core.Cfg.Value.Region.Affinity.Start = 8
-	core.Cfg.Value.Region.Affinity.Bits = 512
-	core.Cfg.Value.Region.Program.Start = 16
+	core.Cfg.Value.Region.Program.Start = 8
 	core.Cfg.Value.Region.Program.Bits = 512
-	core.Cfg.Value.Region.Signals.Start = 24
+	core.Cfg.Value.Region.Signals.Start = 16
 	core.Cfg.Value.Region.Signals.Bits = 512
-	core.Cfg.Value.Region.Reserved.Start = 32
-	core.Cfg.Value.Region.Reserved.Bits = 5952
-	core.Cfg.Value.Region.Prev.Start = 125
-	core.Cfg.Value.Region.Next.Start = 126
-	core.Cfg.Value.Region.ID.Start = 127
+	core.Cfg.Value.Region.Context.Start = 24
+	core.Cfg.Value.Region.Context.Bits = 512
+	core.Cfg.Value.Region.Gradient.Start = 32
+	core.Cfg.Value.Region.Gradient.Bits = 512
+	core.Cfg.Value.Region.Meta.Start = 40
+	core.Cfg.Value.Region.Meta.Bits = 512
+	core.Cfg.Value.Region.Prev.Start = 120
+	core.Cfg.Value.Region.Next.Start = 121
+	core.Cfg.Value.Region.ID.Start = 122
+	core.Cfg.Value.Region.Affinity.Start = 123
+	core.Cfg.Value.Region.Affinity.Bits = 257
 	core.Cfg.Value.Words = 128
 }
 

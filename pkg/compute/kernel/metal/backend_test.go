@@ -21,11 +21,10 @@ func installSlot(frame *[128]uint64, slot int, instr uint32) {
 }
 
 func setupTestConfig() {
-	core.Cfg.Value.Region.Program.Start = 16
+	core.Cfg.Value.Region.Program.Start = 8
 	core.Cfg.Value.Region.Program.Bits = 512
-	// Signals region defaults to words 24–31; keep probe fields outside that span.
-	core.Cfg.Value.Region.State.Accumulator = 40
-	core.Cfg.Value.Region.Registers.FW = 37
+	core.Cfg.Value.Region.Signals.Start = 16
+	core.Cfg.Value.Region.Signals.Bits = 512
 }
 
 func TestAvailable(t *testing.T) {
@@ -48,16 +47,20 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 		var frame [128]uint64
 		frame[0] = 0xAAAAAAAAAAAAAAAA
 		frame[1] = 0xCCCCCCCCCCCCCCCC
-		frame[core.Cfg.Value.Region.Registers.FW] = 11
-		frame[core.Cfg.Value.Region.State.Accumulator] = 42
+
+		probeWordA := 50
+		probeWordB := 60
+		frame[probeWordA] = 11
+		frame[probeWordB] = 42
+
 		installSlot(&frame, 0, encode32(0x6, 0, 1))
 
 		err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&frame)})
 
 		So(err, ShouldBeNil)
 		So(frame[1], ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
-		So(frame[core.Cfg.Value.Region.Registers.FW], ShouldEqual, uint64(11))
-		So(frame[core.Cfg.Value.Region.State.Accumulator], ShouldEqual, uint64(42))
+		So(frame[probeWordA], ShouldEqual, uint64(11))
+		So(frame[probeWordB], ShouldEqual, uint64(42))
 	})
 }
 

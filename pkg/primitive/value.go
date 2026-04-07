@@ -203,7 +203,8 @@ func (value *Value) ID() uint64 {
 }
 
 /*
-AffinityVector returns the affinity region as a fixed-size array of words.
+AffinityVector returns the 257-bit affinity region as a fixed-size array.
+The last word is masked to AffinityLastWordMask so only bit 0 survives.
 */
 func (value *Value) AffinityVector() [AffinityWords]uint64 {
 	var aff [AffinityWords]uint64
@@ -214,7 +215,7 @@ func (value *Value) AffinityVector() [AffinityWords]uint64 {
 
 	start := core.Cfg.Value.Region.Affinity.Start
 
-	for wordIdx := 0; wordIdx < AffinityWords; wordIdx++ {
+	for wordIdx := range AffinityWords {
 		idx := start + wordIdx
 
 		if idx < 0 || idx >= len(*value) {
@@ -224,7 +225,36 @@ func (value *Value) AffinityVector() [AffinityWords]uint64 {
 		aff[wordIdx] = (*value)[idx]
 	}
 
+	aff[AffinityWords-1] &= AffinityLastWordMask
+
 	return aff
+}
+
+/*
+SetAffinityVector writes the full affinity region, masking the last word.
+*/
+func (value *Value) SetAffinityVector(aff [AffinityWords]uint64) {
+	if value == nil {
+		return
+	}
+
+	start := core.Cfg.Value.Region.Affinity.Start
+
+	for wordIdx := range AffinityWords {
+		idx := start + wordIdx
+
+		if idx >= len(*value) {
+			break
+		}
+
+		w := aff[wordIdx]
+
+		if wordIdx == AffinityWords-1 {
+			w &= AffinityLastWordMask
+		}
+
+		(*value)[idx] = w
+	}
 }
 
 /*
@@ -232,8 +262,8 @@ ContextVector returns the 512-bit context region. This region holds
 XOR-bound variable bindings — the compositional context that enables
 do-calculus operations via bind/unbind.
 */
-func (value *Value) ContextVector() [AffinityWords]uint64 {
-	var ctx [AffinityWords]uint64
+func (value *Value) ContextVector() [RegionWords]uint64 {
+	var ctx [RegionWords]uint64
 
 	if value == nil {
 		return ctx
@@ -241,7 +271,7 @@ func (value *Value) ContextVector() [AffinityWords]uint64 {
 
 	start := core.Cfg.Value.Region.Context.Start
 
-	for wordIdx := range AffinityWords {
+	for wordIdx := range RegionWords {
 		idx := start + wordIdx
 
 		if idx >= len(*value) {
@@ -257,14 +287,14 @@ func (value *Value) ContextVector() [AffinityWords]uint64 {
 /*
 SetContextVector writes the full context region.
 */
-func (value *Value) SetContextVector(ctx [AffinityWords]uint64) {
+func (value *Value) SetContextVector(ctx [RegionWords]uint64) {
 	if value == nil {
 		return
 	}
 
 	start := core.Cfg.Value.Region.Context.Start
 
-	for wordIdx := range AffinityWords {
+	for wordIdx := range RegionWords {
 		idx := start + wordIdx
 
 		if idx >= len(*value) {
@@ -276,11 +306,13 @@ func (value *Value) SetContextVector(ctx [AffinityWords]uint64) {
 }
 
 /*
-BindContext XORs the given affinity vector into the context region,
-creating a compositional binding. XOR is its own inverse: binding
-twice with the same vector unbinds it. This is the substrate for
-Pearl's do-operator — severing a variable from its causal parents
-is an unbind, forcing a new value is a rebind.
+BindContext XORs the given affinity vector into the first AffinityWords
+of the context region, creating a compositional binding. XOR is its own
+inverse: binding twice with the same vector unbinds it. This is the
+substrate for Pearl's do-operator — severing a variable from its causal
+parents is an unbind, forcing a new value is a rebind. The remaining
+context words (AffinityWords..RegionWords-1) are untouched, available
+for non-affinity bindings.
 */
 func (value *Value) BindContext(binding [AffinityWords]uint64) {
 	if value == nil {
@@ -307,8 +339,8 @@ predicted and observed outcomes when a variable was intervened on.
 Accumulated over multiple interventions, this is the noise term
 in a structural causal model.
 */
-func (value *Value) GradientVector() [AffinityWords]uint64 {
-	var grad [AffinityWords]uint64
+func (value *Value) GradientVector() [RegionWords]uint64 {
+	var grad [RegionWords]uint64
 
 	if value == nil {
 		return grad
@@ -316,7 +348,7 @@ func (value *Value) GradientVector() [AffinityWords]uint64 {
 
 	start := core.Cfg.Value.Region.Gradient.Start
 
-	for wordIdx := range AffinityWords {
+	for wordIdx := range RegionWords {
 		idx := start + wordIdx
 
 		if idx >= len(*value) {
@@ -333,14 +365,14 @@ func (value *Value) GradientVector() [AffinityWords]uint64 {
 AccumulateGradient XORs a residual vector into the gradient region,
 building up the latent noise term from repeated interventions.
 */
-func (value *Value) AccumulateGradient(residual [AffinityWords]uint64) {
+func (value *Value) AccumulateGradient(residual [RegionWords]uint64) {
 	if value == nil {
 		return
 	}
 
 	start := core.Cfg.Value.Region.Gradient.Start
 
-	for wordIdx := range AffinityWords {
+	for wordIdx := range RegionWords {
 		idx := start + wordIdx
 
 		if idx >= len(*value) {
@@ -349,6 +381,74 @@ func (value *Value) AccumulateGradient(residual [AffinityWords]uint64) {
 
 		(*value)[idx] ^= residual[wordIdx]
 	}
+}
+
+/*
+MetaWord offsets within the 512-bit meta region.
+*/
+const (
+	MetaConfidence        = 0
+	MetaNovelty           = 1
+	MetaStability         = 2
+	MetaUseCount          = 3
+	MetaCreatedEpoch      = 4
+	MetaLastAccessEpoch   = 5
+	MetaInterventionCount = 6
+	MetaFlags             = 7
+)
+
+/*
+MetaWord reads a single word from the meta region at the given offset
+(0–7). Returns 0 for nil Values or out-of-range offsets.
+*/
+func (value *Value) MetaWord(offset int) uint64 {
+	if value == nil || offset < 0 || offset >= RegionWords {
+		return 0
+	}
+
+	idx := core.Cfg.Value.Region.Meta.Start + offset
+
+	if idx >= len(*value) {
+		return 0
+	}
+
+	return (*value)[idx]
+}
+
+/*
+SetMetaWord writes a single word into the meta region at the given offset.
+*/
+func (value *Value) SetMetaWord(offset int, val uint64) {
+	if value == nil || offset < 0 || offset >= RegionWords {
+		return
+	}
+
+	idx := core.Cfg.Value.Region.Meta.Start + offset
+
+	if idx >= len(*value) {
+		return
+	}
+
+	(*value)[idx] = val
+}
+
+/*
+IncrementMeta atomically increments a meta word. Suitable for use-count
+and intervention-count tracking. Not lock-free — callers serialising
+through a trie's update path need no additional synchronisation.
+*/
+func (value *Value) IncrementMeta(offset int) {
+	if value == nil || offset < 0 || offset >= RegionWords {
+		return
+	}
+
+	idx := core.Cfg.Value.Region.Meta.Start + offset
+
+	if idx >= len(*value) {
+		return
+	}
+
+	(*value)[idx]++
 }
 
 /*

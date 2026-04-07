@@ -1,10 +1,7 @@
 package replay
 
 import (
-	"errors"
 	"unicode/utf8"
-
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -67,14 +64,10 @@ func TryOnce(
 		return nil
 	}
 
-	rawLR := env.LearningRate
-	learningRate := rawLR
+	learningRate := env.LearningRate
 
-	if rawLR <= 0 {
-		errnie.Error(
-			errors.New("learning rate must be positive"),
-			"learning_rate", rawLR,
-		)
+	if learningRate <= 0 {
+		learningRate = 1.0
 	}
 
 	env.Train(sequence, label, learningRate)

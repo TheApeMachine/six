@@ -147,14 +147,20 @@ func (rt *RoutingTable) Closest(
 
 	affinityDist := func(aff *primitive.Affinity) int {
 		if aff == nil {
-			return primitive.AffinityWords * 64
+			return primitive.AffinityBits
 		}
 
 		vec := aff.Vector()
 		dist := 0
 
 		for wordIdx := range primitive.AffinityWords {
-			dist += bits.OnesCount64(targetVec[wordIdx] ^ vec[wordIdx])
+			aWord := targetVec[wordIdx] ^ vec[wordIdx]
+
+			if wordIdx == primitive.AffinityWords-1 {
+				aWord &= primitive.AffinityLastWordMask
+			}
+
+			dist += bits.OnesCount64(aWord)
 		}
 
 		return dist
@@ -162,7 +168,7 @@ func (rt *RoutingTable) Closest(
 
 	candidates = append(candidates, candidate{
 		node: rt.node,
-		dist: primitive.AffinityWords * 64,
+		dist: primitive.AffinityBits,
 	})
 
 	for _, bucket := range rt.buckets {
@@ -196,12 +202,12 @@ func (rt *RoutingTable) Closest(
 		limit = count
 	}
 
-	var bucketCounts [513]int
+	var bucketCounts [primitive.AffinityBits + 1]int
 	for idx := range candidates {
 		bucketCounts[candidates[idx].dist]++
 	}
 
-	var bucketOffsets [513]int
+	var bucketOffsets [primitive.AffinityBits + 1]int
 	offset := 0
 
 	for dist := range bucketOffsets {

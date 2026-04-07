@@ -8,16 +8,18 @@ import (
 )
 
 /*
-TestAffinityWordsPerCandidateMatchesPrimitive catches silent drift between
-the kernel layout constant and primitive.AffinityWords without introducing
-an import cycle inside package kernel.
+TestAffinityWordsPerCandidateFitsPrimitive verifies that the SIMD-padded
+candidate width is at least as wide as the actual affinity vector. The
+kernel processes AffinityWordsPerCandidate uint64s per candidate; the
+extra words beyond primitive.AffinityWords are zero-padded and contribute
+nothing to Hamming distance.
 */
-func TestAffinityWordsPerCandidateMatchesPrimitive(t *testing.T) {
+func TestAffinityWordsPerCandidateFitsPrimitive(t *testing.T) {
 	t.Parallel()
 
-	if kernel.AffinityWordsPerCandidate != primitive.AffinityWords {
+	if kernel.AffinityWordsPerCandidate < primitive.AffinityWords {
 		t.Fatalf(
-			"kernel.AffinityWordsPerCandidate=%d primitive.AffinityWords=%d — update constants together",
+			"kernel.AffinityWordsPerCandidate=%d < primitive.AffinityWords=%d — kernel cannot hold full affinity",
 			kernel.AffinityWordsPerCandidate,
 			primitive.AffinityWords,
 		)

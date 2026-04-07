@@ -338,6 +338,112 @@ func (graph *Graph) Counterfactual(
 }
 
 /*
+HopResult captures the output of a single counterfactual hop —
+the severed parents, the residual Hamming distance from the
+intervention, and whether the causal chain has bottomed out.
+*/
+type HopResult struct {
+	Severed  []uint64
+	Residual int
+	Settled  bool
+}
+
+/*
+CounterfactualChain performs multi-hop counterfactual reasoning by
+iteratively applying interventions and feeding each hop's result
+through a predictor. Each hop:
+
+ 1. Applies a single-hop Counterfactual on the current Value.
+ 2. Calls predict to obtain the downstream Value that results from
+    routing the intervened Value through normal trie prediction.
+ 3. Measures the gradient residual (Hamming distance between the
+    predicted and observed affinities).
+ 4. Terminates when the residual stops growing (the causal chain
+    has bottomed out) or maxHops is reached.
+
+The interventions slice specifies (target, forced, parentAffinities)
+for each hop in sequence. If fewer interventions exist than maxHops,
+the chain terminates after applying them all.
+
+predict must return the downstream Value that the trie would produce
+given the intervened Value. The graph does not own prediction — the
+caller wires this to their trie's Predict path.
+*/
+func (graph *Graph) CounterfactualChain(
+	observed *primitive.Value,
+	interventions []Intervention,
+	predict func(*primitive.Value) *primitive.Value,
+	maxHops int,
+) []HopResult {
+	if observed == nil || predict == nil || len(interventions) == 0 {
+		return nil
+	}
+
+	if maxHops <= 0 {
+		maxHops = len(interventions)
+	}
+
+	results := make([]HopResult, 0, maxHops)
+	current := observed
+	prevResidual := -1
+
+	for hop := 0; hop < maxHops && hop < len(interventions); hop++ {
+		iv := interventions[hop]
+
+		severed := graph.Counterfactual(
+			current, iv.Target, iv.Forced, iv.ParentAffinities,
+		)
+
+		predicted := predict(current)
+
+		residual := 0
+
+		if predicted != nil {
+			predAff := predicted.AffinityVector()
+			curAff := current.AffinityVector()
+
+			for wordIdx := range primitive.AffinityWords {
+				xor := predAff[wordIdx] ^ curAff[wordIdx]
+
+				if wordIdx == primitive.AffinityWords-1 {
+					xor &= primitive.AffinityLastWordMask
+				}
+
+				residual += bits.OnesCount64(xor)
+			}
+		}
+
+		settled := prevResidual >= 0 && residual <= prevResidual
+		prevResidual = residual
+
+		results = append(results, HopResult{
+			Severed:  severed,
+			Residual: residual,
+			Settled:  settled,
+		})
+
+		if settled {
+			break
+		}
+
+		if predicted != nil {
+			current = predicted
+		}
+	}
+
+	return results
+}
+
+/*
+Intervention specifies a single hop in a multi-hop counterfactual chain.
+*/
+type Intervention struct {
+	Target           uint64
+	Forced           *primitive.Value
+	ParentAffinities map[uint64][primitive.AffinityWords]uint64
+}
+
+/*
 ObserveResidual records the difference between predicted and observed
 outcomes after an intervention. The XOR of their affinity vectors is
 accumulated into the Gradient region, building the noise term that
@@ -354,15 +460,178 @@ func (graph *Graph) ObserveResidual(
 	predAff := predicted.AffinityVector()
 	obsAff := observed.AffinityVector()
 
-	var residual [primitive.AffinityWords]uint64
+	var residual [primitive.RegionWords]uint64
 	var dist int
 
 	for wordIdx := range primitive.AffinityWords {
-		residual[wordIdx] = predAff[wordIdx] ^ obsAff[wordIdx]
-		dist += bits.OnesCount64(residual[wordIdx])
+		xor := predAff[wordIdx] ^ obsAff[wordIdx]
+
+		if wordIdx == primitive.AffinityWords-1 {
+			xor &= primitive.AffinityLastWordMask
+		}
+
+		residual[wordIdx] = xor
+		dist += bits.OnesCount64(xor)
 	}
 
 	observed.AccumulateGradient(residual)
 
 	graph.residualTracker.Next(float64(dist))
+}
+
+/*
+Mediate decomposes the total causal effect of X on Y into direct
+and indirect (mediated through Z) components.
+
+	Total effect:    do(X=x') on Y
+	Direct effect:   do(X=x', Z=z_observed) on Y — hold Z fixed
+	Indirect effect: Total - Direct
+
+The caller provides:
+  - value: the Value to intervene on
+  - xTarget/xForced: the X intervention
+  - zTarget/zObserved: the mediator Z and its observed value
+  - parentAffinities: affinity vectors for causal parents
+  - predict: trie prediction function
+
+Returns (directResidual, indirectResidual). A large indirect
+residual means Z mediates a significant portion of X→Y.
+*/
+func (graph *Graph) Mediate(
+	value *primitive.Value,
+	xTarget uint64,
+	xForced *primitive.Value,
+	zTarget uint64,
+	zObserved *primitive.Value,
+	parentAffinities map[uint64][primitive.AffinityWords]uint64,
+	predict func(*primitive.Value) *primitive.Value,
+) (directResidual int, indirectResidual int) {
+	if value == nil || xForced == nil || zObserved == nil || predict == nil {
+		return 0, 0
+	}
+
+	totalChain := graph.CounterfactualChain(
+		value,
+		[]Intervention{{
+			Target:           xTarget,
+			Forced:           xForced,
+			ParentAffinities: parentAffinities,
+		}},
+		predict,
+		1,
+	)
+
+	totalResidual := 0
+
+	if len(totalChain) > 0 {
+		totalResidual = totalChain[0].Residual
+	}
+
+	var copy primitive.Value
+	copy = *value
+
+	graph.CounterfactualChain(
+		&copy,
+		[]Intervention{
+			{
+				Target:           xTarget,
+				Forced:           xForced,
+				ParentAffinities: parentAffinities,
+			},
+			{
+				Target:           zTarget,
+				Forced:           zObserved,
+				ParentAffinities: parentAffinities,
+			},
+		},
+		predict,
+		2,
+	)
+
+	directPredicted := predict(&copy)
+
+	if directPredicted != nil {
+		predAff := directPredicted.AffinityVector()
+		origAff := value.AffinityVector()
+
+		for wordIdx := range primitive.AffinityWords {
+			xor := predAff[wordIdx] ^ origAff[wordIdx]
+
+			if wordIdx == primitive.AffinityWords-1 {
+				xor &= primitive.AffinityLastWordMask
+			}
+
+			directResidual += bits.OnesCount64(xor)
+		}
+	}
+
+	indirectResidual = totalResidual - directResidual
+
+	if indirectResidual < 0 {
+		indirectResidual = 0
+	}
+
+	return directResidual, indirectResidual
+}
+
+/*
+Moderate tests whether Z moderates the effect of X on Y — whether
+X's causal effect on Y changes depending on Z's value.
+
+Runs two counterfactual chains with the same X intervention but
+different Z values. If the residuals differ significantly, Z
+moderates X→Y.
+
+Returns (residualWithZ1, residualWithZ2). The caller compares
+these to determine moderation strength.
+*/
+func (graph *Graph) Moderate(
+	value *primitive.Value,
+	xTarget uint64,
+	xForced *primitive.Value,
+	zTarget uint64,
+	zValue1 *primitive.Value,
+	zValue2 *primitive.Value,
+	parentAffinities map[uint64][primitive.AffinityWords]uint64,
+	predict func(*primitive.Value) *primitive.Value,
+) (residualZ1 int, residualZ2 int) {
+	if value == nil || xForced == nil || zValue1 == nil || zValue2 == nil || predict == nil {
+		return 0, 0
+	}
+
+	var copy1 primitive.Value
+	copy1 = *value
+
+	chain1 := graph.CounterfactualChain(
+		&copy1,
+		[]Intervention{
+			{Target: xTarget, Forced: xForced, ParentAffinities: parentAffinities},
+			{Target: zTarget, Forced: zValue1, ParentAffinities: parentAffinities},
+		},
+		predict,
+		2,
+	)
+
+	if len(chain1) > 0 {
+		residualZ1 = chain1[len(chain1)-1].Residual
+	}
+
+	var copy2 primitive.Value
+	copy2 = *value
+
+	chain2 := graph.CounterfactualChain(
+		&copy2,
+		[]Intervention{
+			{Target: xTarget, Forced: xForced, ParentAffinities: parentAffinities},
+			{Target: zTarget, Forced: zValue2, ParentAffinities: parentAffinities},
+		},
+		predict,
+		2,
+	)
+
+	if len(chain2) > 0 {
+		residualZ2 = chain2[len(chain2)-1].Residual
+	}
+
+	return residualZ1, residualZ2
 }

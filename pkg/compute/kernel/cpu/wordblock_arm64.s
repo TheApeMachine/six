@@ -283,8 +283,8 @@ ub_loop:
 //
 // Layout (word offsets, each word = 8 bytes):
 //   [0-3]    A (query, 4 words = 32 bytes)
-//   [16]     opcode (low 4 bits)
-//   [24-31]  signals output (8 words = 64 bytes)
+//   [8]      opcode (low 4 bits)
+//   [16-23]  signals output (8 words = 64 bytes)
 //   [32-95]  B rotations (16 rotations × 4 words, pre-compiled)
 //
 // Register allocation:
@@ -304,8 +304,8 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	// Pin A in V16-V17 (words 0-3, bytes 0-31).
 	VLD1	(R0), [V16.B16, V17.B16]
 
-	// Load opcode from word 16 (byte offset 128).
-	MOVD	128(R0), R1
+	// Load opcode from word 8 (byte offset 64).
+	MOVD	64(R0), R1
 	AND	$0xF, R1, R1
 
 	// Broadcast mask bits into V20-V23.
@@ -344,8 +344,8 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	// R1 = pointer to B rotations (word 32 = byte 256).
 	ADD	$256, R0, R1
 
-	// R2 = signal base (word 24 = byte 192).
-	ADD	$192, R0, R2
+	// R2 = signal base (word 16 = byte 128).
+	ADD	$128, R0, R2
 
 	// R3 = rotation counter.
 	MOVD	ZR, R3

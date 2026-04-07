@@ -101,3 +101,27 @@ func TestTryOnce(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkTryOnce(b *testing.B) {
+	env := Env{
+		PickLabel: func() string {
+			return "L"
+		},
+		GenerateContinuation: func(string, float64, int) string {
+			return "abcd"
+		},
+		LabelConfidence: func(string, string) float64 {
+			return 0.5
+		},
+		PathIsNovel: func(string) bool {
+			return true
+		},
+		Train: func(string, string, float64) {},
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = TryOnce(0.4, 2, 10, 0.1, env)
+	}
+}

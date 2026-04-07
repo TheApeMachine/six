@@ -7,8 +7,33 @@ import (
 
 /*
 AffinityWords is the number of uint64 words in an affinity vector.
+257 bits requires 5 words: 4 full words (256 bits) plus 1 bit in word 4.
+257 is a Fermat prime (2^(2^3) + 1), giving the affinity region algebraic
+properties that composite widths lack — in particular, the multiplicative
+group mod 257 has order 256 = 2^8, so every nonzero element has a power-of-2
+order, making cyclic rotation and stride-based sampling degenerate-free for
+any power-of-2 sub-sampling factor.
 */
-const AffinityWords = 8
+const AffinityWords = 5
+
+/*
+AffinityBits is the number of meaningful bits in the affinity vector.
+Bits beyond position 256 in the last word are always masked to zero.
+*/
+const AffinityBits = 257
+
+/*
+AffinityLastWordMask retains only bit 0 of the final affinity word,
+zeroing the 63 unused bits. Every write path must apply this mask.
+*/
+const AffinityLastWordMask = uint64(1)
+
+/*
+RegionWords is the standard width of a 512-bit Value region (tokens,
+program, signals, context, gradient, meta). Decoupled from AffinityWords
+so the affinity can be a different width without breaking region accessors.
+*/
+const RegionWords = 8
 
 /*
 Affinity represents a locality-sensitive content fingerprint as a
@@ -58,7 +83,11 @@ distance measurements become meaningless.
 func (affinity *Affinity) Popcount() int {
 	total := 0
 
-	for _, word := range affinity.vector {
+	for idx, word := range affinity.vector {
+		if idx == AffinityWords-1 {
+			word &= AffinityLastWordMask
+		}
+
 		total += bits.OnesCount64(word)
 	}
 
@@ -100,6 +129,8 @@ func (affinity *Affinity) Blend(
 		affinity.vector[wordIdx] = agree | flipToIncoming | (affinity.vector[wordIdx] & ^flipToZero & ^(disagree & selector))
 	}
 
+	affinity.vector[AffinityWords-1] &= AffinityLastWordMask
+
 	if affinity.Popcount() >= shannonLimit {
 		affinity.vector = prev
 	}
@@ -117,8 +148,16 @@ func (affinity *Affinity) Coupling(other *Affinity) float64 {
 	unionBits := 0
 
 	for wordIdx := range AffinityWords {
-		intersectionBits += bits.OnesCount64(affinity.vector[wordIdx] & other.vector[wordIdx])
-		unionBits += bits.OnesCount64(affinity.vector[wordIdx] | other.vector[wordIdx])
+		aWord := affinity.vector[wordIdx]
+		oWord := other.vector[wordIdx]
+
+		if wordIdx == AffinityWords-1 {
+			aWord &= AffinityLastWordMask
+			oWord &= AffinityLastWordMask
+		}
+
+		intersectionBits += bits.OnesCount64(aWord & oWord)
+		unionBits += bits.OnesCount64(aWord | oWord)
 	}
 
 	if unionBits == 0 {
@@ -136,6 +175,8 @@ func (affinity *Affinity) OrBlend(incoming *Affinity) {
 	for wordIdx := range AffinityWords {
 		affinity.vector[wordIdx] |= incoming.vector[wordIdx]
 	}
+
+	affinity.vector[AffinityWords-1] &= AffinityLastWordMask
 }
 
 /*
@@ -156,7 +197,7 @@ ShannonEntropy computes the binary entropy of the affinity vector
 treated as a Bernoulli source (fraction of set bits).
 */
 func (affinity *Affinity) ShannonEntropy() float64 {
-	totalBits := AffinityWords * 64
+	totalBits := AffinityBits
 	setBits := affinity.Popcount()
 
 	if setBits == 0 || setBits == totalBits {
