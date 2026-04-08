@@ -1,4 +1,4 @@
-.PHONY: build run test metal cuda paper pprof pprof-mem dump capnp
+.PHONY: build run test coverage metal cuda paper pprof pprof-mem dump capnp
 
 # The pool package (pkg/pool/lib_runtime_linkage.go) uses go:linkname to
 # reach runtime scheduling symbols such as runtime.dropg. Starting with Go
@@ -33,9 +33,7 @@ dump:
 	done
 	@echo "Dumped $$(grep -c '<<<FILE' $(DUMP_FILE)) files to $(DUMP_FILE)"
 
-CAPNP_STD ?= ../../capnproto/go-capnp/std
-
-build: capnp
+build:
 	go generate ./pkg/primitive/...
 
 	cd pkg/compute/kernel/metal \
@@ -57,6 +55,10 @@ run: build
 # long-running TestPipeline suite does not run here (see make paper / pprof).
 test:
 	go test $(LDFLAGS) ./...
+
+coverage:
+	go test $(LDFLAGS) -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out
 
 metal:
 	go generate ./pkg/primitive/...
