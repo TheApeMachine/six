@@ -351,7 +351,7 @@ func (search *Search) rankFromContext(
 
 	for token, count := range freq {
 		probability := count / total
-		probability *= search.phaseWeightedProbability([]byte(token), 1)
+probability = search.phaseWeightedProbability([]byte(token), probability)
 
 		ranked = append(ranked, RankedToken{
 			Token:       token,
