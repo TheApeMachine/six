@@ -109,16 +109,10 @@ func (pc *PolarConstraintChart) Generate() error {
 
 	script := buildPolarScript(string(snapJSON))
 
-	html, err := renderChartHTML(pc.title, pc.width, pc.height, script)
-	if err != nil {
-		return err
-	}
-
-	if err := renderAndExport(html, pc.outDir, pc.filename, pc.width, pc.height); err != nil {
-		return err
-	}
-
-	return emitFigure(pc.filename, pc.caption, pc.label, pc.out)
+	return finalizeEChartsFigure(
+		pc.title, pc.width, pc.height, script,
+		pc.outDir, pc.filename, pc.caption, pc.label, pc.out,
+	)
 }
 
 func buildPolarScript(snapJSON string) string {
@@ -233,7 +227,6 @@ func WritePolarConstraint(
 	outDir, filename string,
 	out io.Writer,
 ) error {
-	
 
 	pc := NewPolarConstraintChart(
 		PolarConstraintWithSnapshots(data.Snapshots),

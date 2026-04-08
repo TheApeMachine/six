@@ -43,7 +43,6 @@ holdout is used as the expected completion.
 type LanguagesExperiment struct {
 	dataset   data.Provider
 	tableData []tools.ExperimentalData
-	prose     []projector.ProseEntry
 	prompt    []string
 	holdouts  [][]byte
 	seen      map[string]struct{}
@@ -77,13 +76,6 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 	experiment.dataset = &multiDataset{
 		datasets:  datasets,
 		langNames: names,
-	}
-
-	experiment.prose = []projector.ProseEntry{
-		{
-			Condition:   func() bool { return experiment.Score() > 0.5 },
-			Description: "The system generates code completions across multiple languages.",
-		},
 	}
 
 	return experiment

@@ -1,6 +1,7 @@
 package kadabra
 
 import (
+	"errors"
 	"maps"
 	"math"
 	"slices"
@@ -349,6 +350,8 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 
 	tries := field.owner.triesSnapshot()
 
+	var pressureErr error
+
 	for trieIdx := range tries {
 		cluster := tries[trieIdx]
 
@@ -463,7 +466,9 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		decay := clamp(rawDecay*decayMul, clampLimitDecay)
 		learn := clamp(rawLearn*learnMul, clampLimitLearn)
 
-		cluster.ApplyFieldPressure(decay, learn, decay)
+		if err := cluster.ApplyFieldPressure(decay, learn, decay); err != nil {
+			pressureErr = errors.Join(pressureErr, err)
+		}
 
 		viz.DefaultBus.Publish(viz.TriePressureEvent(
 			field.owner.ID, trieIdx, decay, learn, decayMul, learnMul,
@@ -474,7 +479,7 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		))
 	}
 
-	return nil, nil
+	return nil, pressureErr
 }
 
 func clamp(val, limit float64) float64 {

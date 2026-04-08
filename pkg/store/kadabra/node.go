@@ -3,6 +3,7 @@ package kadabra
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"math/bits"
 	"math/rand"
@@ -213,10 +214,18 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 	tries := node.triesSnapshot()
 	selected := node.selectTriesForPredict(pv, tries, predictTrieFanout)
 
+	var predictErr error
+
 	for _, trie := range selected {
-		triePred := trie.Predict(*pv)
-		observation.Continuations = append(observation.Continuations, triePred.Continuations...)
-		observation.Labels = append(observation.Labels, triePred.Labels...)
+		triePred, err := trie.Predict(*pv)
+		if err != nil {
+			predictErr = errors.Join(predictErr, err)
+		}
+
+		if triePred != nil {
+			observation.Continuations = append(observation.Continuations, triePred.Continuations...)
+			observation.Labels = append(observation.Labels, triePred.Labels...)
+		}
 	}
 
 	viz.DefaultBus.Publish(viz.BeamCollectEvent(
@@ -248,7 +257,7 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		))
 	}
 
-	return result, nil
+	return result, predictErr
 }
 
 /*

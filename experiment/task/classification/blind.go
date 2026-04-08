@@ -23,7 +23,6 @@ seen before.
 */
 type BlindClassificationExperiment struct {
 	tableData []tools.ExperimentalData
-	prose     []projector.ProseEntry
 	dataset   data.Provider
 	prompt    []string
 	holdouts  [][]byte

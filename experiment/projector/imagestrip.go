@@ -59,14 +59,11 @@ func (is *ImageStrip) Generate() error {
 	}{string(dataJSON)})
 
 	width, height := imageStripDimensions(len(is.rows))
-	html, err := renderChartHTML(is.title, width, height, script)
-	if err != nil {
-		return err
-	}
-	if err := renderAndExport(html, is.outDir, is.filename, width, height); err != nil {
-		return err
-	}
-	return emitFigure(is.filename, is.caption, is.label, is.out)
+
+	return finalizeEChartsFigure(
+		is.title, width, height, script,
+		is.outDir, is.filename, is.caption, is.label, is.out,
+	)
 }
 
 func ImageStripWithData(rows []ImageStripRow) imageStripOpts {

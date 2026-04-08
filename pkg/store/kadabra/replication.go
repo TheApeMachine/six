@@ -111,7 +111,11 @@ func (node *Node) applyRecordToTrie(record SequenceRecord) bool {
 		return false
 	}
 
-	trie.Load(record.Value, record.Label)
+	if err := trie.Load(record.Value, record.Label); err != nil {
+		node.routing.releaseRecordKey(record.Key)
+
+		return false
+	}
 
 	viz.DefaultBus.Publish(viz.TrieInsertEvent(
 		node.ID, record.Value.String(), record.Label,

@@ -2,7 +2,9 @@ package markovtrie
 
 import (
 	"context"
+	"errors"
 	"log"
+	"sync"
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -46,8 +48,12 @@ type Store struct {
 		(labels empty, lastLeaf threading). Reset when labels force a branch
 		from root so parent-pointer walks are not repeated for every token in
 		a linear ingest.
+
+		seqPathMu serializes seqPath mutations and reads so concurrent Load
+		calls cannot corrupt the shared backing array.
 	*/
-	seqPath []primitive.Value
+	seqPathMu sync.Mutex
+	seqPath   []primitive.Value
 }
 
 /*
@@ -97,13 +103,16 @@ region (same bytes as String) via trieEdgeKey so trie structure stays
 aligned without an extra allocation per hop. If a path already
 exists, the value lands at the existing branch; otherwise a new
 child is created.
+
+When labels are non-empty, algorithm updates may fail; failures are
+joined and returned while trie structure and visits are already updated.
 */
 func (store *Store) Load(
 	value primitive.Value,
 	labels ...string,
-) {
+) error {
 	if store == nil {
-		return
+		return nil
 	}
 
 	if store.root == nil {
@@ -132,6 +141,8 @@ func (store *Store) Load(
 
 	chainParent := store.lastLeaf.Load()
 
+	store.seqPathMu.Lock()
+
 	if len(labels) > 0 {
 		store.seqPath = append(store.seqPath[:0], store.root.value, existing.value)
 		store.lastLeaf.Store(nil)
@@ -145,9 +156,13 @@ func (store *Store) Load(
 		store.lastLeaf.Store(existing)
 	}
 
-	triePath := store.seqPath
+	triePath := append([]primitive.Value(nil), store.seqPath...)
+
+	store.seqPathMu.Unlock()
 
 	observation := algo.NewPrediction()
+
+	var loadErr error
 
 	for _, label := range labels {
 		observation.TruncateForUpdate()
@@ -157,8 +172,12 @@ func (store *Store) Load(
 		})
 		observation.AddContext(triePath...)
 
-		store.runAlgorithmStack(observation)
+		if err := store.runAlgorithmStack(observation); err != nil {
+			loadErr = errors.Join(loadErr, err)
+		}
 	}
+
+	return loadErr
 }
 
 /*
@@ -167,7 +186,13 @@ runAlgorithmStack runs the Store's algo.Algorithm slice on one observation.
 Trie mutation stays in Load/Predict; this is the only orchestration hook
 needed to broadcast a labeled observation without scattering Update loops.
 */
-func (store *Store) runAlgorithmStack(observation *algo.Prediction) {
+func (store *Store) runAlgorithmStack(observation *algo.Prediction) error {
+	if store == nil {
+		return nil
+	}
+
+	var joined error
+
 	for _, algorithm := range store.algorithms {
 		_, err := algorithm.Update(observation)
 
@@ -177,8 +202,12 @@ func (store *Store) runAlgorithmStack(observation *algo.Prediction) {
 				algorithm,
 				err,
 			)
+
+			joined = errors.Join(joined, err)
 		}
 	}
+
+	return joined
 }
 
 /*
@@ -188,15 +217,15 @@ posteriors and beam continuations are merged into one Prediction for
 Prompt/VM callers; other algorithms update their internal signals without
 writing into that merged view.
 */
-func (store *Store) Predict(value primitive.Value) *algo.Prediction {
+func (store *Store) Predict(value primitive.Value) (*algo.Prediction, error) {
 	if store == nil || store.root == nil {
-		return algo.NewPrediction()
+		return algo.NewPrediction(), nil
 	}
 
 	token := trieEdgeKey(value)
 
 	if token == "" {
-		return algo.NewPrediction()
+		return algo.NewPrediction(), nil
 	}
 
 	var pathVals []primitive.Value
@@ -212,7 +241,7 @@ func (store *Store) Predict(value primitive.Value) *algo.Prediction {
 		observation.AddContext(step)
 	}
 
-	store.runAlgorithmStack(observation)
+	stackErr := store.runAlgorithmStack(observation)
 
 	merged := algo.NewPrediction()
 
@@ -234,7 +263,7 @@ func (store *Store) Predict(value primitive.Value) *algo.Prediction {
 		}
 	}
 
-	return merged
+	return merged, stackErr
 }
 
 /*
@@ -293,15 +322,16 @@ func (store *Store) Algorithms() []algo.Algorithm {
 /*
 ApplyFieldPressure broadcasts field forces to all algorithms via
 the standard Update path. Each algorithm decides internally how
-(or whether) to respond to the pressure signals.
+(or whether) to respond to the pressure signals. Non-nil return means
+one or more Update calls failed (errors joined).
 */
 func (store *Store) ApplyFieldPressure(
 	fieldSurprisal float64,
 	fieldGrowth float64,
 	decayMul float64,
-) {
+) error {
 	if store == nil {
-		return
+		return nil
 	}
 
 	pressure := algo.NewPrediction()
@@ -309,5 +339,5 @@ func (store *Store) ApplyFieldPressure(
 	pressure.Signals[algo.FieldGrowth] = numeric.NewDerivedFrom(fieldGrowth)
 	pressure.Signals[algo.FieldDecayMul] = numeric.NewDerivedFrom(decayMul)
 
-	store.runAlgorithmStack(pressure)
+	return store.runAlgorithmStack(pressure)
 }

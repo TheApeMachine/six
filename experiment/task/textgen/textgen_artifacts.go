@@ -5,6 +5,7 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 // textgenSectionArtifacts builds a unified textgen prose section + multi-panel figure.
@@ -48,70 +49,6 @@ func textgenSectionArtifacts(
 	return artifacts
 }
 
-// trialMapPanels builds the standard two-panel Trial Outcome Map.
-func trialMapPanels(tableData []tools.ExperimentalData, score float64) []tools.Panel {
-	n := len(tableData)
-	if n == 0 {
-		return nil
-	}
-
-	sampleLabels := make([]string, n)
-	for i := range sampleLabels {
-		sampleLabels[i] = fmt.Sprintf("S%d", i+1)
-	}
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
-
-	heatData := make([][]any, 0, n*4)
-	weightedVals := make([]float64, n)
-	meanLine := make([]float64, n)
-
-	for sIdx, row := range tableData {
-		for cIdx, v := range []float64{row.Scores.Exact, row.Scores.Partial, row.Scores.Fuzzy, row.WeightedTotal} {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-		weightedVals[sIdx] = row.WeightedTotal
-		meanLine[sIdx] = score
-	}
-
-	return []tools.Panel{
-		{
-			Kind:        "heatmap",
-			Title:       "Score Fingerprint",
-			GridLeft:    "5%",
-			GridRight:   "57%",
-			GridTop:     "14%",
-			GridBottom:  "18%",
-			XLabels:     scoreLabels,
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "43%",
-		},
-		{
-			Kind:       "chart",
-			Title:      "Weighted Score",
-			GridLeft:   "58%",
-			GridRight:  "4%",
-			GridTop:    "14%",
-			GridBottom: "18%",
-			XLabels:    sampleLabels,
-			XAxisName:  "Sample",
-			XShow:      true,
-			Series: []tools.PanelSeries{
-				{Name: "Score", Kind: "bar", BarWidth: "55%", Data: weightedVals},
-				{Name: fmt.Sprintf("Mean (%.2f)", score), Kind: "dashed", Symbol: "none", Color: "#f97316", Data: meanLine},
-			},
-			YMin: tools.Float64Ptr(0),
-			YMax: tools.Float64Ptr(1),
-		},
-	}
-}
-
 // ── Compositional ──────────────────────────────────────────────────────────────
 
 func CompositionalArtifacts(tableData []tools.ExperimentalData, score float64) []tools.Artifact {
@@ -149,7 +86,7 @@ purely from value attractor resonance over the ingested story patterns.`,
 		"Compositional",
 		tableData,
 		section,
-		trialMapPanels(tableData, score),
+		trialmap.TwoScorePanels(tableData, score, trialmap.StandardTwoPanel(), nil),
 		"compositional_map",
 		fmt.Sprintf("Compositional pattern recall trial map. N=%d TinyStories samples, 30%% holdout.", n),
 		"fig:compositional_map",
@@ -205,7 +142,7 @@ rather than verbatim retrieval.`,
 		"Out of Corpus",
 		tableData,
 		section,
-		trialMapPanels(tableData, score),
+		trialmap.TwoScorePanels(tableData, score, trialmap.StandardTwoPanel(), nil),
 		"out_of_corpus_map",
 		fmt.Sprintf("Out-of-corpus analogy trial map. N=%d queries.", n),
 		"fig:out_of_corpus_map",
@@ -262,7 +199,7 @@ discriminator for the architecture's generative capabilities.`,
 		"Prose Chaining",
 		tableData,
 		section,
-		trialMapPanels(tableData, score),
+		trialmap.TwoScorePanels(tableData, score, trialmap.StandardTwoPanel(), nil),
 		"prose_chaining_map",
 		fmt.Sprintf("Prose chaining trial map. N=%d prompts.", n),
 		"fig:prose_chaining_map",
@@ -316,7 +253,7 @@ naturally.`,
 		"Text Overlap",
 		tableData,
 		section,
-		trialMapPanels(tableData, score),
+		trialmap.TwoScorePanels(tableData, score, trialmap.StandardTwoPanel(), nil),
 		"text_overlap_map",
 		fmt.Sprintf("Text overlap trial map. N=%d TinyStories prompts, 40%% holdout.", n),
 		"fig:text_overlap_map",

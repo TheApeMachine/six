@@ -5,6 +5,7 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 /*
@@ -23,7 +24,7 @@ func PhasedialSectionArtifacts(
 	slug := tools.Slugify(expName)
 	artifacts := []tools.Artifact{}
 
-	panels := phasedialTrialMapPanels(tableData, score)
+	panels := trialmap.TwoScorePanels(tableData, score, trialmap.StandardTwoPanel(), nil)
 
 	if len(panels) > 0 {
 		artifacts = append(artifacts, tools.Artifact{
@@ -50,72 +51,4 @@ func PhasedialSectionArtifacts(
 	})
 
 	return artifacts
-}
-
-/*
-phasedialTrialMapPanels builds the standard two-panel trial outcome map:
-left panel = score fingerprint heatmap, right panel = weighted score bar.
-*/
-func phasedialTrialMapPanels(tableData []tools.ExperimentalData, score float64) []tools.Panel {
-	n := len(tableData)
-	if n == 0 {
-		return nil
-	}
-
-	sampleLabels := make([]string, n)
-	for i := range sampleLabels {
-		sampleLabels[i] = fmt.Sprintf("S%d", i+1)
-	}
-
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
-	heatData := make([][]any, 0, n*4)
-	weightedVals := make([]float64, n)
-	meanLine := make([]float64, n)
-
-	for sIdx, row := range tableData {
-		for cIdx, v := range []float64{row.Scores.Exact, row.Scores.Partial, row.Scores.Fuzzy, row.WeightedTotal} {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-
-		weightedVals[sIdx] = row.WeightedTotal
-		meanLine[sIdx] = score
-	}
-
-	return []tools.Panel{
-		{
-			Kind:        "heatmap",
-			Title:       "Score Fingerprint",
-			GridLeft:    "5%",
-			GridRight:   "57%",
-			GridTop:     "14%",
-			GridBottom:  "18%",
-			XLabels:     scoreLabels,
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "43%",
-		},
-		{
-			Kind:       "chart",
-			Title:      "Weighted Score",
-			GridLeft:   "58%",
-			GridRight:  "4%",
-			GridTop:    "14%",
-			GridBottom: "18%",
-			XLabels:    sampleLabels,
-			XAxisName:  "Sample",
-			XShow:      true,
-			Series: []tools.PanelSeries{
-				{Name: "Score", Kind: "bar", BarWidth: "55%", Data: weightedVals},
-				{Name: fmt.Sprintf("Mean (%.2f)", score), Kind: "dashed", Symbol: "none", Color: "#f97316", Data: meanLine},
-			},
-			YMin: tools.Float64Ptr(0),
-			YMax: tools.Float64Ptr(1),
-		},
-	}
 }

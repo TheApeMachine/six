@@ -74,8 +74,11 @@ func TestAdditiveSmoothing(t *testing.T) {
 
 		So(p, ShouldAlmostEqual, (1+0.5)/(10+50), 1e-9)
 
+		// Negative smoothing: AdditiveSmoothing rejects it (see temperature.go) so the
+		// (count+α)/(total+α|V|) form is never applied with an invalid α.
 		So(math.IsNaN(AdditiveSmoothing(0, 0, 1, -1)), ShouldBeTrue)
 
+		// Negative vocabulary size: same guard — |V| must be non-negative for the denominator.
 		So(math.IsNaN(AdditiveSmoothing(0, 0, -3, 1)), ShouldBeTrue)
 	})
 }
@@ -138,11 +141,19 @@ func BenchmarkTemperatureShape(b *testing.B) {
 }
 
 func BenchmarkNormalizeMap(b *testing.B) {
+	template := map[string]float64{
+		"a": 1, "b": 2, "c": 3, "d": 4, "e": 5,
+	}
+
+	dup := make(map[string]float64, len(template))
+
 	b.ResetTimer()
 
 	for b.Loop() {
-		dup := map[string]float64{
-			"a": 1, "b": 2, "c": 3, "d": 4, "e": 5,
+		clear(dup)
+
+		for key, val := range template {
+			dup[key] = val
 		}
 
 		NormalizeMap(dup)

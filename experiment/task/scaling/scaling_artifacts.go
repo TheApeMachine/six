@@ -5,6 +5,7 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 /*
@@ -249,59 +250,7 @@ func SequencerArtifacts(tableData []tools.ExperimentalData) []tools.Artifact {
 		score /= float64(len(perSample))
 	}
 
-	sampleLabels := make([]string, len(perSample))
-	for i := range sampleLabels {
-		sampleLabels[i] = fmt.Sprintf("S%d", i+1)
-	}
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
-	heatData := make([][]any, 0, len(perSample)*4)
-	weightedVals := make([]float64, len(perSample))
-	meanLine := make([]float64, len(perSample))
-	for sIdx, row := range perSample {
-		for cIdx, v := range []float64{row.Scores.Exact, row.Scores.Partial, row.Scores.Fuzzy, row.WeightedTotal} {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-		weightedVals[sIdx] = row.WeightedTotal
-		meanLine[sIdx] = score
-	}
-
-	panels := []tools.Panel{
-		{
-			Kind:        "heatmap",
-			Title:       "Score Fingerprint",
-			GridLeft:    "5%",
-			GridRight:   "57%",
-			GridTop:     "12%",
-			GridBottom:  "18%",
-			XLabels:     scoreLabels,
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "43%",
-		},
-		{
-			Kind:       "chart",
-			Title:      "Weighted Score per Sample",
-			GridLeft:   "58%",
-			GridRight:  "4%",
-			GridTop:    "12%",
-			GridBottom: "18%",
-			XLabels:    sampleLabels,
-			XAxisName:  "Sample",
-			XShow:      true,
-			Series: []tools.PanelSeries{
-				{Name: "Weighted", Kind: "bar", BarWidth: "55%", Data: weightedVals},
-				{Name: fmt.Sprintf("Mean (%.2f)", score), Kind: "dashed", Symbol: "none", Color: "#f97316", Data: meanLine},
-			},
-			YMin: tools.Float64Ptr(0),
-			YMax: tools.Float64Ptr(1),
-		},
-	}
+	panels := trialmap.TwoScorePanels(perSample, score, trialmap.ScalingSequencerTwoPanel(), nil)
 
 	entries := 0.0
 	if n > 0 {

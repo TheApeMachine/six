@@ -68,14 +68,10 @@ func (cm *ConfusionMatrix) Generate() error {
 		Resonance:  fmt.Sprintf("%.6f", cm.meanScore),
 	})
 
-	html, err := renderChartHTML(cm.title, chartW, chartH, script)
-	if err != nil {
-		return err
-	}
-	if err := renderAndExport(html, cm.outDir, cm.filename, chartW, chartH); err != nil {
-		return err
-	}
-	return emitFigure(cm.filename, cm.caption, cm.label, cm.out)
+	return finalizeEChartsFigure(
+		cm.title, chartW, chartH, script,
+		cm.outDir, cm.filename, cm.caption, cm.label, cm.out,
+	)
 }
 
 // metrics computes accuracy and macro-averaged F1 from the confusion matrix.

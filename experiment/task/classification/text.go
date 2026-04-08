@@ -30,7 +30,6 @@ seen before.
 */
 type TextClassificationExperiment struct {
 	tableData           []tools.ExperimentalData
-	prose               []projector.ProseEntry
 	dataset             data.Provider
 	prompt              []string
 	holdouts            [][]byte

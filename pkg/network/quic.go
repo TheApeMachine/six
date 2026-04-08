@@ -84,15 +84,11 @@ func (q *QUIC) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	n, err := q.stream.Read(p)
-	if err != nil {
-		mode, systemic := classifyQUICTransportError(err, true)
-		q.monitor.RecordFailure(mode, err, systemic)
-		return n, err
-	}
-
-	q.monitor.RecordSuccess()
-	return n, nil
+	return finishMonitoredRW(q.monitor, func(err error) (TransportFailureMode, bool) {
+		return classifyQUICTransportError(err, true)
+	}, func() (int, error) {
+		return q.stream.Read(p)
+	})
 }
 
 /*
@@ -117,23 +113,17 @@ func (q *QUIC) Write(p []byte) (int, error) {
 		return 0, err
 	}
 
-	n, err := q.stream.Write(p)
+	return finishMonitoredRW(q.monitor, func(err error) (TransportFailureMode, bool) {
+		return classifyQUICTransportError(err, false)
+	}, func() (int, error) {
+		n, werr := q.stream.Write(p)
 
-	if err != nil {
-		mode, systemic := classifyQUICTransportError(err, false)
-		q.monitor.RecordFailure(mode, err, systemic)
-		return n, err
-	}
+		if werr != nil {
+			return n, werr
+		}
 
-	err = q.stream.Flush()
-	if err != nil {
-		mode, systemic := classifyQUICTransportError(err, false)
-		q.monitor.RecordFailure(mode, err, systemic)
-		return n, err
-	}
-
-	q.monitor.RecordSuccess()
-	return n, nil
+		return n, q.stream.Flush()
+	})
 }
 
 /*
@@ -171,8 +161,13 @@ Accept blocks until an inbound connection arrives on the endpoint
 created by QUICWithListen, then opens the first bidirectional stream.
 */
 func (q *QUIC) Accept() error {
+	if err := q.monitor.Allow("quic", "accept"); err != nil {
+		return err
+	}
+
 	if q.stream != nil {
 		q.monitor.RecordReady()
+
 		return nil
 	}
 
@@ -182,11 +177,11 @@ func (q *QUIC) Accept() error {
 func (q *QUIC) accept(ctx context.Context) error {
 	if q.endpoint == nil {
 		err := &NetworkError{
-			Subsystem:    "quic",
-			Op:       "accept",
-			Mode:     TransportFailureBind,
-			Systemic: true,
-			Err:      ErrQUICNotListening,
+			Subsystem: "quic",
+			Op:        "accept",
+			Mode:      TransportFailureBind,
+			Systemic:  true,
+			Err:       ErrQUICNotListening,
 		}
 		q.monitor.RecordFailure(TransportFailureBind, err, true)
 		return err
@@ -242,11 +237,11 @@ func (q *QUIC) Ready(ctx context.Context) error {
 	}
 	if q.endpoint == nil {
 		err := &NetworkError{
-			Subsystem:    "quic",
-			Op:       "ready",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrQUICNoStream,
+			Subsystem: "quic",
+			Op:        "ready",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrQUICNoStream,
 		}
 		q.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return err
@@ -383,11 +378,11 @@ func (quicErr QUICError) Error() string {
 func (q *QUIC) sendHandshake(stream *quic.Stream) error {
 	if stream == nil {
 		return &NetworkError{
-			Subsystem:    "quic",
-			Op:       "handshake_write",
-			Mode:     TransportFailureHandshake,
-			Systemic: true,
-			Err:      ErrQUICNoStream,
+			Subsystem: "quic",
+			Op:        "handshake_write",
+			Mode:      TransportFailureHandshake,
+			Systemic:  true,
+			Err:       ErrQUICNoStream,
 		}
 	}
 	if _, err := stream.Write([]byte{quicReadyHandshakeByte}); err != nil {
@@ -420,11 +415,11 @@ func classifyQUICTransportError(err error, allowEOF bool) (TransportFailureMode,
 func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
 	if stream == nil {
 		return &NetworkError{
-			Subsystem:    "quic",
-			Op:       "handshake_read",
-			Mode:     TransportFailureHandshake,
-			Systemic: true,
-			Err:      ErrQUICNoStream,
+			Subsystem: "quic",
+			Op:        "handshake_read",
+			Mode:      TransportFailureHandshake,
+			Systemic:  true,
+			Err:       ErrQUICNoStream,
 		}
 	}
 
@@ -434,11 +429,11 @@ func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
 	}
 	if buf[0] != quicReadyHandshakeByte {
 		return &NetworkError{
-			Subsystem:    "quic",
-			Op:       "handshake_read",
-			Mode:     TransportFailureHandshake,
-			Systemic: false,
-			Err:      fmt.Errorf("%w: got=0x%02x", ErrQUICHandshake, buf[0]),
+			Subsystem: "quic",
+			Op:        "handshake_read",
+			Mode:      TransportFailureHandshake,
+			Systemic:  false,
+			Err:       fmt.Errorf("%w: got=0x%02x", ErrQUICHandshake, buf[0]),
 		}
 	}
 	return nil

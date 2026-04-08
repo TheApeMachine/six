@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 /*
@@ -17,7 +18,6 @@ facebook/babi_qa dataset (Task 1: single supporting fact).
 */
 type BabiExperiment struct {
 	tableData []tools.ExperimentalData
-	prose     []projector.ProseEntry
 	dataset   *huggingface.BabiQADataset
 	prompt    []string
 	holdouts  [][]byte
@@ -48,15 +48,6 @@ func NewBabiExperiment() *BabiExperiment {
 			tools.EvalWithExtractionScorer(),
 			tools.EvalWithExpectation(0.10, 0.70),
 		),
-	}
-
-	experiment.prose = []projector.ProseEntry{
-		{
-			Condition: func() bool {
-				return experiment.Score() > 0.5
-			},
-			Description: "It's alright.",
-		},
 	}
 
 	return experiment
@@ -161,86 +152,7 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 		}
 	}
 
-	// ── Build Trial Outcome Map data ──────────────────────────────
-	// Left panel: heatmap — rows = samples, columns = score dimensions
-	// Each cell is the score value [0,1]; colour = viridis (0=dark, 1=bright).
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
-	sampleLabels := make([]string, n)
-	for i := range sampleLabels {
-		sampleLabels[i] = fmt.Sprintf("Q%d", i+1)
-	}
-
-	// heatData: [[colIdx, rowIdx, value], …]  (col=score dim, row=sample)
-	heatData := make([][]any, 0, n*4)
-	for sIdx, row := range experiment.tableData {
-		vals := []float64{
-			row.Scores.Exact,
-			row.Scores.Partial,
-			row.Scores.Fuzzy,
-			row.WeightedTotal,
-		}
-		for cIdx, v := range vals {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-	}
-
-	// Right panel: weighted score per sample (bar) + mean (horizontal line).
-	weightedPerSample := make([]float64, n)
-	meanLine := make([]float64, n)
-	for i, row := range experiment.tableData {
-		weightedPerSample[i] = row.WeightedTotal
-		meanLine[i] = score
-	}
-
-	panels := []tools.Panel{
-		{
-			Kind:        "heatmap",
-			Title:       "Score Fingerprint",
-			GridLeft:    "5%",
-			GridRight:   "56%",
-			GridTop:     "12%",
-			GridBottom:  "12%",
-			XLabels:     scoreLabels,
-			XAxisName:   "Score Dimension",
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "44%",
-		},
-		{
-			Kind:       "chart",
-			Title:      "Weighted Score per Sample",
-			GridLeft:   "58%",
-			GridRight:  "4%",
-			GridTop:    "12%",
-			GridBottom: "12%",
-			XLabels:    sampleLabels,
-			XAxisName:  "Sample",
-			XShow:      true,
-			Series: []tools.PanelSeries{
-				{
-					Name:     "Weighted",
-					Kind:     "bar",
-					BarWidth: "55%",
-					Data:     weightedPerSample,
-				},
-				{
-					Name:   fmt.Sprintf("Mean (%.2f)", score),
-					Kind:   "dashed",
-					Symbol: "none",
-					Color:  "#f97316",
-					Data:   meanLine,
-				},
-			},
-			YMin: tools.Float64Ptr(0),
-			YMax: tools.Float64Ptr(1),
-		},
-	}
+	panels := trialmap.TwoScorePanels(experiment.tableData, score, trialmap.BabiTwoPanel(), nil)
 
 	// ── Failure table rows (up to 20) ─────────────────────────────
 	maxFail := 20

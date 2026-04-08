@@ -34,13 +34,14 @@ func TestSample(t *testing.T) {
 			{Token: "y", Probability: 0.6},
 		}
 
-		rng := rand.New(rand.NewSource(42))
-
 		Convey("when distribution is empty, It should return empty string", func() {
+			rng := rand.New(rand.NewSource(42))
+
 			So(Sample(nil, 1, rng), ShouldEqual, "")
 		})
 
 		Convey("when temperature > 0, It should draw from CDF", func() {
+			rng := rand.New(rand.NewSource(42))
 			tok := Sample(dist, 1, rng)
 
 			So(tok == "x" || tok == "y", ShouldBeTrue)
@@ -52,6 +53,7 @@ func TestSample(t *testing.T) {
 				{Token: "q", Probability: 0.5},
 			}
 
+			rng := rand.New(rand.NewSource(42))
 			tok := Sample(tied, 0, rng)
 
 			So(tok == "p" || tok == "q", ShouldBeTrue)
@@ -66,9 +68,15 @@ func BenchmarkSortDescending(b *testing.B) {
 		dist[idx] = Ranked{Token: string(rune('a' + idx%26)), Probability: float64(idx%7) * 0.01}
 	}
 
+	rng := rand.New(rand.NewSource(1))
+
 	b.ResetTimer()
 
 	for b.Loop() {
+		rng.Shuffle(len(dist), func(i, j int) {
+			dist[i], dist[j] = dist[j], dist[i]
+		})
+
 		SortDescending(dist)
 	}
 }

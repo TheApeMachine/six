@@ -76,7 +76,12 @@ func WriteExperimentsIndex() error {
 	}
 	sb.WriteString("\\FloatBarrier\n\\clearpage\n")
 
-	dir := PaperDir("sections")
+	dir, pErr := PaperDir("sections")
+
+	if pErr != nil {
+		return fmt.Errorf("experiments index paper dir: %w", pErr)
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("experiments index mkdir: %w", err)
 	}

@@ -93,15 +93,9 @@ func (ipc *IPC) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	n, err := connection.Read(p)
-	if err != nil {
-		mode, systemic := ipc.classifyNetError(err)
-		ipc.monitor.RecordFailure(mode, err, systemic)
-		return n, err
-	}
-
-	ipc.monitor.RecordSuccess()
-	return n, nil
+	return finishMonitoredRW(ipc.monitor, ipc.classifyNetError, func() (int, error) {
+		return connection.Read(p)
+	})
 }
 
 /*
@@ -118,15 +112,9 @@ func (ipc *IPC) Write(p []byte) (int, error) {
 		return 0, err
 	}
 
-	n, err := connection.Write(p)
-	if err != nil {
-		mode, systemic := ipc.classifyNetError(err)
-		ipc.monitor.RecordFailure(mode, err, systemic)
-		return n, err
-	}
-
-	ipc.monitor.RecordSuccess()
-	return n, nil
+	return finishMonitoredRW(ipc.monitor, ipc.classifyNetError, func() (int, error) {
+		return connection.Write(p)
+	})
 }
 
 /*
@@ -168,11 +156,11 @@ func (ipc *IPC) Accept() error {
 
 	if !ipc.owner {
 		err := &NetworkError{
-			Subsystem:    "ipc",
-			Op:       "accept",
-			Mode:     TransportFailureBind,
-			Systemic: true,
-			Err:      ErrIPCNotListening,
+			Subsystem: "ipc",
+			Op:        "accept",
+			Mode:      TransportFailureBind,
+			Systemic:  true,
+			Err:       ErrIPCNotListening,
 		}
 		ipc.monitor.RecordFailure(TransportFailureBind, err, true)
 		return err
@@ -180,11 +168,11 @@ func (ipc *IPC) Accept() error {
 
 	if ipc.listener == nil {
 		err := &NetworkError{
-			Subsystem:    "ipc",
-			Op:       "accept",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrIPCNotConnected,
+			Subsystem: "ipc",
+			Op:        "accept",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrIPCNotConnected,
 		}
 		ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return err
@@ -232,22 +220,22 @@ func (ipc *IPC) Ready(ctx context.Context) error {
 	if !ipc.owner {
 		if ipc.path == "" {
 			err := &NetworkError{
-				Subsystem:    "ipc",
-				Op:       "ready",
-				Mode:     TransportFailureNotReady,
-				Systemic: true,
-				Err:      ErrIPCDialUnconfigured,
+				Subsystem: "ipc",
+				Op:        "ready",
+				Mode:      TransportFailureNotReady,
+				Systemic:  true,
+				Err:       ErrIPCDialUnconfigured,
 			}
 			ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
 			return err
 		}
 
 		err := &NetworkError{
-			Subsystem:    "ipc",
-			Op:       "ready",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrIPCNotConnected,
+			Subsystem: "ipc",
+			Op:        "ready",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrIPCNotConnected,
 		}
 		ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return err

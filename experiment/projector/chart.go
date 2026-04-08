@@ -62,10 +62,23 @@ func renderAndExport(html string, outDir, filename string, dims ...int) error {
 		return fmt.Errorf("projector.renderAndExport(%s): invalid dims %v; expected 0 or 2 values (width,height)", htmlPath, dims)
 	}
 	if err := ExportPDFWithSize(htmlPath, filepath.Join(outDir, filename+".pdf"), w, h); err != nil {
-		// Log a warning instead of failing, so CI/CD pipelines without Chrome don't crash.
+		if os.Getenv("SIX_STRICT_PDF") == "1" {
+			return fmt.Errorf("export PDF for %s: %w", htmlPath, err)
+		}
+
 		fmt.Fprintf(os.Stderr, "Warning: failed to export PDF (is Chrome installed?): %v\n", err)
 	}
+
 	return nil
+}
+
+/*
+StrictPDFExport reports whether SIX_STRICT_PDF is set (fail chart export when
+Chrome/headless PDF is unavailable). Callers above the projector layer can
+surface this in help text or config validation.
+*/
+func StrictPDFExport() bool {
+	return os.Getenv("SIX_STRICT_PDF") == "1"
 }
 
 // emitFigure renders the shared LaTeX \begin{figure}…\end{figure} wrapper to out.

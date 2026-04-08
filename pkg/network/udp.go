@@ -73,11 +73,11 @@ func (udp *UDPMulticast) Read(p []byte) (int, error) {
 
 	if udp.sub == nil {
 		err := &NetworkError{
-			Subsystem:    "udp",
-			Op:       "read",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrUDPNotBound,
+			Subsystem: "udp",
+			Op:        "read",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrUDPNotBound,
 		}
 		udp.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return 0, err
@@ -130,11 +130,11 @@ func (udp *UDPMulticast) Write(p []byte) (int, error) {
 
 	if udp.pub == nil {
 		err := &NetworkError{
-			Subsystem:    "udp",
-			Op:       "write",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrUDPNotBound,
+			Subsystem: "udp",
+			Op:        "write",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrUDPNotBound,
 		}
 		udp.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return 0, err
@@ -145,15 +145,9 @@ func (udp *UDPMulticast) Write(p []byte) (int, error) {
 		return 0, err
 	}
 
-	n, err := udp.pub.Write(p)
-	if err != nil {
-		mode, systemic := udp.classifyNetError(err)
-		udp.monitor.RecordFailure(mode, err, systemic)
-		return n, err
-	}
-
-	udp.monitor.RecordSuccess()
-	return n, nil
+	return finishMonitoredRW(udp.monitor, udp.classifyNetError, func() (int, error) {
+		return udp.pub.Write(p)
+	})
 }
 
 /*
@@ -187,11 +181,11 @@ func (udp *UDPMulticast) Ready(ctx context.Context) error {
 
 	if udp.pub == nil && udp.sub == nil {
 		err := &NetworkError{
-			Subsystem:    "udp",
-			Op:       "ready",
-			Mode:     TransportFailureNotReady,
-			Systemic: true,
-			Err:      ErrUDPNotBound,
+			Subsystem: "udp",
+			Op:        "ready",
+			Mode:      TransportFailureNotReady,
+			Systemic:  true,
+			Err:       ErrUDPNotBound,
 		}
 		udp.monitor.RecordFailure(TransportFailureNotReady, err, true)
 		return err

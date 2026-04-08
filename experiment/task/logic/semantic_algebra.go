@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 type SemanticAlgebraExperiment struct {
@@ -114,59 +115,7 @@ func (experiment *SemanticAlgebraExperiment) Artifacts() []tools.Artifact {
 		exactRate = float64(exactMatches) / float64(n)
 	}
 
-	sampleLabels := make([]string, n)
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
-	heatData := make([][]any, 0, n*4)
-	weightedVals := make([]float64, n)
-	meanLine := make([]float64, n)
-
-	for sIdx, row := range experiment.tableData {
-		sampleLabels[sIdx] = fmt.Sprintf("S%d", sIdx+1)
-		for cIdx, v := range []float64{row.Scores.Exact, row.Scores.Partial, row.Scores.Fuzzy, row.WeightedTotal} {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-
-		weightedVals[sIdx] = row.WeightedTotal
-		meanLine[sIdx] = score
-	}
-
-	panels := []tools.Panel{
-		{
-			Kind:        "heatmap",
-			Title:       "Score Fingerprint",
-			GridLeft:    "5%",
-			GridRight:   "57%",
-			GridTop:     "14%",
-			GridBottom:  "18%",
-			XLabels:     scoreLabels,
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "43%",
-		},
-		{
-			Kind:       "chart",
-			Title:      "Weighted Score",
-			GridLeft:   "58%",
-			GridRight:  "4%",
-			GridTop:    "14%",
-			GridBottom: "18%",
-			XLabels:    sampleLabels,
-			XAxisName:  "Sample",
-			XShow:      true,
-			Series: []tools.PanelSeries{
-				{Name: "Score", Kind: "bar", BarWidth: "55%", Data: weightedVals},
-				{Name: fmt.Sprintf("Mean (%.2f)", score), Kind: "dashed", Symbol: "none", Color: "#f97316", Data: meanLine},
-			},
-			YMin: tools.Float64Ptr(0),
-			YMax: tools.Float64Ptr(1),
-		},
-	}
+	panels := trialmap.TwoScorePanels(experiment.tableData, score, trialmap.StandardTwoPanel(), nil)
 
 	section := tools.ExperimentSection{
 		Title: "Semantic Algebra --- GF(257) Fact Cancellation",

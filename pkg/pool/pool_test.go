@@ -70,7 +70,7 @@ func TestPoolWithFuncInvoke(t *testing.T) {
 }
 
 func BenchmarkPoolSubmit(b *testing.B) {
-	workerPool := NewPool(uint64(max(4, b.N/100+1)))
+	workerPool := NewPool(4)
 	var wait sync.WaitGroup
 
 	b.ResetTimer()

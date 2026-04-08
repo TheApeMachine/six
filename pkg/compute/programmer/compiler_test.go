@@ -63,7 +63,7 @@ func TestCompilerCompile(t *testing.T) {
 func TestCompilerCompileBatchAffinity(t *testing.T) {
 	t.Parallel()
 
-	Convey("Compile(CPU) with batch layout writes candidates from word 32", t, func() {
+	Convey("Compile(CPU) with batch layout writes candidates from word 48", t, func() {
 		raw, err := primitive.NewValue([]byte("affinity"))
 
 		So(err, ShouldBeNil)

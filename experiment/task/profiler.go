@@ -33,7 +33,14 @@ profiling rather than abort the run.
 */
 func NewProfiler(experiment tools.PipelineExperiment) (*Profiler, error) {
 	slug := tools.Slugify(experiment.Name())
-	dir := filepath.Join(PaperDir(experiment.Section()), "..", "..", "profiles")
+
+	base, pErr := PaperDir(experiment.Section())
+
+	if pErr != nil {
+		return nil, fmt.Errorf("profiler paper dir: %w", pErr)
+	}
+
+	dir := filepath.Join(base, "..", "..", "profiles")
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("profiler mkdir %s: %w", dir, err)

@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 /*
@@ -29,7 +30,6 @@ Dataset: proteinea/secondary_structure_prediction (HuggingFace)
 */
 type ProteinStructureExperiment struct {
 	tableData []tools.ExperimentalData
-	prose     []projector.ProseEntry
 	dataset   data.Provider
 	prompt    []string
 	holdouts  [][]byte
@@ -56,15 +56,6 @@ func NewProteinStructureExperiment() *ProteinStructureExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.40),
 		),
-	}
-
-	experiment.prose = []projector.ProseEntry{
-		{
-			Condition: func() bool {
-				return experiment.Score() > 0.3
-			},
-			Description: "The system demonstrates non-trivial secondary structure prediction from raw amino acid sequences.",
-		},
 	}
 
 	return experiment
@@ -219,93 +210,26 @@ func (experiment *ProteinStructureExperiment) Artifacts() []tools.Artifact {
 		)
 	}
 
-	// ── Trial Outcome Map panels ───────────────────────────────────
-	sampleLabels := make([]string, n)
-	for i := range sampleLabels {
-		sampleLabels[i] = fmt.Sprintf("S%d", i+1)
-	}
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
+	panels := trialmap.TwoScorePanels(experiment.tableData, score, trialmap.ProteinFingerprintBarOnly(), nil)
 
-	heatData := make([][]any, 0, n*4)
-	for sIdx, row := range experiment.tableData {
-		vals := []float64{row.Scores.Exact, row.Scores.Partial, row.Scores.Fuzzy, row.WeightedTotal}
-		for cIdx, v := range vals {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-	}
-
-	weightedPerSample := make([]float64, n)
-	meanLine := make([]float64, n)
-	for i, row := range experiment.tableData {
-		weightedPerSample[i] = row.WeightedTotal
-		meanLine[i] = score
-	}
-
-	panels := []tools.Panel{
-		// ── Panel A: score fingerprint ─────────────────────────────
-		{
-			Kind:        "heatmap",
-			Title:       "A: Score Fingerprint",
-			GridLeft:    "4%",
-			GridRight:   "72%",
-			GridTop:     "12%",
-			GridBottom:  "20%",
-			XLabels:     scoreLabels,
-			XAxisName:   "",
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "27%",
-		},
-		// ── Panel B: weighted score per sample ─────────────────────
-		{
-			Kind:       "chart",
-			Title:      "B: Weighted Score",
-			GridLeft:   "30%",
-			GridRight:  "52%",
-			GridTop:    "12%",
-			GridBottom: "20%",
-			XLabels:    sampleLabels,
-			XAxisName:  "Sample",
-			XShow:      true,
-			Series: []tools.PanelSeries{
-				{Name: "Weighted", Kind: "bar", BarWidth: "55%", Data: weightedPerSample},
-				{
-					Name:   fmt.Sprintf("Mean (%.2f)", score),
-					Kind:   "dashed",
-					Symbol: "none",
-					Color:  "#f97316",
-					Data:   meanLine,
-				},
-			},
-			YMin: tools.Float64Ptr(0),
-			YMax: tools.Float64Ptr(1),
-		},
-		// ── Panel C: per-position alignment strip ──────────────────
-		{
-			Kind:        "heatmap",
-			Title:       fmt.Sprintf("C: Alignment Strip — best sample (S%d, w=%.2f)", bestIdx+1, best.WeightedTotal),
-			GridLeft:    "52%",
-			GridRight:   "2%",
-			GridTop:     "12%",
-			GridBottom:  "20%",
-			XLabels:     posLabels,
-			XAxisName:   "Position",
-			XShow:       true,
-			YLabels:     rowLabels,
-			YAxisName:   "",
-			HeatData:    alignData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "plasma",
-			ShowVM:      false,
-		},
-	}
+	panels = append(panels, tools.Panel{
+		Kind:        "heatmap",
+		Title:       fmt.Sprintf("C: Alignment Strip — best sample (S%d, w=%.2f)", bestIdx+1, best.WeightedTotal),
+		GridLeft:    "52%",
+		GridRight:   "2%",
+		GridTop:     "12%",
+		GridBottom:  "20%",
+		XLabels:     posLabels,
+		XAxisName:   "Position",
+		XShow:       true,
+		YLabels:     rowLabels,
+		YAxisName:   "",
+		HeatData:    alignData,
+		HeatMin:     0,
+		HeatMax:     1,
+		ColorScheme: "plasma",
+		ShowVM:      false,
+	})
 
 	section := tools.ExperimentSection{
 		Title: "Protein Secondary Structure Prediction",

@@ -59,14 +59,10 @@ func (chart *ComboChart) Generate() error {
 		XAxisName     string
 		YAxisName     string
 	}{string(xData), string(sData), chart.yMin, chart.yMax, chart.xAxisName, chart.yAxisName})
-	html, err := renderChartHTML(chart.title, chartW, chartH, script)
-	if err != nil {
-		return err
-	}
-	if err := renderAndExport(html, chart.outDir, chart.filename, chartW, chartH); err != nil {
-		return err
-	}
-	return emitFigure(chart.filename, chart.caption, chart.label, chart.out)
+	return finalizeEChartsFigure(
+		chart.title, chartW, chartH, script,
+		chart.outDir, chart.filename, chart.caption, chart.label, chart.out,
+	)
 }
 
 func ComboChartWithAxes(xAxis []string, series []ComboSeries) comboChartOpts {

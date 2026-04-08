@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/experiment/trialmap"
 )
 
 // crossDomains defines the three domains tested in this experiment.
@@ -223,43 +224,12 @@ func (experiment *CrossDomainCompletionExperiment) Artifacts() []tools.Artifact 
 		sampleLabels[i] = fmt.Sprintf("%s.%d", shortDomain, localIdx+1)
 	}
 
-	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
-	heatData := make([][]any, 0, n*4)
-	for sIdx, row := range experiment.tableData {
-		vals := []float64{row.Scores.Exact, row.Scores.Partial, row.Scores.Fuzzy, row.WeightedTotal}
-		for cIdx, v := range vals {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
-		}
-	}
+	fingerprint := trialmap.TwoScorePanels(experiment.tableData, score, trialmap.StandardDenseTop(), sampleLabels)[0]
 
-	weightedPerSample := make([]float64, n)
-	meanLine := make([]float64, n)
-	for i, row := range experiment.tableData {
-		weightedPerSample[i] = row.WeightedTotal
-		meanLine[i] = score
-	}
+	fingerprint.Title = "A: Score Fingerprint (by sample)"
 
 	panels := []tools.Panel{
-		// ── Panel A: Score Fingerprint heatmap ────────────────────
-		{
-			Kind:        "heatmap",
-			Title:       "A: Score Fingerprint (by sample)",
-			GridLeft:    "5%",
-			GridRight:   "57%",
-			GridTop:     "12%",
-			GridBottom:  "18%",
-			XLabels:     scoreLabels,
-			XShow:       true,
-			YLabels:     sampleLabels,
-			YAxisName:   "Sample",
-			HeatData:    heatData,
-			HeatMin:     0,
-			HeatMax:     1,
-			ColorScheme: "viridis",
-			ShowVM:      true,
-			VMRight:     "43%",
-		},
-		// ── Panel B: Per-domain grouped bar chart ─────────────────
+		fingerprint,
 		{
 			Kind:       "chart",
 			Title:      "B: Mean Scores by Domain",

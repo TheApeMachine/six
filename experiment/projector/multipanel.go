@@ -87,14 +87,10 @@ func (mp *MultiPanel) Generate() error {
 		return err
 	}
 	script := execTemplate(multipanelScriptTmpl, struct{ PanelsJSON string }{string(panelsJSON)})
-	html, err := renderChartHTML(mp.title, mp.width, mp.height, script)
-	if err != nil {
-		return err
-	}
-	if err := renderAndExport(html, mp.outDir, mp.filename, mp.width, mp.height); err != nil {
-		return err
-	}
-	return emitFigure(mp.filename, mp.caption, mp.label, mp.out)
+	return finalizeEChartsFigure(
+		mp.title, mp.width, mp.height, script,
+		mp.outDir, mp.filename, mp.caption, mp.label, mp.out,
+	)
 }
 
 // ─── Option functions ───────────────────────────────────────────────────────

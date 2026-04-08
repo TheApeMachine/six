@@ -18,56 +18,90 @@ var paperDirMemoMu sync.RWMutex
 // PaperDir returns the output directory for paper artifacts.
 // If section is provided, it uses that subdirectory under paper/include/.
 // Defaults to "codegen" for backward compatibility.
-func PaperDir(section ...string) string {
+func PaperDir(section ...string) (string, error) {
 	sec := "codegen"
+
 	if len(section) > 0 && section[0] != "" {
 		sec = section[0]
 	}
 
 	paperDirMemoMu.RLock()
+
 	d, ok := paperDirMemo[sec]
+
 	paperDirMemoMu.RUnlock()
+
 	if ok {
-		return d
+		return d, nil
 	}
 
-	if d := os.Getenv("SIX_PAPER_DIR"); d != "" {
-		result := filepath.Join(d, sec)
+	if envRoot := os.Getenv("SIX_PAPER_DIR"); envRoot != "" {
+		result := filepath.Join(envRoot, sec)
+
 		paperDirMemoMu.Lock()
 		paperDirMemo[sec] = result
 		paperDirMemoMu.Unlock()
-		return result
+
+		return result, nil
 	}
 
 	wd, err := os.Getwd()
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: failed to get working directory: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("paper dir: get working directory: %w", err)
 	}
 
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
 			result := filepath.Join(dir, "paper", "include", sec)
+
 			paperDirMemoMu.Lock()
 			paperDirMemo[sec] = result
 			paperDirMemoMu.Unlock()
-			return result
+
+			return result, nil
 		}
+
 		if dir == filepath.Dir(dir) {
 			break
 		}
 	}
 
 	result := filepath.Join(wd, "paper", "include", sec)
+
 	paperDirMemoMu.Lock()
 	paperDirMemo[sec] = result
 	paperDirMemoMu.Unlock()
-	return result
+
+	return result, nil
 }
 
 func ensurePaperDir(section ...string) (string, error) {
-	dir := PaperDir(section...)
+	dir, err := PaperDir(section...)
+
+	if err != nil {
+		return "", err
+	}
+
 	return dir, os.MkdirAll(dir, 0755)
+}
+
+func withPaperTex(section []string, texBase string, write func(dir string, tex *os.File) error) error {
+	dir, err := ensurePaperDir(section...)
+
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(filepath.Join(dir, texBase+".tex"))
+
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	return write(dir, f)
 }
 
 func WriteTable(data any, outFile string, section ...string) error {
@@ -123,91 +157,39 @@ func WriteJSONFile(data any, outFile string, section ...string) error {
 }
 
 func WriteBarChart(xAxis []string, series []tools.BarSeries, title, caption, label, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-
-	return projector.WriteBarChart(xAxis, projectorBarSeries(series), title, caption, label, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteBarChart(xAxis, projectorBarSeries(series), title, caption, label, dir, filename, f)
+	})
 }
 
 func WriteLineChart(xAxis []string, series []tools.LineSeries, title, caption, label, filename string, yMin, yMax float64, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-
-	return projector.WriteLineChart(xAxis, projectorLineSeries(series), title, caption, label, dir, filename, yMin, yMax, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteLineChart(xAxis, projectorLineSeries(series), title, caption, label, dir, filename, yMin, yMax, f)
+	})
 }
 
 func WriteComboChart(xAxis []string, series []tools.ComboSeries, xName, yName string, yMin, yMax float64, title, caption, label, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return projector.WriteComboChart(xAxis, projectorComboSeries(series), xName, yName, yMin, yMax, title, caption, label, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteComboChart(xAxis, projectorComboSeries(series), xName, yName, yMin, yMax, title, caption, label, dir, filename, f)
+	})
 }
 
 func WriteHeatMap(xAxis, yAxis []string, data [][]any, minV, maxV float64, title, caption, label, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return projector.WriteHeatMap(xAxis, yAxis, data, minV, maxV, title, caption, label, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteHeatMap(xAxis, yAxis, data, minV, maxV, title, caption, label, dir, filename, f)
+	})
 }
 
 func WriteConfusionMatrix(labels []string, matrix [][]int, meanScore float64, title, caption, label, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return projector.WriteConfusionMatrix(labels, matrix, meanScore, title, caption, label, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteConfusionMatrix(labels, matrix, meanScore, title, caption, label, dir, filename, f)
+	})
 }
 
 func WriteMultiPanel(panels []tools.Panel, width, height int, title, caption, label, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return projector.WriteMultiPanel(projectorPanels(panels), width, height, title, caption, label, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteMultiPanel(projectorPanels(panels), width, height, title, caption, label, dir, filename, f)
+	})
 }
 
 func WriteProse(tmplSrc string, data any, outFile string, section ...string) error {
@@ -233,35 +215,15 @@ func WriteCodeAppendix(sections []projector.CodeSection, filename string, sectio
 }
 
 func WriteImageStrip(rows []tools.ImageStripRow, title, caption, label, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-
-	return projector.WriteImageStrip(projectorImageStripRows(rows), title, caption, label, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WriteImageStrip(projectorImageStripRows(rows), title, caption, label, dir, filename, f)
+	})
 }
 
 func WritePolarConstraint(data projector.PolarConstraintData, filename string, section ...string) error {
-	dir, err := ensurePaperDir(section...)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-
-	return projector.WritePolarConstraint(data, dir, filename, f)
+	return withPaperTex(section, filename, func(dir string, f *os.File) error {
+		return projector.WritePolarConstraint(data, dir, filename, f)
+	})
 }
 
 func projectorBarSeries(series []tools.BarSeries) []projector.BarSeries {

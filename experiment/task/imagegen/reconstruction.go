@@ -45,12 +45,11 @@ Artifacts:
   - Prose section with adaptive assessment.
 */
 type ReconstructionExperiment struct {
-	tableData  []tools.ExperimentalData
-	dataset    data.Provider
-	prompt     []string
-	holdouts   [][]byte
-	imageBytes [][]byte // raw NRGBA pixels per image, collected in Prompts()
-	evaluator  *tools.Evaluator
+	tableData []tools.ExperimentalData
+	dataset   data.Provider
+	prompt    []string
+	holdouts  [][]byte
+	evaluator *tools.Evaluator
 }
 
 func NewReconstructionExperiment() *ReconstructionExperiment {
@@ -77,45 +76,73 @@ func (e *ReconstructionExperiment) Section() string        { return "imagegen" }
 func (e *ReconstructionExperiment) Dataset() data.Provider { return e.dataset }
 
 /*
-Prompts pre-fetches all images from the dataset byte stream and builds one
-prompt per image × occlusion level (right-side holdout). Full frames are
-cached in e.imageBytes for Artifacts().
+Prompts streams the dataset once and builds one prompt per image × occlusion
+level (right-side holdout) without retaining full frames; Artifacts() reloads
+pixels only for figure export.
 */
 func (e *ReconstructionExperiment) Prompts() []string {
 	var raw []byte
+
 	for b := range e.dataset.Generate() {
 		raw = append(raw, b)
 	}
+
 	if len(raw) < cifarSize {
 		e.prompt = e.prompt[:0]
 		e.holdouts = nil
-		e.imageBytes = nil
+
 		return e.prompt
 	}
+
 	nImg := len(raw) / cifarSize
-	e.imageBytes = make([][]byte, 0, nImg)
-	for i := 0; i < nImg; i++ {
-		chunk := raw[i*cifarSize : (i+1)*cifarSize]
-		e.imageBytes = append(e.imageBytes, slices.Clone(chunk))
-	}
+
 	e.prompt = e.prompt[:0]
 	e.holdouts = e.holdouts[:0]
+
 	for i := 0; i < nImg; i++ {
-		img := e.imageBytes[i]
+		img := raw[i*cifarSize : (i+1)*cifarSize]
+
 		for _, pct := range holdoutPercents {
 			holdLen := len(img) * pct / 100
+
 			if holdLen < 1 {
 				holdLen = 1
 			}
+
 			if holdLen >= len(img) {
 				holdLen = len(img) - 1
 			}
+
 			prefixLen := len(img) - holdLen
+
 			e.prompt = append(e.prompt, string(img[:prefixLen]))
 			e.holdouts = append(e.holdouts, slices.Clone(img[prefixLen:]))
 		}
 	}
+
 	return e.prompt
+}
+
+func (e *ReconstructionExperiment) cifarImagesForArtifacts() [][]byte {
+	var raw []byte
+
+	for b := range e.dataset.Generate() {
+		raw = append(raw, b)
+	}
+
+	if len(raw) < cifarSize {
+		return nil
+	}
+
+	nImg := len(raw) / cifarSize
+	out := make([][]byte, 0, nImg)
+
+	for idx := 0; idx < nImg; idx++ {
+		chunk := raw[idx*cifarSize : (idx+1)*cifarSize]
+		out = append(out, slices.Clone(chunk))
+	}
+
+	return out
 }
 
 func (e *ReconstructionExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
@@ -201,10 +228,12 @@ func (e *ReconstructionExperiment) Artifacts() []tools.Artifact {
 		}
 	}
 
-	nImages := len(e.imageBytes)
+	imageBytes := e.cifarImagesForArtifacts()
+
+	nImages := len(imageBytes)
 	stripRows := make([]tools.ImageStripRow, 0, nImages)
 
-	for imgIdx, px := range e.imageBytes {
+	for imgIdx, px := range imageBytes {
 		sampleIdx := imgIdx*len(holdoutPercents) + stripPctIdx
 
 		// Find the matching result row.

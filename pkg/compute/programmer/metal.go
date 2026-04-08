@@ -3,7 +3,6 @@ package programmer
 import (
 	"math/bits"
 
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -46,38 +45,7 @@ The kernel becomes:
 func (compiler *Compiler) Metal(
 	value *primitive.Value, intent Intent, useBatchAffinity bool,
 ) {
-	opcode := intent.Operation
-
-	value.Set(
-		core.Cfg.Value.Region.Program.Start,
-		uint64(opcode),
-	)
-
-	if useBatchAffinity {
-		applyBatchAffinityLayout(value, intent.Assets)
-
-		return
-	}
-
-	passes := len(intent.Assets)
-
-	if passes == 0 {
-		passes = 1
-	}
-
-	/*
-		Truth-table passes for unified_bitwise — not candidate count
-		at 124 (that slot is only for opcode 0x6 batch distance).
-	*/
-	value.Set(124, uint64(passes))
-
-	cursor := 32
-
-	for _, asset := range intent.Assets {
-		cursor = compiler.expandRotationsTransposed(
-			value, asset, cursor,
-		)
-	}
+	compiler.emitTransposedGPUProgramLayout(value, intent, useBatchAffinity)
 }
 
 /*

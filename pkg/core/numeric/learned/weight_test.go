@@ -18,35 +18,41 @@ func TestWeightNext(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a Weight", t, func() {
-		Convey("when fewer than two values are passed, It should return stored value without changing", func() {
-			weight := NewWeight()
-			val, err := weight.Next(0, 0.5)
-
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 0)
-		})
-
-		Convey("when predictions match observations, It should stay in [0,1]", func() {
-			weight := NewWeight()
-
-			for range 20 {
-				_, err := weight.Next(0, 1, 1, 1)
+		Convey("when fewer than two values are passed", func() {
+			Convey("It should return stored value without changing", func() {
+				weight := NewWeight()
+				val, err := weight.Next(0, 0.5)
 
 				So(err, ShouldBeNil)
-			}
-
-			val, err := weight.Next(0, 3, 1, 1)
-
-			So(err, ShouldBeNil)
-			So(val, ShouldBeGreaterThanOrEqualTo, 0)
-			So(val, ShouldBeLessThanOrEqualTo, 1)
+				So(val, ShouldEqual, 0)
+			})
 		})
 
-		Convey("when receiver is nil, It should error", func() {
-			var weight *Weight
-			_, err := weight.Next(0, 0, 1, 1)
+		Convey("when predictions match observations", func() {
+			Convey("It should stay in [0,1]", func() {
+				weight := NewWeight()
 
-			So(err, ShouldNotBeNil)
+				for range 20 {
+					_, err := weight.Next(0, 1, 1, 1)
+
+					So(err, ShouldBeNil)
+				}
+
+				val, err := weight.Next(0, 3, 1, 1)
+
+				So(err, ShouldBeNil)
+				So(val, ShouldBeGreaterThanOrEqualTo, 0)
+				So(val, ShouldBeLessThanOrEqualTo, 1)
+			})
+		})
+
+		Convey("when receiver is nil", func() {
+			Convey("It should error", func() {
+				var weight *Weight
+				_, err := weight.Next(0, 0, 1, 1)
+
+				So(err, ShouldNotBeNil)
+			})
 		})
 	})
 }

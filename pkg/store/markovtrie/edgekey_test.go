@@ -21,7 +21,6 @@ func setupMarkovTrieValueConfig(tb testing.TB) {
 }
 
 func TestTrieEdgeKey(t *testing.T) {
-	t.Parallel()
 	setupMarkovTrieValueConfig(t)
 
 	Convey("trieEdgeKey matches String for token payload", t, func() {

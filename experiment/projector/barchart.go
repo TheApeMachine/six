@@ -48,10 +48,13 @@ func (chart *BarChart) RenderHTML(w io.Writer) error {
 		SeriesJSON    string
 	}{string(xData), string(sData)})
 	html, err := renderChartHTML(chart.title, chartW, chartH, script)
+
 	if err != nil {
 		return err
 	}
+
 	_, err = w.Write([]byte(html))
+
 	return err
 }
 
@@ -66,14 +69,11 @@ func (chart *BarChart) GenerateToDisk() error {
 		XAxisDataJSON string
 		SeriesJSON    string
 	}{string(xData), string(sData)})
-	html, err := renderChartHTML(chart.title, chartW, chartH, script)
-	if err != nil {
-		return err
-	}
-	if err := renderAndExport(html, chart.outDir, chart.filename, chartW, chartH); err != nil {
-		return err
-	}
-	return chart.RenderLaTeX(chart.out)
+
+	return finalizeEChartsFigure(
+		chart.title, chartW, chartH, script,
+		chart.outDir, chart.filename, chart.caption, chart.label, chart.out,
+	)
 }
 
 func BarChartWithAxes(xAxis []string, series []BarSeries) barChartOpts {
