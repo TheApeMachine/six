@@ -6,6 +6,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -122,6 +123,21 @@ func TestStoreLoad(t *testing.T) {
 		So(store.Load(*tok, "lbl"), ShouldBeNil)
 
 		So(store.lastLeaf.Load(), ShouldBeNil)
+	})
+
+	Convey("Load updates the trie-local phase vector", t, func() {
+		store, err := NewStore(context.Background(), primitive.Affinity{})
+
+		So(err, ShouldBeNil)
+
+		tokenValue, valueErr := primitive.NewValue([]byte("phase-tok"))
+
+		So(valueErr, ShouldBeNil)
+
+		defer tokenValue.Close()
+
+		So(store.Load(*tokenValue), ShouldBeNil)
+		So(store.LocalPhase().Dominant().Amplitude, ShouldBeGreaterThan, 0)
 	})
 }
 
@@ -271,7 +287,7 @@ func TestStoreApplyFieldPressure(t *testing.T) {
 	Convey("ApplyFieldPressure on nil store is a no-op", t, func() {
 		var store *Store
 
-		So(store.ApplyFieldPressure(1, 1, 1), ShouldBeNil)
+		So(store.ApplyFieldPressure(1, 1, 1, 0, 0), ShouldBeNil)
 	})
 
 	Convey("ApplyFieldPressure runs stack on live store", t, func() {
@@ -279,7 +295,23 @@ func TestStoreApplyFieldPressure(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		So(store.ApplyFieldPressure(0.1, 0.2, 0.9), ShouldBeNil)
+		beforePhase := store.LocalPhase()
+
+		So(store.ApplyFieldPressure(0.1, 0.2, 0.9, 32, 1), ShouldBeNil)
+		So(store.LocalPhase(), ShouldNotResemble, beforePhase)
+	})
+}
+
+func TestStoreLocalPhase(t *testing.T) {
+	setupMarkovTrieValueConfig(t)
+
+	t.Parallel()
+
+	Convey("LocalPhase on a fresh store is zeroed", t, func() {
+		store, err := NewStore(context.Background(), primitive.Affinity{})
+
+		So(err, ShouldBeNil)
+		So(store.LocalPhase(), ShouldResemble, gf.Vector257{})
 	})
 }
 

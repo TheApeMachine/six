@@ -2,6 +2,7 @@ package kadabra
 
 import (
 	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -13,6 +14,7 @@ uses these to detect eigenmodes and project attention pressure.
 type Digest struct {
 	Origin          uint64
 	Affinity        [primitive.AffinityWords]uint64
+	NodePhase       gf.Vector8191
 	SurprisalMean   float64
 	SurprisalGrowth float64
 	SurprisalPrev   float64

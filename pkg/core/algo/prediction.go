@@ -31,6 +31,8 @@ const (
 	FieldSurprisal
 	FieldGrowth
 	FieldDecayMul
+	GlobalPhase
+	PhaseConcentration
 	BreakBeam
 )
 

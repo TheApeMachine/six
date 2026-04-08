@@ -14,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/algo/episodic"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -70,6 +71,8 @@ type Online struct {
 	*/
 	plasticity *numeric.Derived
 	lastRate   float64
+	phaseIndex int
+	phaseGain  float64
 }
 
 /*
@@ -104,6 +107,7 @@ func NewOnline() *Online {
 		growthRate:              growthRate,
 		plasticity:              plasticity,
 		lastRate:                1.0,
+		phaseIndex:              -1,
 	}
 }
 
@@ -155,6 +159,8 @@ func (online *Online) Update(
 			online.lastRate = math.Min(1.0, plasticityValue/smoothedSurprisal)
 		}
 	}
+
+	online.applyPhaseGate(prediction)
 
 	for _, value := range prediction.Context {
 		online.stepUnlocked(label, online.lastRate, value)
@@ -214,6 +220,48 @@ func (online *Online) applyFieldPressure(prediction *algo.Prediction) {
 
 		online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*pressureMul))
 	}
+
+	if globalPhase, ok := prediction.Signals[algo.GlobalPhase]; ok {
+		phaseIndex := int(math.Round(globalPhase.Value()))
+
+		if phaseIndex < 0 {
+			online.phaseIndex = -1
+		} else {
+			online.phaseIndex = phaseIndex % gf.PhaseWidth
+		}
+	}
+
+	if phaseConcentration, ok := prediction.Signals[algo.PhaseConcentration]; ok {
+		online.phaseGain = math.Max(0, phaseConcentration.Value())
+	}
+}
+
+func (online *Online) applyPhaseGate(prediction *algo.Prediction) {
+	if online.phaseIndex < 0 || online.phaseGain <= 0 || prediction == nil {
+		return
+	}
+
+	alignment := online.contextPhaseAlignment(prediction)
+	gate := math.Exp(-4 * online.phaseGain * (1 - alignment))
+
+	online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*gate))
+}
+
+func (online *Online) contextPhaseAlignment(prediction *algo.Prediction) float64 {
+	if prediction == nil || len(prediction.Context) == 0 {
+		return 1
+	}
+
+	contextPhase := gf.NewVector257()
+
+	for _, value := range prediction.Context {
+		contextPhase.ObserveBytes(value.TokenRegionBytes())
+	}
+
+	return gf.Alignment(
+		contextPhase.Dominant().Index,
+		online.phaseIndex,
+	)
 }
 
 /*

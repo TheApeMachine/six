@@ -210,10 +210,14 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		))
 	}
 
-	_, _ = node.Field.Project(pv)
+	fieldProjection, _ := node.Field.Project(pv)
 
 	observation := algo.NewPrediction()
 	observation.AddContext(*pv)
+
+	if fieldProjection != nil {
+		observation.Merge(fieldProjection)
+	}
 
 	tries := node.triesSnapshot()
 	selected := node.selectTriesForPredict(pv, tries, predictTrieFanout)

@@ -5,6 +5,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -57,6 +59,35 @@ func TestSearchValue(t *testing.T) {
 		search := NewSearch()
 
 		So(search.Value().Signals[algo.Quality], ShouldNotBeNil)
+	})
+}
+
+func TestSearchPhaseBias(t *testing.T) {
+	t.Parallel()
+
+	Convey("Global phase bias boosts aligned continuations", t, func() {
+		search := NewSearch()
+		alignedPhase := gf.DominantForBytes([]byte("alpha"))
+		phaseSignal := algo.NewPrediction()
+		phaseSignal.Signals[algo.GlobalPhase] = numeric.NewDerivedFrom(float64(alignedPhase.Index))
+		phaseSignal.Signals[algo.PhaseConcentration] = numeric.NewDerivedFrom(1)
+
+		_, err := search.Update(phaseSignal)
+
+		So(err, ShouldBeNil)
+
+		prediction := algo.NewPrediction()
+		prediction.Continuations = append(
+			prediction.Continuations,
+			algo.Continuation{Sequence: []byte("alpha"), Score: 0},
+			algo.Continuation{Sequence: []byte("omega"), Score: 0},
+		)
+
+		ranked := search.rankFromContinuations(prediction)
+
+		So(ranked, ShouldHaveLength, 2)
+		So(ranked[0].Token, ShouldEqual, "alpha")
+		So(ranked[0].Probability, ShouldBeGreaterThan, ranked[1].Probability)
 	})
 }
 

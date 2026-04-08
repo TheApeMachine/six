@@ -7,10 +7,12 @@ import (
 	"slices"
 	"sync/atomic"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/viz"
 )
@@ -48,22 +50,26 @@ Alignment multipliers emerge from the ratio of dominant mode energy
 to total energy.
 */
 type Field struct {
-	digests    atomic.Pointer[digestMap]
-	projection atomic.Pointer[modesProjection]
-	owner      *Node
-	phase      *geometry.Phase
+	digests     atomic.Pointer[digestMap]
+	projection  atomic.Pointer[modesProjection]
+	nodePhase   atomic.Pointer[gf.Vector8191]
+	globalPhase atomic.Pointer[gf.Vector65537]
+	owner       *Node
+	phase       *geometry.Phase
 
 	couplingThreshold  *numeric.Derived
 	pressureDecayClamp *numeric.Derived
 	pressureLearnClamp *numeric.Derived
 	alignmentRatio     *numeric.Derived
+	dominantPhaseIndex atomic.Uint32
+	dominantPhaseGain  atomic.Uint64
 }
 
 /*
 NewField constructs a new Field for the given node.
 */
 func NewField(owner *Node) *Field {
-	return &Field{
+	field := &Field{
 		owner: owner,
 		phase: geometry.NewPhase(),
 
@@ -86,6 +92,12 @@ func NewField(owner *Node) *Field {
 			),
 		),
 	}
+
+	field.nodePhase.Store(gf.NewVector8191())
+	field.globalPhase.Store(gf.NewVector65537())
+	field.dominantPhaseIndex.Store(0)
+
+	return field
 }
 
 /*
@@ -201,6 +213,70 @@ func (field *Field) DominantModeEnergy() float64 {
 }
 
 /*
+NodePhase returns the latest node-scale GF(8191) projection.
+*/
+func (field *Field) NodePhase() gf.Vector8191 {
+	if field == nil {
+		return gf.Vector8191{}
+	}
+
+	nodePhase := field.nodePhase.Load()
+
+	if nodePhase == nil {
+		return gf.Vector8191{}
+	}
+
+	return *nodePhase
+}
+
+/*
+GlobalPhase returns the latest mesh-scale GF(65537) projection.
+*/
+func (field *Field) GlobalPhase() gf.Vector65537 {
+	if field == nil {
+		return gf.Vector65537{}
+	}
+
+	globalPhase := field.globalPhase.Load()
+
+	if globalPhase == nil {
+		return gf.Vector65537{}
+	}
+
+	return *globalPhase
+}
+
+/*
+DominantPhaseIndex returns the strongest global phase lane, or -1 if
+the field has not settled into a phase.
+*/
+func (field *Field) DominantPhaseIndex() int {
+	if field == nil {
+		return -1
+	}
+
+	encoded := field.dominantPhaseIndex.Load()
+
+	if encoded == 0 {
+		return -1
+	}
+
+	return int(encoded) - 1
+}
+
+/*
+DominantPhaseStrength returns the concentration of the strongest
+global phase lane.
+*/
+func (field *Field) DominantPhaseStrength() float64 {
+	if field == nil {
+		return 0
+	}
+
+	return math.Float64frombits(field.dominantPhaseGain.Load())
+}
+
+/*
 Absorb integrates a received digest, recomputes eigenmodes,
 and projects field pressure onto the owning node's tries.
 */
@@ -271,13 +347,28 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		return nil, nil
 	}
 
+	localNodePhase := field.refreshNodePhase()
+	digestSnap := field.localDigestSnapshot(localNodePhase)
 	dm := field.digests.Load()
 
-	if dm == nil || dm.m == nil || len(dm.m) < 2 {
+	if dm != nil && dm.m != nil {
+		for origin, digest := range dm.m {
+			digestSnap[origin] = digest
+		}
+	}
+
+	if len(digestSnap) < 2 {
 		return nil, nil
 	}
 
-	digestSnap := maps.Clone(dm.m)
+	globalPhase := field.refreshGlobalPhase(localNodePhase, digestSnap)
+	globalMode := geometry.DetectPhaseMode65537(*globalPhase)
+	projection := algo.NewPrediction()
+
+	if globalMode.Index >= 0 {
+		projection.Signals[algo.GlobalPhase] = numeric.NewDerivedFrom(float64(globalMode.Index))
+		projection.Signals[algo.PhaseConcentration] = numeric.NewDerivedFrom(globalMode.Concentration)
+	}
 
 	participants := make([]geometry.ModeParticipant, 0, len(digestSnap))
 	var totalEnergy float64
@@ -463,10 +554,33 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 			learnMul = inv
 		}
 
+		localMode := geometry.DetectPhaseMode257(cluster.LocalPhase())
+		phaseAlignment := geometry.PhaseAlignment(localMode, globalMode)
+		phaseGain := math.Max(globalMode.Concentration, minAlignmentRatio)
+
+		if globalMode.Index >= 0 {
+			constructiveBoost := 1 + (phaseGain * phaseAlignment)
+			destructiveBoost := 1 + (phaseGain * math.Max(1-phaseAlignment, minAlignmentRatio))
+
+			if aligned {
+				learnMul *= constructiveBoost
+				decayMul /= constructiveBoost
+			} else {
+				decayMul *= destructiveBoost
+				learnMul *= math.Max(phaseAlignment, minAlignmentRatio)
+			}
+		}
+
 		decay := clamp(rawDecay*decayMul, clampLimitDecay)
 		learn := clamp(rawLearn*learnMul, clampLimitLearn)
 
-		if err := cluster.ApplyFieldPressure(decay, learn, decay); err != nil {
+		if err := cluster.ApplyFieldPressure(
+			decay,
+			learn,
+			decay,
+			float64(globalMode.Index),
+			globalMode.Concentration,
+		); err != nil {
 			pressureErr = errors.Join(pressureErr, err)
 		}
 
@@ -479,7 +593,7 @@ func (field *Field) Project(values ...Routable) (*algo.Prediction, error) {
 		))
 	}
 
-	return nil, pressureErr
+	return projection, pressureErr
 }
 
 func clamp(val, limit float64) float64 {
@@ -492,4 +606,113 @@ func clamp(val, limit float64) float64 {
 	}
 
 	return val
+}
+
+func (field *Field) refreshNodePhase() *gf.Vector8191 {
+	nodePhase := gf.NewVector8191()
+
+	if field == nil || field.owner == nil {
+		return nodePhase
+	}
+
+	tries := field.owner.triesSnapshot()
+	trieLimit := len(tries)
+
+	if core.Cfg.Kadabra.MaxMeshPeers > 0 {
+		trieLimit = min(trieLimit, core.Cfg.Kadabra.MaxMeshPeers)
+	}
+
+	for trieIdx := range trieLimit {
+		cluster := tries[trieIdx]
+
+		if cluster == nil {
+			continue
+		}
+
+		localPhase := cluster.LocalPhase()
+		nodePhase.AccumulateProjected257(&localPhase, trieIdx)
+	}
+
+	field.nodePhase.Store(nodePhase)
+
+	return nodePhase
+}
+
+func (field *Field) refreshGlobalPhase(
+	localNodePhase *gf.Vector8191,
+	digestSnap map[uint64]Digest,
+) *gf.Vector65537 {
+	globalPhase := gf.NewVector65537()
+	slotIndex := 0
+
+	if localNodePhase != nil {
+		globalPhase.AccumulateProjected8191(localNodePhase, slotIndex)
+		slotIndex++
+	}
+
+	for _, digest := range digestSnap {
+		globalPhase.AccumulateProjected8191(&digest.NodePhase, slotIndex)
+		slotIndex++
+	}
+
+	field.globalPhase.Store(globalPhase)
+	field.setDominantPhase(geometry.DetectPhaseMode65537(*globalPhase))
+
+	return globalPhase
+}
+
+func (field *Field) setDominantPhase(globalMode geometry.PhaseMode) {
+	if globalMode.Index < 0 {
+		field.dominantPhaseIndex.Store(0)
+		field.dominantPhaseGain.Store(0)
+
+		return
+	}
+
+	field.dominantPhaseIndex.Store(uint32(globalMode.Index + 1))
+	field.dominantPhaseGain.Store(math.Float64bits(globalMode.Concentration))
+}
+
+func (field *Field) localDigestSnapshot(localNodePhase *gf.Vector8191) map[uint64]Digest {
+	digestSnap := make(map[uint64]Digest)
+
+	if field == nil || field.owner == nil {
+		return digestSnap
+	}
+
+	tries := field.owner.triesSnapshot()
+	epoch := atomic.LoadUint64(&field.owner.epoch)
+
+	for trieIdx := range tries {
+		cluster := tries[trieIdx]
+
+		if cluster == nil {
+			continue
+		}
+
+		origin := (field.owner.ID << 32) | uint64(uint32(trieIdx+1))
+		surprisalMean := cluster.Signal(algo.Surprisal)
+		classEntropy := cluster.Signal(algo.Entropy)
+		growthRate := cluster.Signal(algo.GrowthRate)
+
+		var prevSurprisal float64
+
+		if previous, ok := field.digestLookup(origin); ok {
+			prevSurprisal = previous.SurprisalMean
+		}
+
+		digestSnap[origin] = Digest{
+			Origin:          origin,
+			Affinity:        cluster.Affinity.Vector(),
+			NodePhase:       *localNodePhase,
+			SurprisalMean:   surprisalMean,
+			SurprisalGrowth: surprisalMean - prevSurprisal,
+			SurprisalPrev:   prevSurprisal,
+			ClassEntropy:    classEntropy,
+			GrowthRate:      growthRate,
+			Epoch:           epoch,
+		}
+	}
+
+	return digestSnap
 }
