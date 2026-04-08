@@ -282,11 +282,21 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 		}
 
 		stat := base[linkKey]
+		firstObservation := stat.Count == 0
+
 		stat.RewardSum += reinforcement
 		stat.Count++
-		stat.SensoryID = sensoryID
-		stat.ActionID = actionID
-		stat.RewardID = rewardID
+
+		/*
+			Keep the first-seen terminal IDs so causalPathWeight reflects the
+			initial coactivation pairings; later updates only accumulate reward mass.
+		*/
+		if firstObservation {
+			stat.SensoryID = sensoryID
+			stat.ActionID = actionID
+			stat.RewardID = rewardID
+		}
+
 		base[linkKey] = stat
 
 		next := &coactivationMap{m: base}

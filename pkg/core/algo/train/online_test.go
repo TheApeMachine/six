@@ -1,6 +1,7 @@
 package train
 
 import (
+	"math"
 	"sync"
 	"testing"
 
@@ -138,6 +139,64 @@ func TestOnlineLearningRate(t *testing.T) {
 		online := NewOnline()
 
 		So(online.LearningRate(), ShouldEqual, 1.0)
+	})
+}
+
+func TestOnlinePhaseAttenuationFactor(t *testing.T) {
+	t.Parallel()
+
+	Convey("NewOnline sets phase attenuation default", t, func() {
+		online := NewOnline()
+
+		So(online.PhaseAttenuationFactor, ShouldEqual, defaultPhaseAttenuationFactor)
+	})
+
+	Convey("Non-positive PhaseAttenuationFactor uses default in applyPhaseGate", t, func() {
+		var stub primitive.Value
+
+		prediction := algo.NewPrediction()
+		prediction.Context = append(prediction.Context, stub)
+
+		explicit := NewOnline()
+		explicit.phaseIndex = 0
+		explicit.phaseGain = 1
+		explicit.lastRate = 1
+		explicit.PhaseAttenuationFactor = defaultPhaseAttenuationFactor
+		explicit.applyPhaseGate(prediction)
+
+		fallback := NewOnline()
+		fallback.phaseIndex = 0
+		fallback.phaseGain = 1
+		fallback.lastRate = 1
+		fallback.PhaseAttenuationFactor = -1
+		fallback.applyPhaseGate(prediction)
+
+		So(fallback.lastRate, ShouldAlmostEqual, explicit.lastRate, 1e-12)
+	})
+
+	Convey("Larger PhaseAttenuationFactor attenuates more for misaligned context", t, func() {
+		var stub primitive.Value
+
+		prediction := algo.NewPrediction()
+		prediction.Context = append(prediction.Context, stub)
+
+		gentle := NewOnline()
+		gentle.phaseIndex = 0
+		gentle.phaseGain = 1
+		gentle.lastRate = 1
+		gentle.PhaseAttenuationFactor = 1
+		gentle.applyPhaseGate(prediction)
+
+		harsh := NewOnline()
+		harsh.phaseIndex = 0
+		harsh.phaseGain = 1
+		harsh.lastRate = 1
+		harsh.PhaseAttenuationFactor = 4
+		harsh.applyPhaseGate(prediction)
+
+		So(gentle.lastRate, ShouldEqual, math.Exp(-1))
+		So(harsh.lastRate, ShouldEqual, math.Exp(-4))
+		So(gentle.lastRate, ShouldBeGreaterThan, harsh.lastRate)
 	})
 }
 

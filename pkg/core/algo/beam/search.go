@@ -306,7 +306,7 @@ func (search *Search) rankFromContinuations(
 
 	for _, cont := range prediction.Continuations {
 		prob := math.Exp(cont.Score - maxScore)
-prob = search.phaseWeightedProbability(cont.Sequence, prob)
+		prob = search.phaseWeightedProbability(cont.Sequence, prob)
 
 		ranked = append(ranked, RankedToken{
 			Token:       string(cont.Sequence),
@@ -351,7 +351,7 @@ func (search *Search) rankFromContext(
 
 	for token, count := range freq {
 		probability := count / total
-probability = search.phaseWeightedProbability([]byte(token), probability)
+		probability = search.phaseWeightedProbability([]byte(token), probability)
 
 		ranked = append(ranked, RankedToken{
 			Token:       token,
@@ -401,12 +401,12 @@ func (search *Search) capturePhaseSignals(prediction *algo.Prediction) {
 	}
 
 	if globalPhase, ok := prediction.Signals[algo.GlobalPhase]; ok && globalPhase != nil {
-		phaseIndex := int(math.Round(globalPhase.Value()))
+		lane, active := algo.ParseGlobalPhaseIndex(globalPhase.Value())
 
-		if phaseIndex < 0 {
+		if !active || lane < 0 {
 			search.phaseIndex.Store(0)
 		} else {
-			search.phaseIndex.Store(uint32((phaseIndex % gf.PhaseWidth) + 1))
+			search.phaseIndex.Store(uint32(lane + 1))
 		}
 	}
 
@@ -442,6 +442,39 @@ func (search *Search) phaseWeightedProbability(sequence []byte, probability floa
 	candidatePhase := gf.DominantForBytes(sequence)
 	alignment := gf.Alignment(candidatePhase.Index, phaseIndex)
 	bias := gf.InterferenceMultiplier(alignment, phaseGain)
+	bias = clampPhaseInterferenceBias(bias)
 
-	return probability * bias
+	product := probability * bias
+
+	if math.IsNaN(product) || math.IsInf(product, 0) {
+		return probability
+	}
+
+	return product
+}
+
+/*
+clampPhaseInterferenceBias keeps finite multipliers in a range where
+probability*bias cannot wash out to Inf/NaN or flush to 0 from extremes.
+Non-finite bias falls back to neutral 1.
+*/
+func clampPhaseInterferenceBias(bias float64) float64 {
+	const (
+		biasMin = 1e-300
+		biasMax = 1e300
+	)
+
+	if math.IsNaN(bias) || math.IsInf(bias, 0) {
+		return 1
+	}
+
+	if bias < biasMin {
+		return biasMin
+	}
+
+	if bias > biasMax {
+		return biasMax
+	}
+
+	return bias
 }

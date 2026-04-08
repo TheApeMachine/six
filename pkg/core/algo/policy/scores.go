@@ -69,11 +69,15 @@ func (scores ActionScores) SortDescending() {
 /*
 Prediction projects ActionScores into the shared algo.Prediction envelope so
 control output can compose upward through the same continuation channel as beam.
+Continuations appear in descending Score order (highest first).
 */
 func (scores ActionScores) Prediction() *algo.Prediction {
 	prediction := algo.NewPrediction()
 
-	for _, score := range scores {
+	sorted := append(ActionScores(nil), scores...)
+	sorted.SortDescending()
+
+	for _, score := range sorted {
 		prediction.Continuations = append(prediction.Continuations, algo.Continuation{
 			Sequence: []byte(score.Action),
 			Score:    score.Score,

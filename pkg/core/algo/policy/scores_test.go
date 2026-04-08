@@ -12,16 +12,22 @@ func TestNewActionScores(t *testing.T) {
 	Convey("NewActionScores lifts score and support maps", t, func() {
 		scores := NewActionScores(
 			map[string]float64{
+				"":      99,
 				"left":  2,
 				"right": 1,
 			},
 			map[string]float64{
+				"":      100,
 				"left":  3,
 				"right": 1,
 			},
 		)
 
 		So(len(scores), ShouldEqual, 2)
+
+		for _, row := range scores {
+			So(row.Action, ShouldNotEqual, "")
+		}
 	})
 }
 
@@ -55,6 +61,21 @@ func TestActionScoresPrediction(t *testing.T) {
 		So(prediction, ShouldNotBeNil)
 		So(len(prediction.Continuations), ShouldEqual, 2)
 		So(string(prediction.Continuations[0].Sequence), ShouldEqual, "left")
+	})
+
+	Convey("Prediction sorts a copy so caller order does not matter", t, func() {
+		source := ActionScores{
+			{Action: "low", Score: 1},
+			{Action: "high", Score: 9},
+		}
+
+		prediction := source.Prediction()
+
+		So(prediction, ShouldNotBeNil)
+		So(len(prediction.Continuations), ShouldEqual, 2)
+		So(string(prediction.Continuations[0].Sequence), ShouldEqual, "high")
+		So(string(prediction.Continuations[1].Sequence), ShouldEqual, "low")
+		So(source[0].Action, ShouldEqual, "low")
 	})
 }
 

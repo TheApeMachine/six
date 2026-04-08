@@ -19,6 +19,13 @@ import (
 )
 
 /*
+defaultPhaseAttenuationFactor scales phase misalignment in applyPhaseGate when
+PhaseAttenuationFactor is unset or non-positive. At default 4 with phaseGain=1
+and alignment=0, gate≈e^-4≈0.018.
+*/
+const defaultPhaseAttenuationFactor = 4
+
+/*
 Online manages label tracking, class totals, and decay for
 one training step. It owns the canonical label set, step
 counter, and all derived signals that emerge from training
@@ -73,6 +80,15 @@ type Online struct {
 	lastRate   float64
 	phaseIndex int
 	phaseGain  float64
+
+	/*
+		PhaseAttenuationFactor multiplies (1 - alignment) inside applyPhaseGate:
+		gate = exp(-PhaseAttenuationFactor * phaseGain * (1 - alignment)).
+		Larger values attenuate misaligned steps more aggressively. NewOnline
+		sets this to defaultPhaseAttenuationFactor; values <= 0 fall back to
+		that default when computing the gate.
+	*/
+	PhaseAttenuationFactor float64
 }
 
 /*
@@ -108,6 +124,7 @@ func NewOnline() *Online {
 		plasticity:              plasticity,
 		lastRate:                1.0,
 		phaseIndex:              -1,
+		PhaseAttenuationFactor:  defaultPhaseAttenuationFactor,
 	}
 }
 
@@ -221,13 +238,15 @@ func (online *Online) applyFieldPressure(prediction *algo.Prediction) {
 		online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*pressureMul))
 	}
 
-	if globalPhase, ok := prediction.Signals[algo.GlobalPhase]; ok {
-		phaseIndex := int(math.Round(globalPhase.Value()))
+	if globalPhase, ok := prediction.Signals[algo.GlobalPhase]; ok && globalPhase != nil {
+		lane, active := algo.ParseGlobalPhaseIndex(globalPhase.Value())
 
-		if phaseIndex < 0 {
+		if !active {
+			online.phaseIndex = 0
+		} else if lane < 0 {
 			online.phaseIndex = -1
 		} else {
-			online.phaseIndex = phaseIndex % gf.PhaseWidth
+			online.phaseIndex = lane
 		}
 	}
 
@@ -242,7 +261,14 @@ func (online *Online) applyPhaseGate(prediction *algo.Prediction) {
 	}
 
 	alignment := online.contextPhaseAlignment(prediction)
-	gate := math.Exp(-4 * online.phaseGain * (1 - alignment))
+
+	factor := online.PhaseAttenuationFactor
+
+	if factor <= 0 {
+		factor = defaultPhaseAttenuationFactor
+	}
+
+	gate := math.Exp(-factor * online.phaseGain * (1 - alignment))
 
 	online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*gate))
 }

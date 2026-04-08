@@ -210,7 +210,16 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		))
 	}
 
-	fieldProjection, _ := node.Field.Project(pv)
+	var predictErr error
+
+	fieldProjection, projectErr := node.Field.Project(pv)
+
+	if projectErr != nil {
+		predictErr = errors.Join(predictErr, errnie.Error(fmt.Errorf(
+			"kadabra: field projection failed: %w",
+			projectErr,
+		)))
+	}
 
 	observation := algo.NewPrediction()
 	observation.AddContext(*pv)
@@ -221,8 +230,6 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 
 	tries := node.triesSnapshot()
 	selected := node.selectTriesForPredict(pv, tries, predictTrieFanout)
-
-	var predictErr error
 
 	for _, trie := range selected {
 		triePred, err := trie.Predict(*pv)

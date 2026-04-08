@@ -249,6 +249,10 @@ func (field *Field) GlobalPhase() gf.Vector65537 {
 /*
 DominantPhaseIndex returns the strongest global phase lane, or -1 if
 the field has not settled into a phase.
+
+The underlying atomic stores lane index plus one: 0 means “unset”, 1 means
+lane 0, 2 means lane 1, etc. (see setDominantPhase). Examples: stored 0 -> -1;
+stored 1 -> 0.
 */
 func (field *Field) DominantPhaseIndex() int {
 	if field == nil {
@@ -650,7 +654,16 @@ func (field *Field) refreshGlobalPhase(
 		slotIndex++
 	}
 
-	for _, digest := range digestSnap {
+	digestOrigins := make([]uint64, 0, len(digestSnap))
+
+	for origin := range digestSnap {
+		digestOrigins = append(digestOrigins, origin)
+	}
+
+	slices.Sort(digestOrigins)
+
+	for _, origin := range digestOrigins {
+		digest := digestSnap[origin]
 		globalPhase.AccumulateProjected8191(&digest.NodePhase, slotIndex)
 		slotIndex++
 	}
@@ -669,6 +682,7 @@ func (field *Field) setDominantPhase(globalMode geometry.PhaseMode) {
 		return
 	}
 
+	// Index is stored as lane+1 so DominantPhaseIndex can use 0 as “none”.
 	field.dominantPhaseIndex.Store(uint32(globalMode.Index + 1))
 	field.dominantPhaseGain.Store(math.Float64bits(globalMode.Concentration))
 }

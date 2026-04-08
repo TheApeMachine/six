@@ -22,10 +22,7 @@ This research project started from a simple question: "Can we reject gradient de
 Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
 
 ```mermaid
-flowchart-elk TD
-    %% ELK backend produces straighter and orthogonal edges automatically.
-    %% Optional: fine-tune spacing or edge routing.
-    %% layoutOptions: {"elk.algorithm":"layered","elk.edgeRouting":"ORTHOGONAL"}
+flowchart TD
 
     subgraph "Layer 3 — Global Field GF(65537)"
         GF["Global Phase Vector"]
