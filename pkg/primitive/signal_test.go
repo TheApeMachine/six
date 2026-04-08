@@ -79,8 +79,7 @@ func TestSignalProgramOneRun(t *testing.T) {
 	setupSignalTest(t)
 
 	Convey("Given a Value with known one-run patterns in A[0]", t, func() {
-		v, err := NewValue(nil)
-		So(err, ShouldBeNil)
+		v := newValueFromZeroFrame(t)
 		defer v.Close()
 
 		Convey("A 16-bit one-run with B=all-ones should produce a nonzero signal", func() {
@@ -192,8 +191,7 @@ func TestSignalProgramZeroRun(t *testing.T) {
 	setupSignalTest(t)
 
 	Convey("Given a Value with known zero-run patterns in A[0]", t, func() {
-		v, err := NewValue(nil)
-		So(err, ShouldBeNil)
+		v := newValueFromZeroFrame(t)
 		defer v.Close()
 
 		Convey("A 16-bit zero-run should appear as ones in NOTA signal", func() {
@@ -254,8 +252,7 @@ func TestScanSignals(t *testing.T) {
 	setupSignalTest(t)
 
 	Convey("Given a Value with structure across token words", t, func() {
-		v, err := NewValue(nil)
-		So(err, ShouldBeNil)
+		v := newValueFromZeroFrame(t)
 		defer v.Close()
 
 		// A: different density patterns per word.
@@ -293,10 +290,7 @@ func TestScanSignals(t *testing.T) {
 func BenchmarkScanSignals(b *testing.B) {
 	setupSignalTest(b)
 
-	v, err := NewValue(nil)
-	if err != nil {
-		b.Fatal(err)
-	}
+	v := newValueFromZeroFrame(b)
 	defer v.Close()
 
 	v[0] = 0xFFFF000000000000

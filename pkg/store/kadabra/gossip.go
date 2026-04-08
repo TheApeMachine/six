@@ -24,7 +24,7 @@ with the Derived chains it tracks; gossip just reads the latest values.
 */
 func (gossip *Gossip) Digests() []Digest {
 	tries := gossip.owner.triesSnapshot()
-	epoch := atomic.LoadUint64(&gossip.owner.epoch)
+	epoch := atomic.AddUint64(&gossip.owner.epoch, 1)
 	out := make([]Digest, 0, len(tries))
 
 	for trieIdx := range tries {

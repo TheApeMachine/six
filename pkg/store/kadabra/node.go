@@ -1,9 +1,12 @@
 package kadabra
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"math/bits"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -18,6 +21,8 @@ import (
 	"github.com/theapemachine/six/pkg/store/markovtrie"
 	"github.com/theapemachine/six/pkg/viz"
 )
+
+const predictTrieFanout = 8
 
 /*
 Node is a Kademlia-style DHT node. Its two public operations are
@@ -136,50 +141,48 @@ func (node *Node) Error() error {
 }
 
 /*
-Publish stores a labeled Value in the local routing table, which
-routes it to the correct MarkovTrie cluster by affinity. Replication
-to remote peers is handled at the gossip layer, not here.
+Publish stores a labeled Value: the local node applies it to its trie
+cluster, then Store fans out a StoreReplica payload to affinity-nearest
+routing peers (see replication.go). Gossip digests remain orthogonal.
 */
 func (node *Node) Publish(
 	value *primitive.Value, label string,
-) (SequenceRecord, error) {
+) (err error) {
 	if value == nil {
-		return SequenceRecord{}, errnie.Error(fmt.Errorf("kadabra: nil Value"))
+		return errnie.Error(fmt.Errorf("kadabra: nil Value"))
 	}
+
+	affVec := value.AffinityVector()
 
 	record := SequenceRecord{
 		Value:     *value,
-		Affinity:  value.AffinityVector(),
+		Affinity:  affVec,
 		Label:     label,
 		Publisher: node.ID,
 	}
 
 	record.Key = record.Hash()
 
-	valueAff := primitive.NewAffinityFromVector(
-		value.AffinityVector(),
-	)
-
-	if valueAff.IsZero() {
-		return record, errnie.Error(fmt.Errorf(
+	if primitive.AffinityVectorIsZero(affVec) {
+		return errnie.Error(fmt.Errorf(
 			"kadabra: refusing to publish Value with zero affinity — call ComputeAffinityLSH first",
 		))
 	}
 
 	if err := node.Store(record); err != nil {
-		return record, errnie.Error(err)
+		return errnie.Error(err)
 	}
 
 	viz.DefaultBus.Publish(viz.ValuePublished(node.ID, record.Key, label))
 
-	return record, nil
+	return nil
 }
 
 /*
-Predict fans the prompt to all tries and feeds their predictions
-directly into the node-level beam. The beam selects which trie
-continuations compose well (via Origin on each Continuation) and
-breaks non-contributing trie beams so they re-search.
+Predict projects through the field, scores local tries by affinity to
+the prompt, runs Predict only on the nearest subset, merges
+continuations into the node-level beam, and breaks non-contributing
+trie beams so they re-search.
 */
 func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 	if node.err = validate.Require(map[string]any{
@@ -202,15 +205,16 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 	observation.AddContext(*pv)
 
 	tries := node.triesSnapshot()
+	selected := node.selectTriesForPredict(pv, tries, predictTrieFanout)
 
-	for _, trie := range tries {
+	for _, trie := range selected {
 		triePred := trie.Predict(*pv)
 		observation.Continuations = append(observation.Continuations, triePred.Continuations...)
 		observation.Labels = append(observation.Labels, triePred.Labels...)
 	}
 
 	viz.DefaultBus.Publish(viz.BeamCollectEvent(
-		node.ID, len(tries), len(observation.Continuations),
+		node.ID, len(selected), len(observation.Continuations),
 	))
 
 	result, _ := node.beam.Update(observation)
@@ -271,4 +275,60 @@ func (node *Node) breakRejected(rejected []uint64) {
 
 		viz.DefaultBus.Publish(viz.BeamBreakEvent(node.ID, trie.ID))
 	}
+}
+
+func (node *Node) selectTriesForPredict(
+	query *primitive.Value,
+	tries []*markovtrie.Store,
+	maxPick int,
+) []*markovtrie.Store {
+	if len(tries) <= maxPick {
+		return tries
+	}
+
+	queryVec := query.AffinityVector()
+
+	type scored struct {
+		idx  int
+		dist int
+	}
+
+	ranked := make([]scored, len(tries))
+
+	for idx, trie := range tries {
+		ranked[idx] = scored{
+			idx:  idx,
+			dist: affinityPopcountDistance(queryVec, trie.Affinity.Vector()),
+		}
+	}
+
+	slices.SortFunc(ranked, func(left, right scored) int {
+		return cmp.Compare(left.dist, right.dist)
+	})
+
+	out := make([]*markovtrie.Store, 0, maxPick)
+
+	for pickIdx := 0; pickIdx < maxPick && pickIdx < len(ranked); pickIdx++ {
+		out = append(out, tries[ranked[pickIdx].idx])
+	}
+
+	return out
+}
+
+func affinityPopcountDistance(
+	query, candidate [primitive.AffinityWords]uint64,
+) int {
+	dist := 0
+
+	for wordIdx := range primitive.AffinityWords {
+		xor := query[wordIdx] ^ candidate[wordIdx]
+
+		if wordIdx == primitive.AffinityWords-1 {
+			xor &= primitive.AffinityLastWordMask
+		}
+
+		dist += bits.OnesCount64(xor)
+	}
+
+	return dist
 }

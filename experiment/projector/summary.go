@@ -49,13 +49,12 @@ WriteSummaryTable generates a standardized three-section LaTeX table for an expe
   - Top N results (best-scoring)
   - Bottom N results (worst-scoring, only when distinct from top)
   - Generation examples (curated prefix → expected → observed)
-  - Conditions block (N, mean, min, max, holdout chars, score weights)
+  - Conditions block (N, mean, min, max, holdout policy, score weights)
 */
 func WriteSummaryTable(
 	name, section string,
 	rows []tools.ExperimentalData,
-	holdoutN int,
-	holdoutType string,
+	holdoutDescription string,
 	cfg SummaryConfig,
 	timing RunTiming,
 	outDir, outFile string,
@@ -186,9 +185,9 @@ func WriteSummaryTable(
 	sb.WriteString("\\multicolumn{6}{l}{\\textbf{Experiment conditions}} \\\\\n")
 	sb.WriteString("\\midrule\n")
 
-	sb.WriteString(fmt.Sprintf(
-		"\\multicolumn{3}{l}{Samples: %d} & \\multicolumn{3}{l}{Holdout: %d\\%% (%s)} \\\\\n",
-		len(rows), holdoutN, holdoutType))
+	fmt.Fprintf(&sb,
+		"\\multicolumn{3}{l}{Samples: %d} & \\multicolumn{3}{l}{Holdout: %s} \\\\\n",
+		len(rows), LaTeXEscape(holdoutDescription))
 	sb.WriteString(fmt.Sprintf(
 		"\\multicolumn{3}{l}{Mean score: %.4f} & \\multicolumn{3}{l}{Min: %.4f \\quad Max: %.4f} \\\\\n",
 		mean, minS, maxS))

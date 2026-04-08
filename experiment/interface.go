@@ -93,6 +93,15 @@ type PipelineExperiment interface {
 	Artifacts() []Artifact
 }
 
+/*
+SummaryHoldoutDescriptor lets an experiment describe how supervision holdout
+is defined for the paper summary row. When absent, the projector uses a short
+generic caption.
+*/
+type SummaryHoldoutDescriptor interface {
+	SummaryHoldoutDescription() string
+}
+
 // countPrefixMatches returns the number of positions where expected[i] == retrieved[i]
 // up to min(len(expected), len(retrieved)).
 func countPrefixMatches(expected, retrieved []byte) int {

@@ -20,30 +20,6 @@ func (node *Node) triesSnapshot() []*markovtrie.Store {
 }
 
 /*
-Store persists a replicated record locally and routes its content to
-the best trie cluster via selectOrSpawnTrie. Fully lock-free: each
-shard is an atomic pointer to an immutable map snapshot. On insert,
-only the target shard's map (~1/256th of total records) is cloned
-and CAS-swapped. Readers never block.
-*/
-func (node *Node) Store(record SequenceRecord) error {
-	node.queue.Submit(func() {
-		aff := primitive.NewAffinityFromVector(record.Affinity)
-		trie := node.selectOrSpawnTrie(aff)
-
-		if trie != nil {
-			trie.Load(record.Value, record.Label)
-
-			viz.DefaultBus.Publish(viz.TrieInsertEvent(
-				node.ID, record.Value.String(), record.Label,
-			))
-		}
-	})
-
-	return nil
-}
-
-/*
 selectOrSpawnTrie picks the closest trie within ClusterThreshold that
 has not reached ShannonLimit. When nothing qualifies a fresh trie is
 created, seeded with the incoming affinity, and atomically appended to
@@ -113,95 +89,6 @@ func (node *Node) selectOrSpawnTrie(
 	}
 
 	return node.spawnTrie(affinity)
-}
-
-/*
-nearestTrie returns the existing trie cluster whose centroid affinity is
-closest to the query. Unlike selectOrSpawnTrie, it never allocates a new
-cluster — used for read paths (Predict) where routing must land on trained
-state.
-*/
-func (node *Node) nearestTrie(affinity *primitive.Affinity) *markovtrie.Store {
-	tries := node.triesSnapshot()
-
-	if len(tries) == 0 {
-		return nil
-	}
-
-	if len(tries) > kernel.MaxNearestAffinityCandidates {
-		return node.nearestTrieScalar(affinity, tries)
-	}
-
-	candidates := make([][]uint64, len(tries))
-
-	for idx, cluster := range tries {
-		vec := cluster.Affinity.Vector()
-		candidates[idx] = vec[:]
-	}
-
-	queryVec := affinity.Vector()
-
-	var frame primitive.Value
-
-	for idx, word := range queryVec {
-		frame.Set(idx, word)
-	}
-
-	compiler := programmer.New(
-		&frame,
-		programmer.CompilerWithIntent(
-			programmer.Intent{
-				Operation: programmer.Distance,
-				Assets:    candidates,
-			},
-		),
-		programmer.CompilerWithBatchAffinityLayout(),
-	)
-
-	node.queue.ExecuteSync(compiler)
-
-	bestIdx := int(frame[22])
-
-	if bestIdx < 0 || bestIdx >= len(tries) {
-		return tries[0]
-	}
-
-	return tries[bestIdx]
-}
-
-func (node *Node) nearestTrieScalar(
-	affinity *primitive.Affinity,
-	tries []*markovtrie.Store,
-) *markovtrie.Store {
-	query := affinity.Vector()
-	bestIdx := -1
-	bestDist := int(^uint(0) >> 1)
-
-	for idx, cluster := range tries {
-		cand := cluster.Affinity.Vector()
-		dist := 0
-
-		for wordIdx := range primitive.AffinityWords {
-			xor := query[wordIdx] ^ cand[wordIdx]
-
-			if wordIdx == primitive.AffinityWords-1 {
-				xor &= primitive.AffinityLastWordMask
-			}
-
-			dist += bits.OnesCount64(xor)
-		}
-
-		if dist < bestDist {
-			bestDist = dist
-			bestIdx = idx
-		}
-	}
-
-	if bestIdx < 0 {
-		return tries[0]
-	}
-
-	return tries[bestIdx]
 }
 
 /*

@@ -270,7 +270,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	client := &wsClient{
 		conn:     conn,
-		outbound: make(chan []byte, 4096),
+		outbound: make(chan []byte, 65536),
 		cancel:   cancel,
 	}
 
@@ -327,23 +327,20 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		"nodes":  nodeIDs,
 	})
 	if err == nil {
-		select {
-		case client.outbound <- boot:
-		default:
-		}
+		// Blocking: a non-blocking send drops the entire replay when the buffer
+		// cannot absorb bootstrap + history in one scheduler quantum (common for
+		// paper-sized timelines or late-joining browsers).
+		client.outbound <- boot
 	}
 
-	// Send timeline history so new clients catch up.
+	// Send timeline history so new clients catch up (same blocking guarantee).
 	for _, ev := range history {
 		data, err := json.Marshal(ev)
 		if err != nil {
 			continue
 		}
 
-		select {
-		case client.outbound <- data:
-		default:
-		}
+		client.outbound <- data
 	}
 
 	// Read loop: handle client commands.
@@ -393,10 +390,7 @@ func (s *Server) handleCommand(client *wsClient, cmd ClientCommand) {
 			"events": events,
 		})
 
-		select {
-		case client.outbound <- resp:
-		default:
-		}
+		client.outbound <- resp
 
 	case "snapshot_save":
 		data := s.timeline.Snapshot()

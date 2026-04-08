@@ -408,8 +408,8 @@ func Trace(msg string, keyvals ...any) {
 }
 
 func Error(err error, keyvals ...any) error {
-	if err == nil {
-		return nil
+	if err == nil || errors.Is(err, io.EOF) {
+		return err
 	}
 
 	kv := append([]any{}, keyvals...)

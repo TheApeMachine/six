@@ -12,6 +12,16 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
+func queueWorkerCount() int {
+	n := runtime.NumCPU() - 1
+
+	if n < 1 {
+		n = 1
+	}
+
+	return n
+}
+
 /*
 Executor is the interface that the compute backend satisfies. It
 allows the Queue to dispatch compiled programs without importing
@@ -52,7 +62,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	queue := &Queue{
 		ctx:    ctx,
 		cancel: cancel,
-		pool:   NewPool(uint64(runtime.NumCPU() - 1)),
+		pool:   NewPool(uint64(queueWorkerCount())),
 	}
 
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
@@ -103,6 +113,31 @@ func (queue *Queue) Submit(task func()) {
 }
 
 /*
+SubmitTracked runs task on the pool and includes it in inflight so
+Drain waits for completion — same lifecycle as Execute, without a
+compute backend.
+*/
+func (queue *Queue) SubmitTracked(task func()) {
+	if queue == nil || task == nil {
+		return
+	}
+
+	queue.inflight.Add(1)
+
+	queue.pool.Submit(func() {
+		defer func() {
+			if queue.inflight.Add(-1) == 0 {
+				queue.drainMu.Lock()
+				queue.drainWait.Broadcast()
+				queue.drainMu.Unlock()
+			}
+		}()
+
+		task()
+	})
+}
+
+/*
 SetBackend wires the compute backend into the queue so Execute
 can defer compilation to the moment a substrate is picked.
 */
@@ -137,9 +172,10 @@ func (queue *Queue) Execute(program any) {
 }
 
 /*
-Drain spins until all inflight Execute tasks have completed. This
-lets callers ensure prior GPU dispatches finish before triggering
-work that would contend on the same resources.
+Drain spins until all inflight Execute and SubmitTracked tasks have
+completed. This lets callers ensure prior GPU dispatches and pooled
+side effects finish before triggering work that would contend on the
+same resources.
 */
 func (queue *Queue) Drain() {
 	if queue == nil {

@@ -106,7 +106,8 @@ func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
 func TrieInsertEvent(nodeID uint64, sequence, label string) Event {
 	ev := NewEvent(EventTrieInsert, fmtNodeID(nodeID))
 	ev.Label = label
-	ev.Meta = map[string]string{"sequence": truncate(sequence, 64)}
+	// Large enough for typical tokenizer/code rows in paper runs; JSON still small vs timeline cap.
+	ev.Meta = map[string]string{"sequence": truncate(sequence, 512)}
 	return ev
 }
 
@@ -158,10 +159,10 @@ func TrieModeEvent(nodeID uint64, trieIdx int, modeIdx int, aligned bool, energy
 	}
 
 	ev.Values = map[string]float64{
-		"trie_idx":  float64(trieIdx),
-		"mode_idx":  float64(modeIdx),
-		"aligned":   alignedVal,
-		"energy":    energy,
+		"trie_idx": float64(trieIdx),
+		"mode_idx": float64(modeIdx),
+		"aligned":  alignedVal,
+		"energy":   energy,
 	}
 
 	return ev

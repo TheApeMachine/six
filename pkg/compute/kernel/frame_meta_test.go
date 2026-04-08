@@ -12,7 +12,7 @@ import (
 func TestFrameMetaResidencyAndCorrelation(t *testing.T) {
 	t.Parallel()
 
-	Convey("EnsureFrameCorrelationSeq fills word 120 once", t, func() {
+	Convey("EnsureFrameCorrelationSeq fills word 118 once", t, func() {
 		var words [128]uint64
 		ptr := unsafe.Pointer(&words[0])
 		var seq atomic.Uint64

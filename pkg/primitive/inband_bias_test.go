@@ -116,8 +116,7 @@ func TestInBandBiasAccumulatesInProgramRegion(t *testing.T) {
 	setupInBandValueTest(t)
 
 	Convey("Given a Value with known A and B token patterns", t, func() {
-		value, err := NewValue(nil)
-		So(err, ShouldBeNil)
+		value := newValueFromZeroFrame(t)
 		defer value.Close()
 
 		// A words (0–3): repeating pattern.
@@ -187,8 +186,7 @@ func TestInBandBiasProjectionWritesAffinityAsDerivedState(t *testing.T) {
 	setupInBandValueTest(t)
 
 	Convey("Given A = all-ones and B = alternating", t, func() {
-		value, err := NewValue(nil)
-		So(err, ShouldBeNil)
+		value := newValueFromZeroFrame(t)
 		defer value.Close()
 
 		for i := 0; i < 4; i++ {
@@ -271,10 +269,7 @@ func TestInBandBiasProjectionWritesAffinityAsDerivedState(t *testing.T) {
 func BenchmarkValue_InBandBias(b *testing.B) {
 	setupInBandValueTest(b)
 
-	value, err := NewValue(nil)
-	if err != nil {
-		b.Fatal(err)
-	}
+	value := newValueFromZeroFrame(b)
 	defer value.Close()
 
 	for i := 0; i < 4; i++ {

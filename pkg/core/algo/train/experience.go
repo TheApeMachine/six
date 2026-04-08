@@ -239,16 +239,53 @@ func (experience *Experience) updateSustainedSurpriseBoost(averageBits float64) 
 
 	surpriseRatio := averageBits / baseline
 
+	cfg := core.Cfg
+	var markov core.MarkovTrieConfig
+
+	if cfg != nil {
+		markov = cfg.MarkovTrie
+	}
+
+	ratioThreshold := markov.SurpriseRatioThreshold
+
+	if ratioThreshold <= 0 {
+		ratioThreshold = 2.0
+	}
+
+	burstsRequired := markov.SustainedBurstsRequired
+
+	if burstsRequired <= 0 {
+		burstsRequired = 3
+	}
+
+	capMax := markov.MaxCapLen
+
+	if capMax <= 0 {
+		capMax = 8
+	}
+
+	boostFactor := markov.BurstBoostFactor
+
+	if boostFactor <= 0 {
+		boostFactor = 0.12
+	}
+
 	// Fractional gate keeps short-token averages (fractions of a bit) able to
 	// register sustained novelty without requiring paragraph-scale surprisal
 	// mass every time.
-	scaleGate := core.Cfg.MarkovTrie.SurprisalScaleBits * 0.1
+	surprisalScale := markov.SurprisalScaleBits
+
+	if cfg == nil || surprisalScale <= 0 {
+		surprisalScale = 2.0
+	}
+
+	scaleGate := surprisalScale * 0.1
 
 	if scaleGate < 1e-6 {
 		scaleGate = 1e-6
 	}
 
-	if surpriseRatio > 2.0 && averageBits > scaleGate {
+	if surpriseRatio > ratioThreshold && averageBits > scaleGate {
 		experience.highSurpriseStreak++
 	} else {
 		experience.highSurpriseStreak = 0
@@ -257,19 +294,17 @@ func (experience *Experience) updateSustainedSurpriseBoost(averageBits float64) 
 	streak := experience.highSurpriseStreak
 	plasticityBoost := 1.0
 
-	const sustainedBursts = 3
-
-	if streak < sustainedBursts {
+	if streak < burstsRequired {
 		return plasticityBoost
 	}
 
-	capLen := streak - sustainedBursts + 1
+	capLen := streak - burstsRequired + 1
 
-	if capLen > 8 {
-		capLen = 8
+	if capLen > capMax {
+		capLen = capMax
 	}
 
-	plasticityBoost = 1.0 + 0.12*float64(capLen)
+	plasticityBoost = 1.0 + boostFactor*float64(capLen)
 
 	return plasticityBoost
 }

@@ -41,16 +41,17 @@ const (
 )
 
 type KadabraConfig struct {
-	Bits                      int       `mapstructure:"bits"`
-	BucketSize                int       `mapstructure:"bucketSize"`
-	ReplicationFactor         int       `mapstructure:"replicationFactor"`
-	Alpha                     int       `mapstructure:"alpha"`
-	EpochQueries              int       `mapstructure:"epochQueries"`
-	Penalty                   float64   `mapstructure:"penalty"`
-	SecurityThreshold         float64   `mapstructure:"securityThreshold"`
-	BucketSecurityThresholds  []float64 `mapstructure:"bucketSecurityThresholds"`
-	ShannonLimit              int       `mapstructure:"shannonLimit"`
-	ClusterThreshold int `mapstructure:"clusterThreshold"`
+	Bits                     int       `mapstructure:"bits"`
+	BucketSize               int       `mapstructure:"bucketSize"`
+	ReplicationFactor        int       `mapstructure:"replicationFactor"`
+	MaxMeshPeers             int       `mapstructure:"maxMeshPeers"`
+	Alpha                    int       `mapstructure:"alpha"`
+	EpochQueries             int       `mapstructure:"epochQueries"`
+	Penalty                  float64   `mapstructure:"penalty"`
+	SecurityThreshold        float64   `mapstructure:"securityThreshold"`
+	BucketSecurityThresholds []float64 `mapstructure:"bucketSecurityThresholds"`
+	ShannonLimit             int       `mapstructure:"shannonLimit"`
+	ClusterThreshold         int       `mapstructure:"clusterThreshold"`
 }
 
 type MarkovTrieConfig struct {
@@ -99,6 +100,16 @@ type MarkovTrieConfig struct {
 	AdaptiveMaxDepthDecayMinSamples int     `mapstructure:"adaptiveMaxDepthDecayMinSamples"`
 	AdaptiveMaxDepthDecayMaxSamples int     `mapstructure:"adaptiveMaxDepthDecayMaxSamples"`
 	AdaptiveMaxDepthDecayMaxDepth   int     `mapstructure:"adaptiveMaxDepthDecayMaxDepth"`
+	// SurpriseRatioThreshold is the multiplicative factor above the surprisal EMA
+	// that counts as a sustained novelty burst for plasticity boosting.
+	SurpriseRatioThreshold float64 `mapstructure:"surpriseRatioThreshold"`
+	// SustainedBurstsRequired is how many consecutive above-threshold observations
+	// must occur before the burst boost starts accumulating.
+	SustainedBurstsRequired int `mapstructure:"sustainedBurstsRequired"`
+	// MaxCapLen limits how many excess burst steps contribute linear boost growth.
+	MaxCapLen int `mapstructure:"maxCapLen"`
+	// BurstBoostFactor scales the per-step plasticity multiplier once capped.
+	BurstBoostFactor float64 `mapstructure:"burstBoostFactor"`
 }
 
 type SystemConfig struct {
@@ -111,6 +122,7 @@ type SystemConfig struct {
 ValueConfig holds the configuration for a Value.
 */
 type ValueConfig struct {
+	Word         int                `mapstructure:"word"`
 	Words        int                `mapstructure:"words"`
 	Bytes        int                `mapstructure:"bytes"`
 	NumRotations int                `mapstructure:"num_rotations"`
@@ -129,7 +141,8 @@ Layout (128 uint64 words = 1 KiB):
 	Context:  words 24–31  (512 bits)
 	Gradient: words 32–39  (512 bits)
 	Meta:     words 40–47  (512 bits)
-	Reserved: words 48–119
+	Reserved: words 48–117
+	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
 	Next:     word  121
 	ID:       word  122
@@ -156,7 +169,6 @@ type ValueOffsetConfig struct {
 	Start int    `mapstructure:"start"`
 	Bits  uint64 `mapstructure:"bits"`
 }
-
 
 /*
 ValueOpcodesConfig holds the configuration
@@ -220,13 +232,14 @@ func NewConfig() *Config {
 			QueueSize:   WithDefault(viper.GetInt("system.queueSize"), 20000),
 		},
 		Kadabra: KadabraConfig{
-			Bits:                      WithDefault(viper.GetInt("kadabra.bits"), 64),
-			BucketSize:                WithDefault(viper.GetInt("kadabra.bucketSize"), 20),
-			ReplicationFactor:         WithDefault(viper.GetInt("kadabra.replicationFactor"), 3),
-			Alpha:                     WithDefault(viper.GetInt("kadabra.alpha"), 3),
-			EpochQueries:              WithDefault(viper.GetInt("kadabra.epochQueries"), 100),
-			Penalty:                   WithDefault(viper.GetFloat64("kadabra.penalty"), 0.1),
-			SecurityThreshold:         WithDefault(viper.GetFloat64("kadabra.securityThreshold"), 0.5),
+			Bits:              WithDefault(viper.GetInt("kadabra.bits"), 64),
+			BucketSize:        WithDefault(viper.GetInt("kadabra.bucketSize"), 20),
+			ReplicationFactor: WithDefault(viper.GetInt("kadabra.replicationFactor"), 3),
+			MaxMeshPeers:      WithDefault(viper.GetInt("kadabra.maxMeshPeers"), 4096),
+			Alpha:             WithDefault(viper.GetInt("kadabra.alpha"), 3),
+			EpochQueries:      WithDefault(viper.GetInt("kadabra.epochQueries"), 100),
+			Penalty:           WithDefault(viper.GetFloat64("kadabra.penalty"), 0.1),
+			SecurityThreshold: WithDefault(viper.GetFloat64("kadabra.securityThreshold"), 0.5),
 			// ShannonLimit is the maximum popcount (set bits) a cluster
 			// centroid may reach before it is considered full. At 50% set bits
 			// (256/512) a random vector's expected Hamming distance equals that
@@ -350,8 +363,13 @@ func NewConfig() *Config {
 			AdaptiveMaxDepthDecayMinSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMinSamples"), 50),
 			AdaptiveMaxDepthDecayMaxSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMaxSamples"), 1000),
 			AdaptiveMaxDepthDecayMaxDepth:   WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMaxDepth"), 8),
+			SurpriseRatioThreshold:          WithDefault(viper.GetFloat64("markovtrie.surpriseRatioThreshold"), 2.0),
+			SustainedBurstsRequired:         WithDefault(viper.GetInt("markovtrie.sustainedBurstsRequired"), 3),
+			MaxCapLen:                       WithDefault(viper.GetInt("markovtrie.maxCapLen"), 8),
+			BurstBoostFactor:                WithDefault(viper.GetFloat64("markovtrie.burstBoostFactor"), 0.12),
 		},
 		Value: ValueConfig{
+			Word:         WithDefault(viper.GetInt("value.word"), 64),
 			Words:        WithDefault(viper.GetInt("value.words"), 128),
 			Bytes:        WithDefault(viper.GetInt("value.bytes"), 1024),
 			NumRotations: WithDefault(viper.GetInt("value.num_rotations"), 16),

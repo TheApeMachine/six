@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestRequire(t *testing.T) {
@@ -75,7 +77,7 @@ func BenchmarkRequire(b *testing.B) {
 		"groups":       3,
 		"ctx":          "valid",
 	}
-	
+
 	for b.Loop() {
 		_ = Require(objs)
 	}
@@ -87,8 +89,90 @@ func BenchmarkRequireWithNil(b *testing.B) {
 		"ctx":   nil,
 		"other": 3,
 	}
-	
+
 	for b.Loop() {
 		_ = Require(objs)
+	}
+}
+
+func TestRequireChainLinkage(t *testing.T) {
+	Convey("Given RequireChainLinkage", t, func() {
+		Convey("When value is nil", func() {
+			Convey("It should return ErrValueNil", func() {
+				So(RequireChainLinkage(nil), ShouldEqual, ErrValueNil)
+			})
+		})
+
+		Convey("When ID is zero", func() {
+			var blank primitive.Value
+
+			Convey("It should return ErrValueIDUnset", func() {
+				So(RequireChainLinkage(&blank), ShouldEqual, ErrValueIDUnset)
+			})
+		})
+
+		Convey("When ID is set but Prev and Next are both zero", func() {
+			value, err := primitive.NewValue([]byte("payload"))
+			So(err, ShouldBeNil)
+			defer func() { _ = value.Close() }()
+
+			Convey("It should return ErrValueChainUnlinked", func() {
+				So(RequireChainLinkage(value), ShouldEqual, ErrValueChainUnlinked)
+			})
+		})
+
+		Convey("When Prev is non-zero", func() {
+			value, err := primitive.NewValue([]byte("payload"))
+			So(err, ShouldBeNil)
+			defer func() { _ = value.Close() }()
+
+			value.Set(core.Cfg.Value.Region.Prev.Start, 4242)
+
+			Convey("It should return nil", func() {
+				So(RequireChainLinkage(value), ShouldBeNil)
+			})
+		})
+
+		Convey("When Next is non-zero", func() {
+			value, err := primitive.NewValue([]byte("payload"))
+			So(err, ShouldBeNil)
+			defer func() { _ = value.Close() }()
+
+			value.Set(core.Cfg.Value.Region.Next.Start, 4243)
+
+			Convey("It should return nil", func() {
+				So(RequireChainLinkage(value), ShouldBeNil)
+			})
+		})
+	})
+}
+
+func BenchmarkRequireChainLinkagePass(b *testing.B) {
+	value, err := primitive.NewValue([]byte("payload"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = value.Close() }()
+
+	value.Set(core.Cfg.Value.Region.Prev.Start, 1)
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = RequireChainLinkage(value)
+	}
+}
+
+func BenchmarkRequireChainLinkageRejectUnlinked(b *testing.B) {
+	value, err := primitive.NewValue([]byte("payload"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = value.Close() }()
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = RequireChainLinkage(value)
 	}
 }

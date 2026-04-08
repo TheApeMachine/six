@@ -39,6 +39,7 @@ type Store struct {
 	generator     *beam.Search
 	classifier    *classify.Classifier
 	trainer       *train.Online
+	lastLeaf      atomic.Pointer[Node]
 }
 
 /*
@@ -100,20 +101,33 @@ func (store *Store) Load(
 		store.root = NewNode(value)
 	}
 
+	parent := store.root
+
+	if len(labels) > 0 {
+		parent = store.root
+	} else if leaf := store.lastLeaf.Load(); leaf != nil {
+		parent = leaf
+	}
+
 	token := value.String()
-	existing := store.root.Child(token)
+	existing := parent.Child(token)
 
 	if existing != nil {
 		existing.TotalVisits.Add(1)
+		// Parent link was fixed when the child was first inserted.
 	} else {
 		child := NewNode(value)
-		store.root.storeChild(value, child)
+		parent.storeChild(value, child)
 		existing = child
 	}
 
-	var triePath []primitive.Value
-	triePath = append(triePath, store.root.value)
-	triePath = append(triePath, existing.value)
+	if len(labels) > 0 {
+		store.lastLeaf.Store(nil)
+	} else {
+		store.lastLeaf.Store(existing)
+	}
+
+	triePath := pathFromRoot(existing)
 
 	observation := algo.NewPrediction()
 
@@ -139,6 +153,24 @@ func (store *Store) Load(
 	}
 }
 
+func pathFromRoot(leaf *Node) []primitive.Value {
+	if leaf == nil {
+		return nil
+	}
+
+	rev := make([]primitive.Value, 0, leaf.Depth+1)
+
+	for node := leaf; node != nil; node = node.parent.Load() {
+		rev = append(rev, node.value)
+	}
+
+	for left, right := 0, len(rev)-1; left < right; left, right = left+1, right-1 {
+		rev[left], rev[right] = rev[right], rev[left]
+	}
+
+	return rev
+}
+
 /*
 Predict runs the same algorithm stack as Load, but with an unlabeled
 observation built from the trie path for value's token. Classifier
@@ -152,15 +184,22 @@ func (store *Store) Predict(value primitive.Value) *algo.Prediction {
 	}
 
 	token := value.String()
-	child := store.root.Child(token)
+
+	if token == "" {
+		return algo.NewPrediction()
+	}
+
+	var pathVals []primitive.Value
+
+	store.WalkPath([]string{token}, func(node *Node) {
+		pathVals = append(pathVals, node.value)
+	})
+
 	observation := algo.NewPrediction()
 	observation.TruncateForUpdate()
-	observation.AddContext(store.root.value)
 
-	if child != nil {
-		observation.AddContext(child.value)
-	} else {
-		observation.AddContext(value)
+	for _, step := range pathVals {
+		observation.AddContext(step)
 	}
 
 	for _, algorithm := range store.algorithms {

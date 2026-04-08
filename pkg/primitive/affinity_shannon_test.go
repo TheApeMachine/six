@@ -194,7 +194,7 @@ func TestHammingDistanceDistribution(t *testing.T) {
 	}
 
 	sum := 0
-	minD, maxD := 512, 0
+	minD, maxD := AffinityBits, 0
 	for _, d := range distances {
 		sum += d
 		if d < minD {
@@ -213,9 +213,9 @@ func TestHammingDistanceDistribution(t *testing.T) {
 	}
 	stddevVal := math.Sqrt(variance / float64(len(distances)))
 
-	t.Log("=== Hamming distance distribution (512-bit affinity, 8 independent projections) ===")
+	t.Logf("=== Hamming distance distribution (%d-bit affinity, AffinityWords projections) ===", AffinityBits)
 	t.Logf("Pairs sampled: %d", len(distances))
-	t.Logf("Mean: %.2f / 512 (ideal for random: 256.0)", meanVal)
+	t.Logf("Mean: %.2f / %d (ideal for uniform random bits: ~%.1f)", meanVal, AffinityBits, float64(AffinityBits)/2)
 	t.Logf("Stddev: %.2f", stddevVal)
 	t.Logf("Min: %d, Max: %d", minD, maxD)
 }
@@ -224,7 +224,7 @@ func TestAffinityCapacity(t *testing.T) {
 	setupAffinityTest(t)
 
 	// Core question: how many distinct high-entropy 64-byte sequences can
-	// a 512-bit affinity space distinguish before pairwise Hamming distances
+	// an AffinityBits-wide fingerprint distinguish before pairwise distances
 	// become indistinguishable from random?
 	//
 	// For k independent hash bits, the probability of a random collision
@@ -288,12 +288,11 @@ func TestAffinityCapacity(t *testing.T) {
 		t.Logf("LSH provides %.1f bits of separation — sufficient for routing.", separation)
 	}
 
-	// Theoretical capacity: with k effective bits and separation s,
-	// we can distinguish ~2^(s) levels of similarity.
 	t.Logf("")
-	t.Logf("With 8 independent 64-bit projections (512 bits):")
-	t.Logf("  Expected separation: ~%.1f bits", separation*8)
-	t.Logf("  Similarity levels: ~2^%.0f", separation*8)
+	t.Logf(
+		"Note: similar/random distances here are Hamming on word 0 only (64 bits). Full routing uses %d-bit affinityHammingDistance.",
+		AffinityBits,
+	)
 }
 
 func hammingWord(a, b uint64) int {
@@ -308,8 +307,8 @@ func mean(vals []int) float64 {
 	return float64(sum) / float64(len(vals))
 }
 
-// TestMultiProjectionLSH tests the real ComputeAffinityLSH which now fills
-// all 8 affinity words with independent projections.
+// TestMultiProjectionLSH exercises ComputeAffinityLSH over full AffinityWords
+// output (AffinityBits meaningful bits).
 func TestMultiProjectionLSH(t *testing.T) {
 	setupAffinityTest(t)
 
@@ -352,9 +351,9 @@ func TestMultiProjectionLSH(t *testing.T) {
 	pooledStd := math.Sqrt((simStd*simStd + randStd*randStd) / 2)
 	cohensD := separation / pooledStd
 
-	t.Log("=== 8-projection LSH (512-bit affinity, 64-byte tokens) ===")
-	t.Logf("Similar pairs (75%% shared): mean Hamming = %.2f ± %.2f / 512", simMean, simStd)
-	t.Logf("Random pairs:               mean Hamming = %.2f ± %.2f / 512", randMean, randStd)
+	t.Logf("=== LSH full-vector Hamming (%d-bit affinity, 64-byte token slab) ===", AffinityBits)
+	t.Logf("Similar pairs (75%% shared): mean Hamming = %.2f ± %.2f / %d", simMean, simStd, AffinityBits)
+	t.Logf("Random pairs:               mean Hamming = %.2f ± %.2f / %d", randMean, randStd, AffinityBits)
 	t.Logf("Separation:                 %.2f bits", separation)
 	t.Logf("Cohen's d:                  %.2f (>0.8 = large effect)", cohensD)
 	t.Logf("")
@@ -366,7 +365,7 @@ func TestMultiProjectionLSH(t *testing.T) {
 	}
 
 	if separation > 0 {
-		effectiveBits := math.Log2(512 / separation * float64(len(similarDist)))
+		effectiveBits := math.Log2(float64(AffinityBits) / separation * float64(len(similarDist)))
 		t.Logf("Effective discriminative bits: ~%.0f", effectiveBits)
 	}
 }

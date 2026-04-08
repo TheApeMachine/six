@@ -83,8 +83,7 @@ func WriteTable(data any, outFile string, section ...string) error {
 func WriteStandardSummary(
 	name, section string,
 	rows []tools.ExperimentalData,
-	holdoutN int,
-	holdoutType string,
+	holdoutDescription string,
 	timing runTiming,
 ) error {
 	dir, err := ensurePaperDir(section)
@@ -95,7 +94,7 @@ func WriteStandardSummary(
 	outFile := tools.Slugify(name) + "_summary.tex"
 	return projector.WriteSummaryTable(
 		name, section, rows,
-		holdoutN, holdoutType,
+		holdoutDescription,
 		projector.DefaultSummaryConfig(),
 		projector.RunTiming{
 			LoadDur:     timing.loadDur,

@@ -15,14 +15,10 @@
 
 This is the biggest “already happened” item.
 
-In value.go, `primitive.NewValue()` no longer just packs raw ASCII bytes into token words. It now:
+In value.go, `primitive.NewValue(p)` requires `len(p) > 0`, then `valueFrom`, `ComputeAffinityLSH()`, and `stampID()`. Verbatim frame reload (preserve ID / all words) uses `Value.Write` on a pooled value, not `NewValue` on the serialized bytes.
 
-- [x] circularly shifts the token region via `LeftShiftTokens()`
-- [x] binds each byte using XOR with a fixed random signature via `BindTokenHD()`
-- [x] computes affinity from both:
-  - a Bloom-style 3-gram sketch: `ComputeAffinityBloom()`
-  - a SimHash-like projection: `ComputeAffinityLSH()`
-- seeds `StateSequence` from input bytes
+Roadmap note: the checklist below may describe experiments or aspirational wiring not present in the current `NewValue` path:
+
 - [ ] Store the original bytes as (byte_value << 32) | sequence_index as the key in the LSM, and the Affinity word as a roaring bitmap value.
 
 And vsa.go adds explicit HCAM/VSA helpers:
@@ -49,7 +45,7 @@ So the **representation changed**, but **many consumers still behave as if the o
 There are three distinct parts here, and all exist:
 
 #### In vsa.go
-- [x] `ComputeAffinityLSH()` projects the token region into a 64-bit affinity word
+- [x] `ComputeAffinityLSH()` projects the configured token bits into the affinity region (`AffinityBits`, typically 257; see `affinity.go`)
 - [x] `ComputeAffinityBloom()` builds a 64-bit n-gram Bloom-style fingerprint
 - [x] `BloomOverlap()` gives the shared-bit overlap
 

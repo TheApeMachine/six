@@ -4,6 +4,7 @@ package primitive
 import (
 	"io"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -91,39 +92,72 @@ var valuePool = sync.Pool{
 	},
 }
 
+var valueIDSeq atomic.Uint64
+
 /*
-NewValue should only be used to create the initial Value.
-This method should not be used to create temporary Values.
-The returned pointer is owned by the caller until Close
-returns it to valuePool.
+NewValue requires a non-empty payload. valueFrom copies it into the Value
+layout, ComputeAffinityLSH fills affinity from the token region, and stampID
+assigns a new ID. The result is ready for backend execution, Publish, and
+trie storage.
+
+To load an exact wire frame without re-stamping (same ID and affinity bits
+as Read produced), use Write on a pooled *Value — never a second NewValue on
+that frame.
+
+The returned pointer is owned by the caller until Close returns it to
+valuePool.
 */
 func NewValue(p []byte) (*Value, error) {
+	if len(p) == 0 {
+		return nil, io.ErrShortBuffer
+	}
+
 	raw := valuePool.Get()
-	v := raw.(*Value)
-	*v = Value{}
+	value := raw.(*Value)
+	valueFrom(p, value)
 
-	byteLen := core.Cfg.Value.Bytes
+	if err := value.ComputeAffinityLSH(); err != nil {
+		*value = Value{}
+		valuePool.Put(value)
 
-	if byteLen <= 0 || len(p) == 0 {
-		return v, nil
+		return nil, err
 	}
 
-	n := min(len(p), byteLen)
+	return value.stampID(), nil
+}
 
-	if byteLen <= valueScratchCap {
-		var scratch [valueScratchCap]byte
-		buf := scratch[:byteLen]
-		copy(buf, p[:n])
-		valueFrom(buf, v)
+/*
+ValueFromWireFrame restores a Value from a full Value.Bytes frame produced by
+Value.Read. ID, affinity, and every word match the frame; nothing is
+recomputed or re-stamped.
 
-		return v, nil
+The caller owns the returned pointer until Close returns it to valuePool.
+*/
+func ValueFromWireFrame(frame []byte) (*Value, error) {
+	if len(frame) < core.Cfg.Value.Bytes {
+		return nil, io.ErrShortBuffer
 	}
 
-	buf := make([]byte, byteLen)
-	copy(buf, p[:n])
-	valueFrom(buf, v)
+	raw := valuePool.Get()
+	value := raw.(*Value)
 
-	return v, nil
+	if _, err := value.Write(frame); err != nil {
+		*value = Value{}
+		valuePool.Put(value)
+
+		return nil, err
+	}
+
+	return value, nil
+}
+
+func (value *Value) stampID() *Value {
+	if value == nil {
+		return nil
+	}
+
+	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
+	return value
 }
 
 /*
@@ -132,6 +166,11 @@ transmission over the wire.
 It is important to understand that we do not pay any
 traditional serialization tax, because the Value is already
 serialized in memory.
+
+A successful read of the full frame returns (Bytes, io.EOF) as a
+single-shot delimiter — stream assemblers that keep pulling frames
+(vm.Tokenizer, etc.) must treat a full read as success, not as
+end of the byte source.
 */
 func (value *Value) Read(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
@@ -143,11 +182,10 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
-Write implements io.Writer, which convert the Value from
-its wire format into a Value type.
-It is important to understand that we do not pay any
-traditional serialization tax, because the Value is already
-serialized in memory. This is the same as Read, but in reverse.
+Write decodes a full Value.Bytes wire frame into an existing Value. It does
+not recompute affinity or assign an ID; those words come from the frame.
+Use NewValue to mint from payload bytes with fresh ID and LSH-derived affinity
+for Publish and trie routing.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
@@ -453,20 +491,40 @@ func (value *Value) IncrementMeta(offset int) {
 }
 
 /*
+TokenRegionBytes returns the token slab bytes with trailing NUL padding trimmed.
+It matches what String exposes as UTF-8 data without allocating an intermediate
+string — safe only for immediate hashing or read-only use; do not retain the
+slice across mutations to the Value words.
+*/
+func (value *Value) TokenRegionBytes() []byte {
+	if value == nil {
+		return nil
+	}
+
+	tokenByteLen := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+	startByte := core.Cfg.Value.Region.Tokens.Start * 8
+
+	slab := unsafe.Slice(
+		(*byte)(unsafe.Pointer(&value[0])),
+		startByte+tokenByteLen,
+	)[startByte:]
+
+	trim := len(slab)
+
+	for trim > 0 && slab[trim-1] == 0 {
+		trim--
+	}
+
+	return slab[:trim]
+}
+
+/*
 String returns the string representation of the
 Value's token region, which stores the original
 bytes of the data that was used to create the Value.
 */
 func (value *Value) String() string {
-	tokenByteLen := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
-	startByte := core.Cfg.Value.Region.Tokens.Start * 8
-
-	return string(
-		unsafe.Slice(
-			(*byte)(unsafe.Pointer(&value[0])),
-			startByte+tokenByteLen,
-		)[startByte:],
-	)
+	return string(value.TokenRegionBytes())
 }
 
 /*

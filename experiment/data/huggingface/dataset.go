@@ -383,11 +383,20 @@ to the appropriate format parser (JSON or Parquet).
 fn returning false stops iteration.
 */
 func (dataset *Dataset) streamRows(fn rowVisitor) error {
+	errnie.Info(
+		"huggingface: resolving shard (API or sidecar; may take a while on cold cache)",
+		"repo", dataset.repo,
+		"subset", dataset.subset,
+		"split", dataset.split,
+	)
+
 	shard, branch, err := dataset.discoverShard()
 
 	if err != nil {
 		return err
 	}
+
+	errnie.Info("huggingface: shard resolved", "repo", dataset.repo, "shard", shard, "ref", branch)
 
 	reader, err := dataset.downloadShard(shard, branch)
 
@@ -733,6 +742,13 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 
 	data, err := os.ReadFile(cachePath)
 	if err == nil {
+		errnie.Info(
+			"huggingface: using cached shard",
+			"repo", dataset.repo,
+			"path", cachePath,
+			"bytes", len(data),
+		)
+
 		return bytes.NewReader(data), nil
 	}
 
@@ -754,6 +770,13 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+
+	errnie.Info(
+		"huggingface: downloading shard (first fetch can be large / slow)",
+		"repo", dataset.repo,
+		"url", url,
+		"cache", cachePath,
+	)
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 
@@ -780,6 +803,8 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
 	}
+
+	errnie.Info("huggingface: shard downloaded and cached", "repo", dataset.repo, "bytes", len(body))
 
 	return bytes.NewReader(body), nil
 }

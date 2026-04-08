@@ -163,14 +163,14 @@ function createNode(id, label) {
   // Stats panel.
   const statsCanvas = document.createElement('canvas');
   statsCanvas.width = 800;
-  statsCanvas.height = 520;
+  statsCanvas.height = 640;
   const statsTex = new THREE.CanvasTexture(statsCanvas);
   statsTex.minFilter = THREE.LinearFilter;
   statsTex.magFilter = THREE.LinearFilter;
   const statsMat = new THREE.SpriteMaterial({ map: statsTex, transparent: true, depthWrite: false });
   const statsSprite = new THREE.Sprite(statsMat);
   statsSprite.position.y = -3.4;
-  statsSprite.scale.set(8, 5.2, 1);
+  statsSprite.scale.set(8, 6.4, 1);
   group.add(statsSprite);
 
   // Trie cluster area.
@@ -346,6 +346,16 @@ function renderNodeStats(node) {
   label('gossip', COL3);  value(String(d.gossipCount), '#a080e0', COL3 + 100);
   y += ROW;
 
+  const bm = node.beam;
+  if (bm && (bm.lastCompose > 0 || bm.lastCollect > 0 || bm.activeCount > 0)) {
+    ctx.strokeStyle = 'rgba(60,80,120,0.15)';
+    ctx.beginPath(); ctx.moveTo(14, y - 8); ctx.lineTo(w - 14, y - 8); ctx.stroke();
+    label('beam');
+    const beamTxt = `${bm.activeCount} hyps · rej ${bm.rejectedCount} · best ${bm.bestScore.toFixed(3)}`;
+    value(beamTxt, '#f0a848', COL2);
+    y += ROW;
+  }
+
   // Activity sparkline.
   ctx.strokeStyle = 'rgba(60,80,120,0.15)';
   ctx.beginPath(); ctx.moveTo(14, y - 6); ctx.lineTo(w - 14, y - 6); ctx.stroke();
@@ -405,18 +415,23 @@ function renderNodeStats(node) {
     y += ROW;
   }
 
-  // Recent sequences.
-  const seqs = d.recentSequences.slice(-3).reverse();
+  // Recent sequences (longer lines — matches expanded TrieInsert telemetry).
+  const seqs = d.recentSequences.slice(-5).reverse();
   if (seqs.length) {
     ctx.strokeStyle = 'rgba(60,80,120,0.15)';
     ctx.beginPath(); ctx.moveTo(14, y - 6); ctx.lineTo(w - 14, y - 6); ctx.stroke();
 
-    ctx.font = '15px monospace';
+    ctx.font = '14px monospace';
+    const seqMaxPx = w - 28;
     for (const seq of seqs) {
       ctx.fillStyle = '#407858';
-      const display = seq.length > 60 ? `${seq.slice(0, 60)}...` : seq;
+      let display = seq;
+      ctx.font = '14px monospace';
+      while (display.length > 8 && ctx.measureText(display).width > seqMaxPx) {
+        display = `${display.slice(0, display.length - 4)}…`;
+      }
       ctx.fillText(display, 14, y + 8);
-      y += 20;
+      y += 18;
     }
   }
 

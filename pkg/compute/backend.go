@@ -35,7 +35,7 @@ Backend acts as an intelligent Multi-Substrate Load Balancer. It tracks
 in-flight depth and exponential moving average service time per substrate,
 dispatching work to whichever has the least pressure.
 
-Frames may carry a residency tag (word 121). When present, pick adds
+Frames may carry a residency tag (word 119). When present, pick adds
 transferPenalty to scores for substrates that would pull the buffer
 across a physical hop relative to where it last completed.
 

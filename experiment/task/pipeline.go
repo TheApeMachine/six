@@ -156,12 +156,17 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 		return nil
 	}
 
+	holdoutDescription := "per dataset configuration"
+
+	if descriptor, typed := pipeline.experiment.(tools.SummaryHoldoutDescriptor); typed {
+		holdoutDescription = descriptor.SummaryHoldoutDescription()
+	}
+
 	return WriteStandardSummary(
 		pipeline.experiment.Name(),
 		pipeline.experiment.Section(),
 		rows,
-		len(rows),
-		"",
+		holdoutDescription,
 		pipeline.timing,
 	)
 }

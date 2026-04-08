@@ -69,6 +69,11 @@ cuda:
 	cd pkg/compute/kernel/cuda \
 		&& go generate
 
+# For the live 3D viz: open http://127.0.0.1:6600 before this finishes — the
+# pipeline starts the viz server on the first experiment and replays history
+# to late-connecting browsers (see experiment/task/pipeline.go).
+# Languages pulls HuggingFace parquet shards: first resolve+download per subset
+# can sit silently for minutes until logs show shard cached; cache is under $TMPDIR/six_hf_*.
 paper:
 	go test $(LDFLAGS) -tags=exp_pipeline -v ./experiment/task/
 	go run main.go paper

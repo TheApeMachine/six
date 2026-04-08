@@ -129,8 +129,7 @@ func runDemo(ctx context.Context) {
 			continue
 		}
 
-		value.ComputeAffinityLSH()
-		_, _ = node.Publish(value, entry.label)
+		_ = node.Publish(value, entry.label)
 
 		// Let gossip and field dynamics propagate.
 		for _, node := range nodes {

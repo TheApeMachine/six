@@ -26,6 +26,7 @@ type Node struct {
 	children    atomic.Pointer[childMap]
 	TotalVisits atomic.Uint64
 	Depth       int
+	parent      atomic.Pointer[Node]
 }
 
 func NewNode(value primitive.Value) *Node {
@@ -92,6 +93,7 @@ func (node *Node) storeChild(value primitive.Value, child *Node) {
 		}
 
 		base[token] = child
+		child.parent.Store(node)
 		next := &childMap{m: base}
 
 		if node.children.CompareAndSwap(old, next) {

@@ -8,62 +8,48 @@ import (
 )
 
 /*
-affinityProjections holds the prime strides used for 8 independent LSH
-projections across the 512-bit affinity region. Each projection uses a
-different stride to sample different subsets of the token bits.
+affinityProjections holds one prime stride per affinity output word
+(see AffinityWords in affinity.go). ComputeAffinityLSH runs one SimHash-style
+projection per word: each projection walks token bits with its stride and
+majority-votes bit positions into that word. The last word only receives one
+output bit, so the aggregate fingerprint is AffinityBits (257) meaningful bits,
+not the width of the token region.
 
-All 8 values are prime numbers chosen from the range [73, 199]. Primes are
-required because the stride is used modulo tokenBits (512) to index into the
-input: a composite stride that shares a factor with 512 (any power of 2)
-would create degenerate sampling patterns that revisit the same subset of
-input bits, collapsing independent projections into correlated ones.
+Strides are prime so indexing uses idx := ... % tokenBits without structural
+degeneracy when tokenBits is a power of two (the usual case: token region is
+512 bits). A composite stride sharing a factor with tokenBits can revisit only
+a sub-lattice of indices and correlates projections that should be independent.
 
-The specific primes {73, 97, 113, 131, 151, 167, 181, 199} are spread across
-the range to maximize pairwise stride differences. This ensures that any two
-projections sample maximally different subsets of input bits -- for a 512-bit
-input, two projections with strides p1 and p2 first re-collide after
-lcm(p1,p2) steps, and since both are prime, lcm = p1*p2 >> 512, meaning they
-never re-collide within the input, producing fully independent samples.
+The slice length matches AffinityWords (currently {73, 97, 113, 131, 151});
+when tokenBits is large (e.g. 512), lcm(p1,p2) for two distinct primes in this
+range dwarfs tokenBits, so two projections do not realign within one token span.
 
-Sensitivity: replacing any prime with a power-of-2 (e.g. 128) causes that
-projection to sample only even-indexed or only odd-indexed bits, halving its
-effective input and correlating it with other projections. Using primes that
-are too close together (e.g. all in [71,89]) reduces the diversity of sampling
-patterns, weakening the LSH's ability to distinguish inputs that differ only
-in specific bit regions.
+Sensitivity: power-of-two strides align with bit-index parity classes; primes
+that are too tight in range reduce geometric diversity between projections.
 */
 var affinityProjections = [AffinityWords]int{73, 97, 113, 131, 151}
 
 /*
-affinityLSHSamplesPerBit controls how many token bits vote for each output
-bit via majority vote. Higher values produce more stable (less noisy) output
-bits but reduce sensitivity to small input differences.
+affinityLSHSamplesPerBit controls how many token bits vote for each affinity
+output bit via majority vote. Higher k stabilizes each bit but dilutes
+discrimination across the fixed token span (core.Cfg.Value.Region.Tokens.Bits).
 
-7 is chosen for 512-bit token inputs based on the following reasoning:
-  - Each output bit's majority vote has error rate ~ exp(-2 * margin^2 * k)
-    where k is the sample count. At k=7, a true-positive input bit (>50%
-    of sampled bits set) is correctly output with probability >96%.
-  - At k=3 (too few), the majority vote flips on a single noisy input bit,
-    making the affinity fingerprint unstable across minor input variations.
-  - At k=15 (too many), the vote is extremely stable but each output bit
-    averages over ~3% of the input, washing out fine-grained differences
-    between similar-but-distinct inputs. Two inputs differing in only 10%
-    of their token bits would produce nearly identical affinity vectors.
-  - k=7 samples ~1.4% of the input per output bit, preserving sensitivity
-    to ~5% input differences while suppressing single-bit noise.
+The default k was tuned when the token region is 512 bits: each output bit
+samples a small, stride-dependent subset of those bits rather than the full
+span. The affinity output width stays AffinityBits (257); this constant does
+not enlarge the fingerprint, it only controls variance per output bit.
 
-Sensitivity: reducing to 3 makes affinity vectors noisy enough that
-BloomOverlap / affineCoupling produce false positives on unrelated inputs.
-Increasing to 15+ causes genuinely different inputs to hash to the same
-affinity vector, creating false mode merges in the Kadabra field.
+Sensitivity: very small k yields noisy fingerprints; very large k smears
+differences between near-duplicate token patterns and hurts routing.
 */
 const affinityLSHSamplesPerBit = 7
 
 /*
-ComputeAffinityLSH projects the token region into the full 512-bit affinity
-region (8 words × 64 bits) using 8 independent SimHash projections. Each
-projection uses a different prime stride to sample different subsets of the
-token bits via majority vote.
+ComputeAffinityLSH fills the configured affinity region from the token region:
+one majority-vote projection per affinity word, using affinityProjections[stride
+per word]. Output width follows Region.Affinity.Bits (with AffinityWords and
+AffinityLastWordMask applied, typically 257 bits: four full uint64 lanes plus
+one bit in the fifth word). Token bit count comes from Region.Tokens.Bits.
 */
 func (value *Value) ComputeAffinityLSH() error {
 	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
@@ -93,7 +79,7 @@ func (value *Value) ComputeAffinityLSH() error {
 		for out := range outBits {
 			ones, counted := 0, 0
 
-			for s := 0; s < affinityLSHSamplesPerBit; s++ {
+			for s := range affinityLSHSamplesPerBit {
 				idx := (out*stride + s*stride + proj*37) % tokenBits
 				w := idx / 64
 
@@ -117,16 +103,15 @@ func (value *Value) ComputeAffinityLSH() error {
 }
 
 /*
-ComputeAffinityFromContext writes the affinity region using multi-scale
-n-gram Bloom fingerprints over an arbitrary byte slice. Each of the 8
-affinity words captures a different n-gram scale (3..10 bytes), so the
-512-bit fingerprint encodes structural patterns at multiple resolutions.
+ComputeAffinityFromContext sets the affinity region from raw bytes by OR-ing
+set bits derived from 4-byte and 8-byte n-grams (see loop below). Each n-gram
+hashes to a word index and bit index modulo AffinityWords / bits per word, so
+the fingerprint spreads across the same AffinityBits-wide region as LSH, not
+a separate 512-bit space.
 
-This is fundamentally different from the token-region SimHash (which
-operates on raw bits and cannot distinguish ASCII text with similar
-character distributions). N-gram Blooms capture sequential byte patterns
-— "def " vs "fn " produce different 3-gram sets and therefore different
-fingerprints.
+Empty context falls back to ComputeAffinityLSH. This path targets byte-level
+structure (substring overlap) where bit-majority over the token slab is a
+poor match for natural text statistics.
 */
 func (value *Value) ComputeAffinityFromContext(context []byte) error {
 	if value == nil {
@@ -140,13 +125,8 @@ func (value *Value) ComputeAffinityFromContext(context []byte) error {
 	affStart := core.Cfg.Value.Region.Affinity.Start
 	affWords := int(core.Cfg.Value.Region.Affinity.Bits+63) / 64
 
-	// Compute n-gram hashes and distribute them across the 8 affinity
-	// words using the hash value itself to select which word and bit.
-	// This spreads the fingerprint across all 512 bits, avoiding the
-	// saturation problem of per-word Bloom filters on large inputs.
-	//
-	// We use two n-gram scales (4 and 8 bytes) so the fingerprint
-	// captures both keyword-level and phrase-level structure.
+	// Hash each n-gram to (aff word, bit) so load spreads across AffinityWords
+	// instead of saturating a single 64-bit Bloom when context is long.
 	var aff [AffinityWords]uint64
 
 	for _, ngramWidth := range []int{4, 8} {

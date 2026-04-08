@@ -2,8 +2,8 @@ package kadabra
 
 import (
 	"hash/fnv"
+	"unsafe"
 
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -27,14 +27,20 @@ label and the string form of the stored Value.
 func (record SequenceRecord) Hash() uint64 {
 	hasher := fnv.New64a()
 
-	for _, segment := range [][]byte{
-		[]byte(record.Label), {0}, []byte(record.Value.String()),
-	} {
-		_, err := hasher.Write(segment)
+	label := record.Label
 
-		if errnie.Error(err) != nil {
-			return 0
-		}
+	if len(label) > 0 {
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(label), len(label)))
+	}
+
+	var sep [1]byte
+
+	_, _ = hasher.Write(sep[:])
+
+	tok := record.Value.TokenRegionBytes()
+
+	if len(tok) > 0 {
+		_, _ = hasher.Write(tok)
 	}
 
 	return hasher.Sum64()

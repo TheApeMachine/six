@@ -1,6 +1,8 @@
 package markovtrie
 
 import (
+	"strings"
+
 	"github.com/theapemachine/six/pkg/core/algo"
 )
 
@@ -11,62 +13,64 @@ in this package, beam supplies only data shapes and pure steps.
 func (store *Store) Generate(
 	context string, label string, temperature float64, maxLength int,
 ) (string, error) {
-	if store == nil {
+	if store == nil || store.root == nil {
 		return "", nil
 	}
 
+	_ = label
+
 	prediction := algo.NewPrediction()
 
-	store.Walk(store.root, func(node *Node) {
-		prediction.Context = append(
-			prediction.Context, node.value,
-		)
-	})
+	tokens := generateContextTokens(context)
+
+	leaf := store.root
+
+	if len(tokens) > 0 {
+		leaf = store.WalkPath(tokens, func(node *Node) {
+			prediction.Context = append(prediction.Context, node.value)
+		})
+	}
+
+	if leaf == nil {
+		leaf = store.root
+	}
+
+	children := leaf.Children()
+
+	if children == nil || len(children) == 0 {
+		return "", nil
+	}
+
+	temp := temperature
+
+	if temp <= 0 {
+		temp = 1
+	}
+
+	for _, child := range children {
+		visits := float64(child.TotalVisits.Load())
+		score := visits / temp
+
+		prediction.Continuations = append(prediction.Continuations, algo.Continuation{
+			Sequence: []byte(child.value.String()),
+			Score:    score,
+			Origin:   store.ID,
+		})
+	}
+
+	if maxLength > 0 && len(prediction.Continuations) > maxLength {
+		prediction.Continuations = prediction.Continuations[:maxLength]
+	}
 
 	return prediction.String(), nil
 }
 
-/*
-Walk performs a depth-first traversal of the trie from the given node,
-calling the visitor for each node encountered.
-*/
-func (store *Store) Walk(node *Node, visitor func(node *Node)) {
-	if node == nil {
-		return
+func generateContextTokens(context string) []string {
+	fields := strings.Fields(context)
+
+	if len(fields) == 0 {
+		return nil
 	}
 
-	visitor(node)
-
-	children := node.Children()
-
-	for _, child := range children {
-		store.Walk(child, visitor)
-	}
-}
-
-/*
-WalkPath follows a specific token sequence through the trie,
-calling the visitor for each node on the path. Returns the
-deepest node reached.
-*/
-func (store *Store) WalkPath(tokens []string, visitor func(node *Node)) *Node {
-	if store.root == nil || len(tokens) == 0 {
-		return store.root
-	}
-
-	current := store.root
-	visitor(current)
-
-	for _, token := range tokens {
-		child := current.Child(token)
-
-		if child == nil {
-			return current
-		}
-
-		current = child
-		visitor(current)
-	}
-
-	return current
+	return fields
 }

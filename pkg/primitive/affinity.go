@@ -61,6 +61,52 @@ func NewAffinityFromVector(vector [AffinityWords]uint64) *Affinity {
 }
 
 /*
+AffinityWithVector returns an Affinity by value so callers can take its address
+for APIs that need *Affinity without a heap allocation (Publish/Store hot path).
+*/
+func AffinityWithVector(vector [AffinityWords]uint64) Affinity {
+	return Affinity{vector: vector}
+}
+
+/*
+AffinityVectorIsZero reports whether the vector is all-zero in the 257-bit sense
+(last word is masked like AffinityVector).
+*/
+func AffinityVectorIsZero(vector [AffinityWords]uint64) bool {
+	for wordIdx := range AffinityWords {
+		word := vector[wordIdx]
+
+		if wordIdx == AffinityWords-1 {
+			word &= AffinityLastWordMask
+		}
+
+		if word != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+/*
+AffinityForNodeID folds a 64-bit mesh identity into the 257-bit affinity
+space deterministically. Routing uses this as a stable pseudo-centroid
+for a peer until richer learned affinities replace it, so Closest is not
+driven purely by bucket insertion order.
+*/
+func AffinityForNodeID(nodeID uint64) *Affinity {
+	var vec [AffinityWords]uint64
+
+	vec[0] = nodeID
+	vec[1] = bits.Reverse64(nodeID)
+	vec[2] = nodeID ^ 0xaaaaaaaaaaaaaaaa
+	vec[3] = nodeID ^ 0x5555555555555555
+	vec[4] = nodeID & AffinityLastWordMask
+
+	return NewAffinityFromVector(vec)
+}
+
+/*
 Vector returns the raw bit vector. Callers that need read access
 without copying can use this; mutation requires going through methods.
 */
@@ -135,11 +181,7 @@ func (affinity *Affinity) Blend(
 		// Hard revert used to freeze the centroid forever once it brushed
 		// the Shannon headroom. Prune highest bits first so saturated
 		// clusters keep adapting instead of becoming routing dead-ends.
-		headroom := shannonLimit * 9 / 10
-
-		if headroom < 1 {
-			headroom = 1
-		}
+		headroom := max(shannonLimit*9/10, 1)
 
 		affinity.pruneUntilPopcountAtMost(headroom)
 
@@ -159,10 +201,14 @@ vector is within max bits or no bits remain. Deterministic order keeps
 routing reproducible while freeing centroid capacity under saturation.
 */
 func (affinity *Affinity) pruneUntilPopcountAtMost(max int) {
-	for affinity.Popcount() > max {
+	current := affinity.Popcount()
+
+	for current > max {
 		if !affinity.clearHighestSetBit() {
 			return
 		}
+
+		current--
 	}
 }
 
@@ -280,7 +326,7 @@ func rotateSelector(count uint64, wordIdx int) uint64 {
 
 	const maxRejects = 256
 
-	for bit := 0; bit < 64; bit++ {
+	for bit := range 64 {
 		var slot uint64
 
 		rejects := 0

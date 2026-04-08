@@ -7,13 +7,13 @@ import (
 )
 
 /*
-Words 120–121 hold transport metadata. They sit below the programmer’s
-rotation arena (32–95) and batch counters (124–125), and avoid the CSA
-profile pointer slot (126–127).
+Words 118–119 hold transport metadata (correlation id, residency tag).
+They live in the reserved band before the graph-link words Prev/Next
+at 120–121 so kernel stamping cannot clobber trie/Value graph fields.
 */
 const (
-	FrameMetaCorrelationWord = 120
-	FrameMetaResidencyWord   = 121
+	FrameMetaCorrelationWord = 118
+	FrameMetaResidencyWord   = 119
 )
 
 /*

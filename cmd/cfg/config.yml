@@ -45,6 +45,7 @@ kadabra:
   bucketSize: 20
   replicationFactor: 3
   clusterThreshold: 192
+  maxMeshPeers: 4096
   shannonLimit: 240
   alpha: 3
   epochQueries: 100
@@ -103,6 +104,7 @@ markovtrie:
   adaptiveMaxDepthDecayMaxDepth: 8
 
 value:
+  word: 64
   words: 128
   bytes: 1024
   # UniversalBitwise rotates the B span in 8-bit steps; one opcode per rotation.

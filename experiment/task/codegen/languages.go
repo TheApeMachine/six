@@ -18,6 +18,8 @@ var samples = 100
 // Ensure LanguagesExperiment implements the full interface at compile time.
 var _ tools.PipelineExperiment = (*LanguagesExperiment)(nil)
 
+var _ tools.SummaryHoldoutDescriptor = (*LanguagesExperiment)(nil)
+
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
 // The subset name is the path component used to select the right parquet shard.
 var humanEvalLanguages = []struct {
@@ -89,6 +91,14 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 
 func (experiment *LanguagesExperiment) Name() string    { return "Languages" }
 func (experiment *LanguagesExperiment) Section() string { return "codegen" }
+
+/*
+SummaryHoldoutDescription documents the humanevalpack setup: the last 50 bytes
+of each prompt+canonical row are held out as the expected completion tail.
+*/
+func (experiment *LanguagesExperiment) SummaryHoldoutDescription() string {
+	return "50-byte suffix (expected completion tail)"
+}
 
 func (experiment *LanguagesExperiment) Dataset() data.Provider {
 	return experiment.dataset

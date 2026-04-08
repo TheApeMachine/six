@@ -1,6 +1,7 @@
 package kadabra
 
 import (
+	"maps"
 	"math/bits"
 	"math/rand"
 	"sync/atomic"
@@ -90,21 +91,37 @@ func (rt *RoutingTable) AddPeer(peer *Node, rtt float64) {
 	}
 
 	rt.buckets[idx].CAS(func(st *bucketState) {
+		centroid := primitive.AffinityForNodeID(peer.ID)
+
 		if existing := st.Candidates[peer.ID]; existing != nil {
 			existing.Node = peer
 			existing.RTT = rtt
+
+			if existing.Affinity == nil {
+				existing.Affinity = centroid
+			}
 
 			for _, entry := range st.Entries {
 				if entry != nil && entry.ID == peer.ID {
 					entry.Node = peer
 					entry.RTT = rtt
+
+					if entry.Affinity == nil {
+						entry.Affinity = centroid
+					}
 				}
 			}
 
 			return
 		}
 
-		candidate := &Peer{ID: peer.ID, Node: peer, RTT: rtt}
+		candidate := &Peer{
+			ID:       peer.ID,
+			Affinity: centroid,
+			Node:     peer,
+			RTT:      rtt,
+		}
+
 		st.Candidates[peer.ID] = candidate
 
 		if len(st.Entries) < rt.bucketSize {
@@ -224,4 +241,76 @@ func (rt *RoutingTable) Closest(
 	}
 
 	return sorted[:limit]
+}
+
+/*
+claimRecordIfNew installs record into the sharded record index when Key is
+absent. It returns true on first admission and false when Key already
+exists (duplicate primary publish or replica redelivery).
+
+The trie insert path must gate on this so at-least-once delivery does not
+double-count MarkovTrie statistics or re-fire trie visualization for the
+same logical record.
+*/
+func (rt *RoutingTable) claimRecordIfNew(record SequenceRecord) bool {
+	if rt == nil {
+		return false
+	}
+
+	shardIdx := int(record.Key) & (recordShardCount - 1)
+
+	for {
+		old := rt.shards[shardIdx].ptr.Load()
+		var base map[uint64]SequenceRecord
+
+		if old != nil && old.m != nil {
+			if _, exists := old.m[record.Key]; exists {
+				return false
+			}
+
+			base = maps.Clone(old.m)
+		} else {
+			base = make(map[uint64]SequenceRecord)
+		}
+
+		base[record.Key] = record
+		next := &recordSnapshot{m: base}
+
+		if rt.shards[shardIdx].ptr.CompareAndSwap(old, next) {
+			return true
+		}
+	}
+}
+
+/*
+releaseRecordKey removes a Key from the sharded index after a failed
+downstream step (e.g. trie spawn error) so admission does not leave a
+permanent tombstone blocking a later successful insert.
+*/
+func (rt *RoutingTable) releaseRecordKey(key uint64) {
+	if rt == nil {
+		return
+	}
+
+	shardIdx := int(key) & (recordShardCount - 1)
+
+	for {
+		old := rt.shards[shardIdx].ptr.Load()
+
+		if old == nil || old.m == nil {
+			return
+		}
+
+		if _, exists := old.m[key]; !exists {
+			return
+		}
+
+		base := maps.Clone(old.m)
+		delete(base, key)
+		next := &recordSnapshot{m: base}
+
+		if rt.shards[shardIdx].ptr.CompareAndSwap(old, next) {
+			return
+		}
+	}
 }

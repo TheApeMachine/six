@@ -202,9 +202,9 @@ func TestExecuteBatchDistance(t *testing.T) {
 			// Candidates at word 32, each 8 words.
 			// Candidate 0: all zeros → distance 0.
 			// Candidate 1: word 0 = 0xFF → distance 8.
-			v[kernel.ProgramStartWord] = 0x6 // XOR opcode
-			v[124] = 2                       // 2 candidates
-			v[32+8+0] = 0xFF                 // candidate 1, word 0
+			v[kernel.ProgramStartWord] = 0x6       // XOR opcode
+			v[kernel.NearestAffinityBatchWord] = 2 // 2 candidates
+			v[32+8+0] = 0xFF                       // candidate 1, word 0
 
 			err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&v)})
 			convey.So(err, convey.ShouldBeNil)

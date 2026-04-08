@@ -258,9 +258,8 @@ node := kadabra.NewKadabraNode(
     kadabra.WithReplicationFactor(3),
 )
 
-// Create a Value, compute its affinity, publish to the DHT
+// Create a Value (affinity + ID filled by NewValue), publish to the DHT
 value, _ := primitive.NewValue([]byte("the cat sat on the mat"))
-value.ComputeAffinityLSH()
 node.Publish(*value, "Sentence")
 value.Close()
 
