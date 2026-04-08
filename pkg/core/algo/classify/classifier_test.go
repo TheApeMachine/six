@@ -14,7 +14,7 @@ func TestClassifierUpdate(t *testing.T) {
 	Convey("Update ignores empty context", t, func() {
 		classifier := NewClassifier()
 		prediction := algo.NewPrediction()
-		prediction.Labels = append(prediction.Labels, algo.Label{
+		prediction.Targets = append(prediction.Targets, algo.Label{
 			Label:      []byte("L"),
 			Confidence: 1,
 		})
@@ -28,7 +28,7 @@ func TestClassifierUpdate(t *testing.T) {
 	Convey("Update trains then classifies repeated tokens", t, func() {
 		classifier := NewClassifier()
 		trainPred := algo.NewPrediction()
-		trainPred.Labels = append(trainPred.Labels, algo.Label{
+		trainPred.Targets = append(trainPred.Targets, algo.Label{
 			Label:      []byte("pos"),
 			Confidence: 1,
 		})
@@ -46,7 +46,6 @@ func TestClassifierUpdate(t *testing.T) {
 		So(err, ShouldBeNil)
 
 		runPred := algo.NewPrediction()
-		runPred.Labels = append(runPred.Labels, trainPred.Labels...)
 		runPred.Context = append(runPred.Context, *vTrain)
 
 		out, err := classifier.Update(runPred)
@@ -71,7 +70,7 @@ func TestClassifierValue(t *testing.T) {
 		defer v.Close()
 
 		prediction.Context = append(prediction.Context, *v)
-		prediction.Labels = append(prediction.Labels, algo.Label{
+		prediction.Targets = append(prediction.Targets, algo.Label{
 			Label:      []byte("k"),
 			Confidence: 0.9,
 		})
@@ -91,6 +90,23 @@ func TestClassifierValue(t *testing.T) {
 
 		So(string(again.Labels[0].Label), ShouldEqual, "k")
 	})
+
+	Convey("Update composes child label evidence without local context training", t, func() {
+		classifier := NewClassifier()
+		prediction := algo.NewPrediction()
+		prediction.Labels = append(
+			prediction.Labels,
+			algo.Label{Label: []byte("alpha"), Confidence: 0.6},
+			algo.Label{Label: []byte("beta"), Confidence: 0.2},
+			algo.Label{Label: []byte("alpha"), Confidence: 0.4},
+		)
+
+		out, err := classifier.Update(prediction)
+
+		So(err, ShouldBeNil)
+		So(len(out.Labels), ShouldBeGreaterThan, 0)
+		So(out.Label(), ShouldEqual, "alpha")
+	})
 }
 
 func BenchmarkClassifierUpdate(b *testing.B) {
@@ -103,7 +119,7 @@ func BenchmarkClassifierUpdate(b *testing.B) {
 
 	for b.Loop() {
 		prediction := algo.NewPrediction()
-		prediction.Labels = append(prediction.Labels, algo.Label{
+		prediction.Targets = append(prediction.Targets, algo.Label{
 			Label:      []byte("lbl"),
 			Confidence: 1,
 		})

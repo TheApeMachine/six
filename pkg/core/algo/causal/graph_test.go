@@ -38,7 +38,7 @@ func graphPrediction(
 	rightCopy := *right
 
 	prediction := algo.NewPrediction()
-	prediction.Labels = append(prediction.Labels, algo.Label{
+	prediction.Targets = append(prediction.Targets, algo.Label{
 		Label:      []byte(label),
 		Confidence: 1,
 	})

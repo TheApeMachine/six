@@ -163,7 +163,7 @@ func (store *Store) Load(
 
 	for _, label := range labels {
 		observation.TruncateForUpdate()
-		observation.AddLabels(algo.Label{
+		observation.AddTargets(algo.Label{
 			Label:      []byte(label),
 			Confidence: 1,
 		})
@@ -195,12 +195,11 @@ func (store *Store) Observe(observation *algo.Prediction) error {
 /*
 Predict runs the same algorithm stack as Load, but with an unlabeled
 observation built from the trie path for value's token. Classifier
-posteriors and beam continuations are merged into one Prediction for
-Prompt/VM callers; other algorithms update their internal signals without
-writing into that merged view.
+posteriors, beam continuations, and derived signals are merged into one
+Prediction for Prompt/VM callers by the shared algo.Stack.
 */
 func (store *Store) Predict(value primitive.Value) (*algo.Prediction, error) {
-	if store == nil || store.root == nil {
+	if store == nil || store.root == nil || store.stack == nil {
 		return algo.NewPrediction(), nil
 	}
 

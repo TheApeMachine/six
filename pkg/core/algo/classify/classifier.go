@@ -8,7 +8,6 @@ import (
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -17,6 +16,13 @@ distributions built from the Prediction's Context values. The trie
 Walk populates Context before Update is called — the Classifier
 tracks per-label token profiles internally and scores incoming
 observations against them.
+
+Recursive path:
+  - At the trie level, the classifier infers labels from Context values.
+  - At the node level, the same classifier composes child label evidence
+    from prediction.Labels into a consensus posterior.
+
+Targets are supervision only. Incoming Labels are evidence from layers below.
 
 Signals produced:
   - Entropy: EMA-smoothed Shannon entropy of the posterior distribution.
@@ -60,30 +66,37 @@ func NewClassifier() *Classifier {
 }
 
 /*
-Update receives Context values and Labels. For each label, it
-accumulates the token frequencies from Context into that label's
-profile. Then it classifies the current observation by computing
-log-evidence for each known label and converting to posteriors.
+Update receives Context values, Targets, and child Labels. For each target, it
+accumulates the token frequencies from Context into the target label's
+profile. Then it classifies the current observation from Context,
+incoming child Labels, or both.
 */
 func (classifier *Classifier) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
-	if prediction == nil || len(prediction.Context) == 0 {
+	if prediction == nil {
 		return classifier.prediction, nil
 	}
 
 	tokens := classifier.tokenize(prediction)
+	targets := prediction.SupervisionLabels()
 
 	classifier.mu.Lock()
 	defer classifier.mu.Unlock()
 
-	for _, label := range prediction.Labels {
+	for _, label := range targets {
 		name := string(label.Label)
 		classifier.train(name, tokens)
 	}
 
-	classifier.observations++
-	posteriors := classifier.classify(tokens)
+	if len(targets) > 0 && len(tokens) > 0 {
+		classifier.observations++
+	}
+
+	posteriors := classifier.compose(
+		classifier.classify(tokens),
+		classifier.classifyLabels(prediction.Labels),
+	)
 
 	if len(posteriors) == 0 {
 		return classifier.prediction, nil
@@ -117,38 +130,7 @@ func (classifier *Classifier) Value() *algo.Prediction {
 		return nil
 	}
 
-	src := classifier.prediction
-
-	out := &algo.Prediction{
-		Labels:        make([]algo.Label, len(src.Labels)),
-		Continuations: make([]algo.Continuation, len(src.Continuations)),
-		Context:       append([]primitive.Value(nil), src.Context...),
-		Signals:       make(map[algo.SignalType]*numeric.Derived, len(src.Signals)),
-	}
-
-	for idx, label := range src.Labels {
-		out.Labels[idx] = algo.Label{
-			Label:      append([]byte(nil), label.Label...),
-			Confidence: label.Confidence,
-		}
-	}
-
-	for idx, cont := range src.Continuations {
-		out.Continuations[idx] = algo.Continuation{
-			Sequence: append([]byte(nil), cont.Sequence...),
-			Score:    cont.Score,
-		}
-	}
-
-	for signalType, signal := range src.Signals {
-		if signal == nil {
-			continue
-		}
-
-		out.Signals[signalType] = signal.Clone()
-	}
-
-	return out
+	return classifier.prediction.Clone()
 }
 
 /*
@@ -205,6 +187,89 @@ func (classifier *Classifier) classify(
 	}
 
 	return softmax(logEvidence)
+}
+
+/*
+classifyLabels composes child classifier output into a parent posterior by
+aggregating confidences per label and normalizing them.
+*/
+func (classifier *Classifier) classifyLabels(
+	labels []algo.Label,
+) map[string]float64 {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	posteriors := make(map[string]float64)
+	total := 0.0
+
+	for _, label := range labels {
+		name := string(label.Label)
+
+		if name == "" {
+			continue
+		}
+
+		weight := label.Confidence
+
+		if weight <= 0 {
+			continue
+		}
+
+		posteriors[name] += weight
+		total += weight
+	}
+
+	if total <= 0 {
+		return nil
+	}
+
+	for name, weight := range posteriors {
+		posteriors[name] = weight / total
+	}
+
+	return posteriors
+}
+
+/*
+compose combines local token posteriors with child-label posteriors.
+When both are present, their normalized masses are added and then
+renormalized, preserving both local evidence and lower-layer consensus.
+*/
+func (classifier *Classifier) compose(
+	local map[string]float64,
+	child map[string]float64,
+) map[string]float64 {
+	if len(local) == 0 {
+		return child
+	}
+
+	if len(child) == 0 {
+		return local
+	}
+
+	combined := make(map[string]float64, len(local)+len(child))
+	total := 0.0
+
+	for label, prob := range local {
+		combined[label] += prob
+		total += prob
+	}
+
+	for label, prob := range child {
+		combined[label] += prob
+		total += prob
+	}
+
+	if total <= 0 {
+		return nil
+	}
+
+	for label, prob := range combined {
+		combined[label] = prob / total
+	}
+
+	return combined
 }
 
 /*

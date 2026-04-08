@@ -142,7 +142,7 @@ func NewGraph() *Graph {
 
 /*
 Update receives a walked trie path in prediction.Context and the
-current labels. Consecutive Value pairs in the path are directed
+current target labels. Consecutive Value pairs in the path are directed
 edges. Per-label counts accumulate on each edge and invariance is
 recomputed. The CausalStrength signal tracks the smoothed mean
 invariance across all edges observed this update.
@@ -155,9 +155,10 @@ func (graph *Graph) Update(
 	}
 
 	label := ""
+	targets := prediction.SupervisionLabels()
 
-	if len(prediction.Labels) > 0 {
-		label = string(prediction.Labels[0].Label)
+	if len(targets) > 0 {
+		label = string(targets[0].Label)
 	}
 
 	if label == "" {

@@ -119,6 +119,10 @@ MarkovTrie is a suffix trie that learns from every observation. No training epoc
 
 The unified entry point is `Predict(data) -> Prediction` — the caller passes data, the system returns a classification and continuations. Everything else is internal.
 
+Internally, each layer talks through the same `algo.Prediction` envelope and `algo.Stack` orchestration object, so trie-local inference, node-level composition, and field feedback all reuse one interface instead of accumulating layer-specific management code.
+
+For control, a multimodal coordinator can bind sensory, action, and reward tries while maintaining coactivation-weighted expected reward for each observed `(sensory, action, reward)` triplet. A causal graph simultaneously tracks how stable each `sensory -> action -> reward` path remains across reward labels, and policy projection biases action ranking toward those invariant paths before projecting ranked continuations upward through the same prediction envelope.
+
 ### Kadabra: Distributed Knowledge Routing
 
 Kadabra is a Kademlia-style distributed hash table where the nodes are MarkovTries. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges.

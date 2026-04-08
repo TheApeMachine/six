@@ -109,7 +109,7 @@ func NewOnline() *Online {
 
 /*
 Update receives an observation from the Store orchestrator. The
-Prediction carries labels (what to train) and context (the values).
+Prediction carries target labels (what to train) and context (the values).
 MeanSurprisal is set by the Store from its trie walk.
 
 The trainer pushes the surprisal observation through its Derived
@@ -124,9 +124,10 @@ func (online *Online) Update(
 		return online.prediction, nil
 	}
 
+	targets := prediction.SupervisionLabels()
 	var novelty float64
 
-	if len(prediction.Labels) > 0 && len(prediction.Context) > 0 {
+	if len(targets) > 0 && len(prediction.Context) > 0 {
 		novelty = online.contextNovelty(prediction)
 	}
 
@@ -135,11 +136,11 @@ func (online *Online) Update(
 
 	online.applyFieldPressure(prediction)
 
-	if len(prediction.Labels) == 0 {
+	if len(targets) == 0 {
 		return online.prediction, nil
 	}
 
-	label := string(prediction.Labels[0].Label)
+	label := string(targets[0].Label)
 
 	online.surprisal.Next(novelty)
 	online.growthRate.Next(float64(online.CurrentStep))

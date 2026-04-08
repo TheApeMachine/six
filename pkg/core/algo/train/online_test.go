@@ -42,7 +42,7 @@ func TestOnlineUpdate(t *testing.T) {
 	Convey("Update advances step and class totals", t, func() {
 		online := NewOnline()
 		prediction := algo.NewPrediction()
-		prediction.Labels = append(prediction.Labels, algo.Label{
+		prediction.Targets = append(prediction.Targets, algo.Label{
 			Label:      []byte("classA"),
 			Confidence: 1,
 		})
@@ -86,7 +86,7 @@ func TestOnlineUpdateConcurrent(t *testing.T) {
 
 				for round := 0; round < rounds; round++ {
 					prediction := algo.NewPrediction()
-					prediction.Labels = append(prediction.Labels, algo.Label{
+					prediction.Targets = append(prediction.Targets, algo.Label{
 						Label:      []byte("L"),
 						Confidence: 1,
 					})
@@ -188,7 +188,7 @@ func BenchmarkOnlineUpdate(b *testing.B) {
 	defer payload.Close()
 
 	prediction := algo.NewPrediction()
-	prediction.Labels = append(prediction.Labels, algo.Label{
+	prediction.Targets = append(prediction.Targets, algo.Label{
 		Label:      []byte("lbl"),
 		Confidence: 1,
 	})
