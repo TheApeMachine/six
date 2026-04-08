@@ -306,7 +306,7 @@ func (search *Search) rankFromContinuations(
 
 	for _, cont := range prediction.Continuations {
 		prob := math.Exp(cont.Score - maxScore)
-		prob *= search.phaseWeightedProbability(cont.Sequence, 1)
+prob = search.phaseWeightedProbability(cont.Sequence, prob)
 
 		ranked = append(ranked, RankedToken{
 			Token:       string(cont.Sequence),
