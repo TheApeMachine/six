@@ -1,6 +1,7 @@
 package train
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -123,6 +124,12 @@ func (online *Online) Update(
 		return online.prediction, nil
 	}
 
+	var novelty float64
+
+	if len(prediction.Labels) > 0 && len(prediction.Context) > 0 {
+		novelty = online.contextNovelty(prediction)
+	}
+
 	online.mu.Lock()
 	defer online.mu.Unlock()
 
@@ -134,7 +141,6 @@ func (online *Online) Update(
 
 	label := string(prediction.Labels[0].Label)
 
-	novelty := online.contextNovelty(prediction)
 	online.surprisal.Next(novelty)
 	online.growthRate.Next(float64(online.CurrentStep))
 
@@ -235,7 +241,7 @@ func (online *Online) stepUnlocked(
 		return
 	}
 
-	tokens := online.encoder.Encode(value.String())
+	tokens := online.encoder.EncodeBytes(value.TokenRegionBytes())
 
 	online.addLabelUnlocked(label)
 	online.CurrentStep++
@@ -297,7 +303,10 @@ func (online *Online) contextNovelty(prediction *algo.Prediction) float64 {
 	var total float64
 
 	for _, value := range prediction.Context {
-		for _, token := range strings.Fields(value.String()) {
+		slab := value.TokenRegionBytes()
+
+		for _, field := range bytes.Fields(slab) {
+			token := string(field)
 			freq[token]++
 			total++
 		}

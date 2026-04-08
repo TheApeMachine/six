@@ -1,13 +1,13 @@
 package cooccurrence
 
-import "sync"
-
 /*
 Matrix tracks word co-occurrence counts within a sliding window
 and maintains insertion-ordered vocabulary.
+
+Not safe for concurrent writers; train.Online serializes calls while
+holding its own mutex.
 */
 type Matrix struct {
-	mu              sync.Mutex
 	Vocabulary      map[string]struct{}
 	VocabularyOrder []string
 	Counts          map[string]map[string]float64
@@ -30,9 +30,6 @@ func NewMatrix(window int) *Matrix {
 Update records vocabulary and co-occurrence for a token slice.
 */
 func (matrix *Matrix) Update(words []string) {
-	matrix.mu.Lock()
-	defer matrix.mu.Unlock()
-
 	for _, word := range words {
 		if _, exists := matrix.Vocabulary[word]; !exists {
 			matrix.Vocabulary[word] = struct{}{}

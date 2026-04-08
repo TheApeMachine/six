@@ -26,7 +26,10 @@ func (hypothesis *Hypothesis) Extend(
 		return []*Hypothesis{hypothesis}
 	}
 
-	ranked.SortDescending()
+	/*
+		ranked must already be sorted descending by Probability (see Search.rank).
+		Re-sorting here burned O(k log k) inside every Extend on the beam hot path.
+	*/
 
 	limit := min(branchFactor, len(ranked))
 	out := make([]*Hypothesis, 0, limit*2+1)

@@ -121,6 +121,29 @@ func TestStreamWrite(t *testing.T) {
 	})
 }
 
+func TestStreamWriteMultiPublisher(t *testing.T) {
+	setupStreamWireConfig(t)
+
+	Convey("Multiple publishers share one decode per frame", t, func() {
+		frame := wireFrame(t, []byte("shared-decode"))
+
+		first := &captureFramesPublishable{}
+		second := &captureFramesPublishable{}
+		stream, err := NewStream(core.Cfg.Value.Bytes, first, second)
+
+		So(err, ShouldBeNil)
+
+		_, wErr := stream.Write(frame)
+
+		So(wErr, ShouldBeNil)
+		So(stream.Close(), ShouldBeNil)
+		So(len(first.frames), ShouldEqual, 1)
+		So(len(second.frames), ShouldEqual, 1)
+		So(first.frames[0], ShouldResemble, frame)
+		So(second.frames[0], ShouldResemble, frame)
+	})
+}
+
 func TestStreamClose(t *testing.T) {
 	setupStreamWireConfig(t)
 

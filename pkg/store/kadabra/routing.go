@@ -18,18 +18,15 @@ RoutingTable owns Kademlia-style XOR routing buckets and the local
 record store. Peer registration, affinity-based lookup, and
 trie-cluster management all live here.
 
-Records use an RWMutex instead of copy-on-write: at 50M+ values,
-maps.Clone per insert is O(N) and saturates the GC. The mutex
-write path is O(1) amortized with a fast RLock read path for
-duplicate detection.
-*/
-/*
-recordSnapshot is an immutable map swapped atomically via CAS.
-Sharded into 256 slices so each clone is ~1/256th of total records,
-keeping copy cost bounded while remaining fully lock-free.
+Record dedupe shards use copy-on-write maps of *SequenceRecord so a
+successful admission clones only pointers (~8 bytes per key) instead
+of copying whole 1KB primitive.Value bodies on every maps.Clone.
+
+Sharding into 256 slices caps clone work per mutation to a single
+shard while keeping lookup lock-free via atomic.Pointer swaps.
 */
 type recordSnapshot struct {
-	m map[uint64]SequenceRecord
+	m map[uint64]*SequenceRecord
 }
 
 type recordShard struct {
@@ -63,7 +60,7 @@ func NewRoutingTable(node *Node) *RoutingTable {
 	}
 
 	for idx := range rt.shards {
-		rt.shards[idx].ptr.Store(&recordSnapshot{m: make(map[uint64]SequenceRecord)})
+		rt.shards[idx].ptr.Store(&recordSnapshot{m: make(map[uint64]*SequenceRecord)})
 	}
 
 	for idx := range rt.buckets {
@@ -261,7 +258,7 @@ func (rt *RoutingTable) claimRecordIfNew(record SequenceRecord) bool {
 
 	for {
 		old := rt.shards[shardIdx].ptr.Load()
-		var base map[uint64]SequenceRecord
+		var base map[uint64]*SequenceRecord
 
 		if old != nil && old.m != nil {
 			if _, exists := old.m[record.Key]; exists {
@@ -270,10 +267,12 @@ func (rt *RoutingTable) claimRecordIfNew(record SequenceRecord) bool {
 
 			base = maps.Clone(old.m)
 		} else {
-			base = make(map[uint64]SequenceRecord)
+			base = make(map[uint64]*SequenceRecord)
 		}
 
-		base[record.Key] = record
+		recordClone := new(SequenceRecord)
+		*recordClone = record
+		base[record.Key] = recordClone
 		next := &recordSnapshot{m: base}
 
 		if rt.shards[shardIdx].ptr.CompareAndSwap(old, next) {

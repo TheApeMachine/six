@@ -40,6 +40,14 @@ type Store struct {
 	classifier    *classify.Classifier
 	trainer       *train.Online
 	lastLeaf      atomic.Pointer[Node]
+
+	/*
+		seqPath holds root-to-current-leaf context for sequential Load chains
+		(labels empty, lastLeaf threading). Reset when labels force a branch
+		from root so parent-pointer walks are not repeated for every token in
+		a linear ingest.
+	*/
+	seqPath []primitive.Value
 }
 
 /*
@@ -84,8 +92,9 @@ func NewStore(
 }
 
 /*
-Load inserts a value into the trie. Edge keys use Value.String()
-so the token region drives trie structure. If a path already
+Load inserts a value into the trie. Edge keys use the UTF-8 token
+region (same bytes as String) via trieEdgeKey so trie structure stays
+aligned without an extra allocation per hop. If a path already
 exists, the value lands at the existing branch; otherwise a new
 child is created.
 */
@@ -109,7 +118,7 @@ func (store *Store) Load(
 		parent = leaf
 	}
 
-	token := value.String()
+	token := trieEdgeKey(value)
 	existing := parent.Child(token)
 
 	if existing != nil {
@@ -121,13 +130,22 @@ func (store *Store) Load(
 		existing = child
 	}
 
+	chainParent := store.lastLeaf.Load()
+
 	if len(labels) > 0 {
+		store.seqPath = append(store.seqPath[:0], store.root.value, existing.value)
 		store.lastLeaf.Store(nil)
 	} else {
+		if chainParent == nil {
+			store.seqPath = append(store.seqPath[:0], store.root.value, existing.value)
+		} else {
+			store.seqPath = append(store.seqPath, existing.value)
+		}
+
 		store.lastLeaf.Store(existing)
 	}
 
-	triePath := pathFromRoot(existing)
+	triePath := store.seqPath
 
 	observation := algo.NewPrediction()
 
@@ -139,36 +157,28 @@ func (store *Store) Load(
 		})
 		observation.AddContext(triePath...)
 
-		for _, algorithm := range store.algorithms {
-			_, err := algorithm.Update(observation)
-
-			if err != nil {
-				log.Printf(
-					"markovtrie.Store.Load: algorithm %T failed: %v",
-					algorithm,
-					err,
-				)
-			}
-		}
+		store.runAlgorithmStack(observation)
 	}
 }
 
-func pathFromRoot(leaf *Node) []primitive.Value {
-	if leaf == nil {
-		return nil
+/*
+runAlgorithmStack runs the Store's algo.Algorithm slice on one observation.
+
+Trie mutation stays in Load/Predict; this is the only orchestration hook
+needed to broadcast a labeled observation without scattering Update loops.
+*/
+func (store *Store) runAlgorithmStack(observation *algo.Prediction) {
+	for _, algorithm := range store.algorithms {
+		_, err := algorithm.Update(observation)
+
+		if err != nil {
+			log.Printf(
+				"markovtrie.Store.runAlgorithmStack: algorithm %T failed: %v",
+				algorithm,
+				err,
+			)
+		}
 	}
-
-	rev := make([]primitive.Value, 0, leaf.Depth+1)
-
-	for node := leaf; node != nil; node = node.parent.Load() {
-		rev = append(rev, node.value)
-	}
-
-	for left, right := 0, len(rev)-1; left < right; left, right = left+1, right-1 {
-		rev[left], rev[right] = rev[right], rev[left]
-	}
-
-	return rev
 }
 
 /*
@@ -183,7 +193,7 @@ func (store *Store) Predict(value primitive.Value) *algo.Prediction {
 		return algo.NewPrediction()
 	}
 
-	token := value.String()
+	token := trieEdgeKey(value)
 
 	if token == "" {
 		return algo.NewPrediction()
@@ -202,9 +212,7 @@ func (store *Store) Predict(value primitive.Value) *algo.Prediction {
 		observation.AddContext(step)
 	}
 
-	for _, algorithm := range store.algorithms {
-		_, _ = algorithm.Update(observation)
-	}
+	store.runAlgorithmStack(observation)
 
 	merged := algo.NewPrediction()
 
@@ -301,7 +309,5 @@ func (store *Store) ApplyFieldPressure(
 	pressure.Signals[algo.FieldGrowth] = numeric.NewDerivedFrom(fieldGrowth)
 	pressure.Signals[algo.FieldDecayMul] = numeric.NewDerivedFrom(decayMul)
 
-	for _, algorithm := range store.algorithms {
-		algorithm.Update(pressure)
-	}
+	store.runAlgorithmStack(pressure)
 }

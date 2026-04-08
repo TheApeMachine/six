@@ -1,8 +1,8 @@
 package classify
 
 import (
+	"bytes"
 	"math"
-	"strings"
 	"sync"
 
 	"github.com/theapemachine/six/pkg/core/algo"
@@ -68,14 +68,14 @@ log-evidence for each known label and converting to posteriors.
 func (classifier *Classifier) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
-	classifier.mu.Lock()
-	defer classifier.mu.Unlock()
-
 	if prediction == nil || len(prediction.Context) == 0 {
 		return classifier.prediction, nil
 	}
 
 	tokens := classifier.tokenize(prediction)
+
+	classifier.mu.Lock()
+	defer classifier.mu.Unlock()
 
 	for _, label := range prediction.Labels {
 		name := string(label.Label)
@@ -216,7 +216,11 @@ func (classifier *Classifier) tokenize(
 	var tokens []string
 
 	for _, value := range prediction.Context {
-		tokens = append(tokens, strings.Fields(value.String())...)
+		slab := value.TokenRegionBytes()
+
+		for _, field := range bytes.Fields(slab) {
+			tokens = append(tokens, string(field))
+		}
 	}
 
 	return tokens

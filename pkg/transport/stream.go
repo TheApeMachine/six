@@ -90,6 +90,47 @@ func (stream *Stream) SetFrameTee(tee io.Writer) {
 	stream.frameTee = tee
 }
 
+func (stream *Stream) dispatchFrame(frame []byte) error {
+	if stream.frameTee != nil {
+		if _, err := stream.frameTee.Write(frame); err != nil {
+			return err
+		}
+	}
+
+	if len(stream.publishers) == 1 {
+		value, err := primitive.ValueFromWireFrame(frame)
+
+		if err != nil {
+			return err
+		}
+
+		pubErr := stream.publishers[0].Publish(value, "")
+		_ = value.Close()
+
+		return pubErr
+	}
+
+	value, err := primitive.ValueFromWireFrame(frame)
+
+	if err != nil {
+		return err
+	}
+
+	for _, publisher := range stream.publishers {
+		pubErr := publisher.Publish(value, "")
+
+		if pubErr != nil {
+			_ = value.Close()
+
+			return pubErr
+		}
+	}
+
+	_ = value.Close()
+
+	return nil
+}
+
 /*
 Write implements io.Writer. It returns only after every full frame produced
 from the prefix of (spare ‖ p) has been passed to emit without error.
@@ -103,35 +144,37 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
+	origLen := len(p)
+
+	if len(stream.spare) == 0 {
+		for len(p) >= stream.frameSize {
+			frame := p[:stream.frameSize]
+			p = p[stream.frameSize:]
+
+			if err := stream.dispatchFrame(frame); err != nil {
+				return 0, err
+			}
+		}
+
+		if len(p) > 0 {
+			stream.spare = append(stream.spare[:0], p...)
+		}
+
+		return origLen, nil
+	}
+
 	stream.spare = append(stream.spare, p...)
 
 	for len(stream.spare) >= stream.frameSize {
 		frame := stream.spare[:stream.frameSize]
 		stream.spare = stream.spare[stream.frameSize:]
 
-		if stream.frameTee != nil {
-			if _, err := stream.frameTee.Write(frame); err != nil {
-				return 0, err
-			}
-		}
-
-		for _, publisher := range stream.publishers {
-			value, err := primitive.ValueFromWireFrame(frame)
-
-			if err != nil {
-				return 0, err
-			}
-
-			pubErr := publisher.Publish(value, "")
-			_ = value.Close()
-
-			if pubErr != nil {
-				return 0, pubErr
-			}
+		if err := stream.dispatchFrame(frame); err != nil {
+			return 0, err
 		}
 	}
 
-	return len(p), nil
+	return origLen, nil
 }
 
 /*

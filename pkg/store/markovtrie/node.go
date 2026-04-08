@@ -76,7 +76,7 @@ func (node *Node) storeChild(value primitive.Value, child *Node) {
 		return
 	}
 
-	token := value.String()
+	token := trieEdgeKey(value)
 	child.Depth = node.Depth + 1
 
 	for {
