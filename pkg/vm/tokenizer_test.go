@@ -44,10 +44,8 @@ func TestNewTokenizer(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
 	Convey("When queue is nil", t, func() {
-		ctx := context.Background()
-
 		Convey("NewTokenizer should fail validation", func() {
-			tokenizer, err := NewTokenizer(ctx, nil)
+			tokenizer, err := NewTokenizer(t.Context(), nil)
 
 			So(tokenizer, ShouldBeNil)
 			So(err, ShouldNotBeNil)
@@ -60,8 +58,7 @@ func TestTokenizerRead(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
 	Convey("Read returns nil error when a full frame is delivered", t, func() {
-		ctx := context.Background()
-		tokenizer, err := NewTokenizer(ctx, mustTestQueue(t))
+		tokenizer, err := NewTokenizer(t.Context(), mustTestQueue(t))
 
 		So(err, ShouldBeNil)
 		So(tokenizer, ShouldNotBeNil)
@@ -95,8 +92,7 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
 	Convey("DrainPublishedValues publishes once per fixed chunk after ClosePipeWriter", t, func() {
-		ctx := context.Background()
-		tokenizer, err := NewTokenizer(ctx, mustTestQueue(t))
+		tokenizer, err := NewTokenizer(t.Context(), mustTestQueue(t))
 
 		So(err, ShouldBeNil)
 
@@ -116,7 +112,7 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 		counter := &countingPublishable{}
 		publishers := []transport.Publishable{counter}
 
-		So(tokenizer.DrainPublishedValues(ctx, "", publishers, nil), ShouldBeNil)
+		So(tokenizer.DrainPublishedValues(t.Context(), "", publishers, nil), ShouldBeNil)
 		So(counter.n, ShouldEqual, chunks)
 
 		tokenizer.ResetAfterEOF()
@@ -126,8 +122,7 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 func BenchmarkTokenizerRead(b *testing.B) {
 	setupTokenizerValueConfig(b)
 
-	ctx := context.Background()
-	queue, err := pool.NewQueue(ctx)
+	queue, err := pool.NewQueue(b.Context())
 
 	if err != nil {
 		b.Fatal(err)
@@ -138,7 +133,7 @@ func BenchmarkTokenizerRead(b *testing.B) {
 		_ = queue.Close()
 	}()
 
-	tokenizer, err := NewTokenizer(ctx, queue)
+	tokenizer, err := NewTokenizer(b.Context(), queue)
 
 	if err != nil {
 		b.Fatal(err)
@@ -165,8 +160,7 @@ func BenchmarkTokenizerRead(b *testing.B) {
 func BenchmarkTokenizerDrainPublishedValues(b *testing.B) {
 	setupTokenizerValueConfig(b)
 
-	ctx := context.Background()
-	queue, err := pool.NewQueue(ctx)
+	queue, err := pool.NewQueue(b.Context())
 
 	if err != nil {
 		b.Fatal(err)
@@ -177,7 +171,7 @@ func BenchmarkTokenizerDrainPublishedValues(b *testing.B) {
 		_ = queue.Close()
 	}()
 
-	tokenizer, err := NewTokenizer(ctx, queue)
+	tokenizer, err := NewTokenizer(b.Context(), queue)
 
 	if err != nil {
 		b.Fatal(err)
@@ -205,7 +199,7 @@ func BenchmarkTokenizerDrainPublishedValues(b *testing.B) {
 			b.Fatal(cwErr)
 		}
 
-		if dErr := tokenizer.DrainPublishedValues(ctx, "", publishers, nil); dErr != nil {
+		if dErr := tokenizer.DrainPublishedValues(b.Context(), "", publishers, nil); dErr != nil {
 			b.Fatal(dErr)
 		}
 
