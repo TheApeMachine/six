@@ -68,6 +68,7 @@ func TestGossipDigests(t *testing.T) {
 
 		So(len(digs), ShouldEqual, 1)
 		So(digs[0].Origin, ShouldEqual, (node.ID<<32)|1)
+		So(digs[0].NodePhase.Dominant().Amplitude, ShouldBeGreaterThan, 0)
 	})
 }
 

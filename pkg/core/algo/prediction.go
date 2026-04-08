@@ -31,6 +31,8 @@ const (
 	FieldSurprisal
 	FieldGrowth
 	FieldDecayMul
+	GlobalPhase
+	PhaseConcentration
 	BreakBeam
 )
 
@@ -61,6 +63,7 @@ populates the keys it owns (e.g. "surprisal", "entropy",
 which algorithm produced them.
 */
 type Prediction struct {
+	Targets       []Label
 	Labels        []Label
 	Continuations []Continuation
 	Context       []primitive.Value
@@ -73,6 +76,7 @@ NewPrediction creates a new prediction.
 */
 func NewPrediction() *Prediction {
 	return &Prediction{
+		Targets:       make([]Label, 0),
 		Labels:        make([]Label, 0),
 		Continuations: make([]Continuation, 0),
 		Context:       make([]primitive.Value, 0),
@@ -81,13 +85,14 @@ func NewPrediction() *Prediction {
 }
 
 /*
-TruncateForUpdate clears Labels, Continuations, and Context so a
+TruncateForUpdate clears Targets, Labels, Continuations, and Context so a
 Prediction may be reused as a disposable payload for Algorithm.Update.
 Signals are left intact — use this only on observers allocated for
 that purpose (e.g. NewPrediction in the caller), never on an
 algorithm's canonical Value().
 */
 func (prediction *Prediction) TruncateForUpdate() {
+	prediction.Targets = prediction.Targets[:0]
 	prediction.Labels = prediction.Labels[:0]
 	prediction.Continuations = prediction.Continuations[:0]
 	prediction.Context = prediction.Context[:0]
@@ -106,7 +111,7 @@ func (prediction *Prediction) Clone() *Prediction {
 }
 
 /*
-Merge appends Labels, Continuations, Context, and Rejected entries from
+Merge appends Targets, Labels, Continuations, Context, and Rejected entries from
 other into prediction. Signals are cloned and assigned by key, so later
 merges overwrite earlier values for the same signal type.
 */
@@ -117,6 +122,13 @@ func (prediction *Prediction) Merge(other *Prediction) *Prediction {
 
 	if other == nil {
 		return prediction
+	}
+
+	for _, target := range other.Targets {
+		prediction.Targets = append(prediction.Targets, Label{
+			Label:      append([]byte(nil), target.Label...),
+			Confidence: target.Confidence,
+		})
 	}
 
 	for _, label := range other.Labels {
@@ -178,6 +190,18 @@ func (prediction *Prediction) Value() *Prediction {
 }
 
 /*
+SupervisionLabels returns the target labels carried by the envelope.
+Recursive algorithms use Targets for training and Labels for child evidence.
+*/
+func (prediction *Prediction) SupervisionLabels() []Label {
+	if prediction == nil {
+		return nil
+	}
+
+	return prediction.Targets
+}
+
+/*
 String implements the fmt.Stringer interface, and returns
 the continuation with the highest score.
 */
@@ -213,6 +237,16 @@ func (prediction *Prediction) AddLabels(
 ) *Prediction {
 	prediction.Labels = append(
 		prediction.Labels, labels...,
+	)
+
+	return prediction
+}
+
+func (prediction *Prediction) AddTargets(
+	targets ...Label,
+) *Prediction {
+	prediction.Targets = append(
+		prediction.Targets, targets...,
 	)
 
 	return prediction

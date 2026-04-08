@@ -21,6 +21,71 @@ This research project started from a simple question: "Can we reject gradient de
 
 Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
 
+```mermaid
+flowchart TD
+
+    subgraph "Layer 3 — Global Field GF(65537)"
+        GF["Global Phase Vector"]
+        Gossip["kadabra.Gossip<br/>Digest + NodePhase"]
+        GF <--> Gossip
+    end
+
+    subgraph "Layer 2 — Node Field GF(8191)"
+        N1["kadabra.Node"]
+        N2["kadabra.Node"]
+        F1["kadabra.Field<br/>Project() → Downward Rotation"]
+        F2["kadabra.Field<br/>Project() → Downward Rotation"]
+        N1 --- F1
+        N2 --- F2
+    end
+
+    subgraph "Layer 1 — Trie Field GF(257)"
+        S1["markovtrie.Store<br/>LocalPhase"]
+        S2["markovtrie.Store<br/>LocalPhase"]
+        S3["markovtrie.Store<br/>LocalPhase"]
+        S4["markovtrie.Store<br/>LocalPhase"]
+    end
+
+    subgraph "Algo Stack (phase-gated)"
+        Beam["beam.Search<br/>Rotational bias"]
+        Classify["classify.Classifier<br/>Phase as prior"]
+        Train["train.Online<br/>Phase-gated plasticity"]
+        Surprisal["surprisal.Probability<br/>Contextual novelty"]
+        Causal["causal.Graph<br/>Phase-dependent edges"]
+    end
+
+    subgraph "Primitives GF(2)"
+        V["primitive.Value"]
+    end
+
+    %% Bottom-up
+    V --> S1
+    V --> S2
+    V --> S3
+    V --> S4
+    S1 --> N1
+    S2 --> N1
+    S3 --> N2
+    S4 --> N2
+    N1 --> GF
+    N2 --> GF
+
+    %% Top-down
+    GF --> F1
+    GF --> F2
+    F1 --> S1
+    F1 --> S2
+    F2 --> S3
+    F2 --> S4
+
+    %% Algo stack receives phase via ApplyFieldPressure
+    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Beam
+    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Classify
+    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Train
+    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Surprisal
+    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Causal
+```
+
 ```text
 ┌────────────────────────────────┐
 │           The Field            │
@@ -46,6 +111,18 @@ Six has four layers. Each is useful on its own, but the interesting behavior eme
 │                               │
 └───────────────────────────────┘
 ```
+
+### Holographic Field Dynamics
+
+The current field path now carries a finite-field phase hierarchy alongside the existing adaptive signals:
+
+| Layer | Field | Phase state |
+|-------|-------|-------------|
+| MarkovTrie | `GF(257)` | Trie-local byte-phase signature |
+| Kadabra Node | `GF(8191)` | Regional chord aggregated from active tries |
+| Mesh Field | `GF(65537)` | Global eigenphase aggregated from gossiped node phases |
+
+Instead of treating attention as an explicit weight matrix, Six can now project a dominant global phase back down the stack. Tries rotate their local phase toward the field, beam search boosts continuations that constructively interfere with that phase, and online learning gates plasticity when incoming context is out of phase with the current mesh-wide mode.
 
 ## Values: Programmable Data
 
@@ -118,6 +195,10 @@ MarkovTrie is a suffix trie that learns from every observation. No training epoc
 | Unsupervised threshold | Classification accuracy   | Maturing label space = require more confidence         |
 
 The unified entry point is `Predict(data) -> Prediction` — the caller passes data, the system returns a classification and continuations. Everything else is internal.
+
+Internally, each layer talks through the same `algo.Prediction` envelope and `algo.Stack` orchestration object, so trie-local inference, node-level composition, and field feedback all reuse one interface instead of accumulating layer-specific management code.
+
+For control, a multimodal coordinator can bind sensory, action, and reward tries while maintaining coactivation-weighted expected reward for each observed `(sensory, action, reward)` triplet. A causal graph simultaneously tracks how stable each `sensory -> action -> reward` path remains across reward labels, and policy projection biases action ranking toward those invariant paths before projecting ranked continuations upward through the same prediction envelope.
 
 ### Kadabra: Distributed Knowledge Routing
 

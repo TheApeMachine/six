@@ -16,13 +16,15 @@ func TestTruncateForUpdate(t *testing.T) {
 		var stub primitive.Value
 		stub[0] = 1
 
+		prediction.AddTargets(Label{Label: []byte("t"), Confidence: 1})
 		prediction.AddLabels(Label{Label: []byte("a"), Confidence: 1})
 		prediction.AddContext(stub)
 
 		Convey("When TruncateForUpdate runs", func() {
 			prediction.TruncateForUpdate()
 
-			Convey("It should clear labels and context but keep the Signals map", func() {
+			Convey("It should clear targets, labels, and context but keep the Signals map", func() {
+				So(prediction.Targets, ShouldHaveLength, 0)
 				So(prediction.Labels, ShouldHaveLength, 0)
 				So(prediction.Context, ShouldHaveLength, 0)
 				So(prediction.Continuations, ShouldHaveLength, 0)
@@ -153,10 +155,12 @@ func TestPredictionAddLabelsAddContext(t *testing.T) {
 
 		stub[0] = 3
 
-		updated := prediction.AddLabels(Label{Label: []byte("z"), Confidence: 1}).
+		updated := prediction.AddTargets(Label{Label: []byte("target"), Confidence: 1}).
+			AddLabels(Label{Label: []byte("z"), Confidence: 1}).
 			AddContext(stub)
 
 		So(updated, ShouldEqual, prediction)
+		So(len(updated.Targets), ShouldEqual, 1)
 		So(len(updated.Labels), ShouldEqual, 1)
 		So(len(updated.Context), ShouldEqual, 1)
 	})
@@ -167,6 +171,10 @@ func TestPredictionClone(t *testing.T) {
 
 	Convey("Clone deep-copies slices and signals", t, func() {
 		source := NewPrediction()
+		source.Targets = append(source.Targets, Label{
+			Label:      []byte("teacher"),
+			Confidence: 1,
+		})
 		source.Labels = append(source.Labels, Label{
 			Label:      []byte("alpha"),
 			Confidence: 0.9,
@@ -181,13 +189,16 @@ func TestPredictionClone(t *testing.T) {
 
 		So(clone, ShouldNotBeNil)
 		So(clone, ShouldNotEqual, source)
+		So(string(clone.Targets[0].Label), ShouldEqual, "teacher")
 		So(string(clone.Labels[0].Label), ShouldEqual, "alpha")
 		So(string(clone.Continuations[0].Sequence), ShouldEqual, "beta")
 		So(clone.Signals[Surprisal].Value(), ShouldAlmostEqual, 0.25, 1e-9)
 
+		clone.Targets[0].Label[0] = 'x'
 		clone.Labels[0].Label[0] = 'z'
 		clone.Continuations[0].Sequence[0] = 'q'
 
+		So(string(source.Targets[0].Label), ShouldEqual, "teacher")
 		So(string(source.Labels[0].Label), ShouldEqual, "alpha")
 		So(string(source.Continuations[0].Sequence), ShouldEqual, "beta")
 	})
@@ -201,6 +212,10 @@ func TestPredictionMerge(t *testing.T) {
 		right := NewPrediction()
 
 		left.Signals[Entropy] = numeric.NewDerivedFrom(0.1)
+		right.Targets = append(right.Targets, Label{
+			Label:      []byte("guide"),
+			Confidence: 1,
+		})
 		right.Labels = append(right.Labels, Label{
 			Label:      []byte("winner"),
 			Confidence: 0.8,
@@ -215,14 +230,17 @@ func TestPredictionMerge(t *testing.T) {
 		merged := left.Merge(right)
 
 		So(merged, ShouldEqual, left)
+		So(len(left.Targets), ShouldEqual, 1)
 		So(len(left.Labels), ShouldEqual, 1)
 		So(len(left.Continuations), ShouldEqual, 1)
 		So(len(left.Rejected), ShouldEqual, 1)
 		So(left.Signals[Entropy].Value(), ShouldAlmostEqual, 0.9, 1e-9)
 
+		right.Targets[0].Label[0] = 'b'
 		right.Labels[0].Label[0] = 'l'
 		right.Continuations[0].Sequence[0] = 'm'
 
+		So(string(left.Targets[0].Label), ShouldEqual, "guide")
 		So(string(left.Labels[0].Label), ShouldEqual, "winner")
 		So(string(left.Continuations[0].Sequence), ShouldEqual, "path")
 	})

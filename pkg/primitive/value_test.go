@@ -18,6 +18,17 @@ func setupPrimitiveValueTest(tb testing.TB) {
 
 	core.Cfg.Value.Words = 128
 	core.Cfg.Value.Bytes = 1024
+
+	core.Cfg.Value.Region.Tokens.Start = 0
+	core.Cfg.Value.Region.Tokens.Bits = 512
+	core.Cfg.Value.Region.Program.Start = 8
+	core.Cfg.Value.Region.Signals.Start = 16
+	core.Cfg.Value.Region.Context.Start = 24
+	core.Cfg.Value.Region.Gradient.Start = 32
+	core.Cfg.Value.Region.Meta.Start = 40
+	core.Cfg.Value.Region.ID.Start = 122
+	core.Cfg.Value.Region.Affinity.Start = 123
+	core.Cfg.Value.Region.Affinity.Bits = 257
 }
 
 /*
@@ -186,6 +197,353 @@ func TestClose(t *testing.T) {
 			So(*value, ShouldResemble, Value{})
 		})
 	})
+}
+
+func TestNewValueEmptyPayload(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("NewValue rejects an empty payload", t, func() {
+		value, err := NewValue(nil)
+
+		So(err, ShouldEqual, io.ErrShortBuffer)
+		So(value, ShouldBeNil)
+	})
+}
+
+func TestValueFromWireFrameShortBuffer(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("ValueFromWireFrame requires a full frame", t, func() {
+		value, err := ValueFromWireFrame(make([]byte, 16))
+
+		So(err, ShouldEqual, io.ErrShortBuffer)
+		So(value, ShouldBeNil)
+	})
+}
+
+func TestValueReadShortBuffer(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Read requires the full configured byte width", t, func() {
+		value, err := NewValue([]byte("short-read-test"))
+
+		So(err, ShouldBeNil)
+
+		defer value.Close()
+
+		small := make([]byte, 8)
+		n, readErr := value.Read(small)
+
+		So(readErr, ShouldEqual, io.ErrShortBuffer)
+		So(n, ShouldEqual, 0)
+	})
+}
+
+func TestValueWriteShortBuffer(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Write rejects undersized frames", t, func() {
+		value, err := NewValue([]byte("write-short"))
+
+		So(err, ShouldBeNil)
+
+		defer value.Close()
+
+		n, writeErr := value.Write(make([]byte, 4))
+
+		So(writeErr, ShouldEqual, io.ErrShortBuffer)
+		So(n, ShouldEqual, 0)
+	})
+}
+
+func TestValueCloseNil(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Close on nil is a no-op", t, func() {
+		var value *Value
+
+		So(value.Close(), ShouldBeNil)
+	})
+}
+
+func TestValueSet(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Given Set on a live Value", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		value.Set(41, 0xabc)
+
+		So((*value)[41], ShouldEqual, 0xabc)
+	})
+
+	Convey("Set ignores out-of-range indices and nil receivers", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		So(func() { value.Set(-1, 9) }, ShouldNotPanic)
+
+		var nilValue *Value
+
+		So(func() { nilValue.Set(0, 1) }, ShouldNotPanic)
+	})
+}
+
+func TestValueID(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("ID reads the configured region start", t, func() {
+		value, err := NewValue([]byte("id-path"))
+
+		So(err, ShouldBeNil)
+
+		defer value.Close()
+
+		value.Set(core.Cfg.Value.Region.ID.Start, 4242)
+
+		So(value.ID(), ShouldEqual, 4242)
+	})
+
+	Convey("ID on nil returns zero", t, func() {
+		var value *Value
+
+		So(value.ID(), ShouldEqual, 0)
+	})
+}
+
+func TestValueAffinityVector(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("SetAffinityVector round-trips through AffinityVector with last-word mask", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		var aff [AffinityWords]uint64
+
+		aff[0] = 0xfeed
+		aff[AffinityWords-1] = ^uint64(0)
+
+		value.SetAffinityVector(aff)
+
+		back := value.AffinityVector()
+
+		So(back[0], ShouldEqual, 0xfeed)
+		So(back[AffinityWords-1], ShouldEqual, AffinityLastWordMask&aff[AffinityWords-1])
+	})
+
+	Convey("AffinityVector on nil returns zeros", t, func() {
+		var value *Value
+
+		So(value.AffinityVector(), ShouldResemble, [AffinityWords]uint64{})
+	})
+}
+
+func TestValueContextVector(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("ContextVector reflects SetContextVector", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		var ctx [RegionWords]uint64
+
+		ctx[0] = 0x101
+		ctx[RegionWords-1] = 0x909
+
+		value.SetContextVector(ctx)
+
+		So(value.ContextVector(), ShouldResemble, ctx)
+	})
+}
+
+func TestValueBindContext(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("BindContext is self-inverse under XOR", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		var bind [AffinityWords]uint64
+
+		bind[0] = 0x55
+		bind[1] = 0xaa
+
+		before := value.ContextVector()
+
+		value.BindContext(bind)
+		mid := value.ContextVector()
+
+		value.BindContext(bind)
+		after := value.ContextVector()
+
+		So(mid, ShouldNotResemble, before)
+		So(after, ShouldResemble, before)
+	})
+}
+
+func TestValueGradientVector(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("AccumulateGradient XORs into the gradient slab", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		var delta [RegionWords]uint64
+
+		delta[0] = 0xf0f0
+		delta[1] = 0x0f0f
+
+		value.AccumulateGradient(delta)
+		value.AccumulateGradient(delta)
+
+		So(value.GradientVector(), ShouldResemble, [RegionWords]uint64{})
+	})
+}
+
+func TestValueMetaWord(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("MetaWord and SetMetaWord address the meta region", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		value.SetMetaWord(MetaConfidence, 42)
+		value.IncrementMeta(MetaConfidence)
+
+		So(value.MetaWord(MetaConfidence), ShouldEqual, 43)
+	})
+
+	Convey("MetaWord clamps invalid offsets", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		So(value.MetaWord(-1), ShouldEqual, 0)
+		So(value.MetaWord(RegionWords), ShouldEqual, 0)
+
+		var nilValue *Value
+
+		So(nilValue.MetaWord(0), ShouldEqual, 0)
+	})
+}
+
+func TestValueBytes(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Bytes spans the full configured wire size", t, func() {
+		value, err := NewValue([]byte("bytes-len"))
+
+		So(err, ShouldBeNil)
+
+		defer value.Close()
+
+		So(len(value.Bytes()), ShouldEqual, core.Cfg.Value.Bytes)
+	})
+}
+
+func BenchmarkValue_Set(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
+	value := newValueFromZeroFrame(b)
+
+	defer value.Close()
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		value.Set(60, uint64(b.N)^0xf00d)
+	}
+}
+
+func BenchmarkValue_AffinityVector(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
+	value, err := NewValue([]byte("bench-aff-vector"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer value.Close()
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = value.AffinityVector()
+	}
+}
+
+func BenchmarkValue_BindContext(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
+	value, err := NewValue([]byte("bench-bind"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer value.Close()
+
+	var bind [AffinityWords]uint64
+
+	bind[0] = 0x123456789abcdef0
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		value.BindContext(bind)
+	}
+}
+
+func BenchmarkValue_NewValue(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
+	payload := []byte("benchmark new primitive value mint")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		v, err := NewValue(payload)
+
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if err := v.Close(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkValue_String(b *testing.B) {
+	setupPrimitiveValueTest(b)
+
+	value, err := NewValue([]byte("string token repr benchmark"))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer value.Close()
+
+	b.ResetTimer()
+
+	var sink string
+
+	for b.Loop() {
+		sink = value.String()
+	}
+
+	_ = sink
 }
 
 func BenchmarkValue_Read(b *testing.B) {

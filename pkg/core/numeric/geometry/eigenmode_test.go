@@ -1,162 +1,207 @@
 package geometry
 
-// import (
-// 	. "github.com/smartystreets/goconvey/convey"
-// )
+import (
+	"testing"
 
-// func TestNewEigenMode(t *testing.T) {
-// 	Convey("Given NewEigenMode constructor", t, func() {
-// 		Convey("When creating with no options", func() {
-// 			ei := NewEigenMode()
-// 			Convey("It should correctly initialize as trained", func() {
-// 				So(ei, ShouldNotBeNil)
-// 				So(ei.Trained, ShouldBeTrue) // Analytical mode is always trained
-// 			})
-// 		})
+	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
+)
 
-// 		Convey("When creating with options", func() {
-// 			opt := func(ei *EigenMode) {
-// 				ei.Trained = false // dummy test
-// 			}
-// 			ei := NewEigenMode(opt)
-// 			Convey("It should apply the provided options", func() {
-// 				So(ei.Trained, ShouldBeFalse)
-// 			})
-// 		})
-// 	})
-// }
+func TestEigenmodeMembers(t *testing.T) {
+	t.Parallel()
 
-// func TestAnalyticalPhaseGeneration(t *testing.T) {
-// 	Convey("Given a value-native EigenMode", t, func() {
-// 		ei := NewEigenMode()
+	Convey("Members returns an independent copy of the mode list", t, func() {
+		mode := &Eigenmode{
+			members: []uint64{1, 2, 3},
+			energy:  4.5,
+		}
 
-// 		Convey("When computing phase for an empty value", func() {
-// 			var empty primitive.Value
-// 			theta, phi := ei.PhaseForValue(&empty)
-// 			So(theta, ShouldEqual, 0)
-// 			So(phi, ShouldEqual, 0)
-// 		})
+		copySlice := mode.Members()
 
-// 		Convey("When computing phase for a mock base value", func() {
-// 			value := primitive.BaseValue('A')
-// 			theta, phi := ei.PhaseForValue(&value)
+		copySlice[0] = 99
 
-// 			expectedPhi := 2.0 * math.Pi * float64(value.ActiveCount()) / 257.0
+		So(mode.members[0], ShouldEqual, 1)
+		So(len(copySlice), ShouldEqual, 3)
+	})
+}
 
-// 			So(phi, ShouldAlmostEqual, expectedPhi, 0.001)
+func TestEigenmodeEnergy(t *testing.T) {
+	t.Parallel()
 
-// 			// Theta should be within [-π, π]
-// 			So(theta, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
-// 		})
+	Convey("Energy exposes the aggregate score", t, func() {
+		mode := &Eigenmode{energy: 12.25}
 
-// 		Convey("When computing mean sequence phase for empty values", func() {
-// 			theta, phi := ei.SeqToroidalMeanPhase(nil)
-// 			So(theta, ShouldEqual, 0)
-// 			So(phi, ShouldEqual, 0)
-// 		})
+		So(mode.Energy(), ShouldEqual, 12.25)
+	})
+}
 
-// 		Convey("When computing mean sequence phase", func() {
-// 			values := []primitive.Value{
-// 				primitive.BaseValue('A'),
-// 				primitive.BaseValue('A'),
-// 			}
+func TestDetectModes(t *testing.T) {
+	t.Parallel()
 
-// 			// Sequence of identical values should yield same phase as a single value
-// 			singleTheta, singlePhi := ei.PhaseForValue(&values[0])
-// 			seqTheta, seqPhi := ei.SeqToroidalMeanPhase(values)
+	Convey("Given no participants", t, func() {
+		modes, dominant := DetectModes(nil, 0.5, func(a, b uint64) float64 { return 0 })
 
-// 			So(seqTheta, ShouldAlmostEqual, singleTheta, 0.001)
-// 			So(seqPhi, ShouldAlmostEqual, singlePhi, 0.001)
-// 		})
+		So(len(modes), ShouldEqual, 0)
+		So(dominant, ShouldEqual, -1)
+	})
 
-// 		Convey("When calling BuildMultiScaleCooccurrence", func() {
-// 			values := []primitive.Value{primitive.BaseValue('a'), primitive.BaseValue('b')}
-// 			err := ei.BuildMultiScaleCooccurrence(values)
-// 			So(err, ShouldBeNil)
-// 			So(ei.Trained, ShouldBeTrue)
-// 		})
-// 	})
-// }
+	Convey("Given participants with pairwise coupling at threshold", t, func() {
+		participants := []ModeParticipant{
+			{Origin: 10, Energy: 1},
+			{Origin: 20, Energy: 2},
+			{Origin: 30, Energy: 4},
+		}
 
-// func TestEigenModeWeightedCircularMean(t *testing.T) {
-// 	Convey("Given WeightedCircularMean", t, func() {
-// 		ei := NewEigenMode()
+		couple := func(a, b uint64) float64 {
+			if a == 10 && b == 20 || a == 20 && b == 10 {
+				return 1
+			}
 
-// 		Convey("When values slice is empty", func() {
-// 			phase, conc := ei.WeightedCircularMean(nil)
-// 			So(phase, ShouldEqual, 0)
-// 			So(conc, ShouldEqual, 0)
-// 		})
+			return 0
+		}
 
-// 		Convey("When computing for single value", func() {
-// 			values := []primitive.Value{primitive.BaseValue('X')}
-// 			phase, conc := ei.WeightedCircularMean(values)
-// 			So(phase, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
-// 			So(conc, ShouldBeBetweenOrEqual, 0, 1)
-// 		})
-// 	})
-// }
+		modes, dominant := DetectModes(participants, 1.0, couple)
 
-// func TestGeometricalClosure(t *testing.T) {
-// 	Convey("Given IsGeometricallyClosed", t, func() {
-// 		ei := NewEigenMode()
+		So(len(modes), ShouldEqual, 2)
+		So(dominant, ShouldEqual, 1)
+		So(modes[1].Energy(), ShouldEqual, 4)
+		So(len(modes[0].members), ShouldEqual, 2)
+	})
+}
 
-// 		Convey("When sequence is empty", func() {
-// 			So(ei.IsGeometricallyClosed(nil, 0), ShouldBeFalse)
-// 		})
+func TestDetectPhaseMode257(t *testing.T) {
+	t.Parallel()
 
-// 		Convey("When sequence returns exactly to anchor phase", func() {
-// 			values := []primitive.Value{primitive.BaseValue('X')}
-// 			anchor, _ := ei.WeightedCircularMean(values)
+	Convey("An empty phase vector has no dominant lane", t, func() {
+		var vector gf.Vector257
 
-// 			// Same sequence should have distance 0 from its own anchor
-// 			So(ei.IsGeometricallyClosed(values, anchor), ShouldBeTrue)
-// 		})
+		mode := DetectPhaseMode257(vector)
 
-// 		Convey("When sequence drifts to opposite side of Torus", func() {
-// 			valuesA := []primitive.Value{primitive.BaseValue('X')}
-// 			anchor, _ := ei.WeightedCircularMean(valuesA)
+		So(mode.Index, ShouldEqual, -1)
+	})
 
-// 			// We manually specify an anchor that is π radians away
-// 			oppositeAnchor := anchor + math.Pi
-// 			if oppositeAnchor > math.Pi {
-// 				oppositeAnchor -= 2 * math.Pi
-// 			}
+	Convey("The strongest occupied lane wins", t, func() {
+		var vector gf.Vector257
 
-// 			So(ei.IsGeometricallyClosed(valuesA, oppositeAnchor), ShouldBeFalse)
-// 		})
-// 	})
-// }
+		vector[17] = 900
+		vector[18] = 100
 
-// func BenchmarkEigenModePhaseForValue(b *testing.B) {
-// 	ei := NewEigenMode()
-// 	value := primitive.BaseValue('A')
-// 	b.ResetTimer()
-// 	for b.Loop() {
-// 		ei.PhaseForValue(&value)
-// 	}
-// }
+		mode := DetectPhaseMode257(vector)
 
-// func BenchmarkEigenModeSeqToroidalMeanPhase(b *testing.B) {
-// 	ei := NewEigenMode()
-// 	values := make([]primitive.Value, 64)
-// 	for idx := range values {
-// 		values[idx] = primitive.BaseValue(byte(idx % 256))
-// 	}
-// 	b.ResetTimer()
-// 	for b.Loop() {
-// 		ei.SeqToroidalMeanPhase(values)
-// 	}
-// }
+		So(mode.Index, ShouldEqual, 17)
+		So(mode.Amplitude, ShouldEqual, 900)
+		So(mode.Concentration, ShouldAlmostEqual, 0.9, 1e-9)
+	})
+}
 
-// func BenchmarkEigenModeWeightedCircularMean(b *testing.B) {
-// 	ei := NewEigenMode()
-// 	values := make([]primitive.Value, 64)
-// 	for idx := range values {
-// 		values[idx] = primitive.BaseValue(byte(idx % 256))
-// 	}
-// 	b.ResetTimer()
-// 	for b.Loop() {
-// 		ei.WeightedCircularMean(values)
-// 	}
-// }
+func TestDetectPhaseMode8191(t *testing.T) {
+	t.Parallel()
+
+	Convey("DetectPhaseMode8191 mirrors Dominant on Vector8191", t, func() {
+		var vector gf.Vector8191
+
+		vector[42] = 50
+
+		mode := DetectPhaseMode8191(vector)
+
+		So(mode.Index, ShouldEqual, 42)
+		So(mode.Amplitude, ShouldEqual, 50)
+		So(mode.Concentration, ShouldEqual, 1)
+	})
+}
+
+func TestDetectPhaseMode65537(t *testing.T) {
+	t.Parallel()
+
+	Convey("DetectPhaseMode65537 mirrors Dominant on Vector65537", t, func() {
+		var vector gf.Vector65537
+
+		vector[5] = 1000
+		vector[6] = 500
+
+		mode := DetectPhaseMode65537(vector)
+
+		So(mode.Index, ShouldEqual, 5)
+		So(mode.Concentration, ShouldAlmostEqual, 1000.0/1500.0, 1e-9)
+	})
+}
+
+func TestPhaseAlignment(t *testing.T) {
+	t.Parallel()
+
+	Convey("PhaseAlignment defers to gf.Alignment for lane agreement", t, func() {
+		left := PhaseMode{Index: 7}
+		right := PhaseMode{Index: 7}
+
+		So(PhaseAlignment(left, right), ShouldEqual, 1)
+
+		left.Index = 0
+		right.Index = 128
+
+		So(PhaseAlignment(left, right), ShouldEqual, 0)
+	})
+}
+
+func TestPhaseModeFromDominant(t *testing.T) {
+	t.Parallel()
+
+	Convey("phaseModeFromDominant maps DominantPhase fields", t, func() {
+		d := gf.DominantPhase{
+			Index:         3,
+			Amplitude:     200,
+			Concentration: 0.42,
+		}
+
+		mode := phaseModeFromDominant(d)
+
+		So(mode.Index, ShouldEqual, 3)
+		So(mode.Amplitude, ShouldEqual, 200)
+		So(mode.Concentration, ShouldEqual, 0.42)
+	})
+}
+
+func BenchmarkDetectModes(b *testing.B) {
+	participants := make([]ModeParticipant, 64)
+
+	for idx := range participants {
+		participants[idx] = ModeParticipant{Origin: uint64(idx + 1), Energy: float64(idx%7 + 1)}
+	}
+
+	couple := func(a, b uint64) float64 {
+		if (a+b)%3 == 0 {
+			return 1
+		}
+
+		return 0
+	}
+
+	var modes []Eigenmode
+
+	var dominant int
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		modes, dominant = DetectModes(participants, 0.7, couple)
+	}
+
+	_ = modes
+	_ = dominant
+}
+
+func BenchmarkDetectPhaseMode257(b *testing.B) {
+	var vector gf.Vector257
+
+	vector[13] = 400
+	vector[14] = 100
+
+	var mode PhaseMode
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		mode = DetectPhaseMode257(vector)
+	}
+
+	_ = mode
+}

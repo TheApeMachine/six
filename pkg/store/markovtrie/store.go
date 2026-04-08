@@ -1,8 +1,11 @@
 package markovtrie
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/algo/classify"
 	"github.com/theapemachine/six/pkg/core/algo/train"
 	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -33,6 +37,7 @@ type Store struct {
 	AffinityCount atomic.Uint64
 	stack         *algo.Stack
 	lastLeaf      atomic.Pointer[Node]
+	localPhase    atomic.Pointer[gf.Vector257]
 
 	/*
 		seqPath holds root-to-current-leaf context for sequential Load chains
@@ -77,6 +82,8 @@ func NewStore(
 	for _, option := range options {
 		option(store)
 	}
+
+	store.localPhase.Store(gf.NewVector257())
 
 	return store, validate.Require(map[string]any{
 		"ctx":    store.ctx,
@@ -156,6 +163,7 @@ func (store *Store) Load(
 	triePath := append([]primitive.Value(nil), store.seqPath...)
 
 	store.seqPathMu.Unlock()
+	store.observeLocalPhase(value)
 
 	observation := algo.NewPrediction()
 
@@ -163,7 +171,7 @@ func (store *Store) Load(
 
 	for _, label := range labels {
 		observation.TruncateForUpdate()
-		observation.AddLabels(algo.Label{
+		observation.AddTargets(algo.Label{
 			Label:      []byte(label),
 			Confidence: 1,
 		})
@@ -195,12 +203,11 @@ func (store *Store) Observe(observation *algo.Prediction) error {
 /*
 Predict runs the same algorithm stack as Load, but with an unlabeled
 observation built from the trie path for value's token. Classifier
-posteriors and beam continuations are merged into one Prediction for
-Prompt/VM callers; other algorithms update their internal signals without
-writing into that merged view.
+posteriors, beam continuations, and derived signals are merged into one
+Prediction for Prompt/VM callers by the shared algo.Stack.
 */
 func (store *Store) Predict(value primitive.Value) (*algo.Prediction, error) {
-	if store == nil || store.root == nil {
+	if store == nil || store.root == nil || store.stack == nil {
 		return algo.NewPrediction(), nil
 	}
 
@@ -228,6 +235,8 @@ func (store *Store) Predict(value primitive.Value) (*algo.Prediction, error) {
 	if merged == nil {
 		return algo.NewPrediction(), stackErr
 	}
+
+	store.rescoreContinuations(merged)
 
 	return merged.SetContinuationOrigin(store.ID), stackErr
 }
@@ -272,6 +281,23 @@ func (store *Store) Algorithms() []algo.Algorithm {
 }
 
 /*
+LocalPhase returns a trie-local GF(257) phase snapshot.
+*/
+func (store *Store) LocalPhase() gf.Vector257 {
+	if store == nil {
+		return gf.Vector257{}
+	}
+
+	phaseSnapshot := store.localPhase.Load()
+
+	if phaseSnapshot == nil {
+		return gf.Vector257{}
+	}
+
+	return *phaseSnapshot
+}
+
+/*
 ApplyFieldPressure broadcasts field forces to all algorithms via
 the standard Update path. Each algorithm decides internally how
 (or whether) to respond to the pressure signals. Non-nil return means
@@ -281,15 +307,113 @@ func (store *Store) ApplyFieldPressure(
 	fieldSurprisal float64,
 	fieldGrowth float64,
 	decayMul float64,
+	globalPhase float64,
+	phaseConcentration float64,
 ) error {
 	if store == nil {
 		return nil
 	}
 
+	store.rotateLocalPhase(globalPhase, phaseConcentration)
+
 	pressure := algo.NewPrediction()
 	pressure.Signals[algo.FieldSurprisal] = numeric.NewDerivedFrom(fieldSurprisal)
 	pressure.Signals[algo.FieldGrowth] = numeric.NewDerivedFrom(fieldGrowth)
 	pressure.Signals[algo.FieldDecayMul] = numeric.NewDerivedFrom(decayMul)
+	pressure.Signals[algo.GlobalPhase] = numeric.NewDerivedFrom(globalPhase)
+	pressure.Signals[algo.PhaseConcentration] = numeric.NewDerivedFrom(phaseConcentration)
 
 	return store.Observe(pressure)
+}
+
+func (store *Store) observeLocalPhase(value primitive.Value) {
+	if store == nil {
+		return
+	}
+
+	phaseBytes := value.TokenRegionBytes()
+
+	if len(phaseBytes) == 0 {
+		return
+	}
+
+	store.updateLocalPhase(func(phaseVector *gf.Vector257) {
+		phaseVector.ObserveBytes(phaseBytes)
+	})
+}
+
+func (store *Store) rotateLocalPhase(globalPhase float64, phaseConcentration float64) {
+	if store == nil || phaseConcentration <= 0 {
+		return
+	}
+
+	phaseIndex := int(math.Round(globalPhase))
+
+	if phaseIndex < 0 {
+		return
+	}
+
+	phaseIndex %= gf.PhaseWidth
+
+	multiplier := gf.Reduce257(uint32(phaseIndex + 1))
+
+	if multiplier == 0 {
+		multiplier = 1
+	}
+
+	bias := gf.Reduce257(uint32(math.Round(phaseConcentration * float64(gf.Mod257-1))))
+
+	store.updateLocalPhase(func(phaseVector *gf.Vector257) {
+		phaseVector.Rotate(multiplier, bias)
+	})
+}
+
+func (store *Store) updateLocalPhase(updateFn func(*gf.Vector257)) {
+	if store == nil || updateFn == nil {
+		return
+	}
+
+	for {
+		currentPhase := store.localPhase.Load()
+		nextPhase := gf.NewVector257()
+
+		if currentPhase != nil {
+			*nextPhase = *currentPhase
+		}
+
+		updateFn(nextPhase)
+
+		if store.localPhase.CompareAndSwap(currentPhase, nextPhase) {
+			return
+		}
+	}
+}
+
+func (store *Store) rescoreContinuations(prediction *algo.Prediction) {
+	if store == nil || prediction == nil || len(prediction.Continuations) == 0 {
+		return
+	}
+
+	localPhase := store.LocalPhase()
+	localMode := localPhase.Dominant()
+
+	if localMode.Index < 0 {
+		return
+	}
+
+	for continuationIndex := range prediction.Continuations {
+		candidate := &prediction.Continuations[continuationIndex]
+		candidatePhase := gf.LiftBytes(candidate.Sequence)
+		candidateMode := candidatePhase.Dominant()
+		alignment := gf.Alignment(localMode.Index, candidateMode.Index)
+		interference := localPhase.Dot(candidatePhase)
+		gain := math.Max(localMode.Concentration, gf.Gain257(interference))
+		bias := gf.InterferenceMultiplier(alignment, gain)
+
+		candidate.Score += math.Log(bias)
+	}
+
+	slices.SortStableFunc(prediction.Continuations, func(leftCont algo.Continuation, rightCont algo.Continuation) int {
+		return cmp.Compare(rightCont.Score, leftCont.Score)
+	})
 }
