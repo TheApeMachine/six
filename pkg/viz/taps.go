@@ -192,6 +192,67 @@ func TrieSignalEvent(nodeID uint64, trieIdx int, surprisal, entropy, growth floa
 	return ev
 }
 
+// --- Hierarchical Beam Search ---
+
+/*
+BeamCollectEvent fires when the node collects continuations from its
+tries before feeding them to the node-level beam. Shows how many tries
+contributed and total candidate count.
+*/
+func BeamCollectEvent(nodeID uint64, trieCount, continuationCount int) Event {
+	ev := NewEvent(EventBeamCollect, fmtNodeID(nodeID))
+	ev.Values = map[string]float64{
+		"trie_count":         float64(trieCount),
+		"continuation_count": float64(continuationCount),
+	}
+
+	return ev
+}
+
+/*
+BeamComposeEvent fires after the node-level beam selects winners from
+the collected trie continuations. Shows how many survived and the
+best score.
+*/
+func BeamComposeEvent(nodeID uint64, selectedCount, rejectedCount int, bestScore float64) Event {
+	ev := NewEvent(EventBeamCompose, fmtNodeID(nodeID))
+	ev.Values = map[string]float64{
+		"selected_count": float64(selectedCount),
+		"rejected_count": float64(rejectedCount),
+		"best_score":     bestScore,
+	}
+
+	return ev
+}
+
+/*
+BeamBreakEvent fires when the node sends a BreakBeam signal to a
+specific trie, resetting its beam so it can re-search.
+*/
+func BeamBreakEvent(nodeID uint64, trieID uint64) Event {
+	ev := NewEvent(EventBeamBreak, fmtNodeID(nodeID))
+	ev.Target = fmt.Sprintf("trie_%x", trieID)
+	ev.Values = map[string]float64{
+		"trie_id": float64(trieID),
+	}
+
+	return ev
+}
+
+/*
+BeamConvergeEvent fires when the node-level beam produces its final
+output for a prompt.
+*/
+func BeamConvergeEvent(nodeID uint64, sequence string, score float64) Event {
+	ev := NewEvent(EventBeamConverge, fmtNodeID(nodeID))
+	ev.Label = truncate(sequence, 128)
+	ev.Values = map[string]float64{
+		"score": score,
+	}
+
+	return ev
+}
+
 // --- Compute Pool ---
 
 func PoolScheduleEvent(action string, queueSize, workers int) Event {

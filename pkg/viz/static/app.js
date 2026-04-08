@@ -12,7 +12,8 @@ const EK = {
   PoolSchedule:19, PoolComplete:20,
   AdaptiveUpdate:21,
   TrieCoupling:22, TrieMode:23, TriePressure:24, TrieSignal:25,
-  Prompt:26, PromptResult:27,
+  BeamCollect:26, BeamCompose:27, BeamBreak:28, BeamConverge:29,
+  Prompt:30, PromptResult:31,
 };
 const KIND_NAMES = Object.fromEntries(Object.entries(EK).map(([k,v])=>[v,k]));
 
@@ -25,6 +26,7 @@ function kindClass(kind) {
   if (kind <= 20) return 'c-pool';
   if (kind <= 21) return 'c-node';
   if (kind <= 25) return 'c-field';
+  if (kind <= 29) return 'c-beam';
   return 'c-user';
 }
 
@@ -212,6 +214,18 @@ function createNode(id, label) {
     trieSignals: [],           // per-trie { surprisal, entropy, growth }
     trieModes: [],             // per-trie { aligned, modeIdx, energy }
     triePressures: [],         // per-trie { decay, learn, decayMul, learnMul }
+    beam: {
+      collecting: false,
+      rays: [],            // { mesh, t, from:Vector3, to:Vector3 }
+      hypotheses: [],      // { mesh, score, origin, angle, fade }
+      breakParticles: [],  // { mesh, velocity:Vector3, life }
+      convergeRing: null,  // { mesh, scale, fade }
+      lastCollect: 0,
+      lastCompose: 0,
+      activeCount: 0,
+      rejectedCount: 0,
+      bestScore: 0,
+    },
   };
 
   state.nodes.set(id, nodeData);
@@ -1271,6 +1285,215 @@ function applyEvent(ev) {
       break;
     }
 
+    case EK.BeamCollect: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      console.log('viz: BeamCollect', ev.src, ev.vals);
+      const trieCount = ev.vals?.trie_count || 0;
+      const contCount = ev.vals?.continuation_count || 0;
+      const beam = node.beam;
+      beam.collecting = true;
+      beam.lastCollect = performance.now();
+      beam.activeCount = contCount;
+      tickNodeActivity(ev.src, 2);
+
+      // Spawn collection rays: animated tubes from each trie up to the node core.
+      for (const oldRay of beam.rays) {
+        node.group.remove(oldRay.mesh);
+        oldRay.mesh.geometry.dispose();
+        oldRay.mesh.material.dispose();
+      }
+      beam.rays.length = 0;
+
+      const nodeY = 0;
+      const trieBaseY = -5.5;
+      const numRays = Math.min(node.tries.length, trieCount, 12);
+      for (let i = 0; i < numRays; i++) {
+        const trie = node.tries[i];
+        if (!trie) continue;
+        const from = new THREE.Vector3(trie.group.position.x, trieBaseY, trie.group.position.z);
+        const to = new THREE.Vector3(0, nodeY, 0);
+        const mid = from.clone().add(to).multiplyScalar(0.5);
+        mid.x += (Math.random() - 0.5) * 1.5;
+        mid.z += (Math.random() - 0.5) * 1.5;
+        const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+        const geo = new THREE.TubeGeometry(curve, 12, 0.06, 4, false);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x40a0f0, transparent: true, opacity: 0.0,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        node.group.add(mesh);
+        beam.rays.push({ mesh, t: 0, from, to, trieIdx: i });
+        trie.insertFlash = 1.0;
+      }
+
+      // Also pulse the node strongly during collection.
+      node.pulseAlpha = 0.8;
+      node.pulseScale = 1.0;
+      node.pulseRing.material.color.setHex(0x40a0f0);
+      break;
+    }
+
+    case EK.BeamCompose: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      console.log('viz: BeamCompose', ev.src, ev.vals);
+      const selected = ev.vals?.selected_count || 0;
+      const rejected = ev.vals?.rejected_count || 0;
+      const score = ev.vals?.best_score || 0;
+      const beam = node.beam;
+      beam.lastCompose = performance.now();
+      beam.activeCount = selected;
+      beam.rejectedCount = rejected;
+      beam.bestScore = score;
+      beam.collecting = false;
+
+      // Clear old hypotheses.
+      for (const hyp of beam.hypotheses) {
+        node.group.remove(hyp.mesh);
+        hyp.mesh.geometry.dispose();
+        hyp.mesh.material.dispose();
+      }
+      beam.hypotheses.length = 0;
+
+      // Spawn hypothesis orbs orbiting the node — one per selected candidate.
+      const orbitR = 3.0;
+      const orbitY = 2.5;
+      for (let i = 0; i < Math.min(selected, 8); i++) {
+        const angle = (i / Math.min(selected, 8)) * Math.PI * 2;
+        const geo = new THREE.SphereGeometry(0.25 + score * 0.15, 8, 8);
+        const brightness = 0.4 + (1 - i / Math.min(selected, 8)) * 0.6;
+        const mat = new THREE.MeshBasicMaterial({
+          color: rejected > 0 ? 0xf0a848 : 0x60f0b0,
+          transparent: true,
+          opacity: brightness * 0.8,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(
+          Math.cos(angle) * orbitR,
+          orbitY,
+          Math.sin(angle) * orbitR,
+        );
+        node.group.add(mesh);
+        beam.hypotheses.push({ mesh, score: brightness, origin: i, angle, fade: 1.0 });
+      }
+
+      pulseNode(ev.src);
+
+      // Small floater with stats.
+      const pos = node.group.position.clone();
+      pos.y += 3;
+      const color = rejected > 0 ? '#f0a848' : '#60d890';
+      spawnFloater(pos, `${selected}↑ ${rejected}✗ (${score.toFixed(2)})`, color);
+      break;
+    }
+
+    case EK.BeamBreak: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      console.log('viz: BeamBreak', ev.src, ev.tgt, ev.vals);
+      const beam = node.beam;
+      tickNodeActivity(ev.src, 2);
+
+      // Pick a trie to shatter — flash red and spawn break particles falling down.
+      const trieIdx = node.tries.length > 0 ? Math.floor(Math.random() * node.tries.length) : -1;
+      if (trieIdx >= 0) {
+        const trie = node.tries[trieIdx];
+        trie.trunk.material.color.setHex(0xf06060);
+        trie.trunk.material.emissive.setHex(0x601010);
+        trie.trunk.scale.setScalar(1.6);
+        setTimeout(() => {
+          trie.trunk.material.color.setHex(0x607090);
+          trie.trunk.material.emissive.setHex(0x101820);
+          trie.trunk.scale.setScalar(0.6);
+        }, 600);
+        setTimeout(() => { trie.trunk.scale.setScalar(1.0); }, 1200);
+
+        // Shatter particles: small red fragments flying outward from trie.
+        const trieWorldPos = new THREE.Vector3();
+        trie.group.getWorldPosition(trieWorldPos);
+        for (let p = 0; p < 8; p++) {
+          const geo = new THREE.TetrahedronGeometry(0.06, 0);
+          const mat = new THREE.MeshBasicMaterial({ color: 0xf06060, transparent: true, opacity: 0.9 });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(trieWorldPos);
+          scene.add(mesh);
+          beam.breakParticles.push({
+            mesh,
+            velocity: new THREE.Vector3(
+              (Math.random() - 0.5) * 0.08,
+              -0.02 - Math.random() * 0.04,
+              (Math.random() - 0.5) * 0.08,
+            ),
+            life: 1.0,
+          });
+        }
+      }
+
+      // Flash a red X descending from node to trie area.
+      const pos = node.group.position.clone();
+      pos.y -= 2;
+      spawnFloater(pos, '✗ BREAK', '#f06060', new THREE.Vector3(0, -0.025, 0));
+      break;
+    }
+
+    case EK.BeamConverge: {
+      const node = state.nodes.get(ev.src);
+      if (!node) break;
+      console.log('viz: BeamConverge', ev.src, ev.lbl, ev.vals);
+      const seq = ev.lbl || '';
+      const score = ev.vals?.score || 0;
+      const beam = node.beam;
+
+      // Clear hypotheses — they've resolved.
+      for (const hyp of beam.hypotheses) {
+        node.group.remove(hyp.mesh);
+        hyp.mesh.geometry.dispose();
+        hyp.mesh.material.dispose();
+      }
+      beam.hypotheses.length = 0;
+
+      // Convergence ring: expanding bright ring around the node.
+      if (beam.convergeRing) {
+        node.group.remove(beam.convergeRing.mesh);
+        beam.convergeRing.mesh.geometry.dispose();
+        beam.convergeRing.mesh.material.dispose();
+      }
+      const ringGeo = new THREE.RingGeometry(1.0, 1.4, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x60f0b0, transparent: true, opacity: 0.9,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 1.5;
+      node.group.add(ring);
+      beam.convergeRing = { mesh: ring, scale: 1.0, fade: 1.0 };
+
+      // Bright node flash.
+      node.core.material.emissive.setHex(0x30a060);
+      node.core.material.color.setHex(0x60f0b0);
+      setTimeout(() => {
+        node.core.material.emissive.setHex(0x182840);
+        node.core.material.color.setHex(0x6ea8fe);
+      }, 1500);
+
+      pulseNode(ev.src);
+
+      // Result floater.
+      const pos = node.group.position.clone();
+      pos.y += 4.5;
+      const display = seq.length > 40 ? `${seq.slice(0, 40)}...` : seq;
+      spawnFloater(pos, `→ ${display}`, '#60f0b0');
+
+      if (score > 0) {
+        const pos2 = node.group.position.clone();
+        pos2.y += 3.5;
+        spawnFloater(pos2, `score: ${score.toFixed(3)}`, '#40d0a0');
+      }
+      break;
+    }
+
     case EK.Prompt: {
       const pos = new THREE.Vector3(0, 6, 0);
       spawnFloater(pos, ev.meta?.prompt || 'prompt', '#80b0f0');
@@ -1400,13 +1623,13 @@ function refreshInspector() {
   }
 
   // Per-trie field state.
-  if (d.trieSignals.length > 0 || d.trieModes.length > 0) {
+  if (node.trieSignals.length > 0 || node.trieModes.length > 0) {
     html += '<div class="insp-section"><h4>trie field state</h4>';
-    const maxIdx = Math.max(d.trieSignals.length, d.trieModes.length, d.triePressures.length);
+    const maxIdx = Math.max(node.trieSignals.length, node.trieModes.length, node.triePressures.length);
     for (let ti = 0; ti < maxIdx; ti++) {
-      const sig = d.trieSignals[ti];
-      const mode = d.trieModes[ti];
-      const pres = d.triePressures[ti];
+      const sig = node.trieSignals[ti];
+      const mode = node.trieModes[ti];
+      const pres = node.triePressures[ti];
       const modeLabel = mode ? (mode.aligned ? '<span style="color:#f0a848">aligned</span>' : '<span style="color:#607090">misaligned</span>') : '—';
       html += `<div style="margin-bottom:4px;padding:3px 0;border-bottom:1px solid rgba(60,80,120,0.1);">`;
       html += `<div class="insp-row"><span class="insp-key">T${ti}</span><span class="insp-val">${modeLabel}</span></div>`;
@@ -1422,6 +1645,18 @@ function refreshInspector() {
       }
       html += `</div>`;
     }
+    html += '</div>';
+  }
+
+  // Beam search state.
+  const bm = node.beam;
+  if (bm.lastCompose > 0 || bm.activeCount > 0) {
+    html += '<div class="insp-section"><h4>beam search</h4>';
+    html += `<div class="insp-row"><span class="insp-key">active hypotheses</span><span class="insp-val" style="color:#60f0b0">${bm.activeCount}</span></div>`;
+    html += `<div class="insp-row"><span class="insp-key">last rejected</span><span class="insp-val" style="color:#f06060">${bm.rejectedCount}</span></div>`;
+    html += `<div class="insp-row"><span class="insp-key">best score</span><span class="insp-val" style="color:#f0a848">${bm.bestScore.toFixed(4)}</span></div>`;
+    html += `<div class="insp-row"><span class="insp-key">collection rays</span><span class="insp-val">${bm.rays.length}</span></div>`;
+    html += `<div class="insp-row"><span class="insp-key">orbiting hyps</span><span class="insp-val">${bm.hypotheses.length}</span></div>`;
     html += '</div>';
   }
 
@@ -1493,7 +1728,12 @@ function scrubTo(pos) {
 }
 
 function clearScene() {
-  for (const [, n] of state.nodes) scene.remove(n.group);
+  for (const [, n] of state.nodes) {
+    // Clean up beam particles in world space.
+    for (const bp of n.beam.breakParticles) { scene.remove(bp.mesh); bp.mesh.geometry.dispose(); bp.mesh.material.dispose(); }
+    n.beam.breakParticles.length = 0;
+    scene.remove(n.group);
+  }
   for (const [, e] of state.edges) { scene.remove(e.mesh); scene.remove(e.labelSprite); }
   for (const [, a] of state.fieldArcs) { scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose(); }
   if (state.eigenmodeRing) { scene.remove(state.eigenmodeRing); state.eigenmodeRing = null; }
@@ -1647,6 +1887,74 @@ function animate(now) {
         arc.mesh.material.color.setHex(arc.glow > 0.4 ? 0xf0d080 : 0xe8a840);
       } else {
         arc.mesh.material.opacity = Math.max(arc.mesh.material.opacity - 0.003, Math.min(arc.coupling * 0.3, 0.25));
+      }
+    }
+
+    // Beam collection rays: animate opacity sweep from trie to node.
+    const beam = node.beam;
+    for (let ri = beam.rays.length - 1; ri >= 0; ri--) {
+      const ray = beam.rays[ri];
+      ray.t += 0.025;
+      if (ray.t < 1.0) {
+        ray.mesh.material.opacity = Math.sin(ray.t * Math.PI) * 0.7;
+        ray.mesh.material.color.setHex(ray.t > 0.5 ? 0x60c0f0 : 0x40a0f0);
+      } else {
+        node.group.remove(ray.mesh);
+        ray.mesh.geometry.dispose();
+        ray.mesh.material.dispose();
+        beam.rays.splice(ri, 1);
+      }
+    }
+
+    // Beam hypotheses: orbit around node, slowly fade.
+    for (let hi = beam.hypotheses.length - 1; hi >= 0; hi--) {
+      const hyp = beam.hypotheses[hi];
+      hyp.angle += 0.02;
+      hyp.fade -= 0.0008;
+      const orbitR = 2.2;
+      hyp.mesh.position.set(
+        Math.cos(hyp.angle) * orbitR,
+        1.8 + Math.sin(hyp.angle * 2) * 0.3,
+        Math.sin(hyp.angle) * orbitR,
+      );
+      hyp.mesh.material.opacity = Math.max(0, hyp.score * hyp.fade * 0.8);
+      if (hyp.fade <= 0) {
+        node.group.remove(hyp.mesh);
+        hyp.mesh.geometry.dispose();
+        hyp.mesh.material.dispose();
+        beam.hypotheses.splice(hi, 1);
+      }
+    }
+
+    // Beam break particles: fly outward and fade.
+    for (let bi = beam.breakParticles.length - 1; bi >= 0; bi--) {
+      const bp = beam.breakParticles[bi];
+      bp.mesh.position.add(bp.velocity);
+      bp.velocity.y -= 0.001; // gravity
+      bp.life -= 0.02;
+      bp.mesh.material.opacity = Math.max(0, bp.life);
+      bp.mesh.rotation.x += 0.1;
+      bp.mesh.rotation.z += 0.08;
+      if (bp.life <= 0) {
+        scene.remove(bp.mesh);
+        bp.mesh.geometry.dispose();
+        bp.mesh.material.dispose();
+        beam.breakParticles.splice(bi, 1);
+      }
+    }
+
+    // Convergence ring: expand and fade.
+    if (beam.convergeRing) {
+      const cr = beam.convergeRing;
+      cr.scale += 0.04;
+      cr.fade -= 0.006;
+      cr.mesh.scale.setScalar(cr.scale);
+      cr.mesh.material.opacity = Math.max(0, cr.fade * 0.9);
+      if (cr.fade <= 0) {
+        node.group.remove(cr.mesh);
+        cr.mesh.geometry.dispose();
+        cr.mesh.material.dispose();
+        beam.convergeRing = null;
       }
     }
   }

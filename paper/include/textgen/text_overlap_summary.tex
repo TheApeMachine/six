@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-12 & prompt\_12 & 0.0000 & 0.0161 & 0.0161 & 0.0073 \\
-11 & prompt\_11 & 0.0000 & 0.0159 & 0.0159 & 0.0072 \\
-27 & prompt\_27 & 0.0000 & 0.0144 & 0.0144 & 0.0065 \\
+22 & prompt\_22 & 0.0000 & 0.0585 & 0.0585 & 0.0266 \\
+27 & prompt\_27 & 0.0000 & 0.0526 & 0.0526 & 0.0239 \\
+29 & prompt\_29 & 0.0000 & 0.0459 & 0.0459 & 0.0209 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-63 & prompt\_63 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-51 & prompt\_51 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-97 & prompt\_97 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+42 & prompt\_42 & 0.0000 & 0.0026 & 0.0026 & 0.0012 \\
+83 & prompt\_83 & 0.0000 & 0.0076 & 0.0076 & 0.0034 \\
+70 & prompt\_70 & 0.0000 & 0.0086 & 0.0086 & 0.0039 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{One day, a girl named Mia went for a wal\ldots}} & \multicolumn{2}{l}{\texttt{ee. Mia wanted to help the bird.··Mia op\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a boy named \ldots}} & \multicolumn{2}{l}{\texttt{his hat and took it with him.··Tim drew \ldots}} & \multicolumn{2}{l}{\texttt{a a a a a}} \\
-\multicolumn{2}{l}{\texttt{Once there were two friends named Bob an\ldots}} & \multicolumn{2}{l}{\texttt{ob smiled and nodded. "That's a good ide\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a}} \\
-\multicolumn{2}{l}{\texttt{Once there was a graceful bird called Bi\ldots}} & \multicolumn{2}{l}{\texttt{wings and flew higher, higher and higher\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a girl named\ldots}} & \multicolumn{2}{l}{\texttt{She named the snail Sam.··Sue and Sam pl\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a little boy\ldots}} & \multicolumn{2}{l}{\texttt{ll, ran around, and had a lot of fun.··T\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a small town, there\ldots}} & \multicolumn{2}{l}{\texttt{r, Tim and his friends sat under a big t\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time there was a brave warri\ldots}} & \multicolumn{2}{l}{\texttt{plied, â€œOf course! Follow me, I'll sho\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 100\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0019} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0073} \\
+\multicolumn{3}{l}{Mean score: 0.0099} & \multicolumn{3}{l}{Min: 0.0012 \quad Max: 0.0266} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

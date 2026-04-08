@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-116 & JavaScript & 0.0000 & 0.1600 & 0.1600 & 0.0727 \\
-260 & Java & 0.0000 & 0.1200 & 0.1200 & 0.0545 \\
-209 & Java & 0.0000 & 0.1000 & 0.1000 & 0.0455 \\
+89 & Python & 0.0000 & 0.2800 & 0.2800 & 0.1273 \\
+391 & Go & 0.0000 & 0.2600 & 0.2600 & 0.1182 \\
+145 & JavaScript & 0.0000 & 0.2600 & 0.2600 & 0.1182 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-195 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-198 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+548 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+257 & Java & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+545 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{/* Given a string, find out how many dis\ldots}} & \multicolumn{2}{l}{\texttt{return (new Set(string.toLowerCase())).s\ldots}} & \multicolumn{2}{l}{\texttt{(regard (regard (regard (regard (regard}} \\
-\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{ult += i;·        \}·        return resul\ldots}} & \multicolumn{2}{l}{\texttt{import import import import import}} \\
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{List List List List List}} \\
-\multicolumn{2}{l}{\texttt{/*·  Given a dictionary, return true if \ldots}} & \multicolumn{2}{l}{\texttt{= 0) || c == 0) \{ return false \}·  retur\ldots}} & \multicolumn{2}{l}{\texttt{/* /* /* /* /*}} \\
+\multicolumn{2}{l}{\texttt{·def encrypt(s):·    """Create a functio\ldots}} & \multicolumn{2}{l}{\texttt{else:·            out += c·    return ou\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
+\multicolumn{2}{l}{\texttt{import (·    "regexp"·)··// You'll be gi\ldots}} & \multicolumn{2}{l}{\texttt{sum++·        \}·    \}·    return sum·\}··}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{chars().rev().collect();·    return pr =\ldots}} & \multicolumn{2}{l}{\texttt{List List List List List List List List \ldots}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{return l.equals(l1) || l.equals(l2);·   \ldots}} & \multicolumn{2}{l}{\texttt{import import import import import impor\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 600\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0170} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0727} \\
+\multicolumn{3}{l}{Mean score: 0.0294} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1273} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

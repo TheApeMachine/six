@@ -44,6 +44,8 @@ type Server struct {
 	bus      *Bus
 	addr     string
 	srv      *http.Server
+	ln       net.Listener
+	ch       chan Event
 	mu       sync.RWMutex
 	clients  map[*wsClient]struct{}
 	timeline *Timeline
@@ -84,34 +86,59 @@ func NewServer(bus *Bus, addr string) *Server {
 }
 
 /*
-Start activates the event bus, begins consuming events, and starts the HTTP server.
+Start activates the event bus, begins consuming events, and starts the
+HTTP server. This is the all-in-one entry point — blocks until the
+server shuts down.
 */
 func (s *Server) Start(ctx context.Context) error {
-	s.bus.Activate()
+	if err := s.ListenAndActivate(); err != nil {
+		return err
+	}
 
-	ch := s.bus.Subscribe(8192, nil)
+	return s.Serve()
+}
 
-	go s.consume(ctx, ch)
-	go s.broadcastStats(ctx)
-
+/*
+ListenAndActivate binds the TCP listener, activates the bus, and
+subscribes the event consumer — all synchronously. After this returns,
+any Publish call will be captured. Call Serve separately to start
+accepting HTTP connections.
+*/
+func (s *Server) ListenAndActivate() error {
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return err
 	}
 
 	s.addr = ln.Addr().String()
+	s.ln = ln
+	s.bus.Activate()
+	s.ch = s.bus.Subscribe(8192, nil)
 
 	log.Printf("viz: serving on http://%s", s.addr)
+
+	return nil
+}
+
+/*
+Serve starts the consume loop, stats broadcaster, and HTTP server on
+the listener opened by ListenAndActivate. Blocks until shutdown.
+*/
+func (s *Server) Serve() error {
+	ctx := context.Background()
+
+	go s.consume(ctx, s.ch)
+	go s.broadcastStats(ctx)
 
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = s.srv.Shutdown(shutCtx)
-		s.bus.Unsubscribe(ch)
+		s.bus.Unsubscribe(s.ch)
 	}()
 
-	if err := s.srv.Serve(ln); err != http.ErrServerClosed {
+	if err := s.srv.Serve(s.ln); err != http.ErrServerClosed {
 		return err
 	}
 

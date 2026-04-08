@@ -126,8 +126,18 @@ func PipelineWithViz(addr string) pipelineOpts {
 
 			server := viz.NewServer(viz.DefaultBus, addr)
 
+			if err := server.ListenAndActivate(); err != nil {
+				errnie.Warn(
+					"task.PipelineWithViz: viz server listen failed",
+					"addr", addr,
+					"err", err,
+				)
+
+				return
+			}
+
 			go func() {
-				if err := server.Start(context.Background()); err != nil {
+				if err := server.Serve(); err != nil {
 					errnie.Warn(
 						"task.PipelineWithViz: viz server exited",
 						"addr", addr,

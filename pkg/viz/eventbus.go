@@ -52,6 +52,12 @@ const (
 	EventTriePressure   // Asymmetric decay/learn pressure applied to a trie
 	EventTrieSignal     // Per-trie signal snapshot (surprisal, entropy, growth)
 
+	// Hierarchical beam search.
+	EventBeamCollect  // Node collected continuations from tries
+	EventBeamCompose  // Node-level beam selected winners
+	EventBeamBreak    // Node broke a trie's beam (backtracking)
+	EventBeamConverge // Node-level beam converged on final output
+
 	// User interaction.
 	EventPrompt
 	EventPromptResult

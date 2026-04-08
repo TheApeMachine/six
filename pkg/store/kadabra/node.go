@@ -201,14 +201,42 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 	observation := algo.NewPrediction()
 	observation.AddContext(*pv)
 
-	for _, trie := range node.triesSnapshot() {
+	tries := node.triesSnapshot()
+
+	for _, trie := range tries {
 		triePred := trie.Predict(*pv)
 		observation.Continuations = append(observation.Continuations, triePred.Continuations...)
 		observation.Labels = append(observation.Labels, triePred.Labels...)
 	}
 
+	viz.DefaultBus.Publish(viz.BeamCollectEvent(
+		node.ID, len(tries), len(observation.Continuations),
+	))
+
 	result, _ := node.beam.Update(observation)
+
+	bestScore := 0.0
+
+	if len(result.Continuations) > 0 {
+		bestScore = result.Continuations[0].Score
+	}
+
+	viz.DefaultBus.Publish(viz.BeamComposeEvent(
+		node.ID,
+		len(result.Continuations),
+		len(result.Rejected),
+		bestScore,
+	))
+
 	node.breakRejected(result.Rejected)
+
+	if len(result.Continuations) > 0 {
+		viz.DefaultBus.Publish(viz.BeamConvergeEvent(
+			node.ID,
+			string(result.Continuations[0].Sequence),
+			bestScore,
+		))
+	}
 
 	return result, nil
 }
@@ -240,5 +268,7 @@ func (node *Node) breakRejected(rejected []uint64) {
 		for _, algorithm := range trie.Algorithms() {
 			algorithm.Update(breakSignal)
 		}
+
+		viz.DefaultBus.Publish(viz.BeamBreakEvent(node.ID, trie.ID))
 	}
 }
