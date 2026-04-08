@@ -9,6 +9,31 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+type stubAlgorithm struct {
+	prediction *algo.Prediction
+	updates    int
+}
+
+func (stub *stubAlgorithm) Value() *algo.Prediction {
+	if stub == nil {
+		return nil
+	}
+
+	return stub.prediction
+}
+
+func (stub *stubAlgorithm) Update(
+	prediction *algo.Prediction,
+) (*algo.Prediction, error) {
+	if stub == nil {
+		return nil, nil
+	}
+
+	stub.updates++
+
+	return stub.prediction, nil
+}
+
 func TestNewStore(t *testing.T) {
 	setupMarkovTrieValueConfig(t)
 
@@ -29,6 +54,22 @@ func TestNewStore(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(store, ShouldNotBeNil)
 		So(len(store.Algorithms()), ShouldBeGreaterThan, 2)
+	})
+
+	Convey("WithAlgorithms replaces the default stack", t, func() {
+		stub := &stubAlgorithm{
+			prediction: algo.NewPrediction(),
+		}
+
+		store, err := NewStore(
+			context.Background(),
+			primitive.Affinity{},
+			WithAlgorithms(stub),
+		)
+
+		So(err, ShouldBeNil)
+		So(len(store.Algorithms()), ShouldEqual, 1)
+		So(store.Algorithms()[0], ShouldEqual, stub)
 	})
 }
 
@@ -197,6 +238,28 @@ func TestStoreAlgorithms(t *testing.T) {
 		So(err, ShouldBeNil)
 
 		So(len(store.Algorithms()), ShouldEqual, 4)
+	})
+}
+
+func TestStoreObserve(t *testing.T) {
+	setupMarkovTrieValueConfig(t)
+
+	t.Parallel()
+
+	Convey("Observe forwards envelopes through the configured stack", t, func() {
+		stub := &stubAlgorithm{
+			prediction: algo.NewPrediction(),
+		}
+
+		store, err := NewStore(
+			context.Background(),
+			primitive.Affinity{},
+			WithAlgorithms(stub),
+		)
+
+		So(err, ShouldBeNil)
+		So(store.Observe(algo.NewPrediction()), ShouldBeNil)
+		So(stub.updates, ShouldEqual, 1)
 	})
 }
 

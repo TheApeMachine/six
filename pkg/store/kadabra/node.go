@@ -39,7 +39,7 @@ type Node struct {
 	epoch             uint64
 	tries             atomic.Pointer[[]*markovtrie.Store]
 	Field             *Field
-	beam              *beam.Search
+	stack             *algo.Stack
 	routing           *RoutingTable
 	gossip            *Gossip
 	random            *rand.Rand
@@ -107,7 +107,7 @@ func NewNode(
 	}
 
 	node.Field = NewField(node)
-	node.beam = beam.NewSearch()
+	node.stack = algo.NewStack(beam.NewSearch())
 
 	viz.DefaultBus.Publish(viz.NodeCreated(node.ID, id))
 
@@ -232,7 +232,11 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		node.ID, len(selected), len(observation.Continuations),
 	))
 
-	result, _ := node.beam.Update(observation)
+	result, stackErr := node.stack.Update(observation)
+
+	if stackErr != nil {
+		predictErr = errors.Join(predictErr, stackErr)
+	}
 
 	bestScore := 0.0
 
@@ -284,9 +288,7 @@ func (node *Node) breakRejected(rejected []uint64) {
 			continue
 		}
 
-		for _, algorithm := range trie.Algorithms() {
-			algorithm.Update(breakSignal)
-		}
+		_ = trie.Observe(breakSignal)
 
 		viz.DefaultBus.Publish(viz.BeamBreakEvent(node.ID, trie.ID))
 	}

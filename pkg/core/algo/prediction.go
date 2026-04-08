@@ -93,6 +93,86 @@ func (prediction *Prediction) TruncateForUpdate() {
 	prediction.Context = prediction.Context[:0]
 }
 
+/*
+Clone returns a deep copy of the Prediction so callers can merge or
+annotate results without mutating an algorithm's canonical Value.
+*/
+func (prediction *Prediction) Clone() *Prediction {
+	if prediction == nil {
+		return nil
+	}
+
+	return NewPrediction().Merge(prediction)
+}
+
+/*
+Merge appends Labels, Continuations, Context, and Rejected entries from
+other into prediction. Signals are cloned and assigned by key, so later
+merges overwrite earlier values for the same signal type.
+*/
+func (prediction *Prediction) Merge(other *Prediction) *Prediction {
+	if prediction == nil {
+		return nil
+	}
+
+	if other == nil {
+		return prediction
+	}
+
+	for _, label := range other.Labels {
+		prediction.Labels = append(prediction.Labels, Label{
+			Label:      append([]byte(nil), label.Label...),
+			Confidence: label.Confidence,
+		})
+	}
+
+	for _, continuation := range other.Continuations {
+		prediction.Continuations = append(prediction.Continuations, Continuation{
+			Sequence: append([]byte(nil), continuation.Sequence...),
+			Score:    continuation.Score,
+			Origin:   continuation.Origin,
+		})
+	}
+
+	prediction.Context = append(prediction.Context, other.Context...)
+	prediction.Rejected = append(prediction.Rejected, other.Rejected...)
+
+	for signalType, signal := range other.Signals {
+		if signal == nil {
+			continue
+		}
+
+		prediction.Signals[signalType] = signal.Clone()
+	}
+
+	return prediction
+}
+
+/*
+SetContinuationOrigin stamps origin onto continuations that do not
+already identify their source. This lets a caller annotate merged beam
+results without knowing which algorithm produced them.
+*/
+func (prediction *Prediction) SetContinuationOrigin(origin uint64) *Prediction {
+	if prediction == nil {
+		return nil
+	}
+
+	if origin == 0 {
+		return prediction
+	}
+
+	for idx := range prediction.Continuations {
+		if prediction.Continuations[idx].Origin != 0 {
+			continue
+		}
+
+		prediction.Continuations[idx].Origin = origin
+	}
+
+	return prediction
+}
+
 func (prediction *Prediction) Value() *Prediction {
 	return prediction
 }

@@ -3,17 +3,13 @@ package markovtrie
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"sync/atomic"
 
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/algo/beam"
 	"github.com/theapemachine/six/pkg/core/algo/causal"
 	"github.com/theapemachine/six/pkg/core/algo/classify"
-	"github.com/theapemachine/six/pkg/core/algo/cooccurrence"
-	"github.com/theapemachine/six/pkg/core/algo/episodic"
 	"github.com/theapemachine/six/pkg/core/algo/train"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -35,12 +31,7 @@ type Store struct {
 	ID            uint64
 	Affinity      primitive.Affinity
 	AffinityCount atomic.Uint64
-	cooccurrence  *cooccurrence.Matrix
-	episodic      *episodic.Buffer
-	algorithms    []algo.Algorithm
-	generator     *beam.Search
-	classifier    *classify.Classifier
-	trainer       *train.Online
+	stack         *algo.Stack
 	lastLeaf      atomic.Pointer[Node]
 
 	/*
@@ -72,19 +63,15 @@ func NewStore(
 	ctx, cancel := context.WithCancel(ctx)
 
 	store := &Store{
-		ctx:    ctx,
-		cancel: cancel,
-		cooccurrence: cooccurrence.NewMatrix(
-			core.Cfg.MarkovTrie.CoOccurrenceWindow,
-		),
-		classifier: classify.NewClassifier(),
-		Affinity:   affinity,
-		algorithms: []algo.Algorithm{
+		ctx:      ctx,
+		cancel:   cancel,
+		Affinity: affinity,
+		stack: algo.NewStack(
 			classify.NewClassifier(),
 			beam.NewSearch(),
 			train.NewOnline(),
 			causal.NewGraph(),
-		},
+		),
 	}
 
 	for _, option := range options {
@@ -95,6 +82,16 @@ func NewStore(
 		"ctx":    store.ctx,
 		"cancel": store.cancel,
 	})
+}
+
+/*
+WithAlgorithms replaces the Store's algorithm stack. The caller owns the
+algorithm construction; the Store owns orchestration only through algo.Stack.
+*/
+func WithAlgorithms(algorithms ...algo.Algorithm) Option {
+	return func(store *Store) {
+		store.stack = algo.NewStack(algorithms...)
+	}
 }
 
 /*
@@ -172,7 +169,7 @@ func (store *Store) Load(
 		})
 		observation.AddContext(triePath...)
 
-		if err := store.runAlgorithmStack(observation); err != nil {
+		if err := store.Observe(observation); err != nil {
 			loadErr = errors.Join(loadErr, err)
 		}
 	}
@@ -181,33 +178,18 @@ func (store *Store) Load(
 }
 
 /*
-runAlgorithmStack runs the Store's algo.Algorithm slice on one observation.
-
-Trie mutation stays in Load/Predict; this is the only orchestration hook
-needed to broadcast a labeled observation without scattering Update loops.
+Observe broadcasts one Prediction envelope through the Store's algorithm
+stack. Callers use this for learning, inference, field pressure, and beam
+feedback without iterating concrete algorithms in store or node code.
 */
-func (store *Store) runAlgorithmStack(observation *algo.Prediction) error {
-	if store == nil {
+func (store *Store) Observe(observation *algo.Prediction) error {
+	if store == nil || store.stack == nil {
 		return nil
 	}
 
-	var joined error
+	_, err := store.stack.Update(observation)
 
-	for _, algorithm := range store.algorithms {
-		_, err := algorithm.Update(observation)
-
-		if err != nil {
-			log.Printf(
-				"markovtrie.Store.runAlgorithmStack: algorithm %T failed: %v",
-				algorithm,
-				err,
-			)
-
-			joined = errors.Join(joined, err)
-		}
-	}
-
-	return joined
+	return err
 }
 
 /*
@@ -241,29 +223,13 @@ func (store *Store) Predict(value primitive.Value) (*algo.Prediction, error) {
 		observation.AddContext(step)
 	}
 
-	stackErr := store.runAlgorithmStack(observation)
+	merged, stackErr := store.stack.Update(observation)
 
-	merged := algo.NewPrediction()
-
-	for _, algorithm := range store.algorithms {
-		partial := algorithm.Value()
-
-		if partial == nil {
-			continue
-		}
-
-		switch algorithm.(type) {
-		case *classify.Classifier:
-			merged.Labels = append(merged.Labels, partial.Labels...)
-		case *beam.Search:
-			for _, cont := range partial.Continuations {
-				cont.Origin = store.ID
-				merged.Continuations = append(merged.Continuations, cont)
-			}
-		}
+	if merged == nil {
+		return algo.NewPrediction(), stackErr
 	}
 
-	return merged, stackErr
+	return merged.SetContinuationOrigin(store.ID), stackErr
 }
 
 /*
@@ -274,21 +240,11 @@ last-writer-wins in algorithm order — the caller should not depend
 on which algorithm "wins" a shared key.
 */
 func (store *Store) Signals() map[algo.SignalType]float64 {
-	out := make(map[algo.SignalType]float64)
-
-	for _, algorithm := range store.algorithms {
-		pred := algorithm.Value()
-
-		if pred == nil || pred.Signals == nil {
-			continue
-		}
-
-		for signal, derived := range pred.Signals {
-			out[signal] = derived.Value()
-		}
+	if store == nil || store.stack == nil {
+		return make(map[algo.SignalType]float64)
 	}
 
-	return out
+	return store.stack.Signals()
 }
 
 /*
@@ -296,27 +252,23 @@ Signal returns a single signal value from the algorithm that owns it.
 Returns 0 if no algorithm exposes the key.
 */
 func (store *Store) Signal(signal algo.SignalType) float64 {
-	for _, algorithm := range store.algorithms {
-		pred := algorithm.Value()
-
-		if pred == nil || pred.Signals == nil {
-			continue
-		}
-
-		if derived, ok := pred.Signals[signal]; ok {
-			return derived.Value()
-		}
+	if store == nil || store.stack == nil {
+		return 0
 	}
 
-	return 0
+	return store.stack.Signal(signal)
 }
 
 /*
 Algorithms returns the algorithm stack for external iteration.
-The node-level beam uses this to send break signals directly.
+Used for tests and diagnostics without exposing Stack internals.
 */
 func (store *Store) Algorithms() []algo.Algorithm {
-	return store.algorithms
+	if store == nil || store.stack == nil {
+		return nil
+	}
+
+	return store.stack.Algorithms()
 }
 
 /*
@@ -339,5 +291,5 @@ func (store *Store) ApplyFieldPressure(
 	pressure.Signals[algo.FieldGrowth] = numeric.NewDerivedFrom(fieldGrowth)
 	pressure.Signals[algo.FieldDecayMul] = numeric.NewDerivedFrom(decayMul)
 
-	return store.runAlgorithmStack(pressure)
+	return store.Observe(pressure)
 }

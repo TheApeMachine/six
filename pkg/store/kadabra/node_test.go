@@ -192,8 +192,6 @@ func TestNodeGossip(t *testing.T) {
 func TestNodePredict(t *testing.T) {
 	setupKadabraPrimitiveLayout(t)
 
-	t.Parallel()
-
 	Convey("Predict rejects nil Routable", t, func() {
 		ctx := context.Background()
 
@@ -271,8 +269,6 @@ func TestNodePredict(t *testing.T) {
 
 func TestNodePublish(t *testing.T) {
 	setupKadabraPrimitiveLayout(t)
-
-	t.Parallel()
 
 	Convey("nil Value errors", t, func() {
 		ctx := context.Background()
