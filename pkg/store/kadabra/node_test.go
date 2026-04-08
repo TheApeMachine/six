@@ -265,6 +265,52 @@ func TestNodePredict(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(pred, ShouldNotBeNil)
 	})
+
+	Convey("Predict composes trie labels through the node classifier", t, func() {
+		ctx := context.Background()
+
+		queue, qErr := pool.NewQueue(ctx)
+
+		So(qErr, ShouldBeNil)
+
+		defer func() {
+			_ = queue.Close()
+		}()
+
+		node, nErr := NewNode(ctx, "kadabra-pred-classify", queue)
+
+		So(nErr, ShouldBeNil)
+
+		payload := []byte("classification token")
+
+		trainValue, vErr := primitive.NewValue(payload)
+
+		So(vErr, ShouldBeNil)
+
+		defer trainValue.Close()
+
+		So(trainValue.ComputeAffinityLSH(), ShouldBeNil)
+		So(ensurePublishableAffinity(trainValue, payload), ShouldBeNil)
+		So(node.Publish(trainValue, "alpha"), ShouldBeNil)
+
+		queue.Drain()
+
+		queryValue, qErr := primitive.NewValue(payload)
+
+		So(qErr, ShouldBeNil)
+
+		defer queryValue.Close()
+
+		So(queryValue.ComputeAffinityLSH(), ShouldBeNil)
+		So(ensurePublishableAffinity(queryValue, payload), ShouldBeNil)
+
+		pred, err := node.Predict(queryValue)
+
+		So(err, ShouldBeNil)
+		So(pred, ShouldNotBeNil)
+		So(len(pred.Labels), ShouldBeGreaterThan, 0)
+		So(pred.Label(), ShouldEqual, "alpha")
+	})
 }
 
 func TestNodePublish(t *testing.T) {

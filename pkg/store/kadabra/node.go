@@ -14,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/algo/beam"
+	"github.com/theapemachine/six/pkg/core/algo/classify"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -107,7 +108,10 @@ func NewNode(
 	}
 
 	node.Field = NewField(node)
-	node.stack = algo.NewStack(beam.NewSearch())
+	node.stack = algo.NewStack(
+		classify.NewClassifier(),
+		beam.NewSearch(),
+	)
 
 	viz.DefaultBus.Publish(viz.NodeCreated(node.ID, id))
 
@@ -188,8 +192,8 @@ func (node *Node) Publish(
 /*
 Predict projects through the field, scores local tries by affinity to
 the prompt, runs Predict only on the nearest subset, merges
-continuations into the node-level beam, and breaks non-contributing
-trie beams so they re-search.
+child labels and continuations into the node-level algorithm stack, and
+breaks non-contributing trie beams so they re-search.
 */
 func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 	if node.err = validate.Require(map[string]any{
@@ -206,15 +210,26 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 		))
 	}
 
-	_, _ = node.Field.Project(pv)
+	var predictErr error
+
+	fieldProjection, projectErr := node.Field.Project(pv)
+
+	if projectErr != nil {
+		predictErr = errors.Join(predictErr, errnie.Error(fmt.Errorf(
+			"kadabra: field projection failed: %w",
+			projectErr,
+		)))
+	}
 
 	observation := algo.NewPrediction()
 	observation.AddContext(*pv)
 
+	if fieldProjection != nil {
+		observation.Merge(fieldProjection)
+	}
+
 	tries := node.triesSnapshot()
 	selected := node.selectTriesForPredict(pv, tries, predictTrieFanout)
-
-	var predictErr error
 
 	for _, trie := range selected {
 		triePred, err := trie.Predict(*pv)

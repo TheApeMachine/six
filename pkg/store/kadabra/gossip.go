@@ -26,6 +26,7 @@ func (gossip *Gossip) Digests() []Digest {
 	tries := gossip.owner.triesSnapshot()
 	epoch := atomic.AddUint64(&gossip.owner.epoch, 1)
 	out := make([]Digest, 0, len(tries))
+	nodePhase := gossip.owner.Field.refreshNodePhase()
 
 	for trieIdx := range tries {
 		cluster := tries[trieIdx]
@@ -49,6 +50,7 @@ func (gossip *Gossip) Digests() []Digest {
 		out = append(out, Digest{
 			Origin:          origin,
 			Affinity:        cluster.Affinity.Vector(),
+			NodePhase:       *nodePhase,
 			SurprisalMean:   surprisalMean,
 			SurprisalGrowth: surprisalMean - prevSurprisal,
 			SurprisalPrev:   prevSurprisal,

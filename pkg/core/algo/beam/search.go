@@ -3,11 +3,13 @@ package beam
 import (
 	"bytes"
 	"math"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 )
 
 /*
@@ -31,6 +33,8 @@ type Search struct {
 	quality    *numeric.Derived
 	beamWidth  int
 	maxHops    int
+	phaseIndex atomic.Uint32
+	phaseGain  atomic.Uint64
 }
 
 /*
@@ -92,6 +96,8 @@ func (search *Search) Update(
 	if prediction == nil {
 		return search.prediction, nil
 	}
+
+	search.capturePhaseSignals(prediction)
 
 	if search.shouldBreak(prediction) {
 		return search.prediction, nil
@@ -300,6 +306,7 @@ func (search *Search) rankFromContinuations(
 
 	for _, cont := range prediction.Continuations {
 		prob := math.Exp(cont.Score - maxScore)
+		prob = search.phaseWeightedProbability(cont.Sequence, prob)
 
 		ranked = append(ranked, RankedToken{
 			Token:       string(cont.Sequence),
@@ -343,9 +350,12 @@ func (search *Search) rankFromContext(
 	ranked := make(RankedTokens, 0, len(freq))
 
 	for token, count := range freq {
+		probability := count / total
+		probability = search.phaseWeightedProbability([]byte(token), probability)
+
 		ranked = append(ranked, RankedToken{
 			Token:       token,
-			Probability: count / total,
+			Probability: probability,
 		})
 	}
 
@@ -383,4 +393,88 @@ func (search *Search) extractPrefix(
 	}
 
 	return out
+}
+
+func (search *Search) capturePhaseSignals(prediction *algo.Prediction) {
+	if prediction == nil || prediction.Signals == nil {
+		return
+	}
+
+	if globalPhase, ok := prediction.Signals[algo.GlobalPhase]; ok && globalPhase != nil {
+		lane, active := algo.ParseGlobalPhaseIndex(globalPhase.Value())
+
+		if !active || lane < 0 {
+			search.phaseIndex.Store(0)
+		} else {
+			search.phaseIndex.Store(uint32(lane + 1))
+		}
+	}
+
+	if phaseConcentration, ok := prediction.Signals[algo.PhaseConcentration]; ok && phaseConcentration != nil {
+		phaseGain := phaseConcentration.Value()
+
+		if phaseGain < 0 {
+			phaseGain = 0
+		}
+
+		search.phaseGain.Store(math.Float64bits(phaseGain))
+	}
+}
+
+func (search *Search) phaseState() (int, float64) {
+	encodedPhase := search.phaseIndex.Load()
+	phaseGain := math.Float64frombits(search.phaseGain.Load())
+
+	if encodedPhase == 0 {
+		return -1, phaseGain
+	}
+
+	return int(encodedPhase) - 1, phaseGain
+}
+
+func (search *Search) phaseWeightedProbability(sequence []byte, probability float64) float64 {
+	phaseIndex, phaseGain := search.phaseState()
+
+	if phaseIndex < 0 || phaseGain <= 0 || len(sequence) == 0 {
+		return probability
+	}
+
+	candidatePhase := gf.DominantForBytes(sequence)
+	alignment := gf.Alignment(candidatePhase.Index, phaseIndex)
+	bias := gf.InterferenceMultiplier(alignment, phaseGain)
+	bias = clampPhaseInterferenceBias(bias)
+
+	product := probability * bias
+
+	if math.IsNaN(product) || math.IsInf(product, 0) {
+		return probability
+	}
+
+	return product
+}
+
+/*
+clampPhaseInterferenceBias keeps finite multipliers in a range where
+probability*bias cannot wash out to Inf/NaN or flush to 0 from extremes.
+Non-finite bias falls back to neutral 1.
+*/
+func clampPhaseInterferenceBias(bias float64) float64 {
+	const (
+		biasMin = 1e-300
+		biasMax = 1e300
+	)
+
+	if math.IsNaN(bias) || math.IsInf(bias, 0) {
+		return 1
+	}
+
+	if bias < biasMin {
+		return biasMin
+	}
+
+	if bias > biasMax {
+		return biasMax
+	}
+
+	return bias
 }

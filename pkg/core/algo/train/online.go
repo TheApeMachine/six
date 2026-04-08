@@ -14,8 +14,16 @@ import (
 	"github.com/theapemachine/six/pkg/core/algo/episodic"
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
+	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
 )
+
+/*
+defaultPhaseAttenuationFactor scales phase misalignment in applyPhaseGate when
+PhaseAttenuationFactor is unset or non-positive. At default 4 with phaseGain=1
+and alignment=0, gate≈e^-4≈0.018.
+*/
+const defaultPhaseAttenuationFactor = 4
 
 /*
 Online manages label tracking, class totals, and decay for
@@ -70,6 +78,17 @@ type Online struct {
 	*/
 	plasticity *numeric.Derived
 	lastRate   float64
+	phaseIndex int
+	phaseGain  float64
+
+	/*
+		PhaseAttenuationFactor multiplies (1 - alignment) inside applyPhaseGate:
+		gate = exp(-PhaseAttenuationFactor * phaseGain * (1 - alignment)).
+		Larger values attenuate misaligned steps more aggressively. NewOnline
+		sets this to defaultPhaseAttenuationFactor; values <= 0 fall back to
+		that default when computing the gate.
+	*/
+	PhaseAttenuationFactor float64
 }
 
 /*
@@ -104,12 +123,14 @@ func NewOnline() *Online {
 		growthRate:              growthRate,
 		plasticity:              plasticity,
 		lastRate:                1.0,
+		phaseIndex:              -1,
+		PhaseAttenuationFactor:  defaultPhaseAttenuationFactor,
 	}
 }
 
 /*
 Update receives an observation from the Store orchestrator. The
-Prediction carries labels (what to train) and context (the values).
+Prediction carries target labels (what to train) and context (the values).
 MeanSurprisal is set by the Store from its trie walk.
 
 The trainer pushes the surprisal observation through its Derived
@@ -124,9 +145,10 @@ func (online *Online) Update(
 		return online.prediction, nil
 	}
 
+	targets := prediction.SupervisionLabels()
 	var novelty float64
 
-	if len(prediction.Labels) > 0 && len(prediction.Context) > 0 {
+	if len(targets) > 0 && len(prediction.Context) > 0 {
 		novelty = online.contextNovelty(prediction)
 	}
 
@@ -135,11 +157,11 @@ func (online *Online) Update(
 
 	online.applyFieldPressure(prediction)
 
-	if len(prediction.Labels) == 0 {
+	if len(targets) == 0 {
 		return online.prediction, nil
 	}
 
-	label := string(prediction.Labels[0].Label)
+	label := string(targets[0].Label)
 
 	online.surprisal.Next(novelty)
 	online.growthRate.Next(float64(online.CurrentStep))
@@ -154,6 +176,8 @@ func (online *Online) Update(
 			online.lastRate = math.Min(1.0, plasticityValue/smoothedSurprisal)
 		}
 	}
+
+	online.applyPhaseGate(prediction)
 
 	for _, value := range prediction.Context {
 		online.stepUnlocked(label, online.lastRate, value)
@@ -213,6 +237,57 @@ func (online *Online) applyFieldPressure(prediction *algo.Prediction) {
 
 		online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*pressureMul))
 	}
+
+	if globalPhase, ok := prediction.Signals[algo.GlobalPhase]; ok && globalPhase != nil {
+		lane, active := algo.ParseGlobalPhaseIndex(globalPhase.Value())
+
+		if !active {
+			online.phaseIndex = 0
+		} else if lane < 0 {
+			online.phaseIndex = -1
+		} else {
+			online.phaseIndex = lane
+		}
+	}
+
+	if phaseConcentration, ok := prediction.Signals[algo.PhaseConcentration]; ok {
+		online.phaseGain = math.Max(0, phaseConcentration.Value())
+	}
+}
+
+func (online *Online) applyPhaseGate(prediction *algo.Prediction) {
+	if online.phaseIndex < 0 || online.phaseGain <= 0 || prediction == nil {
+		return
+	}
+
+	alignment := online.contextPhaseAlignment(prediction)
+
+	factor := online.PhaseAttenuationFactor
+
+	if factor <= 0 {
+		factor = defaultPhaseAttenuationFactor
+	}
+
+	gate := math.Exp(-factor * online.phaseGain * (1 - alignment))
+
+	online.lastRate = math.Min(1.0, math.Max(0, online.lastRate*gate))
+}
+
+func (online *Online) contextPhaseAlignment(prediction *algo.Prediction) float64 {
+	if prediction == nil || len(prediction.Context) == 0 {
+		return 1
+	}
+
+	contextPhase := gf.NewVector257()
+
+	for _, value := range prediction.Context {
+		contextPhase.ObserveBytes(value.TokenRegionBytes())
+	}
+
+	return gf.Alignment(
+		contextPhase.Dominant().Index,
+		online.phaseIndex,
+	)
 }
 
 /*

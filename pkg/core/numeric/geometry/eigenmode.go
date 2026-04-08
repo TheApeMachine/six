@@ -1,5 +1,7 @@
 package geometry
 
+import "github.com/theapemachine/six/pkg/core/numeric/gf"
+
 /*
 Eigenmode represents a cluster of field participants whose affinity
 vectors are mutually coupled above a threshold. The members share
@@ -32,6 +34,45 @@ detection: an origin ID and a scalar energy contribution.
 type ModeParticipant struct {
 	Origin uint64
 	Energy float64
+}
+
+/*
+PhaseMode is the dominant finite-field phase extracted from a vector.
+The lane index acts as the phase angle; amplitude and concentration
+describe how collapsed the vector is around that lane.
+*/
+type PhaseMode struct {
+	Index         int
+	Amplitude     uint32
+	Concentration float64
+}
+
+/*
+DetectPhaseMode257 extracts the dominant lane from a trie-local phase vector.
+*/
+func DetectPhaseMode257(phaseVector gf.Vector257) PhaseMode {
+	return phaseModeFromDominant(phaseVector.Dominant())
+}
+
+/*
+DetectPhaseMode8191 extracts the dominant lane from a node phase vector.
+*/
+func DetectPhaseMode8191(phaseVector gf.Vector8191) PhaseMode {
+	return phaseModeFromDominant(phaseVector.Dominant())
+}
+
+/*
+DetectPhaseMode65537 extracts the dominant lane from a global phase vector.
+*/
+func DetectPhaseMode65537(phaseVector gf.Vector65537) PhaseMode {
+	return phaseModeFromDominant(phaseVector.Dominant())
+}
+
+/*
+PhaseAlignment measures circular agreement between two dominant phase lanes.
+*/
+func PhaseAlignment(leftMode PhaseMode, rightMode PhaseMode) float64 {
+	return gf.Alignment(leftMode.Index, rightMode.Index)
 }
 
 /*
@@ -93,4 +134,12 @@ func DetectModes(
 	}
 
 	return modes, dominantIdx
+}
+
+func phaseModeFromDominant(dominantPhase gf.DominantPhase) PhaseMode {
+	return PhaseMode{
+		Index:         dominantPhase.Index,
+		Amplitude:     dominantPhase.Amplitude,
+		Concentration: dominantPhase.Concentration,
+	}
 }

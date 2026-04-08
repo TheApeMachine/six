@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -319,11 +320,18 @@ func TestFieldProjectWithAbsorbedMesh(t *testing.T) {
 			Epoch:           2,
 		})
 
-		_, err := node.Field.Project()
+		projection, err := node.Field.Project()
 
 		So(err, ShouldBeNil)
+		So(projection, ShouldNotBeNil)
+		So(projection.Signals[algo.GlobalPhase], ShouldNotBeNil)
+		So(projection.Signals[algo.PhaseConcentration], ShouldNotBeNil)
 
 		So(node.Field.ModeCount(), ShouldBeGreaterThan, 0)
+		So(node.Field.NodePhase().Dominant().Amplitude, ShouldBeGreaterThan, 0)
+		So(node.Field.GlobalPhase().Dominant().Amplitude, ShouldBeGreaterThan, 0)
+		So(node.Field.DominantPhaseIndex(), ShouldBeGreaterThanOrEqualTo, 0)
+		So(node.Field.DominantPhaseStrength(), ShouldBeGreaterThan, 0)
 
 		if node.Field.DominantModeIndex() >= 0 {
 			members := node.Field.ModeMembers(node.Field.DominantModeIndex())
