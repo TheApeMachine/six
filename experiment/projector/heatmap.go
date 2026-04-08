@@ -10,7 +10,7 @@ import (
 //go:embed heatmap_script.tmpl
 var heatmapScriptTmpl string
 
-// HeatMap renders an ECharts heatmap to HTML+PDF and emits a LaTeX figure stub.
+// HeatMap renders an ECharts heatmap to PDF and emits a LaTeX figure stub.
 type HeatMap struct {
 	out       io.Writer
 	title     string

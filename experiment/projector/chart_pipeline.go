@@ -3,8 +3,9 @@ package projector
 import "io"
 
 /*
-finalizeEChartsFigure renders shared HTML layout, exports HTML+PDF, and writes
-the LaTeX figure stub — the common tail of every single-canvas chart type.
+finalizeEChartsFigure renders shared HTML layout, exports PDF via a tempfile HTML
+input, and writes the LaTeX figure stub — the common tail of every single-canvas
+chart type.
 */
 func finalizeEChartsFigure(
 	title string,

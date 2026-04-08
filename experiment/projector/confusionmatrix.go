@@ -12,7 +12,7 @@ import (
 //go:embed confusionmatrix_script.tmpl
 var confusionMatrixScriptTmpl string
 
-// ConfusionMatrix renders an ECharts confusion-matrix heatmap to HTML+PDF
+// ConfusionMatrix renders an ECharts confusion-matrix heatmap to PDF
 // and emits a LaTeX figure stub.  The visual style matches the publication
 // convention: row-normalised blue colour scale, cell counts with percentages,
 // and an accuracy / macro-F1 badge.

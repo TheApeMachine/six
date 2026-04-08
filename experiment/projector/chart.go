@@ -12,6 +12,10 @@ import (
 	texttmpl "text/template"
 )
 
+// chartHTMLTempPrefix is the basename prefix for tempfile HTML used only as
+// Chrome input during PDF export; it is removed afterward and never published.
+const chartHTMLTempPrefix = "six-chart-"
+
 //go:embed chart_layout.tmpl
 var chartLayoutTmpl string
 
@@ -43,27 +47,50 @@ func renderChartHTML(title string, width, height int, chartScript string) (strin
 	return buf.String(), nil
 }
 
-// renderAndExport writes html to outDir/filename.html and produces a PDF alongside it.
-// width/height are the chart pixel dimensions used for the headless browser viewport.
+// renderAndExport writes chart HTML to a tempfile, produces filename.pdf in outDir,
+// then deletes the HTML. Chrome still needs a file:// document; the paper tree keeps
+// only TeX stubs, JSON snapshots, and PDFs.
 func renderAndExport(html string, outDir, filename string, dims ...int) error {
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
 	}
-	htmlPath := filepath.Join(outDir, filename+".html")
-	if err := os.WriteFile(htmlPath, []byte(html), 0644); err != nil {
-		return err
+
+	tmp, err := os.CreateTemp("", chartHTMLTempPrefix+"*.html")
+	if err != nil {
+		return fmt.Errorf("projector.renderAndExport: create temp html: %w", err)
 	}
+
+	htmlPath := tmp.Name()
+
+	defer func() {
+		_ = os.Remove(htmlPath)
+	}()
+
+	if _, err := tmp.Write([]byte(html)); err != nil {
+		_ = tmp.Close()
+
+		return fmt.Errorf("projector.renderAndExport: write temp html: %w", err)
+	}
+
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("projector.renderAndExport: close temp html: %w", err)
+	}
+
 	w, h := 0, 0
+
 	switch len(dims) {
 	case 0:
 	case 2:
 		w, h = dims[0], dims[1]
 	default:
-		return fmt.Errorf("projector.renderAndExport(%s): invalid dims %v; expected 0 or 2 values (width,height)", htmlPath, dims)
+		return fmt.Errorf("projector.renderAndExport(%s): invalid dims %v; expected 0 or 2 values (width,height)", filename, dims)
 	}
-	if err := ExportPDFWithSize(htmlPath, filepath.Join(outDir, filename+".pdf"), w, h); err != nil {
+
+	pdfPath := filepath.Join(outDir, filename+".pdf")
+
+	if err := ExportPDFWithSize(htmlPath, pdfPath, w, h); err != nil {
 		if os.Getenv("SIX_STRICT_PDF") == "1" {
-			return fmt.Errorf("export PDF for %s: %w", htmlPath, err)
+			return fmt.Errorf("export PDF for %s: %w", pdfPath, err)
 		}
 
 		fmt.Fprintf(os.Stderr, "Warning: failed to export PDF (is Chrome installed?): %v\n", err)

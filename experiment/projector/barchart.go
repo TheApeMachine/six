@@ -16,7 +16,7 @@ type BarSeries struct {
 	Data []float64 `json:"data"`
 }
 
-// BarChart renders an ECharts bar chart to HTML+PDF and emits a LaTeX figure stub.
+// BarChart renders an ECharts bar chart to PDF and emits a LaTeX figure stub.
 type BarChart struct {
 	out       io.Writer
 	title     string

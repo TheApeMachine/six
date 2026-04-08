@@ -16,7 +16,7 @@ type LineSeries struct {
 	Data []float64 `json:"data"`
 }
 
-// LineChart renders an ECharts line chart to HTML+PDF and emits a LaTeX figure stub.
+// LineChart renders an ECharts line chart to PDF and emits a LaTeX figure stub.
 type LineChart struct {
 	out       io.Writer
 	title     string
