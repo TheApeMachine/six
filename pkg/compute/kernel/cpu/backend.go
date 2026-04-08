@@ -36,7 +36,7 @@ func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
 /*
-Execute reads the opcode from each Value's program region (word 16)
+Execute reads the opcode from each Value's program region (word 8)
 and dispatches to the appropriate kernel:
 
   - 0x0–0xE and 0xF with idle profile: truth table ALU via

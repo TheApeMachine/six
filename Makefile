@@ -1,8 +1,10 @@
 .PHONY: build run test metal cuda paper pprof pprof-mem dump capnp
 
-# The pool package uses go:linkname to access runtime scheduling
-# primitives (dropg, readgstatus) for zero-overhead goroutine parking.
-# Go 1.26 restricts these by default; -checklinkname=0 preserves access.
+# The pool package (pkg/pool/lib_runtime_linkage.go) uses go:linkname to
+# reach runtime scheduling symbols such as runtime.dropg. Starting with Go
+# 1.26, plain `go test` / `go build` fails at link time with:
+#   link: .../pkg/pool: invalid reference to runtime.dropg
+# Pass -checklinkname=0 so the linker allows those references (see `go help build`).
 LDFLAGS := -ldflags='-checklinkname=0'
 
 DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.capnp'
@@ -48,6 +50,11 @@ build: capnp
 run: build
 	./six
 
+# Always use this target (or the same $(LDFLAGS)) for tests that transitively
+# import pkg/pool — e.g. pkg/compute. Raw `go test ./...` will not apply LDFLAGS.
+#
+# experiment/task/pipeline_test.go is behind //go:build exp_pipeline so the
+# long-running TestPipeline suite does not run here (see make paper / pprof).
 test:
 	go test $(LDFLAGS) ./...
 
@@ -63,7 +70,7 @@ cuda:
 		&& go generate
 
 paper:
-	go test -v ./experiment/task/
+	go test $(LDFLAGS) -tags=exp_pipeline -v ./experiment/task/
 	go run main.go paper
 	cd paper && pdflatex -interaction=nonstopmode main.tex
 	cd paper && pdflatex -interaction=nonstopmode main.tex
@@ -72,11 +79,11 @@ paper:
 # Usage: make pprof EXP=Text_Classification
 EXP ?= Languages
 pprof:
-	go test -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
+	go test $(LDFLAGS) -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
 	go tool pprof -http=:6060 paper/profiles/$(shell echo $(EXP) | tr '[:upper:]' '[:lower:]' | tr ' ' '_')_cpu.pprof
 
 # Same for the heap snapshot.
 pprof-mem:
-	go test -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
+	go test $(LDFLAGS) -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
 	go tool pprof -http=:6060 paper/profiles/$(shell echo $(EXP) | tr '[:upper:]' '[:lower:]' | tr ' ' '_')_mem.pprof
 

@@ -38,13 +38,18 @@ func setupTestConfig() {
 }
 
 func TestAvailable(t *testing.T) {
+	if Available() == 0 {
+		t.Skip("Metal backend unavailable in this environment")
+	}
+
 	Convey("Given the Metal backend", t, func() {
-		count := Available()
-		So(count, ShouldBeGreaterThan, 0)
+		So(Available(), ShouldBeGreaterThan, 0)
 	})
 }
 
 func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
+	core.PreserveGlobalConfig(t)
+
 	Convey("Given a Metal backend and a single in-band slot program", t, func() {
 		setupTestConfig()
 

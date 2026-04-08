@@ -132,10 +132,65 @@ func (affinity *Affinity) Blend(
 	affinity.vector[AffinityWords-1] &= AffinityLastWordMask
 
 	if affinity.Popcount() >= shannonLimit {
-		affinity.vector = prev
+		// Hard revert used to freeze the centroid forever once it brushed
+		// the Shannon headroom. Prune highest bits first so saturated
+		// clusters keep adapting instead of becoming routing dead-ends.
+		headroom := shannonLimit * 9 / 10
+
+		if headroom < 1 {
+			headroom = 1
+		}
+
+		affinity.pruneUntilPopcountAtMost(headroom)
+
+		if affinity.Popcount() >= shannonLimit {
+			affinity.vector = prev
+
+			return nextCount
+		}
 	}
 
 	return nextCount
+}
+
+/*
+pruneUntilPopcountAtMost clears set bits from the MSB downward until the
+vector is within max bits or no bits remain. Deterministic order keeps
+routing reproducible while freeing centroid capacity under saturation.
+*/
+func (affinity *Affinity) pruneUntilPopcountAtMost(max int) {
+	for affinity.Popcount() > max {
+		if !affinity.clearHighestSetBit() {
+			return
+		}
+	}
+}
+
+/*
+clearHighestSetBit removes the most significant set bit across the masked
+affinity width. Returns false when the vector is already empty.
+*/
+func (affinity *Affinity) clearHighestSetBit() bool {
+	for wordIdx := AffinityWords - 1; wordIdx >= 0; wordIdx-- {
+		word := affinity.vector[wordIdx]
+
+		if wordIdx == AffinityWords-1 {
+			word &= AffinityLastWordMask
+		}
+
+		if word == 0 {
+			continue
+		}
+
+		bitIdx := bits.Len64(word) - 1
+
+		affinity.vector[wordIdx] &^= 1 << uint(bitIdx)
+		affinity.vector[AffinityWords-1] &= AffinityLastWordMask
+
+		return true
+	}
+
+	return false
 }
 
 /*

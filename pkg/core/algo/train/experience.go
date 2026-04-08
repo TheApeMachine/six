@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo/classify"
@@ -91,6 +92,18 @@ type Experience struct {
 
 	SurprisalScale        *numeric.Derived
 	UnsupervisedThreshold float64
+
+	/*
+		adaptMu plus the fields below implement a lightweight sustained-surprise
+		detector: symmetric smoothing is great for noise, but real domain shifts
+		show up as several consecutive tokens each far above the running EMA.
+		The mutex isolates these scalars because Experience.Run may be invoked
+		from pool workers fanning into one trainer.
+	*/
+	adaptMu            sync.Mutex
+	surpriseEMA        float64
+	highSurpriseStreak int
+	adaptSeeded        bool
 }
 
 /*
@@ -158,10 +171,15 @@ func (experience *Experience) Run(
 		}
 	}
 
+	plasticityBoost := experience.updateSustainedSurpriseBoost(averageBits)
+
 	learningRate := math.Min(
 		core.Cfg.MarkovTrie.MaxLearningRate,
 		core.Cfg.MarkovTrie.BaselineLearningRate+averageBits/surprisalScale,
 	)
+
+	learningRate *= plasticityBoost
+	learningRate = math.Min(learningRate, core.Cfg.MarkovTrie.MaxLearningRate)
 
 	label := ""
 	isNewConcept := false
@@ -182,6 +200,78 @@ func (experience *Experience) Run(
 	result.IsNewConcept = isNewConcept
 
 	return result
+}
+
+/*
+updateSustainedSurpriseBoost tracks an EMA of mean surprisal and bumps
+plasticity when several consecutive observations land meaningfully above
+that baseline — a cheap distinction between isolated spikes (typos) and
+bursts that look like regime change.
+*/
+func (experience *Experience) updateSustainedSurpriseBoost(averageBits float64) float64 {
+	if experience == nil {
+		return 1
+	}
+
+	alpha := core.Cfg.MarkovTrie.AdaptiveEMAAlpha
+
+	if alpha <= 0 || alpha > 1 {
+		alpha = 0.05
+	}
+
+	experience.adaptMu.Lock()
+	defer experience.adaptMu.Unlock()
+
+	if !experience.adaptSeeded {
+		experience.surpriseEMA = averageBits
+		experience.adaptSeeded = true
+
+		return 1
+	}
+
+	experience.surpriseEMA += alpha * (averageBits - experience.surpriseEMA)
+
+	baseline := experience.surpriseEMA
+
+	if baseline < 1e-9 {
+		baseline = 1e-9
+	}
+
+	surpriseRatio := averageBits / baseline
+
+	// Fractional gate keeps short-token averages (fractions of a bit) able to
+	// register sustained novelty without requiring paragraph-scale surprisal
+	// mass every time.
+	scaleGate := core.Cfg.MarkovTrie.SurprisalScaleBits * 0.1
+
+	if scaleGate < 1e-6 {
+		scaleGate = 1e-6
+	}
+
+	if surpriseRatio > 2.0 && averageBits > scaleGate {
+		experience.highSurpriseStreak++
+	} else {
+		experience.highSurpriseStreak = 0
+	}
+
+	streak := experience.highSurpriseStreak
+	plasticityBoost := 1.0
+
+	const sustainedBursts = 3
+
+	if streak < sustainedBursts {
+		return plasticityBoost
+	}
+
+	capLen := streak - sustainedBursts + 1
+
+	if capLen > 8 {
+		capLen = 8
+	}
+
+	plasticityBoost = 1.0 + 0.12*float64(capLen)
+
+	return plasticityBoost
 }
 
 func (experience *Experience) assignLabel(sequence string) (string, bool) {

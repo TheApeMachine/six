@@ -62,7 +62,11 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	machine.backend = compute.NewBackend(ctx, machine.queue)
+	machine.backend = compute.NewBackend(
+		ctx,
+		machine.queue,
+		compute.WithExploreEvery(128),
+	)
 	machine.queue.SetBackend(machine.backend)
 
 	if machine.kadabra, machine.err = kadabra.NewNode(

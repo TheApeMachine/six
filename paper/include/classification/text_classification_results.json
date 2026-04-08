@@ -1798,17 +1798,17 @@
         "Continuations": [
           {
             "Sequence": "KEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKQ==",
-            "Score": -76.11306094308557,
+            "Score": -77.2760613339579,
             "Origin": 0
           },
           {
             "Sequence": "KEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgLQ==",
-            "Score": -76.11306094308557,
+            "Score": -77.2760613339579,
             "Origin": 0
           },
           {
             "Sequence": "KEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgKEFQKSAoQVApIChBUCkgQVA=",
-            "Score": -76.11306094308557,
+            "Score": -77.2760613339579,
             "Origin": 0
           }
         ],
@@ -2546,17 +2546,17 @@
         "Continuations": [
           {
             "Sequence": "LSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLQ==",
-            "Score": -78.38735539822875,
+            "Score": -74.89330683884977,
+            "Origin": 0
+          },
+          {
+            "Sequence": "LSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gQWdhaW5zdA==",
+            "Score": -74.89330683884977,
             "Origin": 0
           },
           {
             "Sequence": "LSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gQkFHSERBRCw=",
-            "Score": -78.38735539822875,
-            "Origin": 0
-          },
-          {
-            "Sequence": "LSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gLSAtIC0gQ2xlcmlj",
-            "Score": -78.38735539822875,
+            "Score": -74.89330683884977,
             "Origin": 0
           }
         ],
@@ -3674,7 +3674,7 @@
       "Name": "prompt_83",
       "Prefix": "SW50ZWwgdG8gZGVsYXkgcHJvZHVjdCBhaW1lZCBmb3IgaGlnaC1kZWZpbml0aW9uIFRWcyBTQU4gRlJBTkNJU0NPIC0tIEluIHRoZSBsYXRlc3Qgb2YgYSBzZXJpZXMgb2YgcHJvZHVjdCBkZWxheXMsIEludGVsIENvcnAuIGhhcyBwb3N0cG9uZWQgdGhlIGxhdW5jaCBvZiBhIHZpZGVvIGRpc3BsYXkgY2hpcCBpdCBoYWQgcHJldmlvdXNseSBwbGFubmVkIHRvIGludHJvZHVjZSBieSB5ZWFyIGVuZCwgcHV0dGluZyBvZmYgYSBzaG93ZG93biB3aXRoIFRleGFzIEluc3RydW1lbnRzIEluYy4gaW4gdGhlIGZhc3QtZ3Jvd2luZyBtYXJrZXQgZm9yIGhpZ2gtZGVmaW5pdGlvbiB0ZWxldmlzaW9uIGRpc3BsYXlzLg==",
       "Holdout": "c2NpX3RlY2g=",
-      "Generation": "Zm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9y",
+      "Generation": "dG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -3689,18 +3689,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "Zm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9y",
-            "Score": -58.784381429086935,
+            "Sequence": "dG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8=",
+            "Score": -57.56462732485113,
             "Origin": 0
           },
           {
-            "Sequence": "Zm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgRlJBTkNJUw==",
-            "Score": -59.47752860964688,
+            "Sequence": "dG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gKFJl",
+            "Score": -58.25777450541108,
             "Origin": 0
           },
           {
-            "Sequence": "Zm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgZm9yIGZvciBmb3IgRmVhcnM=",
-            "Score": -59.47752860964688,
+            "Sequence": "dG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gdG8gQU5HRUxFUw==",
+            "Score": -58.25777450541108,
             "Origin": 0
           }
         ],
@@ -3718,7 +3718,7 @@
       "Name": "prompt_84",
       "Prefix": "VmVuZXp1ZWxhIHZvdGUga2VlcHMgQ2hhdmV6IGFzIHByZXNpZGVudCBDQVJBQ0FTIC0tIFZlbmV6dWVsYW5zIHZvdGVkIHJlc291bmRpbmdseSB0byBrZWVwIGZpcmVicmFuZCBwb3B1bGlzdCBIdWdvIENoYXZleiBhcyB0aGVpciBwcmVzaWRlbnQgaW4gYSB2aWN0b3J5IHRoYXQgZHJldyBub2lzeSByZWFjdGlvbnMgeWVzdGVyZGF5IGZyb20gYm90aCBzaWRlcyBpbiB0aGUgc3RyZWV0cy4gSW50ZXJuYXRpb25hbCBvYnNlcnZlcnMgY2VydGlmaWVkIHRoZSByZXN1bHRzIGFzIGNsZWFuIGFuZCBhY2N1cmF0ZS4=",
       "Holdout": "c3BvcnRz",
-      "Generation": "LS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0=",
+      "Generation": "KFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJl",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -3733,18 +3733,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "LS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0=",
-            "Score": -74.89330683884977,
+            "Sequence": "KFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJl",
+            "Score": -73.61097447916102,
             "Origin": 0
           },
           {
-            "Sequence": "LS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gQ0FSQUNBUw==",
-            "Score": -74.89330683884977,
+            "Sequence": "KFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgLS0=",
+            "Score": -73.61097447916102,
             "Origin": 0
           },
           {
-            "Sequence": "LS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gLS0gQ2hhdmV6",
-            "Score": -74.89330683884977,
+            "Sequence": "KFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgKFJlIChSZSAoUmUgQU5HRUxFUw==",
+            "Score": -73.61097447916102,
             "Origin": 0
           }
         ],

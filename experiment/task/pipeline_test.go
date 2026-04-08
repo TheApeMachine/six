@@ -1,3 +1,6 @@
+//go:build exp_pipeline
+
+// Integration pipeline (TestPipeline): build with -tags=exp_pipeline; see Makefile paper / pprof targets.
 package task
 
 import (

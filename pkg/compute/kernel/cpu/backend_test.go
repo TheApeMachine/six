@@ -7,10 +7,11 @@ import (
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
-func init() {
+func installCPUTestLayout() {
 	core.Cfg.Value.Region.Tokens.Start = 0
 	core.Cfg.Value.Region.Tokens.Bits = 512
 	core.Cfg.Value.Region.Program.Start = 8
@@ -31,14 +32,18 @@ func init() {
 	core.Cfg.Value.Words = 128
 }
 
+func init() {
+	installCPUTestLayout()
+}
+
 /*
 setupV2 prepares a Value with the V2 layout: single opcode at
-word 16, A in words 0-3, and B rotation 0 (unrotated) at words
-32-35. This mirrors what the programmer produces.
+ProgramStartWord (8), A in words 0-3, and B rotation 0 (unrotated)
+at words 32-35. This mirrors what the SIMD kernels consume.
 */
 func setupV2(v *[128]uint64, op uint8, a [4]uint64, b [4]uint64) {
 	v[0], v[1], v[2], v[3] = a[0], a[1], a[2], a[3]
-	v[16] = uint64(op & 0xF)
+	v[kernel.ProgramStartWord] = uint64(op & 0xF)
 
 	// Write 16 rotations of B starting at word 32.
 	for rot := range 16 {
@@ -197,14 +202,14 @@ func TestExecuteBatchDistance(t *testing.T) {
 			// Candidates at word 32, each 8 words.
 			// Candidate 0: all zeros → distance 0.
 			// Candidate 1: word 0 = 0xFF → distance 8.
-			v[16] = 0x6       // XOR opcode
-			v[124] = 2        // 2 candidates
-			v[32+8+0] = 0xFF  // candidate 1, word 0
+			v[kernel.ProgramStartWord] = 0x6 // XOR opcode
+			v[124] = 2                       // 2 candidates
+			v[32+8+0] = 0xFF                 // candidate 1, word 0
 
 			err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&v)})
 			convey.So(err, convey.ShouldBeNil)
 
-			distances := (*[64]uint32)(unsafe.Pointer(&v[24]))
+			distances := (*[64]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 			convey.So(distances[0], convey.ShouldEqual, 0)
 			convey.So(distances[1], convey.ShouldEqual, 8)
 		})
@@ -219,6 +224,8 @@ func TestRotateLeft8(t *testing.T) {
 }
 
 func BenchmarkExecute(b *testing.B) {
+	installCPUTestLayout()
+
 	backend := NewBackend(context.Background())
 
 	n := 1024

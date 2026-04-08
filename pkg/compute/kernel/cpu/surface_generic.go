@@ -2,7 +2,10 @@
 
 package cpu
 
-import "unsafe"
+import (
+	"math/bits"
+	"unsafe"
+)
 
 /*
 universalBitwise applies the truth table across 64 words of A and B
@@ -37,8 +40,9 @@ func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64) {
 
 /*
 universalBitwiseV2 reads directly from the Value's pre-compiled
-layout. A is at words 0-3, opcode at word 16, B rotations at
-words 32+, signals written to words 24-31.
+layout. A is at words 0-3, opcode at word 8 (ProgramStartWord),
+B rotations at words 32+, signals written to words 16-23 to match
+the AVX2 / NEON kernels.
 
 The programmer package must have already expanded B rotations
 into the reserved region before calling this.
@@ -46,14 +50,14 @@ into the reserved region before calling this.
 func universalBitwiseV2(value *uint64, numRotations int) {
 	v := (*[128]uint64)(unsafe.Pointer(value))
 
-	opcode := uint8(v[16] & 0xF)
+	opcode := uint8(v[8] & 0xF)
 	mask0 := -uint64(opcode & 1)
 	mask1 := -uint64((opcode >> 1) & 1)
 	mask2 := -uint64((opcode >> 2) & 1)
 	mask3 := -uint64((opcode >> 3) & 1)
 
 	for i := range 8 {
-		v[24+i] = 0
+		v[16+i] = 0
 	}
 
 	for rot := range numRotations {
@@ -71,7 +75,34 @@ func universalBitwiseV2(value *uint64, numRotations int) {
 
 			sigWord := idx / 8
 			sigShift := uint((idx % 8) * 8)
-			v[24+sigWord] |= (result & 0xFF) << sigShift
+			v[16+sigWord] |= (result & 0xFF) << sigShift
 		}
+	}
+}
+
+/*
+batchAffinityDistances writes Hamming distances from an 8-word query to each
+of count contiguous 8-word candidate vectors into out. amd64 / arm64 use
+vectorised assembly; this path matches the same definition for 32-bit ARM and
+any other GOARCH that does not select those files.
+*/
+func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32) {
+	if count <= 0 {
+		return
+	}
+
+	queryWords := (*[8]uint64)(unsafe.Pointer(query))
+	candidateWords := unsafe.Slice(candidates, count*8)
+	distances := unsafe.Slice(out, count)
+
+	for candidateIdx := range count {
+		base := candidateIdx * 8
+		sum := 0
+
+		for word := range 8 {
+			sum += bits.OnesCount64(queryWords[word] ^ candidateWords[base+word])
+		}
+
+		distances[candidateIdx] = uint32(sum)
 	}
 }

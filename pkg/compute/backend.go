@@ -49,7 +49,12 @@ type Backend struct {
 	states          []*substrateState
 	queue           *pool.Queue
 	transferPenalty int64
-	correlationSeq  atomic.Uint64
+	// exploreEvery, when non-zero, zeros the transfer penalty on every Nth
+	// pick so the router empirically re-samples a faster substrate instead of
+	// sticking on a CPU spill forever under static additive tolls.
+	exploreEvery   uint64
+	pickSeq        atomic.Uint64
+	correlationSeq atomic.Uint64
 }
 
 /*
@@ -64,6 +69,18 @@ inflight×ema) for moving a frame off its last executing substrate.
 func WithTransferPenalty(nanosProduct int64) BackendOption {
 	return func(backend *Backend) {
 		backend.transferPenalty = nanosProduct
+	}
+}
+
+/*
+WithExploreEvery re-schedules exploration hops: every n pick() calls, the
+load balancer ignores residency and transferPenalty so a frame may migrate
+off a temporarily cheap substrate even if a static toll would block it.
+Set to 0 (default) to disable.
+*/
+func WithExploreEvery(n uint64) BackendOption {
+	return func(backend *Backend) {
+		backend.exploreEvery = n
 	}
 }
 
@@ -138,8 +155,11 @@ func NewBackend(
 
 /*
 pick selects the substrate with the lowest pressure score.
-Score = inflight * emaServiceTime plus transferPenalty when the frame's
-residency tag disagrees with the candidate slot.
+Score = inflight * emaServiceTime plus an effective transfer toll when the
+frame's residency tag disagrees with the candidate slot. The toll shrinks
+when the resident substrate's EMA latency dominates the candidate's so a
+one-time copy can amortize against faster hardware. Periodic exploration
+drops the toll entirely every exploreEvery picks.
 */
 func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 	residentIdx := -1
@@ -156,6 +176,8 @@ func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 		}
 	}
 
+	explore := backend.nextPickExploresResidency()
+
 	var best *substrateState
 	bestScore := int64(^uint64(0) >> 1)
 
@@ -170,7 +192,7 @@ func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 		score := inflight * ema
 
 		if residentIdx >= 0 && residentIdx != st.idx && backend.transferPenalty > 0 {
-			score += backend.transferPenalty
+			score += backend.effectiveTransferPenalty(residentIdx, st, explore)
 		}
 
 		if score < bestScore {
@@ -180,6 +202,73 @@ func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 	}
 
 	return best
+}
+
+/*
+nextPickExploresResidency returns true on every exploreEvery-th scheduling
+decision so the balancer can ignore migration cost for one pick.
+*/
+func (backend *Backend) nextPickExploresResidency() bool {
+	if backend.exploreEvery == 0 {
+		return false
+	}
+
+	n := backend.pickSeq.Add(1)
+
+	return n%backend.exploreEvery == 0
+}
+
+/*
+effectiveTransferPenalty maps the configured additive wall into a dynamic
+toll. When the last resident substrate is much slower (higher EMA) than
+the candidate, the penalty is right-shifted in proportion to the integer
+latency ratio so asymmetric CUDA/CPU pairs can still justify a hop.
+Exploration passes suppress the toll entirely.
+*/
+func (backend *Backend) effectiveTransferPenalty(
+	residentIdx int,
+	cand *substrateState,
+	explore bool,
+) int64 {
+	if explore {
+		return 0
+	}
+
+	penalty := backend.transferPenalty
+
+	if penalty <= 0 || residentIdx < 0 || residentIdx >= len(backend.states) {
+		return 0
+	}
+
+	resident := backend.states[residentIdx]
+
+	if resident == nil || cand == nil {
+		return penalty
+	}
+
+	resEMA := resident.emaNanos.Load()
+	candEMA := cand.emaNanos.Load()
+
+	if candEMA == 0 {
+		candEMA = 1
+	}
+
+	if resEMA == 0 {
+		resEMA = 1
+	}
+
+	if resEMA <= candEMA {
+		return penalty
+	}
+
+	ratio := resEMA / candEMA
+
+	for step := 0; step < 24 && ratio > 1 && penalty > 0; step++ {
+		penalty >>= 1
+		ratio >>= 1
+	}
+
+	return penalty
 }
 
 /*

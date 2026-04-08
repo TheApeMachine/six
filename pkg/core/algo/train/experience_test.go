@@ -86,10 +86,74 @@ func TestExperienceRun(t *testing.T) {
 		So(sink.lastLabel, ShouldEqual, "supervised")
 		So(result.LearningRate, ShouldBeGreaterThan, 0)
 	})
+
+	Convey("Sustained high surprisal raises learning rate versus an isolated spike", t, func() {
+		online := NewOnline()
+		sink := &stubSink{}
+
+		// Keep mean surprisal low enough that MaxLearningRate does not flatten
+		// both cold and boosted paths — we only want to observe the plasticity
+		// multiplier from sustained bursts.
+		burstStub := &rampSurprisalStub{lo: 0.1, hi: 0.8}
+
+		expBoosted, err := NewExperience(
+			online,
+			classify.NewClassifier(),
+			burstStub,
+			stubScores{},
+			sink,
+		)
+
+		So(err, ShouldBeNil)
+
+		for range 3 {
+			_ = expBoosted.Run("burst", stringPtr("supervised"))
+		}
+
+		onlineCold := NewOnline()
+		coldSink := &stubSink{}
+
+		expCold, errCold := NewExperience(
+			onlineCold,
+			classify.NewClassifier(),
+			stubSurprisalSeries(func(string) []SurprisalItem {
+				return []SurprisalItem{{Token: "x", Bits: 0.8}}
+			}),
+			stubScores{},
+			coldSink,
+		)
+
+		So(errCold, ShouldBeNil)
+
+		cold := expCold.Run("once", stringPtr("supervised"))
+		boosted := expBoosted.Run("burst", stringPtr("supervised"))
+
+		So(boosted.LearningRate, ShouldBeGreaterThan, cold.LearningRate)
+	})
 }
 
 func stringPtr(label string) *string {
 	return &label
+}
+
+type rampSurprisalStub struct {
+	lo float64
+	hi float64
+	n  int
+}
+
+func (stub *rampSurprisalStub) SurprisalSeries(sequence string) []SurprisalItem {
+	stub.n++
+
+	bits := stub.hi
+
+	if stub.n == 1 {
+		bits = stub.lo
+	}
+
+	return []SurprisalItem{
+		{Token: sequence, Bits: bits},
+	}
 }
 
 type stubSurprisalSeries func(string) []SurprisalItem

@@ -277,9 +277,9 @@ parentAffinities maps parent Value IDs to their affinity vectors.
 The caller provides these because the graph tracks IDs, not Values.
 */
 func (graph *Graph) Intervene(
-	value *primitive.Value,
+	value InterventionTarget,
 	target uint64,
-	forced *primitive.Value,
+	forced InterventionTarget,
 	parentAffinities map[uint64][primitive.AffinityWords]uint64,
 ) (severed []uint64) {
 	if value == nil || forced == nil {
@@ -319,9 +319,9 @@ Three steps:
 Returns the IDs of severed parents.
 */
 func (graph *Graph) Counterfactual(
-	observed *primitive.Value,
+	observed InterventionTarget,
 	target uint64,
-	forced *primitive.Value,
+	forced InterventionTarget,
 	parentAffinities map[uint64][primitive.AffinityWords]uint64,
 ) []uint64 {
 	if observed == nil || forced == nil {
@@ -346,6 +346,11 @@ type HopResult struct {
 	Severed  []uint64
 	Residual int
 	Settled  bool
+	// LatentNoise captures the gradient region immediately before this hop's
+	// intervention — the abducted SCM noise term used for counterfactuals.
+	// Together across hops this exposes more latent state than a single
+	// 512-bit on-frame gradient holds after XOR folding.
+	LatentNoise [primitive.RegionWords]uint64
 }
 
 /*
@@ -370,9 +375,9 @@ given the intervened Value. The graph does not own prediction — the
 caller wires this to their trie's Predict path.
 */
 func (graph *Graph) CounterfactualChain(
-	observed *primitive.Value,
+	observed InterventionTarget,
 	interventions []Intervention,
-	predict func(*primitive.Value) *primitive.Value,
+	predict func(InterventionTarget) InterventionTarget,
 	maxHops int,
 ) []HopResult {
 	if observed == nil || predict == nil || len(interventions) == 0 {
@@ -389,6 +394,8 @@ func (graph *Graph) CounterfactualChain(
 
 	for hop := 0; hop < maxHops && hop < len(interventions); hop++ {
 		iv := interventions[hop]
+
+		latent := current.GradientVector()
 
 		severed := graph.Counterfactual(
 			current, iv.Target, iv.Forced, iv.ParentAffinities,
@@ -417,9 +424,10 @@ func (graph *Graph) CounterfactualChain(
 		prevResidual = residual
 
 		results = append(results, HopResult{
-			Severed:  severed,
-			Residual: residual,
-			Settled:  settled,
+			Severed:     severed,
+			Residual:    residual,
+			Settled:     settled,
+			LatentNoise: latent,
 		})
 
 		if settled {
@@ -439,7 +447,7 @@ Intervention specifies a single hop in a multi-hop counterfactual chain.
 */
 type Intervention struct {
 	Target           uint64
-	Forced           *primitive.Value
+	Forced           InterventionTarget
 	ParentAffinities map[uint64][primitive.AffinityWords]uint64
 }
 
@@ -450,8 +458,8 @@ accumulated into the Gradient region, building the noise term that
 enables future counterfactual abduction.
 */
 func (graph *Graph) ObserveResidual(
-	predicted *primitive.Value,
-	observed *primitive.Value,
+	predicted InterventionTarget,
+	observed InterventionTarget,
 ) {
 	if predicted == nil || observed == nil {
 		return
@@ -511,7 +519,7 @@ func (graph *Graph) Mediate(
 	zTarget uint64,
 	zObserved *primitive.Value,
 	parentAffinities map[uint64][primitive.AffinityWords]uint64,
-	predict func(*primitive.Value) *primitive.Value,
+	predict func(InterventionTarget) InterventionTarget,
 ) (directResidual int, indirectResidual int) {
 	if value == nil || xForced == nil || zObserved == nil || predict == nil {
 		return 0, 0
@@ -600,7 +608,7 @@ func (graph *Graph) Moderate(
 	zValue1 *primitive.Value,
 	zValue2 *primitive.Value,
 	parentAffinities map[uint64][primitive.AffinityWords]uint64,
-	predict func(*primitive.Value) *primitive.Value,
+	predict func(InterventionTarget) InterventionTarget,
 ) (residualZ1 int, residualZ2 int) {
 	if value == nil || xForced == nil || zValue1 == nil || zValue2 == nil || predict == nil {
 		return 0, 0
