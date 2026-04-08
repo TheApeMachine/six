@@ -217,6 +217,11 @@ func (pipeline *Pipeline) LoadFrom(r io.Reader) (err error) {
 /*
 Finish waits for the background drain, closes the egress reader when present,
 resets the frame when it implements ResetAfterEOF, and is idempotent.
+
+Publishable sinks may enqueue follow-on work (for example kadabra.Store on a
+pool.Queue) that outlives the drain goroutine. A caller that needs that work
+finished before treating bytes as fully applied must flush the same Queue
+after Finish (vm.Machine.Load does this).
 */
 func (pipeline *Pipeline) Finish() error {
 	if pipeline == nil {

@@ -56,6 +56,12 @@ func NewTokenizer(
 	queue *pool.Queue,
 	opts ...tokenizerOption,
 ) (*Tokenizer, error) {
+	if err := validate.Require(map[string]any{
+		"queue": queue,
+	}); err != nil {
+		return nil, errnie.Error(err)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	rb := ringbuffer.New(
@@ -72,6 +78,7 @@ func NewTokenizer(
 		rb:     rb,
 		pr:     pr,
 		pw:     pw,
+		queue:  queue,
 	}
 
 	for _, opt := range opts {
@@ -83,6 +90,7 @@ func NewTokenizer(
 		"ctx":       tokenizer.ctx,
 		"cancel":    tokenizer.cancel,
 		"rb":        tokenizer.rb,
+		"queue":     tokenizer.queue,
 	})
 }
 

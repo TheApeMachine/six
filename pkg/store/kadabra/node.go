@@ -144,6 +144,12 @@ func (node *Node) Error() error {
 Publish stores a labeled Value: the local node applies it to its trie
 cluster, then Store fans out a StoreReplica payload to affinity-nearest
 routing peers (see replication.go). Gossip digests remain orthogonal.
+
+The Value bytes are copied into the SequenceRecord before scheduling, so
+returning from Publish does not mean the trie has applied the row yet —
+Store runs on the node Queue. Callers that need durability for ingest
+before proceeding (for example vm.Machine.Load) must follow Publish bursts
+with pool.Queue.Drain on that same queue.
 */
 func (node *Node) Publish(
 	value *primitive.Value, label string,

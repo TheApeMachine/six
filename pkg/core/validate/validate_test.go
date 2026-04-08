@@ -67,6 +67,34 @@ func TestRequire(t *testing.T) {
 				So(err, ShouldBeNil)
 			})
 		})
+
+		Convey("When a typed nil pointer is placed in any", func() {
+			var handle *struct{}
+
+			objs := map[string]any{
+				"handle": handle,
+			}
+
+			Convey("It should be treated as missing", func() {
+				err := Require(objs)
+				So(err, ShouldNotBeNil)
+				So(err.Error(), ShouldEqual, "handle is required")
+			})
+		})
+
+		Convey("When a nil slice variable is required", func() {
+			var buf []byte
+
+			objs := map[string]any{
+				"buf": buf,
+			}
+
+			Convey("It should be treated as missing", func() {
+				err := Require(objs)
+				So(err, ShouldNotBeNil)
+				So(err.Error(), ShouldEqual, "buf is required")
+			})
+		})
 	})
 }
 

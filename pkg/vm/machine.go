@@ -132,11 +132,19 @@ func NewMachine(
 
 /*
 Close the machine.
+
+Outstanding queue work (trie/replica tasks scheduled from Publish) is
+allowed to finish before contexts are cancelled so shutdown matches the
+post-Load guarantee as closely as practical for a shared Queue.
 */
 func (machine *Machine) Close() error {
-	machine.cancel()
-
 	var errs []error
+
+	if machine.queue != nil {
+		machine.queue.Drain()
+	}
+
+	machine.cancel()
 
 	if machine.host != nil {
 		if err := machine.host.Close(); err != nil {
@@ -200,10 +208,17 @@ real-world data streaming, which may not provide things like boundaries
 labels, or sample IDs. transport.Pipeline runs tokenizer ingest concurrently
 with DrainPublishedValues, which publishes each minted *Value directly to
 Kadabra (no tokenizer → wire → ValueFromWireFrame round trip).
+
+kadabra.Publish snapshots each Value into a SequenceRecord and schedules
+the trie insert and replication fan-out on the shared pool.Queue. Load
+therefore calls Queue.Drain after the pipeline finishes so every scheduled
+insert has attempted to complete before the method returns (same queue
+covers mesh peers wired to this Machine).
 */
 func (machine *Machine) Load(dataset data.Provider) error {
 	if err := validate.Require(map[string]any{
 		"kadabra":   machine.kadabra,
+		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
 	}); err != nil {
 		return errnie.Error(err)
@@ -220,7 +235,11 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		return errnie.Error(err)
 	}
 
-	return errnie.Error(pipeline.LoadFrom(dataset))
+	loadErr := errnie.Error(pipeline.LoadFrom(dataset))
+
+	machine.queue.Drain()
+
+	return loadErr
 }
 
 /*

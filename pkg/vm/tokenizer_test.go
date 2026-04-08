@@ -7,8 +7,26 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/transport"
 )
+
+func mustTestQueue(tb testing.TB) *pool.Queue {
+	tb.Helper()
+
+	queue, err := pool.NewQueue(context.Background())
+
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	tb.Cleanup(func() {
+		queue.Drain()
+		_ = queue.Close()
+	})
+
+	return queue
+}
 
 func setupTokenizerValueConfig(tb testing.TB) {
 	tb.Helper()
@@ -22,12 +40,28 @@ func setupTokenizerValueConfig(tb testing.TB) {
 	core.Cfg.Value.Bytes = 1024
 }
 
+func TestNewTokenizer(t *testing.T) {
+	setupTokenizerValueConfig(t)
+
+	Convey("When queue is nil", t, func() {
+		ctx := context.Background()
+
+		Convey("NewTokenizer should fail validation", func() {
+			tokenizer, err := NewTokenizer(ctx, nil)
+
+			So(tokenizer, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, "queue is required")
+		})
+	})
+}
+
 func TestTokenizerRead(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
 	Convey("Read returns nil error when a full frame is delivered", t, func() {
 		ctx := context.Background()
-		tokenizer, err := NewTokenizer(ctx, nil)
+		tokenizer, err := NewTokenizer(ctx, mustTestQueue(t))
 
 		So(err, ShouldBeNil)
 		So(tokenizer, ShouldNotBeNil)
@@ -62,7 +96,7 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 
 	Convey("DrainPublishedValues publishes once per fixed chunk after ClosePipeWriter", t, func() {
 		ctx := context.Background()
-		tokenizer, err := NewTokenizer(ctx, nil)
+		tokenizer, err := NewTokenizer(ctx, mustTestQueue(t))
 
 		So(err, ShouldBeNil)
 
@@ -93,7 +127,18 @@ func BenchmarkTokenizerRead(b *testing.B) {
 	setupTokenizerValueConfig(b)
 
 	ctx := context.Background()
-	tokenizer, err := NewTokenizer(ctx, nil)
+	queue, err := pool.NewQueue(ctx)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() {
+		queue.Drain()
+		_ = queue.Close()
+	}()
+
+	tokenizer, err := NewTokenizer(ctx, queue)
 
 	if err != nil {
 		b.Fatal(err)
@@ -121,7 +166,18 @@ func BenchmarkTokenizerDrainPublishedValues(b *testing.B) {
 	setupTokenizerValueConfig(b)
 
 	ctx := context.Background()
-	tokenizer, err := NewTokenizer(ctx, nil)
+	queue, err := pool.NewQueue(ctx)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() {
+		queue.Drain()
+		_ = queue.Close()
+	}()
+
+	tokenizer, err := NewTokenizer(ctx, queue)
 
 	if err != nil {
 		b.Fatal(err)

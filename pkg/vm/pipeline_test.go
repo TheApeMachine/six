@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/transport"
 )
@@ -30,7 +31,7 @@ func TestPipeline(t *testing.T) {
 
 	Convey("Pipeline copies dataset through tokenizer into Publish", t, func() {
 		ctx := context.Background()
-		tokenizer, err := NewTokenizer(ctx, nil)
+		tokenizer, err := NewTokenizer(ctx, mustTestQueue(t))
 
 		So(err, ShouldBeNil)
 
@@ -61,7 +62,7 @@ func TestNestedPipelineBothStagesPublish(t *testing.T) {
 
 	Convey("Outer pipeline stages inner pipeline publishes every frame twice", t, func() {
 		ctx := context.Background()
-		tokenizer, err := NewTokenizer(ctx, nil)
+		tokenizer, err := NewTokenizer(ctx, mustTestQueue(t))
 
 		So(err, ShouldBeNil)
 
@@ -103,7 +104,18 @@ func BenchmarkPipeline_LoadFrom(b *testing.B) {
 	setupTokenizerValueConfig(b)
 
 	ctx := context.Background()
-	tokenizer, err := NewTokenizer(ctx, nil)
+	queue, err := pool.NewQueue(ctx)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() {
+		queue.Drain()
+		_ = queue.Close()
+	}()
+
+	tokenizer, err := NewTokenizer(ctx, queue)
 
 	if err != nil {
 		b.Fatal(err)
@@ -141,7 +153,18 @@ func BenchmarkNestedPipeline_LoadFrom(b *testing.B) {
 	setupTokenizerValueConfig(b)
 
 	ctx := context.Background()
-	tokenizer, err := NewTokenizer(ctx, nil)
+	queue, err := pool.NewQueue(ctx)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() {
+		queue.Drain()
+		_ = queue.Close()
+	}()
+
+	tokenizer, err := NewTokenizer(ctx, queue)
 
 	if err != nil {
 		b.Fatal(err)
