@@ -161,76 +161,29 @@ value:
     true: 1111
 
 
-# Substrate Firmware Programs
-#
-# 32-bit hardware LGP assembly (two slots per uint64 program word).
-# Each line: OP SRC_WORD DST_WORD — see pkg/core/CompileFunc and
-# pkg/compute/kernel/cpu.executeScalarInstruction (NOP / HALT → opcode 0).
-
 programs:
-  learn: |
-    NOP
-    NOP
+  # Fold the 1024-bit Token region (words 0..15, addressable as four 4-word
+  # blocks tokens0..tokens3) into the 257-bit Affinity region (block
+  # affinity0 = words 120..123, with bit 0 of word 127 held as the Fermat
+  # tail). Pure XOR keeps the fold linear so merging two values' affinities
+  # commutes with merging their tokens — required for Kadabra node/trie
+  # merging toward the Shannon limit. Each tile is:
+  #   op  srcA       srcB       dst        [flags]
+  # flags: accumulate (XOR-merge into dst), reduce (popcount to scalar lane),
+  # shr=N (right-shift srcB by N before op).
+  affinity: |
+    xor  tokens0    tokens1    affinity0
+    xor  tokens2    tokens3    signals0
+    xor  affinity0  signals0   affinity0
 
-  bootloader: |
-    NOP
-    NOP
+  # Popcount of the Affinity block into scalar lane 0 of signals.
+  popcount: |
+    a    affinity0  affinity0  signals0   reduce
 
-  # Tombstone: zero selected words via FALSE (truth-table 0) with arbitrary src.
-  tombstone: |
-    FALSE 0 0
-    FALSE 0 1
-    FALSE 0 2
-    FALSE 0 3
-    FALSE 0 4
-    FALSE 0 5
-    FALSE 0 6
-    FALSE 0 7
-    FALSE 0 8
-    FALSE 0 9
-    FALSE 0 10
-    FALSE 0 11
-    FALSE 0 12
-    FALSE 0 13
-    FALSE 0 14
-    FALSE 0 15
-    FALSE 0 57
-    FALSE 0 58
-    FALSE 0 59
-    FALSE 0 60
-    FALSE 0 61
-    FALSE 0 62
-    FALSE 0 63
-
-  viral: |
-    NOP
-
-  build: |
-    NOP
-    NOP
-
-  # Same physics as prompt: active LSM fetch + affinity-driven FW for MAP-Elites routing.
-  # 2415927173 (0x8FFBD005): one 32-bit LGP *extended* slot word. Bit 31 must be set so
-  # CUDA/Metal execute_extended_slot runs (see pkg/compute/kernel/metal/backend.metal).
-  # Layout: [31]=1 extended, [6:0]=ext_opcode (here 5), [13:7]=argA, [20:14]=argB, [27:21]=argC.
-  # ext_opcode 5 writes MLMD state: STATE_INDEX_WORD = 0x4D4D4C44 ("MLMD"), STATE_ACCUM_WORD =
-  # argA|(argB<<8); with argA=63, argB=0 this tags affinity word 63 for the active in-band
-  # load/priority path (yaml mnemonic LGPXMemoryLoadMark / "active fetch"). Plain slots use
-  # [3:0] truth-table op — do not confuse with this extended encoding.
-  query: |
-    2415927173 0 0
-    COPY 63 74
-
-  # Active fetch: same literal 2415927173 extended word as query, then COPY 63 74 to morph
-  # FW register (word 74) from the current affinity hash on the next tick.
-  prompt: |
-    2415927173 0 0
-    COPY 63 74
-
-# Stepwise fixed-step programs (pkg/compute/stepwise). When non-empty for a slot,
-# installFirmware uses InstallEmbedded and overwrites programs.* packing for
-# that firmware only. Syntax: IMM, NOP, TTNAME ia ib idst [LEFT_B] [RIGHT_B].
-programsStepwise:
-  bootloader: |
-    IMM 74 1
-
+  # Jaccard coupling numerator/denominator. Runs AND then OR on the same
+  # operand pair; reduce writes popcount scalars to signals0 (intersection)
+  # and signals1 (union). Go side divides; there is no scalar fallback on
+  # the bit path.
+  coupling: |
+    and  tokens0    affinity0  signals0   reduce
+    or   tokens0    affinity0  signals1   reduce

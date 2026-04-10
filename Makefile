@@ -13,7 +13,6 @@ DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -na
 DUMP_FIND := find . -type f \( \( $(DUMP_EXTS) \) -o -path './visualizer/static/index.html' \) \
 	| grep -v '/vendor/' \
 	| grep -v '/node_modules/' \
-	| grep -v '^\./experiment/' \
 	| grep -v '^\./paper/' \
 	| grep -v '_test\.go$$' \
 	| grep -v '\.capnp\.go$$' \

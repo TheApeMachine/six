@@ -213,11 +213,15 @@ kernel void unified_bitwise_kernel(
         signals[i] = 0;
     }
 
+    // Word 17 (prog[1]) packs 16 × 4-bit tile opcodes little-endian. Legacy
+    // single-opcode callers broadcast the same nibble 16× so the per-rotation
+    // decode collapses to the old broadcast semantics. Per-rotation programs
+    // (e.g. Coupling, which splits AND and OR across the sweep) place
+    // distinct nibbles so each rotation pulls its own truth table.
+    ulong tileWord = prog[1];
+
     for (int rot = 0; rot < NUM_ROTATIONS; rot++) {
-        // Extract 4-bit opcode for this rotation.
-        uint wordIdx = rot / 2;
-        uint shift = (rot % 2) * 32;
-        uchar op = (uchar)((prog[wordIdx] >> shift) & 0xF);
+        uchar op = (uchar)((tileWord >> (rot * 4)) & 0xF);
 
         // Build masks from truth table bits.
         ulong m0 = 0 - (ulong)(op & 1);         // bit 0: a=0,b=0

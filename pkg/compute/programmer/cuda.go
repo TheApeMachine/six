@@ -1,13 +1,14 @@
 package programmer
 
-import "github.com/theapemachine/six/pkg/primitive"
+type CUDACompiler struct {
+	tokens []Token
+	frames []Frame
+}
 
-/*
-CUDA arranges the Value for NVIDIA CUDA execution using the same transposed
-rotation layout as Metal; see emitTransposedGPUProgramLayout.
-*/
-func (compiler *Compiler) CUDA(
-	value *primitive.Value, intent Intent, useBatchAffinity bool,
-) {
-	compiler.emitTransposedGPUProgramLayout(value, intent, useBatchAffinity)
+func NewCUDACompiler(tokens []Token) *CUDACompiler {
+	return &CUDACompiler{tokens: tokens}
+}
+
+func (compiler *CUDACompiler) Compile() ([]Frame, error) {
+	return nil, nil
 }

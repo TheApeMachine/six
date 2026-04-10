@@ -375,37 +375,14 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT, $0-16
 	// Pin A in Y10 (words 0-3, bytes 0-31).
 	VMOVDQU	(DI), Y10
 
-	// Load opcode from word 16 (byte offset 128).
-	MOVQ	128(DI), AX
-	ANDQ	$0xF, AX
-
-	// Broadcast mask bits into Y11-Y14.
-	MOVQ	AX, CX
-	ANDQ	$1, CX
-	NEGQ	CX
-	VMOVQ	CX, X11
-	VPBROADCASTQ	X11, Y11		// m0
-
-	MOVQ	AX, CX
-	SHRQ	$1, CX
-	ANDQ	$1, CX
-	NEGQ	CX
-	VMOVQ	CX, X12
-	VPBROADCASTQ	X12, Y12		// m1
-
-	MOVQ	AX, CX
-	SHRQ	$2, CX
-	ANDQ	$1, CX
-	NEGQ	CX
-	VMOVQ	CX, X13
-	VPBROADCASTQ	X13, Y13		// m2
-
-	MOVQ	AX, CX
-	SHRQ	$3, CX
-	ANDQ	$1, CX
-	NEGQ	CX
-	VMOVQ	CX, X14
-	VPBROADCASTQ	X14, Y14		// m3
+	// R13 holds the 16-nibble tile opcode table from word 17 (byte 136).
+	// Per rotation we shift right by (rot_global * 4) and mask with 0xF to
+	// recover that tile's opcode, then rebuild Y11-Y14 masks before the
+	// truth-table AND/OR tree. Legacy single-opcode callers broadcast the
+	// same nibble 16 times so the decode path is byte-identical to the
+	// old broadcast-once kernel. R13 as a GPR is disjoint from Y13 (the m2
+	// mask YMM) — they live in different register files.
+	MOVQ	136(DI), R13
 
 	// Y15 = all ones for NOT.
 	VPCMPEQD	Y15, Y15, Y15
@@ -421,16 +398,54 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT, $0-16
 	// R8 = signal base (word 24 = byte 192).
 	LEAQ	192(DI), R8
 
-	// CX = outer loop counter (0..7).
-	XORQ	CX, CX
+	// BX = outer loop counter (0..7). Using BX instead of CX leaves CL
+	// free for the variable-count SHRQ needed to decode per-rotation
+	// opcode nibbles. Each iter handles rotations BX*2 and BX*2+1,
+	// whose nibble bit offsets in R13 are BX*8 and BX*8+4.
+	XORQ	BX, BX
 
 ubv2_avx_loop:
 	// Load 2 rotations × 4 words = 8 words = 64 bytes.
 	VMOVDQU	(SI), Y0		// B rotation 0
 	VMOVDQU	32(SI), Y1		// B rotation 1
 
+	VPXOR	Y15, Y10, Y2		// ~a (shared across both rotations)
+
+	// --- Decode rotation 0 opcode: (R13 >> (BX*8)) & 0xF ---
+	MOVQ	BX, CX
+	SHLQ	$3, CX			// CL = BX*8 = bit shift for rot 0
+	MOVQ	R13, AX
+	SHRQ	CL, AX
+	ANDQ	$0xF, AX
+
+	MOVQ	AX, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X11
+	VPBROADCASTQ	X11, Y11	// m0
+
+	MOVQ	AX, R9
+	SHRQ	$1, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X12
+	VPBROADCASTQ	X12, Y12	// m1
+
+	MOVQ	AX, R9
+	SHRQ	$2, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X13
+	VPBROADCASTQ	X13, Y13	// m2
+
+	MOVQ	AX, R9
+	SHRQ	$3, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X14
+	VPBROADCASTQ	X14, Y14	// m3
+
 	// === Rotation 0: Y0 against Y10 ===
-	VPXOR	Y15, Y10, Y2		// ~a
 	VPXOR	Y15, Y0, Y3		// ~b
 
 	VPAND	Y10, Y0, Y4
@@ -448,6 +463,41 @@ ubv2_avx_loop:
 	VPOR	Y4, Y5, Y4
 	VPOR	Y6, Y7, Y6
 	VPOR	Y4, Y6, Y4		// Y4 = result rotation 0
+
+	// --- Decode rotation 1 opcode: (R13 >> (BX*8 + 4)) & 0xF ---
+	MOVQ	BX, CX
+	SHLQ	$3, CX
+	ADDQ	$4, CX
+	MOVQ	R13, AX
+	SHRQ	CL, AX
+	ANDQ	$0xF, AX
+
+	MOVQ	AX, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X11
+	VPBROADCASTQ	X11, Y11	// m0
+
+	MOVQ	AX, R9
+	SHRQ	$1, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X12
+	VPBROADCASTQ	X12, Y12	// m1
+
+	MOVQ	AX, R9
+	SHRQ	$2, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X13
+	VPBROADCASTQ	X13, Y13	// m2
+
+	MOVQ	AX, R9
+	SHRQ	$3, R9
+	ANDQ	$1, R9
+	NEGQ	R9
+	VMOVQ	R9, X14
+	VPBROADCASTQ	X14, Y14	// m3
 
 	// === Rotation 1: Y1 against Y10 ===
 	VPXOR	Y15, Y1, Y3		// ~b
@@ -469,8 +519,8 @@ ubv2_avx_loop:
 	VPOR	Y5, Y7, Y5		// Y5 = result rotation 1
 
 	// Scatter: each outer iteration handles 2 rotations × 4 words
-	// = 8 elements. Element indices are CX*8+{0..7}.
-	// sig_word = element/8 = CX. All 8 bytes pack into one uint64.
+	// = 8 elements. Element indices are BX*8+{0..7}.
+	// sig_word = element/8 = BX. All 8 bytes pack into one uint64.
 	// Rotation 0 bytes at shifts {0,8,16,24}, rotation 1 at {32,40,48,56}.
 
 	// Extract 4 low bytes from Y4 (rotation 0 result).
@@ -512,12 +562,12 @@ ubv2_avx_loop:
 	SHLQ	$56, R12		// byte 7 at shift 56
 	ORQ	R12, AX
 
-	// Store signal word CX.
-	MOVQ	AX, (R8)(CX*8)
+	// Store signal word BX.
+	MOVQ	AX, (R8)(BX*8)
 
 	ADDQ	$64, SI
-	INCQ	CX
-	CMPQ	CX, $8
+	INCQ	BX
+	CMPQ	BX, $8
 	JB	ubv2_avx_loop
 
 	VZEROUPPER
@@ -666,4 +716,93 @@ bad_tail:
 
 bad_done:
 	VZEROUPPER
+	RET
+
+// affinityPopcount: popcount of a 5-word (257-bit) affinity vector.
+// Five scalar POPCNT instructions is dramatically cheaper than spinning
+// up an AVX2 shuffle-LUT pipeline for a single 40-byte payload. The
+// fifth word is masked to bit 0 to honour AffinityLastWordMask.
+//
+// func affinityPopcount(vec *uint64) uint32
+TEXT ·affinityPopcount(SB), NOSPLIT|NOFRAME, $0-12
+	MOVQ	vec+0(FP), SI
+	POPCNTQ	(SI), AX
+	POPCNTQ	8(SI), CX
+	ADDQ	CX, AX
+	POPCNTQ	16(SI), CX
+	ADDQ	CX, AX
+	POPCNTQ	24(SI), CX
+	ADDQ	CX, AX
+	MOVQ	32(SI), CX
+	ANDQ	$1, CX
+	ADDQ	CX, AX
+	MOVL	AX, ret+8(FP)
+	RET
+
+// affinityCoupling: fused Jaccard numerator (popcount(a & b)) and
+// denominator (popcount(a | b)) across two 5-word affinity vectors.
+// Scalar AND/OR/POPCNT per lane; keeping the work in GPRs avoids any
+// SSE/AVX state transition on the hot DHT routing path.
+//
+// func affinityCoupling(a *uint64, b *uint64, out *uint32)
+TEXT ·affinityCoupling(SB), NOSPLIT|NOFRAME, $0-24
+	MOVQ	a+0(FP), SI
+	MOVQ	b+8(FP), DI
+	MOVQ	out+16(FP), R8
+
+	XORQ	AX, AX			// intersection accumulator
+	XORQ	DX, DX			// union accumulator
+
+	MOVQ	(SI), R9
+	MOVQ	(DI), R10
+	MOVQ	R9, R11
+	ANDQ	R10, R11
+	POPCNTQ	R11, R11
+	ADDQ	R11, AX
+	ORQ	R10, R9
+	POPCNTQ	R9, R9
+	ADDQ	R9, DX
+
+	MOVQ	8(SI), R9
+	MOVQ	8(DI), R10
+	MOVQ	R9, R11
+	ANDQ	R10, R11
+	POPCNTQ	R11, R11
+	ADDQ	R11, AX
+	ORQ	R10, R9
+	POPCNTQ	R9, R9
+	ADDQ	R9, DX
+
+	MOVQ	16(SI), R9
+	MOVQ	16(DI), R10
+	MOVQ	R9, R11
+	ANDQ	R10, R11
+	POPCNTQ	R11, R11
+	ADDQ	R11, AX
+	ORQ	R10, R9
+	POPCNTQ	R9, R9
+	ADDQ	R9, DX
+
+	MOVQ	24(SI), R9
+	MOVQ	24(DI), R10
+	MOVQ	R9, R11
+	ANDQ	R10, R11
+	POPCNTQ	R11, R11
+	ADDQ	R11, AX
+	ORQ	R10, R9
+	POPCNTQ	R9, R9
+	ADDQ	R9, DX
+
+	MOVQ	32(SI), R9
+	MOVQ	32(DI), R10
+	ANDQ	$1, R9
+	ANDQ	$1, R10
+	MOVQ	R9, R11
+	ANDQ	R10, R11
+	ADDQ	R11, AX
+	ORQ	R10, R9
+	ADDQ	R9, DX
+
+	MOVL	AX, (R8)
+	MOVL	DX, 4(R8)
 	RET

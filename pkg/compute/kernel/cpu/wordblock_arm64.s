@@ -283,20 +283,27 @@ ub_loop:
 //
 // Layout (word offsets, each word = 8 bytes):
 //   [0-3]    A (query, 4 words = 32 bytes)
-//   [16]     opcode (low 4 bits)
+//   [16]     legacy opcode (low 4 bits) + geometric gate (high 4 bits)
+//   [17]     tile opcode table: 16 × 4-bit nibbles, one per rotation.
+//            Legacy single-opcode callers broadcast the same nibble 16×,
+//            which reproduces the old behaviour byte-for-byte. Per-rotation
+//            programs (e.g. Coupling AND+OR split) write distinct nibbles.
 //   [24-31]  signals output (8 words = 64 bytes)
 //   [32-95]  B rotations (16 rotations × 4 words, pre-compiled)
 //
 // Register allocation:
 //   V16-V17  A pinned (2 × 128-bit = 4 words)
-//   V20-V23  opcode masks m0-m3 (broadcast)
-//   V28-V29  signal accumulators (zero-initialized)
+//   V20-V23  current-rotation truth-table masks m0-m3 (rebuilt per rotation
+//            from the nibble decoded out of R19)
+//   V28-V29  signal accumulators (zero-initialized; unused today but reserved)
 //   V31      all-ones for NOT
 //   V0-V15   B loads + truth table computation (4 rotations/iter)
+//   R19      pinned tile opcode word (word 17, byte offset 136)
 //
-// Processes 4 rotations per iteration, 4 iterations total.
-// Each rotation: load 4 words of B, apply truth table against A,
-// extract low byte from each result word, pack into signals.
+// Processes 4 rotations per iteration, 4 iterations total. Per rotation we
+// decode a fresh 4-bit opcode from R19, rebuild the truth-table masks, then
+// run the same AND/OR tree the broadcast path ran. Legacy broadcast programs
+// get the identical nibble 16 times so the decode is a no-op byte-wise.
 // ============================================================================
 TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	MOVD	value+0(FP), R0
@@ -304,40 +311,15 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	// Pin A in V16-V17 (words 0-3, bytes 0-31).
 	VLD1	(R0), [V16.B16, V17.B16]
 
-	// Load opcode from word 16 (byte offset 128).
-	MOVD	128(R0), R1
-	AND	$0xF, R1, R1
-
-	// Broadcast mask bits into V20-V23.
-	// m0 = -uint64(op & 1), m1 = -uint64((op>>1)&1), etc.
-	// -1 = all ones, -0 = all zeros.
-	AND	$1, R1, R2
-	NEG	R2, R2
-	VMOV	R2, V20.D[0]
-	VDUP	V20.D[0], V20.D2
-
-	LSR	$1, R1, R3
-	AND	$1, R3, R3
-	NEG	R3, R3
-	VMOV	R3, V21.D[0]
-	VDUP	V21.D[0], V21.D2
-
-	LSR	$2, R1, R4
-	AND	$1, R4, R4
-	NEG	R4, R4
-	VMOV	R4, V22.D[0]
-	VDUP	V22.D[0], V22.D2
-
-	LSR	$3, R1, R5
-	AND	$1, R5, R5
-	NEG	R5, R5
-	VMOV	R5, V23.D[0]
-	VDUP	V23.D[0], V23.D2
+	// Load the 16-nibble tile opcode table from word 17 (byte 136).
+	// R19 stays pinned for the whole function; each rotation shifts it
+	// right by (rot_global*4) and masks with 0xF to recover its opcode.
+	MOVD	136(R0), R19
 
 	// V31 = all ones for NOT.
 	WORD	$0x6F00E7FF		// movi v31.16b, #0xff
 
-	// Zero signal accumulators V28-V31 → V28-V29 (8 words).
+	// Zero signal accumulators V28-V29 (reserved for future reduce tiles).
 	VEOR	V28.B16, V28.B16, V28.B16
 	VEOR	V29.B16, V29.B16, V29.B16
 
@@ -347,7 +329,7 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	// R2 = signal base (word 24 = byte 192).
 	ADD	$192, R0, R2
 
-	// R3 = rotation counter.
+	// R3 = iteration counter (0..3, 4 rotations per iter).
 	MOVD	ZR, R3
 
 ubv2_loop:
@@ -364,6 +346,34 @@ ubv2_loop:
 	// Rotation 3: V6-V7
 	VLD1.P	16(R1), [V6.B16]
 	VLD1.P	16(R1), [V7.B16]
+
+	// R4 = rot_base for rotation 0 of this iteration (iter * 16 elements,
+	// which also equals iter * 16 *bits* of R19 — rotation k lives at
+	// bits [R4 + k*4 .. R4 + k*4 + 3]).
+	LSL	$4, R3, R4
+
+	// --- Decode rotation 0 opcode and build V20-V23 masks ---
+	LSR	R4, R19, R9
+	AND	$0xF, R9, R9
+	AND	$1, R9, R10
+	NEG	R10, R10
+	VMOV	R10, V20.D[0]
+	VDUP	V20.D[0], V20.D2
+	LSR	$1, R9, R11
+	AND	$1, R11, R11
+	NEG	R11, R11
+	VMOV	R11, V21.D[0]
+	VDUP	V21.D[0], V21.D2
+	LSR	$2, R9, R12
+	AND	$1, R12, R12
+	NEG	R12, R12
+	VMOV	R12, V22.D[0]
+	VDUP	V22.D[0], V22.D2
+	LSR	$3, R9, R13
+	AND	$1, R13, R13
+	NEG	R13, R13
+	VMOV	R13, V23.D[0]
+	VDUP	V23.D[0], V23.D2
 
 	// === Rotation 0: truth table on V0-V1 against V16-V17 ===
 	// ~a
@@ -405,8 +415,7 @@ ubv2_loop:
 	// V12 = result words 0-1, V13 = result words 2-3
 
 	// Extract low byte from each uint64 lane and scatter.
-	// Rotation index = R3*4 + {0,1,2,3}
-	LSL	$4, R3, R4		// R4 = element_base = R3*16
+	// R4 already holds element_base (= R3*16) from the mask-build above.
 
 	// Extract 4 bytes from V12[d0], V12[d1], V13[d0], V13[d1]
 	VMOV	V12.D[0], R5
@@ -449,6 +458,30 @@ ubv2_loop:
 	MOVD	R15, (R14)
 
 	// === Rotation 1: V2-V3 against V16-V17 ===
+	// Advance R4 to rotation 1's base bit, then decode its opcode nibble.
+	ADD	$4, R4, R4
+	LSR	R4, R19, R9
+	AND	$0xF, R9, R9
+	AND	$1, R9, R10
+	NEG	R10, R10
+	VMOV	R10, V20.D[0]
+	VDUP	V20.D[0], V20.D2
+	LSR	$1, R9, R11
+	AND	$1, R11, R11
+	NEG	R11, R11
+	VMOV	R11, V21.D[0]
+	VDUP	V21.D[0], V21.D2
+	LSR	$2, R9, R12
+	AND	$1, R12, R12
+	NEG	R12, R12
+	VMOV	R12, V22.D[0]
+	VDUP	V22.D[0], V22.D2
+	LSR	$3, R9, R13
+	AND	$1, R13, R13
+	NEG	R13, R13
+	VMOV	R13, V23.D[0]
+	VDUP	V23.D[0], V23.D2
+
 	VEOR	V2.B16, V31.B16, V10.B16
 	VEOR	V3.B16, V31.B16, V11.B16
 
@@ -476,7 +509,6 @@ ubv2_loop:
 	VORR	V15.B16, V0.B16, V15.B16
 	VORR	V13.B16, V15.B16, V13.B16
 
-	ADD	$4, R4, R4
 	VMOV	V12.D[0], R5
 	AND	$0xFF, R5, R5
 	VMOV	V12.D[1], R6
@@ -508,6 +540,29 @@ ubv2_loop:
 	MOVD	R15, (R14)
 
 	// === Rotation 2: V4-V5 against V16-V17 ===
+	ADD	$4, R4, R4
+	LSR	R4, R19, R9
+	AND	$0xF, R9, R9
+	AND	$1, R9, R10
+	NEG	R10, R10
+	VMOV	R10, V20.D[0]
+	VDUP	V20.D[0], V20.D2
+	LSR	$1, R9, R11
+	AND	$1, R11, R11
+	NEG	R11, R11
+	VMOV	R11, V21.D[0]
+	VDUP	V21.D[0], V21.D2
+	LSR	$2, R9, R12
+	AND	$1, R12, R12
+	NEG	R12, R12
+	VMOV	R12, V22.D[0]
+	VDUP	V22.D[0], V22.D2
+	LSR	$3, R9, R13
+	AND	$1, R13, R13
+	NEG	R13, R13
+	VMOV	R13, V23.D[0]
+	VDUP	V23.D[0], V23.D2
+
 	VEOR	V4.B16, V31.B16, V10.B16
 	VEOR	V5.B16, V31.B16, V11.B16
 
@@ -535,7 +590,6 @@ ubv2_loop:
 	VORR	V15.B16, V0.B16, V15.B16
 	VORR	V13.B16, V15.B16, V13.B16
 
-	ADD	$4, R4, R4
 	VMOV	V12.D[0], R5
 	AND	$0xFF, R5, R5
 	VMOV	V12.D[1], R6
@@ -567,6 +621,29 @@ ubv2_loop:
 	MOVD	R15, (R14)
 
 	// === Rotation 3: V6-V7 against V16-V17 ===
+	ADD	$4, R4, R4
+	LSR	R4, R19, R9
+	AND	$0xF, R9, R9
+	AND	$1, R9, R10
+	NEG	R10, R10
+	VMOV	R10, V20.D[0]
+	VDUP	V20.D[0], V20.D2
+	LSR	$1, R9, R11
+	AND	$1, R11, R11
+	NEG	R11, R11
+	VMOV	R11, V21.D[0]
+	VDUP	V21.D[0], V21.D2
+	LSR	$2, R9, R12
+	AND	$1, R12, R12
+	NEG	R12, R12
+	VMOV	R12, V22.D[0]
+	VDUP	V22.D[0], V22.D2
+	LSR	$3, R9, R13
+	AND	$1, R13, R13
+	NEG	R13, R13
+	VMOV	R13, V23.D[0]
+	VDUP	V23.D[0], V23.D2
+
 	VEOR	V6.B16, V31.B16, V10.B16
 	VEOR	V7.B16, V31.B16, V11.B16
 
@@ -594,7 +671,6 @@ ubv2_loop:
 	VORR	V15.B16, V0.B16, V15.B16
 	VORR	V13.B16, V15.B16, V13.B16
 
-	ADD	$4, R4, R4
 	VMOV	V12.D[0], R5
 	AND	$0xFF, R5, R5
 	VMOV	V12.D[1], R6
@@ -789,4 +865,98 @@ bad_loop1:
 	CBNZ	R6, bad_loop1
 
 bad_done:
+	RET
+
+
+// ============================================================================
+// affinityPopcount: popcount of a 5-word (257-bit) affinity vector.
+//
+// func affinityPopcount(vec *uint64) uint32
+//
+// Affinity layout: 5 × uint64. Words 0..3 are full 64-bit lanes (256 bits);
+// word 4 carries a single meaningful bit (AffinityLastWordMask = 0x1). The
+// helper reads the whole 40 bytes, popcounts words 0..3 through NEON's CNT
+// tree, adds the masked tail bit, and returns the total as uint32.
+// ============================================================================
+TEXT ·affinityPopcount(SB), NOSPLIT|NOFRAME, $0-12
+	MOVD	vec+0(FP), R0
+
+	// Load words 0..3 (32 bytes) into V0-V1.
+	VLD1	(R0), [V0.B16, V1.B16]
+
+	// Tail bit (word 4, only bit 0 is meaningful).
+	MOVD	32(R0), R1
+	AND	$1, R1, R1
+
+	// Byte-wise popcount of both quadwords, then sum and horizontal-reduce.
+	VCNT	V0.B16, V0.B16
+	VCNT	V1.B16, V1.B16
+	VADD	V1.B16, V0.B16, V0.B16
+
+	WORD	$0x6E303800		// UADDLV H0, V0.16B
+
+	VMOV	V0.D[0], R2
+	ADD	R1, R2, R2
+	MOVW	R2, ret+8(FP)
+	RET
+
+
+// ============================================================================
+// affinityCoupling: Jaccard numerator and denominator popcounts.
+//
+// func affinityCoupling(a *uint64, b *uint64, out *uint32)
+//
+// Writes out[0] = popcount(a & b) and out[1] = popcount(a | b) over the 257
+// meaningful affinity bits. Intersection and union are SIMD'd in one pass on
+// the first 256 bits (words 0..3); the 257-th bit tail is folded into both
+// results via scalar AND/OR on the masked word-4 tails. Callers build the
+// Jaccard ratio from the two popcounts.
+// ============================================================================
+TEXT ·affinityCoupling(SB), NOSPLIT|NOFRAME, $0-24
+	MOVD	a+0(FP), R0
+	MOVD	b+8(FP), R1
+	MOVD	out+16(FP), R2
+
+	// A words 0..3 into V0-V1, B words 0..3 into V2-V3.
+	VLD1	(R0), [V0.B16, V1.B16]
+	VLD1	(R1), [V2.B16, V3.B16]
+
+	// V4-V5 = A & B, V6-V7 = A | B.
+	VAND	V0.B16, V2.B16, V4.B16
+	VAND	V1.B16, V3.B16, V5.B16
+	VORR	V0.B16, V2.B16, V6.B16
+	VORR	V1.B16, V3.B16, V7.B16
+
+	// Byte popcounts.
+	VCNT	V4.B16, V4.B16
+	VCNT	V5.B16, V5.B16
+	VCNT	V6.B16, V6.B16
+	VCNT	V7.B16, V7.B16
+
+	// Fold each pair to one register.
+	VADD	V5.B16, V4.B16, V4.B16
+	VADD	V7.B16, V6.B16, V6.B16
+
+	// Horizontal reduce each to a half-word.
+	WORD	$0x6E303884		// UADDLV H4, V4.16B
+	WORD	$0x6E3038C6		// UADDLV H6, V6.16B
+
+	// Tail bits (word 4, only bit 0 meaningful) folded in scalar.
+	MOVD	32(R0), R3
+	MOVD	32(R1), R4
+	AND	$1, R3, R3
+	AND	$1, R4, R4
+
+	MOVD	R3, R5
+	AND	R4, R5, R5		// R5 = a_tail & b_tail
+	MOVD	R3, R6
+	ORR	R4, R6, R6		// R6 = a_tail | b_tail
+
+	VMOV	V4.D[0], R7
+	ADD	R5, R7, R7		// R7 = intersection popcount
+	VMOV	V6.D[0], R8
+	ADD	R6, R8, R8		// R8 = union popcount
+
+	MOVW	R7, (R2)
+	MOVW	R8, 4(R2)
 	RET

@@ -127,15 +127,11 @@ Used to detect saturation toward the Shannon limit where all
 distance measurements become meaningless.
 */
 func (affinity *Affinity) Popcount() int {
-	total := 0
-
-	for idx, word := range affinity.vector {
-		if idx == AffinityWords-1 {
-			word &= AffinityLastWordMask
-		}
-
-		total += bits.OnesCount64(word)
-	}
+	total := bits.OnesCount64(affinity.vector[0]) +
+		bits.OnesCount64(affinity.vector[1]) +
+		bits.OnesCount64(affinity.vector[2]) +
+		bits.OnesCount64(affinity.vector[3]) +
+		int(affinity.vector[4]&AffinityLastWordMask)
 
 	return total
 }
@@ -148,6 +144,17 @@ previous in-place implementation (prune, then revert vector on failure).
 
 Lock-free centroids (e.g. kadabra mesh load) compose this with CAS loops
 instead of holding a mutex around a mutating Blend.
+
+Next conversion target: Blend is still Go-scalar because its per-count
+selector mask is built from a rejection-sampled LCG (see rotateSelector)
+and then composed bitwise with agree / disagree masks. Moving this into
+a substrate kernel requires staging the selector across the Value — most
+likely the selector for a fixed-count slice is precomputed once at the
+programmer layer, written into a reserved region, and consumed by a
+tile program that emits the five output words via universalBitwiseV2
+with the agree/disagree/selector triple fed as the ABC surfaces. The
+prune fallback under Shannon saturation would remain Go-side until it
+earns its own kernel, because it is only hit on the rare saturation path.
 */
 func (base Affinity) Blended(
 	incoming *Affinity, count uint64, shannonLimit int,
@@ -255,39 +262,23 @@ to [0,1]. Uses Jaccard similarity: intersection / union. Returns 0
 when both vectors are empty.
 */
 func (affinity *Affinity) Coupling(other *Affinity) float64 {
-	intersectionBits := 0
-	unionBits := 0
+	intersection := bits.OnesCount64(affinity.vector[0]&other.vector[0]) +
+		bits.OnesCount64(affinity.vector[1]&other.vector[1]) +
+		bits.OnesCount64(affinity.vector[2]&other.vector[2]) +
+		bits.OnesCount64(affinity.vector[3]&other.vector[3]) +
+		int((affinity.vector[4]&other.vector[4])&AffinityLastWordMask)
 
-	for wordIdx := range AffinityWords {
-		aWord := affinity.vector[wordIdx]
-		oWord := other.vector[wordIdx]
+	union := bits.OnesCount64(affinity.vector[0]|other.vector[0]) +
+		bits.OnesCount64(affinity.vector[1]|other.vector[1]) +
+		bits.OnesCount64(affinity.vector[2]|other.vector[2]) +
+		bits.OnesCount64(affinity.vector[3]|other.vector[3]) +
+		int((affinity.vector[4]|other.vector[4])&AffinityLastWordMask)
 
-		if wordIdx == AffinityWords-1 {
-			aWord &= AffinityLastWordMask
-			oWord &= AffinityLastWordMask
-		}
-
-		intersectionBits += bits.OnesCount64(aWord & oWord)
-		unionBits += bits.OnesCount64(aWord | oWord)
-	}
-
-	if unionBits == 0 {
+	if union == 0 {
 		return 0
 	}
 
-	return float64(intersectionBits) / float64(unionBits)
-}
-
-/*
-OrBlend performs a simple OR-blend of the incoming vector into this one.
-Used during early accumulation before switching to EMA.
-*/
-func (affinity *Affinity) OrBlend(incoming *Affinity) {
-	for wordIdx := range AffinityWords {
-		affinity.vector[wordIdx] |= incoming.vector[wordIdx]
-	}
-
-	affinity.vector[AffinityWords-1] &= AffinityLastWordMask
+	return float64(intersection) / float64(union)
 }
 
 /*

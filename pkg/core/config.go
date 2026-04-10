@@ -22,7 +22,26 @@ const DefaultTokenSettleMaxPasses = 4
 
 var (
 	Cfg *Config
+
+	// programLoader is installed by pkg/compute/programmer at init so
+	// NewConfig can hand it the raw programs map without importing
+	// programmer (which would cycle via compute → core).
+	programLoader func(map[string]string) error
 )
+
+/*
+RegisterProgramLoader wires a callback that consumes the raw programs
+map and parses it into the programmer registry. It is invoked from
+NewConfig after the map is loaded. Installing a nil loader clears the
+hook so tests can re-register.
+*/
+func RegisterProgramLoader(loader func(map[string]string) error) {
+	programLoader = loader
+
+	if loader != nil && Cfg != nil && len(Cfg.Programs) > 0 {
+		_ = loader(Cfg.Programs)
+	}
+}
 
 func init() {
 	Cfg = NewConfig()
@@ -239,6 +258,13 @@ type Config struct {
 	// TelemetryUniversalBitwiseSlots emits one Backend/UniversalBitwise event per LGP slot per CPU
 	// tile iteration (very high volume). Use only with viz / short runs.
 	TelemetryUniversalBitwiseSlots bool
+
+	// Programs holds raw tile-program text keyed by name, loaded from the
+	// `programs:` block of config.yml. These are the in-band programs the
+	// substrate kernels execute (affinity fold, popcount, coupling, etc.).
+	// Parsing is deferred to pkg/compute/programmer so this package stays
+	// free of the tile IR and avoids an import cycle.
+	Programs map[string]string
 }
 
 func NewConfig() *Config {
@@ -454,9 +480,42 @@ func NewConfig() *Config {
 		TelemetryEnabled:               WithDefault(viper.GetBool("telemetry.enabled"), false),
 		TelemetryEndpoint:              WithDefault(viper.GetString("telemetry.udp_endpoint"), ""),
 		TelemetryUniversalBitwiseSlots: WithDefault(viper.GetBool("telemetry.universal_bitwise_slots"), false),
+		Programs:                       loadPrograms(),
+	}
+
+	if programLoader != nil && len(Cfg.Programs) > 0 {
+		_ = programLoader(Cfg.Programs)
 	}
 
 	return Cfg
+}
+
+/*
+loadPrograms returns the raw text of every entry under the `programs:`
+block as a name→source map. Parsing into TileProgram happens in
+pkg/compute/programmer so this package does not pull in the tile IR.
+Missing block yields an empty map so callers can range without nil
+checks; zero-length programs are filtered because they indicate a stub
+left in the config.
+*/
+func loadPrograms() map[string]string {
+	raw := viper.GetStringMapString("programs")
+
+	if len(raw) == 0 {
+		return map[string]string{}
+	}
+
+	out := make(map[string]string, len(raw))
+
+	for name, source := range raw {
+		if source == "" {
+			continue
+		}
+
+		out[name] = source
+	}
+
+	return out
 }
 
 func WithDefault[T comparable](value, defaultValue T) T {
