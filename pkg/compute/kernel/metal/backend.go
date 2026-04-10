@@ -128,7 +128,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 			if C.nearest_affinity_metal(
 				unsafe.Pointer(&v[0]),
-				unsafe.Pointer(&v[32]),
+				unsafe.Pointer(&v[kernel.NearestAffinityCandidatesStartWord]),
 				C.uint32_t(batchCount),
 				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
 			) != 0 {
@@ -154,8 +154,8 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 				}
 			}
 
-			v[22] = bestIdx
-			v[23] = bestDist
+			v[kernel.SignalsStartWord+6] = bestIdx
+			v[kernel.SignalsStartWord+7] = bestDist
 
 			continue
 		}

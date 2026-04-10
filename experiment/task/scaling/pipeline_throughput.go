@@ -10,32 +10,32 @@ import (
 )
 
 /*
-PipelineThroughputExperiment measures end-to-end throughput.
-Provides a 1000-sample synthetic dataset and prompts; the Pipeline handles
-ingestion and querying. Finalize records timing and substrate size metrics.
+PipelineThroughputExperiment measures end-to-end throughput scaling.
+Ingests a 200-sample corpus and issues 50 sequential queries, recording
+wall-clock timestamps on every AddResult call. This produces per-query
+latency data that reveals how query cost scales with cumulative load.
 */
 type PipelineThroughputExperiment struct {
-	tableData  []tools.ExperimentalData
-	dataset    data.Provider
-	prompt     []string
-	holdouts   [][]byte
-	ingestTime time.Time
-	sampleLen  int
-	nSamples   int
-	evaluator  *tools.Evaluator
+	tableData    []tools.ExperimentalData
+	dataset      data.Provider
+	prompt       []string
+	holdouts     [][]byte
+	ingestTime   time.Time
+	promptStamps []time.Time
+	sampleLen    int
+	nSamples     int
+	evaluator    *tools.Evaluator
 }
 
 func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 	return &PipelineThroughputExperiment{
 		tableData: []tools.ExperimentalData{},
 		prompt:    []string{},
-		dataset:   NewSyntheticDataset(128, 50, 42),
+		dataset:   NewSyntheticDataset(128, 200, 42),
 		sampleLen: 128,
-		nSamples:  50,
-		// Baseline 0.05: any successful ingest+query cycle that produces
-		// throughput metrics passes. Zero means the pipeline didn't run.
-		// Target 0.50: efficient end-to-end processing.
+		nSamples:  200,
 		evaluator: tools.NewEvaluator(
+			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
 	}
@@ -49,6 +49,7 @@ func (experiment *PipelineThroughputExperiment) Dataset() data.Provider {
 
 func (experiment *PipelineThroughputExperiment) Prompts() []string {
 	experiment.ingestTime = time.Now()
+
 	ds, ok := experiment.dataset.(*SyntheticDataset)
 	if !ok {
 		if experiment.prompt == nil {
@@ -56,10 +57,12 @@ func (experiment *PipelineThroughputExperiment) Prompts() []string {
 		} else {
 			experiment.prompt = experiment.prompt[:0]
 		}
+
 		experiment.holdouts = nil
 		return experiment.prompt
 	}
-	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 0)
+
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 50, 32)
 	return experiment.prompt
 }
 
@@ -67,16 +70,22 @@ func (experiment *PipelineThroughputExperiment) HoldoutForPrompt(idx int) ([]byt
 	if idx < 0 || idx >= len(experiment.holdouts) {
 		return nil, false
 	}
+
 	return experiment.holdouts[idx], true
 }
 
 func (experiment *PipelineThroughputExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.promptStamps = append(experiment.promptStamps, time.Now())
 	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *PipelineThroughputExperiment) Outcome() (any, gc.Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
+}
+
+func (experiment *PipelineThroughputExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
 }
 
 func (experiment *PipelineThroughputExperiment) Score() float64 {
@@ -88,7 +97,7 @@ func (experiment *PipelineThroughputExperiment) TableData() any {
 }
 
 func (experiment *PipelineThroughputExperiment) Artifacts() []tools.Artifact {
-	return ThroughputArtifacts(experiment.tableData)
+	return ThroughputArtifacts(experiment.tableData, experiment.ingestTime, experiment.promptStamps)
 }
 
 func (experiment *PipelineThroughputExperiment) RawOutput() bool { return false }
@@ -96,7 +105,18 @@ func (experiment *PipelineThroughputExperiment) RawOutput() bool { return false 
 func (experiment *PipelineThroughputExperiment) Finalize(substrate any) error {
 	elapsed := time.Since(experiment.ingestTime)
 	totalBytes := experiment.nSamples * experiment.sampleLen
-	entries := 1
+
+	entries := 0
+
+	for _, row := range experiment.tableData {
+		if len(row.Generation) > 0 {
+			entries++
+		}
+	}
+
+	if entries == 0 {
+		entries = 1
+	}
 
 	kbPerSec := 0.0
 	if elapsed.Milliseconds() > 0 {
@@ -115,6 +135,27 @@ func (experiment *PipelineThroughputExperiment) Finalize(substrate any) error {
 	})
 
 	return nil
+}
+
+/*
+PerPromptLatencies returns per-query wall-clock durations in milliseconds.
+The first entry measures time from Prompts() return (ingest complete) to
+the first AddResult; subsequent entries measure inter-query gaps.
+*/
+func (experiment *PipelineThroughputExperiment) PerPromptLatencies() []float64 {
+	n := len(experiment.promptStamps)
+	if n == 0 {
+		return nil
+	}
+
+	latencies := make([]float64, n)
+	latencies[0] = float64(experiment.promptStamps[0].Sub(experiment.ingestTime).Milliseconds())
+
+	for i := 1; i < n; i++ {
+		latencies[i] = float64(experiment.promptStamps[i].Sub(experiment.promptStamps[i-1]).Milliseconds())
+	}
+
+	return latencies
 }
 
 var _ tools.HoldoutProvider = (*PipelineThroughputExperiment)(nil)

@@ -26,7 +26,7 @@ func TestOnlineUpdate(t *testing.T) {
 		online := NewOnline()
 		prediction := algo.NewPrediction()
 
-		v, err := primitive.NewValue([]byte("x"))
+		v, err := primitive.FirstSegment(primitive.NewValue([]byte("x")))
 
 		So(err, ShouldBeNil)
 
@@ -48,7 +48,7 @@ func TestOnlineUpdate(t *testing.T) {
 			Confidence: 1,
 		})
 
-		v, err := primitive.NewValue([]byte("token"))
+		v, err := primitive.FirstSegment(primitive.NewValue([]byte("token")))
 
 		So(err, ShouldBeNil)
 
@@ -238,7 +238,7 @@ func TestOnlineValue(t *testing.T) {
 
 func BenchmarkOnlineUpdate(b *testing.B) {
 	online := NewOnline()
-	payload, err := primitive.NewValue([]byte("training text"))
+	payload, err := primitive.FirstSegment(primitive.NewValue([]byte("training text")))
 
 	if err != nil {
 		b.Fatal(err)

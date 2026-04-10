@@ -2,14 +2,18 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 func queueWorkerCount() int {
@@ -20,15 +24,6 @@ func queueWorkerCount() int {
 	}
 
 	return n
-}
-
-/*
-Executor is the interface that the compute backend satisfies. It
-allows the Queue to dispatch compiled programs without importing
-the compute package (which already imports pool).
-*/
-type Executor interface {
-	CompileAndExecute(program any) error
 }
 
 /*
@@ -43,7 +38,7 @@ type Queue struct {
 	cancel    context.CancelFunc
 	err       error
 	pool      *Pool
-	backend   Executor
+	backend   programmer.Executor
 	normal    *data.Ring
 	priority  *data.Ring
 	spill     *data.Ring
@@ -101,6 +96,52 @@ func (queue *Queue) Error() error {
 }
 
 /*
+Publish enqueues a task to the normal-priority ring buffer.
+It implement the Publishable interface.
+*/
+func (queue *Queue) Publish(value *primitive.Value, label string) error {
+	if queue == nil {
+		return errors.New("queue: nil")
+	}
+
+	if queue.backend == nil {
+		return errors.New("queue: no backend")
+	}
+
+	frame := value
+
+	if frame == nil {
+		// Heap-backed so the pool goroutine does not capture a stack address.
+		frame = new(primitive.Value)
+	}
+
+	aSpan := frame[0:31]
+	bSpan := frame[32:63]
+
+	inflight := queue.inflight.Add(1)
+	viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight))
+
+	queue.pool.Submit(func() {
+		defer func() {
+			if queue.inflight.Add(-1) == 0 {
+				queue.drainMu.Lock()
+				queue.drainWait.Broadcast()
+				queue.drainMu.Unlock()
+			}
+		}()
+
+		queue.backend.CompileAndExecute(programmer.New(
+			frame, programmer.CompilerWithIntent(programmer.Intent{
+				Operation: programmer.Similarity,
+				Assets:    [][]uint64{aSpan, bSpan},
+			}),
+		))
+	})
+
+	return nil
+}
+
+/*
 Submit dispatches a task to the goroutine pool for immediate execution.
 This is the fast path for CPU-bound work that should not queue.
 */
@@ -141,34 +182,25 @@ func (queue *Queue) SubmitTracked(task func()) {
 SetBackend wires the compute backend into the queue so Execute
 can defer compilation to the moment a substrate is picked.
 */
-func (queue *Queue) SetBackend(backend Executor) {
+func (queue *Queue) SetBackend(backend programmer.Executor) {
 	queue.backend = backend
 }
 
 /*
-Execute submits an uncompiled program to the pool. The backend
-picks the best hardware substrate, compiles for that target, and
-executes — all inside a pooled goroutine.
+CompileAndExecute forwards program to the wired backend. Used when the
+caller supplies a Compiler directly instead of Queue.Publish’s fixed
+Similarity shortcut.
 */
-func (queue *Queue) Execute(program any) {
-	if queue == nil || queue.backend == nil {
-		return
+func (queue *Queue) CompileAndExecute(program *programmer.Compiler) error {
+	if queue == nil {
+		return errors.New("queue: nil")
 	}
 
-	queue.inflight.Add(1)
+	if queue.backend == nil {
+		return errors.New("queue: no backend")
+	}
 
-	backend := queue.backend
-	queue.pool.Submit(func() {
-		defer func() {
-			if queue.inflight.Add(-1) == 0 {
-				queue.drainMu.Lock()
-				queue.drainWait.Broadcast()
-				queue.drainMu.Unlock()
-			}
-		}()
-
-		backend.CompileAndExecute(program)
-	})
+	return queue.backend.CompileAndExecute(program)
 }
 
 /*
@@ -189,20 +221,6 @@ func (queue *Queue) Drain() {
 	}
 
 	queue.drainMu.Unlock()
-}
-
-/*
-ExecuteSync compiles and executes a program in the calling goroutine,
-blocking until completion. Use this when the caller needs to read
-results from the Value immediately after execution — typically inside
-a Submit callback that is already running on a pooled goroutine.
-*/
-func (queue *Queue) ExecuteSync(program any) error {
-	if queue == nil || queue.backend == nil {
-		return nil
-	}
-
-	return queue.backend.CompileAndExecute(program)
 }
 
 /*

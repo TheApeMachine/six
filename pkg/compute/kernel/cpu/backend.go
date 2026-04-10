@@ -36,16 +36,17 @@ func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
 /*
-Execute reads the opcode from each Value's program region (word 8)
+Execute reads the opcode from each Value's program region (word 16)
 and dispatches to the appropriate kernel:
 
   - 0x0–0xE and 0xF with idle profile: truth table ALU via
     universalBitwiseV2. The programmer pre-compiles B rotations into
     reserved (words 32-95).
   - 0x6 with batch marker at word 124: fused XOR+popcount+sum for
-    Hamming distance. Query in tokens (words 0-7), candidates packed
-    contiguously starting at word 32, count at word 124, uint32
-    results written to signals (words 24-31).
+    Hamming distance. Query in the head of the token region, candidates
+    packed contiguously starting at NearestAffinityCandidatesStartWord
+    (56), count at word 124, uint32 results written to signals (words
+    24-31).
   - 0xF with word 124>0 and word 125>0: CSA positional popcount on
     word-striped vectors starting at word 32; counts pointer at words
     126–127. Opcode 0xF with idle profile counters uses the truth table
@@ -84,14 +85,13 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 /*
 executeBatchDistance runs the fused XOR+popcount+sum SIMD kernel
-for Hamming distance. The programmer packed query into words 0-7,
-candidates contiguously at word 32, count into word 124. Results
-are uint32 distances written to signals (words 24+).
+for Hamming distance. The programmer packed the query vector into the
+frame head, candidates contiguously from NearestAffinityCandidatesStartWord,
+count into word 124. Results are uint32 distances starting at
+SignalsStartWord.
 
-After the SIMD pass, an in-band argmin reduction writes:
-
-	word 22: best candidate index
-	word 23: best Hamming distance
+After the SIMD pass, an in-band argmin reduction writes the last two
+words of the signals region (SignalsStartWord+6, +7).
 
 so the caller never touches raw distance arrays.
 */
@@ -108,7 +108,7 @@ func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
 
 	batchAffinityDistances(
 		&v[0],
-		&v[32],
+		&v[kernel.NearestAffinityCandidatesStartWord],
 		count,
 		&distances[0],
 	)
@@ -125,8 +125,8 @@ func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
 		}
 	}
 
-	v[22] = bestIdx
-	v[23] = bestDist
+	v[kernel.SignalsStartWord+6] = bestIdx
+	v[kernel.SignalsStartWord+7] = bestDist
 }
 
 /*

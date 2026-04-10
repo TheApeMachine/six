@@ -8,6 +8,83 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+/*
+expectedMortonPackedCodes mirrors newValuesFromPayload: same multi-segment
+rules; concatenates all codes from every slab in order.
+*/
+func expectedMortonPackedCodes(
+	p []byte,
+	geometry *geometry,
+) []uint16 {
+	tokenBytes := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+	if tokenBytes < 2 {
+		return nil
+	}
+
+	if geometry == nil {
+		geometry = newBalancedGeometry(tokenBytes/2, 2)
+	}
+
+	idx := 0
+
+	var out []uint16
+
+	for idx < len(p) {
+		offset := 0
+		positionOrdinal := uint32(0)
+		occupied := make(map[uint16]struct{}, min(len(p)-idx, tokenBytes/2))
+
+		for idx < len(p) {
+			datum := p[idx]
+			code := geometry.SlotCode(datum, positionOrdinal)
+			positionOrdinal++
+
+			if _, seen := occupied[code]; seen {
+				idx++
+
+				continue
+			}
+
+			if offset+2 > tokenBytes {
+				break
+			}
+
+			occupied[code] = struct{}{}
+			out = append(out, code)
+			offset += 2
+
+			idx++
+		}
+
+		if offset == 0 {
+			return nil
+		}
+	}
+
+	return out
+}
+
+func expectedRawSlotCodes(
+	p []byte,
+	geometry *geometry,
+) []uint16 {
+	tokenBytes := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+
+	if geometry == nil {
+		geometry = newBalancedGeometry(tokenBytes/2, 2)
+	}
+
+	positionOrdinal := uint32(0)
+	out := make([]uint16, len(p))
+
+	for idx, datum := range p {
+		out[idx] = geometry.SlotCode(datum, positionOrdinal)
+		positionOrdinal++
+	}
+
+	return out
+}
+
 func setupPrimitiveValueTest(tb testing.TB) {
 	tb.Helper()
 
@@ -20,39 +97,36 @@ func setupPrimitiveValueTest(tb testing.TB) {
 	core.Cfg.Value.Bytes = 1024
 
 	core.Cfg.Value.Region.Tokens.Start = 0
-	core.Cfg.Value.Region.Tokens.Bits = 512
-	core.Cfg.Value.Region.Program.Start = 8
-	core.Cfg.Value.Region.Signals.Start = 16
-	core.Cfg.Value.Region.Context.Start = 24
-	core.Cfg.Value.Region.Gradient.Start = 32
-	core.Cfg.Value.Region.Meta.Start = 40
+	core.Cfg.Value.Region.Tokens.Bits = 1024
+	core.Cfg.Value.Region.Program.Start = 16
+	core.Cfg.Value.Region.Signals.Start = 24
+	core.Cfg.Value.Region.Context.Start = 32
+	core.Cfg.Value.Region.Gradient.Start = 40
+	core.Cfg.Value.Region.Meta.Start = 48
 	core.Cfg.Value.Region.ID.Start = 122
 	core.Cfg.Value.Region.Affinity.Start = 123
 	core.Cfg.Value.Region.Affinity.Bits = 257
 }
 
 /*
-newValueFromZeroFrame builds a Value from an all-zero payload of length
-Value.Bytes — for tests that overwrite token words after construction.
+newValueFromZeroFrame returns a stamped empty *Value for tests that overwrite
+token words after construction (avoids minting thousands of chained Values).
 */
 func newValueFromZeroFrame(tb testing.TB) *Value {
 	tb.Helper()
 
-	payload := make([]byte, core.Cfg.Value.Bytes)
-	value, err := NewValue(payload)
+	raw := valuePool.Get()
+	value := raw.(*Value)
+	*value = Value{}
 
-	if err != nil {
-		tb.Fatal(err)
-	}
-
-	return value
+	return value.stampID()
 }
 
 func TestWritePreservesFrameIdentity(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("Given a full wire frame, Write preserves ID and layout", t, func() {
-		first, err := NewValue([]byte("hello-world"))
+		first, err := FirstSegment(NewValue([]byte("hello-world")))
 
 		So(err, ShouldBeNil)
 		So(first, ShouldNotBeNil)
@@ -82,7 +156,7 @@ func TestValueFromWireFrame(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("Given a wire frame from Read", t, func() {
-		first, err := NewValue([]byte("hello-wire-frame"))
+		first, err := FirstSegment(NewValue([]byte("hello-wire-frame")))
 		So(err, ShouldBeNil)
 		defer first.Close()
 
@@ -111,8 +185,8 @@ func TestNewValue(t *testing.T) {
 	Convey("Given raw source bytes", t, func() {
 		source := []byte("roy is in the kitchen")
 
-		Convey("NewValue should load them into the literal token head", func() {
-			value, err := NewValue(source)
+		Convey("NewValue should Morton-pack payload into the token region", func() {
+			value, err := FirstSegment(NewValue(source))
 			So(err, ShouldBeNil)
 			So(value, ShouldNotBeNil)
 			defer value.Close()
@@ -123,12 +197,12 @@ func TestNewValue(t *testing.T) {
 			n, readErr := value.Read(buf)
 			So(readErr, ShouldEqual, io.EOF)
 			So(n, ShouldEqual, core.Cfg.Value.Bytes)
-			So(buf[:len(source)], ShouldResemble, source)
+			So(value.String(), ShouldEqual, string(source))
 		})
 
 		Convey("String should trim trailing NUL padding in the token slab", func() {
 			short := []byte("cat")
-			value, err := NewValue(short)
+			value, err := FirstSegment(NewValue(short))
 			So(err, ShouldBeNil)
 			defer value.Close()
 
@@ -136,14 +210,114 @@ func TestNewValue(t *testing.T) {
 			So(value.String(), ShouldEqual, "cat")
 		})
 
-		Convey("TokenRegionBytes should match String as UTF-8 payload", func() {
+		Convey("TokenRegionBytes should contain Morton-coded data", func() {
 			short := []byte("cat")
-			value, err := NewValue(short)
+			value, err := FirstSegment(NewValue(short))
 			So(err, ShouldBeNil)
 			defer value.Close()
 
-			So(string(value.TokenRegionBytes()), ShouldEqual, value.String())
+			So(len(value.TokenRegionBytes()), ShouldEqual, len(short)*2)
+			So(value.String(), ShouldEqual, "cat")
 		})
+	})
+}
+
+func TestNewValueSkipsCollidingMortonSlots(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Given a small internal lattice that reuses position codes", t, func() {
+		payload := []byte("abcda")
+		geometry := newGeometry(2, 2)
+
+		values, err := newValuesFromPayload(payload, geometry)
+
+		So(err, ShouldBeNil)
+		So(len(values), ShouldEqual, 1)
+
+		value := values[0]
+
+		defer CloseAll(values)
+
+		rawCodes := expectedRawSlotCodes(payload, geometry)
+
+		So(len(rawCodes), ShouldEqual, len(payload))
+		So(rawCodes[4], ShouldEqual, rawCodes[0])
+
+		codes := expectedMortonPackedCodes(payload, geometry)
+
+		So(len(codes), ShouldEqual, 4)
+		So(len(value.TokenRegionBytes()), ShouldEqual, len(codes)*2)
+
+		distinct := make(map[uint16]struct{}, len(codes))
+
+		for _, code := range codes {
+			distinct[code] = struct{}{}
+		}
+
+		So(len(distinct), ShouldEqual, len(codes))
+		So(value.String(), ShouldEqual, "abcd")
+	})
+}
+
+const (
+	sentenceMat32 = "The cat sat on the mat with hats"
+	sentenceRug32 = "The cat sat on the rug with hats"
+)
+
+func TestNewValueDistinctInputsProduceDistinctTokenLayouts(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Given two equal-length payloads differing in content", t, func() {
+		mat := []byte(sentenceMat32)
+		rug := []byte(sentenceRug32)
+
+		So(len(mat), ShouldEqual, 32)
+		So(len(rug), ShouldEqual, 32)
+
+		vMat, errMat := FirstSegment(NewValue(mat))
+		So(errMat, ShouldBeNil)
+		So(vMat, ShouldNotBeNil)
+
+		defer vMat.Close()
+
+		vRug, errRug := FirstSegment(NewValue(rug))
+		So(errRug, ShouldBeNil)
+		So(vRug, ShouldNotBeNil)
+
+		defer vRug.Close()
+
+		So(vMat.String(), ShouldEqual, sentenceMat32)
+		So(vRug.String(), ShouldEqual, sentenceRug32)
+
+		So(len(vMat.TokenRegionBytes()), ShouldEqual, 64)
+		So(len(vRug.TokenRegionBytes()), ShouldEqual, 64)
+
+		So(vMat.TokenRegionBytes(), ShouldNotResemble, vRug.TokenRegionBytes())
+	})
+}
+
+func TestPackUsesInternalGeometry(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Given an explicit small lattice", t, func() {
+		geometry := newGeometry(2, 2)
+		payload := []byte("abcda")
+
+		values, err := newValuesFromPayload(payload, geometry)
+
+		So(err, ShouldBeNil)
+		So(len(values), ShouldEqual, 1)
+
+		defer CloseAll(values)
+
+		rawCodes := expectedRawSlotCodes(payload, geometry)
+		codes := expectedMortonPackedCodes(payload, geometry)
+		value := values[0]
+
+		So(rawCodes[4], ShouldEqual, rawCodes[0])
+		So(len(codes), ShouldEqual, 4)
+		So(len(value.TokenRegionBytes()), ShouldEqual, len(codes)*2)
+		So(value.String(), ShouldEqual, "abcd")
 	})
 }
 
@@ -152,8 +326,9 @@ func TestRead(t *testing.T) {
 
 	Convey("Given a populated Value", t, func() {
 		source := []byte("roy is in the kitchen")
-		value, err := NewValue(source)
+		value, err := FirstSegment(NewValue(source))
 		So(err, ShouldBeNil)
+
 		defer value.Close()
 
 		Convey("Read should serialize the full frame without copying semantics into higher layers", func() {
@@ -162,7 +337,7 @@ func TestRead(t *testing.T) {
 
 			So(err, ShouldEqual, io.EOF)
 			So(n, ShouldEqual, core.Cfg.Value.Bytes)
-			So(buffer[:len(source)], ShouldResemble, source)
+			So(value.String(), ShouldEqual, string(source))
 		})
 	})
 }
@@ -172,7 +347,7 @@ func TestWrite(t *testing.T) {
 
 	Convey("Given a serialized Value frame", t, func() {
 		source := []byte("roy is in the kitchen")
-		src, err := NewValue(source)
+		src, err := FirstSegment(NewValue(source))
 		So(err, ShouldBeNil)
 		defer src.Close()
 
@@ -186,7 +361,7 @@ func TestClose(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("Given a populated Value", t, func() {
-		value, err := NewValue([]byte("roy is in the kitchen"))
+		value, err := FirstSegment(NewValue([]byte("roy is in the kitchen")))
 		So(err, ShouldBeNil)
 		So(value, ShouldNotBeNil)
 
@@ -199,14 +374,50 @@ func TestClose(t *testing.T) {
 	})
 }
 
+func TestNewValueChainsMultipleSegments(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("When the Morton slab fills, NewValue mints linked segments", t, func() {
+		savedBits := core.Cfg.Value.Region.Tokens.Bits
+
+		defer func() {
+			core.Cfg.Value.Region.Tokens.Bits = savedBits
+		}()
+
+		core.Cfg.Value.Region.Tokens.Bits = 32
+
+		payload := []byte("abcdef")
+		vs, err := NewValue(payload)
+
+		So(err, ShouldBeNil)
+		So(len(vs), ShouldBeGreaterThan, 1)
+
+		defer CloseAll(vs)
+
+		nextW := core.Cfg.Value.Region.Next.Start
+		prevW := core.Cfg.Value.Region.Prev.Start
+
+		for seg := 1; seg < len(vs); seg++ {
+			prev := vs[seg-1]
+			cur := vs[seg]
+
+			So((*prev)[nextW], ShouldEqual, cur.ID())
+			So((*cur)[prevW], ShouldEqual, prev.ID())
+		}
+
+		So((*vs[len(vs)-1])[nextW], ShouldEqual, uint64(0))
+		So((*vs[0])[prevW], ShouldEqual, uint64(0))
+	})
+}
+
 func TestNewValueEmptyPayload(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("NewValue rejects an empty payload", t, func() {
-		value, err := NewValue(nil)
+		values, err := NewValue(nil)
 
 		So(err, ShouldEqual, io.ErrShortBuffer)
-		So(value, ShouldBeNil)
+		So(values, ShouldBeNil)
 	})
 }
 
@@ -225,7 +436,7 @@ func TestValueReadShortBuffer(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("Read requires the full configured byte width", t, func() {
-		value, err := NewValue([]byte("short-read-test"))
+		value, err := FirstSegment(NewValue([]byte("short-read-test")))
 
 		So(err, ShouldBeNil)
 
@@ -243,7 +454,7 @@ func TestValueWriteShortBuffer(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("Write rejects undersized frames", t, func() {
-		value, err := NewValue([]byte("write-short"))
+		value, err := FirstSegment(NewValue([]byte("write-short")))
 
 		So(err, ShouldBeNil)
 
@@ -296,7 +507,7 @@ func TestValueID(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("ID reads the configured region start", t, func() {
-		value, err := NewValue([]byte("id-path"))
+		value, err := FirstSegment(NewValue([]byte("id-path")))
 
 		So(err, ShouldBeNil)
 
@@ -439,7 +650,7 @@ func TestValueBytes(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
 	Convey("Bytes spans the full configured wire size", t, func() {
-		value, err := NewValue([]byte("bytes-len"))
+		value, err := FirstSegment(NewValue([]byte("bytes-len")))
 
 		So(err, ShouldBeNil)
 
@@ -466,7 +677,7 @@ func BenchmarkValue_Set(b *testing.B) {
 func BenchmarkValue_AffinityVector(b *testing.B) {
 	setupPrimitiveValueTest(b)
 
-	value, err := NewValue([]byte("bench-aff-vector"))
+	value, err := FirstSegment(NewValue([]byte("bench-aff-vector")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -484,7 +695,7 @@ func BenchmarkValue_AffinityVector(b *testing.B) {
 func BenchmarkValue_BindContext(b *testing.B) {
 	setupPrimitiveValueTest(b)
 
-	value, err := NewValue([]byte("bench-bind"))
+	value, err := FirstSegment(NewValue([]byte("bench-bind")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -518,16 +729,14 @@ func BenchmarkValue_NewValue(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		if err := v.Close(); err != nil {
-			b.Fatal(err)
-		}
+		CloseAll(v)
 	}
 }
 
 func BenchmarkValue_String(b *testing.B) {
 	setupPrimitiveValueTest(b)
 
-	value, err := NewValue([]byte("string token repr benchmark"))
+	value, err := FirstSegment(NewValue([]byte("string token repr benchmark")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -549,7 +758,7 @@ func BenchmarkValue_String(b *testing.B) {
 func BenchmarkValue_Read(b *testing.B) {
 	setupPrimitiveValueTest(b)
 
-	value, err := NewValue([]byte("roy is in the kitchen"))
+	value, err := FirstSegment(NewValue([]byte("roy is in the kitchen")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -573,11 +782,7 @@ func BenchmarkValue_Read(b *testing.B) {
 func BenchmarkValue_Write(b *testing.B) {
 	setupPrimitiveValueTest(b)
 
-	value, err := NewValue(make([]byte, core.Cfg.Value.Bytes))
-
-	if err != nil {
-		b.Fatal(err)
-	}
+	value := newValueFromZeroFrame(b)
 
 	defer value.Close()
 
@@ -600,7 +805,7 @@ func BenchmarkValue_Write(b *testing.B) {
 func BenchmarkValueFromWireFrame(b *testing.B) {
 	setupPrimitiveValueTest(b)
 
-	source, err := NewValue([]byte("benchmark wire decode"))
+	source, err := FirstSegment(NewValue([]byte("benchmark wire decode")))
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -265,7 +265,7 @@ func TestFieldProjectWithAbsorbedMesh(t *testing.T) {
 		for idx := range 2 {
 			payload := fmt.Appendf(nil, "mesh-%d", idx)
 
-			value, vErr := primitive.NewValue(payload)
+			value, vErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 			So(vErr, ShouldBeNil)
 
@@ -366,7 +366,7 @@ func BenchmarkFieldProjectMesh(b *testing.B) {
 	for idx := range 2 {
 		payload := fmt.Appendf(nil, "mesh-b-%d", idx)
 
-		value, err := primitive.NewValue(payload)
+		value, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 		if err != nil {
 			b.Fatal(err)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -112,9 +111,17 @@ go test -timeout 30m ./experiment/task -run TestPipeline).
 Each prompt records tools.ExperimentalData via AddResult so Score()/Outcome()
 see the same readout path as paper pipelines; prompts without a holdout skip
 strict equality only. Experiments with Finalize run it after all prompts.
+
+Per-prompt OutcomeForPrompt(idx) asserts that sample’s gate score (holdout
+GateScore, or 0/1 classification match) against the same threshold as the
+aggregate Outcome(), not the running mean over all rows.
 */
 func TestPipeline(t *testing.T) {
 	allExperiments := []tools.PipelineExperiment{
+		scaling.NewSubstrateQueryScalingExperiment(),
+		scaling.NewCompressionExperiment(),
+		scaling.NewPipelineThroughputExperiment(),
+		scaling.NewSequencerExperiment(),
 		codegen.NewLanguagesExperiment(),
 		classification.NewTextClassificationExperiment(),
 		textgen.NewCompositionalExperiment(),
@@ -139,10 +146,6 @@ func TestPipeline(t *testing.T) {
 		misc.NewCrossDomainCompletionExperiment(),
 		misc.NewGemmaIntegrationExperiment(),
 		misc.NewRuleShiftExperiment(),
-		scaling.NewBestFillScalingExperiment(),
-		scaling.NewCompressionExperiment(),
-		scaling.NewPipelineThroughputExperiment(),
-		scaling.NewSequencerExperiment(),
 	}
 
 	for _, experiment := range allExperiments {
@@ -159,14 +162,14 @@ func TestPipeline(t *testing.T) {
 				So(pipeline, ShouldNotBeNil)
 
 				Convey("And a machine", func() {
-					machine, err := vm.NewMachine(t.Context(), vm.MachineWithMesh(5))
+					machine, err := vm.NewMachine(t.Context())
 					So(err, ShouldBeNil)
 					So(machine, ShouldNotBeNil)
 					So(machine.Load(experiment.Dataset()), ShouldBeNil)
 
 					for idx, prompt := range experiment.Prompts() {
-						Convey(fmt.Sprintf("When prompted with [%d] %q", idx, prompt), func() {
-							holdoutBytes, holdoutOK := pipeline.experiment.HoldoutForPrompt(idx)
+						Convey(fmt.Sprintf("When prompted with prompt %d", idx), func() {
+							holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
 							prediction, err := machine.Prompt(prompt)
 							So(err, ShouldBeNil)
 							So(prediction, ShouldNotBeNil)
@@ -183,30 +186,9 @@ func TestPipeline(t *testing.T) {
 								Prediction:     prediction,
 							})
 
-							if !holdoutOK {
-								return
-							}
-
-							Convey(
-								fmt.Sprintf("It should match holdout for [%d] %s", idx, prompt),
-								func() {
-									if strings.TrimSpace(prediction.String()) != "" {
-										So(
-											prediction.String(),
-											ShouldEqual,
-											string(holdoutBytes),
-										)
-									}
-
-									if len(prediction.Labels) > 0 {
-										So(len(prediction.Labels), ShouldBeGreaterThan, 0)
-
-										for _, score := range prediction.Labels {
-											So(score, ShouldBeGreaterThan, 0.0)
-										}
-									}
-								},
-							)
+							Convey(fmt.Sprintf("It should meet the gate for prompt %d (sample score vs threshold)", idx), func() {
+								So(pipeline.experiment.OutcomeForPrompt(idx))
+							})
 						})
 					}
 

@@ -2,6 +2,7 @@
 package primitive
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -9,8 +10,6 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 )
-
-const valueScratchCap = 1024
 
 var (
 	valueTo   func(*Value, []byte)
@@ -100,30 +99,167 @@ layout, ComputeAffinityLSH fills affinity from the token region, and stampID
 assigns a new ID. The result is ready for backend execution, Publish, and
 trie storage.
 
+Morton slots are filled in input order until the token slab cannot hold
+another 16-bit code. The slab byte length comes from value.region.tokens.bits
+(default 1024 bits → 128 B, i.e. up to sixty-four 16-bit codes). Each slot
+pairs the payload byte with a geometry-derived Morton position code. When no
+geometry is provided, NewValue uses a balanced default lattice sized to the
+segment capacity.
+
+If the next code already appears in the slab (same uint16 key), that symbol
+is skipped and scanning continues so later symbols can still occupy free
+space. First stored occurrence wins; unused trailing bytes usually mean
+the stream ended before the slab filled.
+
 To load an exact wire frame without re-stamping (same ID and affinity bits
 as Read produced), use Write on a pooled *Value — never a second NewValue on
 that frame.
 
-The returned pointer is owned by the caller until Close returns it to
-valuePool.
+The returned slice is never empty on success. Each element is owned by the
+caller until CloseAll or Close returns them to valuePool. Segments are linked:
+word Prev on segment i+1 holds segment i's ID; word Next on segment i holds
+segment i+1's ID (config value.region.prev / next). There is no truncation:
+when the Morton slab fills, packing continues in a fresh segment.
+
+CloseAll closes every non-nil pointer in the slice.
 */
-func NewValue(p []byte) (*Value, error) {
-	if len(p) == 0 {
-		return nil, io.ErrShortBuffer
+func NewValue(p []byte) ([]*Value, error) {
+	return newValuesFromPayload(p, nil)
+}
+
+/*
+CloseAll returns every pooled Value in the slice to valuePool. Nil entries are
+skipped.
+*/
+func CloseAll(values []*Value) {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		_ = value.Close()
 	}
+}
 
-	raw := valuePool.Get()
-	value := raw.(*Value)
-	valueFrom(p, value)
-
-	if err := value.ComputeAffinityLSH(); err != nil {
-		*value = Value{}
-		valuePool.Put(value)
+/*
+FirstSegment returns values[0] when NewValue produced exactly one segment. If
+err is non-nil, or there are zero segments, or more than one segment, it closes
+any minted Values and returns a non-nil error. Use this only when the payload
+is known short enough not to chain; otherwise keep the full []*Value slice.
+*/
+func FirstSegment(values []*Value, err error) (*Value, error) {
+	if err != nil {
+		CloseAll(values)
 
 		return nil, err
 	}
 
-	return value.stampID(), nil
+	if len(values) == 0 {
+		return nil, io.ErrShortBuffer
+	}
+
+	if len(values) != 1 {
+		CloseAll(values)
+
+		return nil, fmt.Errorf("primitive.FirstSegment: expected one Value, got %d", len(values))
+	}
+
+	return values[0], nil
+}
+
+func newValuesFromPayload(
+	p []byte,
+	geometry *geometry,
+) ([]*Value, error) {
+	if len(p) == 0 {
+		return nil, io.ErrShortBuffer
+	}
+
+	tokenBytes := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+
+	if tokenBytes < 2 {
+		return nil, io.ErrShortBuffer
+	}
+
+	if geometry == nil {
+		geometry = newBalancedGeometry(tokenBytes/2, 2)
+	}
+
+	prevWord := core.Cfg.Value.Region.Prev.Start
+	nextWord := core.Cfg.Value.Region.Next.Start
+
+	idx := 0
+
+	var out []*Value
+
+	for idx < len(p) {
+		buf := make([]byte, tokenBytes)
+		offset := 0
+		positionOrdinal := uint32(0)
+		occupied := make(map[uint16]struct{}, min(len(p)-idx, tokenBytes/2))
+
+		for idx < len(p) {
+			datum := p[idx]
+			code := geometry.SlotCode(datum, positionOrdinal)
+			positionOrdinal++
+
+			if _, seen := occupied[code]; seen {
+				idx++
+
+				continue
+			}
+
+			if offset+2 > tokenBytes {
+				break
+			}
+
+			occupied[code] = struct{}{}
+
+			buf[offset] = byte(code)
+			buf[offset+1] = byte(code >> 8)
+			offset += 2
+
+			idx++
+		}
+
+		if offset == 0 {
+			for _, v := range out {
+				*v = Value{}
+				valuePool.Put(v)
+			}
+
+			return nil, io.ErrShortBuffer
+		}
+
+		raw := valuePool.Get()
+		value := raw.(*Value)
+		valueFrom(buf, value)
+
+		if err := value.ComputeAffinityLSH(); err != nil {
+			*value = Value{}
+			valuePool.Put(value)
+
+			for _, v := range out {
+				*v = Value{}
+				valuePool.Put(v)
+			}
+
+			return nil, err
+		}
+
+		stamped := value.stampID()
+		out = append(out, stamped)
+
+		if len(out) >= 2 {
+			prev := out[len(out)-2]
+			next := out[len(out)-1]
+
+			prev.Set(nextWord, next.ID())
+			next.Set(prevWord, prev.ID())
+		}
+	}
+
+	return out, nil
 }
 
 /*
@@ -491,10 +627,9 @@ func (value *Value) IncrementMeta(offset int) {
 }
 
 /*
-TokenRegionBytes returns the token slab bytes with trailing NUL padding trimmed.
-It matches what String exposes as UTF-8 data without allocating an intermediate
-string — safe only for immediate hashing or read-only use; do not retain the
-slice across mutations to the Value words.
+TokenRegionBytes returns the token slab bytes with trailing complete codes
+trimmed. The token region stores 16-bit Morton keys little-endian, so
+trimming operates on 2-byte boundaries.
 */
 func (value *Value) TokenRegionBytes() []byte {
 	if value == nil {
@@ -511,20 +646,48 @@ func (value *Value) TokenRegionBytes() []byte {
 
 	trim := len(slab)
 
-	for trim > 0 && slab[trim-1] == 0 {
-		trim--
+	for trim >= 2 {
+		allZero := true
+
+		for idx := trim - 2; idx < trim; idx++ {
+			if slab[idx] != 0 {
+				allZero = false
+				break
+			}
+		}
+
+		if !allZero {
+			break
+		}
+
+		trim -= 2
 	}
 
 	return slab[:trim]
 }
 
 /*
-String returns the string representation of the
-Value's token region, which stores the original
-bytes of the data that was used to create the Value.
+String decodes the Morton-coded token region back to the original
+byte sequence for human-readable output. All algorithmic paths should
+operate on the raw Morton-coded TokenRegionBytes directly.
 */
 func (value *Value) String() string {
-	return string(value.TokenRegionBytes())
+	slab := value.TokenRegionBytes()
+
+	if len(slab) == 0 {
+		return ""
+	}
+
+	out := make([]byte, 0, len(slab)/2)
+
+	for idx := 0; idx+2 <= len(slab); idx += 2 {
+		code := uint16(slab[idx]) | uint16(slab[idx+1])<<8
+		byteVal, _ := DecodeInterleaved8x8(code)
+
+		out = append(out, byte(byteVal))
+	}
+
+	return string(out)
 }
 
 /*

@@ -37,10 +37,10 @@ func (record SequenceRecord) Hash() uint64 {
 
 	_, _ = hasher.Write(sep[:])
 
-	tok := record.Value.TokenRegionBytes()
+	tok := record.Value.String()
 
 	if len(tok) > 0 {
-		_, _ = hasher.Write(tok)
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(tok), len(tok)))
 	}
 
 	return hasher.Sum64()

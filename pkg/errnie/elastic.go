@@ -20,12 +20,42 @@ import (
 var (
 	esBulkIndexer esutil.BulkIndexer
 	esBulkMu      sync.Mutex
+
+	esErrLogMu      sync.Mutex
+	esErrLastEmit   time.Time
+	esErrSuppressed int64
 )
 
+// esErrEmitMinInterval avoids stderr floods when Elasticsearch is down; each
+// window prints at most one diagnostic plus a suppression count.
+const esErrEmitMinInterval = 15 * time.Second
+
 // defaultBulkFlushBytes is used when BulkFlushBytes is unset or non-positive.
-// A small or zero threshold makes esutil treat each log line as “oversize” and
-// flush per item; ~5MiB batches amortizes HTTP overhead under high volume.
-const defaultBulkFlushBytes = 1
+// Batching amortizes HTTP overhead; flushing per line (the previous default)
+// multiplies failure noise when the cluster is unreachable.
+const defaultBulkFlushBytes = 5 << 20
+
+func throttleElasticsearchStderr(format string, args ...any) {
+	esErrLogMu.Lock()
+	defer esErrLogMu.Unlock()
+
+	now := time.Now()
+	sinceLast := now.Sub(esErrLastEmit)
+	if sinceLast < esErrEmitMinInterval {
+		esErrSuppressed++
+		return
+	}
+
+	if esErrSuppressed > 0 {
+		fmt.Fprintf(os.Stderr,
+			"errnie: elasticsearch: suppressed %d error messages in %v (cluster unreachable? set logging.elasticsearch.enabled: false or ELASTICSEARCH_ENABLED=0)\n",
+			esErrSuppressed, sinceLast.Round(time.Second))
+		esErrSuppressed = 0
+	}
+
+	fmt.Fprintf(os.Stderr, format, args...)
+	esErrLastEmit = now
+}
 
 type esLogSink struct {
 	bi esutil.BulkIndexer
@@ -54,7 +84,8 @@ func (s *esLogSink) Write(p []byte) (int, error) {
 			if reason == "" && err != nil {
 				reason = err.Error()
 			}
-			fmt.Fprintf(os.Stderr, "errnie: elasticsearch index item failed status=%d type=%s reason=%q\n",
+			throttleElasticsearchStderr(
+				"errnie: elasticsearch index item failed status=%d type=%s reason=%q\n",
 				resp.Status, resp.Error.Type, reason)
 		},
 	})
@@ -210,7 +241,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 		FlushInterval: time.Duration(flushMS) * time.Millisecond,
 		Refresh:       refresh,
 		OnError: func(_ context.Context, err error) {
-			fmt.Fprintf(os.Stderr, "errnie: elasticsearch bulk error: %v\n", err)
+			throttleElasticsearchStderr("errnie: elasticsearch bulk error: %v\n", err)
 		},
 	})
 	if err != nil {

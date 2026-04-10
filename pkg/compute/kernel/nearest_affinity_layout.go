@@ -3,7 +3,8 @@ package kernel
 /*
 Nearest-affinity batch kernels (CPU NEON, CUDA, Metal) consume query
 words at the Value head and a contiguous table of candidate vectors
-starting at word 48. Word 124 holds the candidate count.
+starting at NearestAffinityCandidatesStartWord (after the meta block).
+Word 124 holds the candidate count.
 
 AffinityWordsPerCandidate is the SIMD-padded width: candidates are
 stored as 8 uint64s even though primitive.AffinityWords is 5 (257 bits).
@@ -15,9 +16,9 @@ kernel/cpu, which imports kernel, which would create an import cycle.
 Drift is guarded by package kernel_test (see affinity_words_external_test.go).
 */
 const (
-	ProgramStartWord                   = 8
-	SignalsStartWord                   = 16
-	NearestAffinityCandidatesStartWord = 48
+	ProgramStartWord                   = 16
+	SignalsStartWord                   = 24
+	NearestAffinityCandidatesStartWord = 56
 	NearestAffinityBatchWord           = 124
 	AffinityWordsPerCandidate          = 8
 )

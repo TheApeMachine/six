@@ -242,6 +242,10 @@ func (exp *ConstraintResolutionExperiment) Outcome() (any, Assertion, any) {
 	return exp.evaluator.Outcome(exp.Score())
 }
 
+func (exp *ConstraintResolutionExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(exp.evaluator, exp.tableData, idx)
+}
+
 func (exp *ConstraintResolutionExperiment) Score() float64 {
 	if len(exp.tableData) == 0 {
 		return 0.0

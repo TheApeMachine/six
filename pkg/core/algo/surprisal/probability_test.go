@@ -15,7 +15,7 @@ func TestProbabilityUpdate(t *testing.T) {
 		probability := NewProbability()
 		prediction := algo.NewPrediction()
 
-		v0, err := primitive.NewValue([]byte("only"))
+		v0, err := primitive.FirstSegment(primitive.NewValue([]byte("only")))
 
 		So(err, ShouldBeNil)
 
@@ -33,13 +33,13 @@ func TestProbabilityUpdate(t *testing.T) {
 		probability := NewProbability()
 		prediction := algo.NewPrediction()
 
-		history, err := primitive.NewValue([]byte("common rare"))
+		history, err := primitive.FirstSegment(primitive.NewValue([]byte("common rare")))
 
 		So(err, ShouldBeNil)
 
 		defer history.Close()
 
-		observed, err := primitive.NewValue([]byte("common"))
+		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("common")))
 
 		So(err, ShouldBeNil)
 
@@ -71,7 +71,7 @@ func TestProbabilityValue(t *testing.T) {
 func BenchmarkProbabilityUpdate(b *testing.B) {
 	probability := NewProbability()
 
-	history, err := primitive.NewValue([]byte("aaa bbb ccc ddd"))
+	history, err := primitive.FirstSegment(primitive.NewValue([]byte("aaa bbb ccc ddd")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -79,7 +79,7 @@ func BenchmarkProbabilityUpdate(b *testing.B) {
 
 	defer history.Close()
 
-	query, err := primitive.NewValue([]byte("aaa"))
+	query, err := primitive.FirstSegment(primitive.NewValue([]byte("aaa")))
 
 	if err != nil {
 		b.Fatal(err)

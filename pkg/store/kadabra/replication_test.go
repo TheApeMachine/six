@@ -4,12 +4,149 @@ import (
 	"context"
 	"hash/fnv"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
+
+func TestStoreMeshLoadCentroidCallsExpandHandler(t *testing.T) {
+	setupKadabraPrimitiveLayout(t)
+
+	Convey("Given a saturated mesh load centroid on primary Store", t, func() {
+		ctx := context.Background()
+
+		queue, qErr := pool.NewQueue(ctx)
+
+		So(qErr, ShouldBeNil)
+
+		defer func() {
+			_ = queue.Close()
+		}()
+
+		origLimit := core.Cfg.Kadabra.ShannonLimit
+
+		core.Cfg.Kadabra.ShannonLimit = 1
+
+		defer func() {
+			core.Cfg.Kadabra.ShannonLimit = origLimit
+		}()
+
+		node, nErr := NewNode(ctx, "kadabra-mesh-load-expand", queue)
+
+		So(nErr, ShouldBeNil)
+
+		var expandCalls int32
+
+		node.SetMeshExpandHandler(func(*primitive.Affinity) bool {
+			atomic.AddInt32(&expandCalls, 1)
+
+			return true
+		})
+
+		affLow := [primitive.AffinityWords]uint64{1, 0, 0, 0, 0}
+		affNext := [primitive.AffinityWords]uint64{2, 0, 0, 0, 0}
+
+		value1, vErr := primitive.FirstSegment(primitive.NewValue([]byte("mesh-load-r1")))
+
+		So(vErr, ShouldBeNil)
+
+		defer value1.Close()
+
+		record1 := SequenceRecord{
+			Value:     *value1,
+			Affinity:  affLow,
+			Label:     "mesh-load-1",
+			Publisher: node.ID,
+		}
+
+		record1.Key = record1.Hash()
+
+		So(node.Store(record1), ShouldBeNil)
+
+		value2, vErr2 := primitive.FirstSegment(primitive.NewValue([]byte("mesh-load-r2")))
+
+		So(vErr2, ShouldBeNil)
+
+		defer value2.Close()
+
+		record2 := SequenceRecord{
+			Value:     *value2,
+			Affinity:  affNext,
+			Label:     "mesh-load-2",
+			Publisher: node.ID,
+		}
+
+		record2.Key = record2.Hash()
+
+		So(node.Store(record2), ShouldBeNil)
+
+		queue.Drain()
+
+		So(atomic.LoadInt32(&expandCalls), ShouldEqual, 1)
+	})
+}
+
+func BenchmarkStorePrimaryMeshLoadCentroidBlend(b *testing.B) {
+	setupKadabraPrimitiveLayout(b)
+
+	ctx := context.Background()
+
+	queue, qErr := pool.NewQueue(ctx)
+
+	if qErr != nil {
+		b.Fatal(qErr)
+	}
+
+	defer func() {
+		_ = queue.Close()
+	}()
+
+	node, nErr := NewNode(ctx, "kadabra-mesh-load-bench", queue)
+
+	if nErr != nil {
+		b.Fatal(nErr)
+	}
+
+	aff := [primitive.AffinityWords]uint64{1, 0, 0, 0, 0}
+
+	var serial atomic.Uint64
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		tok := strconv.AppendUint([]byte("bm-"), serial.Add(1), 10)
+
+		value, vErr := primitive.FirstSegment(primitive.NewValue(tok))
+
+		if vErr != nil {
+			b.Fatal(vErr)
+		}
+
+		record := SequenceRecord{
+			Value:     *value,
+			Affinity:  aff,
+			Label:     "bench",
+			Publisher: node.ID,
+		}
+
+		record.Key = record.Hash()
+
+		if storeErr := node.Store(record); storeErr != nil {
+			value.Close()
+
+			b.Fatal(storeErr)
+		}
+
+		value.Close()
+	}
+
+	queue.Drain()
+}
 
 func TestStoreReplicasReachRoutingPeers(t *testing.T) {
 	Convey("Given two connected nodes sharing one queue", t, func() {
@@ -33,7 +170,7 @@ func TestStoreReplicasReachRoutingPeers(t *testing.T) {
 
 		Connect(left, right, 1.0)
 
-		value, vErr := primitive.NewValue([]byte("hello"))
+		value, vErr := primitive.FirstSegment(primitive.NewValue([]byte("hello")))
 
 		So(vErr, ShouldBeNil)
 
@@ -83,7 +220,7 @@ func TestStoreAdmissionIdempotency(t *testing.T) {
 
 		Connect(left, right, 1.0)
 
-		value, vErr := primitive.NewValue([]byte("idem-token-primary"))
+		value, vErr := primitive.FirstSegment(primitive.NewValue([]byte("idem-token-primary")))
 
 		So(vErr, ShouldBeNil)
 
@@ -127,7 +264,7 @@ func TestStoreAdmissionIdempotency(t *testing.T) {
 
 		Connect(left, right, 1.0)
 
-		value, vErr := primitive.NewValue([]byte("idem-token-replica"))
+		value, vErr := primitive.FirstSegment(primitive.NewValue([]byte("idem-token-replica")))
 
 		So(vErr, ShouldBeNil)
 
@@ -191,7 +328,7 @@ func BenchmarkStoreReplicationPath(b *testing.B) {
 	for n := range b.N {
 		payload := strconv.AppendInt(append([]byte("bench-token-"), 'x'), int64(n), 10)
 
-		value, err := primitive.NewValue(payload)
+		value, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 		if err != nil {
 			b.Fatal(err)
@@ -222,7 +359,7 @@ func BenchmarkStoreReplicationPath(b *testing.B) {
 
 func TestSequenceRecordHashMatchesStringForm(t *testing.T) {
 	Convey("Hash matches FNV over label, separator, and token String()", t, func() {
-		value, err := primitive.NewValue([]byte("hash-check"))
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("hash-check")))
 
 		So(err, ShouldBeNil)
 

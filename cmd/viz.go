@@ -123,13 +123,17 @@ func runDemo(ctx context.Context) {
 		entry := corpus[idx%len(corpus)]
 		node := nodes[idx%len(nodes)]
 
-		value, err := primitive.NewValue([]byte(entry.text))
+		values, err := primitive.NewValue([]byte(entry.text))
 		if err != nil {
 			idx++
 			continue
 		}
 
-		_ = node.Publish(value, entry.label)
+		for _, value := range values {
+			_ = node.Publish(value, entry.label)
+		}
+
+		primitive.CloseAll(values)
 
 		// Let gossip and field dynamics propagate.
 		for _, node := range nodes {

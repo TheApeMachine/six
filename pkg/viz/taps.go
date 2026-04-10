@@ -103,11 +103,17 @@ func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
 
 // --- MarkovTrie ---
 
-func TrieInsertEvent(nodeID uint64, sequence, label string) Event {
+func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
 	ev := NewEvent(EventTrieInsert, fmtNodeID(nodeID))
 	ev.Label = label
-	// Large enough for typical tokenizer/code rows in paper runs; JSON still small vs timeline cap.
+
+	if trieIdx >= 0 {
+		ev.Values["trie_idx"] = float64(trieIdx)
+	}
+
+	// Large enough for tokenizer/code rows in paper runs; JSON stays small vs timeline cap.
 	ev.Meta = map[string]string{"sequence": truncate(sequence, 512)}
+
 	return ev
 }
 
@@ -273,6 +279,86 @@ func PoolCompleteEvent(action string, durationMs int) Event {
 	return ev
 }
 
+/*
+CompilerCompileEvent records a deferred-layout compile before ALU dispatch.
+targetLabel is cpu|metal|cuda; operation is the Intent opcode constant.
+*/
+func CompilerCompileEvent(
+	targetLabel string,
+	operation uint64,
+	correlation uint64,
+	compileNanos int64,
+	batchAffinity bool,
+	finalizerDepth int,
+) Event {
+	ev := NewEvent(EventCompilerCompile, "compute")
+	ev.Label = targetLabel
+
+	batchVal := 0.0
+
+	if batchAffinity {
+		batchVal = 1.0
+	}
+
+	ev.Values = map[string]float64{
+		"operation":       float64(operation),
+		"compile_ns":      float64(compileNanos),
+		"batch_affinity":  batchVal,
+		"finalizer_depth": float64(finalizerDepth),
+	}
+
+	if correlation != 0 {
+		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
+	}
+
+	return ev
+}
+
+/*
+ALUDispatchEvent records substrate execution after the frame opcode is fixed.
+durationMs matches PoolComplete for the same dispatch when both fire.
+*/
+func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, durationMs int) Event {
+	ev := NewEvent(EventALUDispatch, "compute")
+	ev.Label = substrateName
+	ev.Values = map[string]float64{
+		"opcode":      float64(opcode),
+		"duration_ms": float64(durationMs),
+	}
+
+	if correlation != 0 {
+		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
+	}
+
+	return ev
+}
+
+/*
+FinalizerRunEvent fires after the compiler finalizer chain (post-execute).
+*/
+func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool) Event {
+	ev := NewEvent(EventFinalizerRun, "compute")
+	ev.Label = "finalize"
+
+	errVal := 0.0
+
+	if hadError {
+		errVal = 1.0
+	}
+
+	ev.Values = map[string]float64{
+		"depth":   float64(depth),
+		"emitted": float64(emitted),
+		"error":   errVal,
+	}
+
+	if correlation != 0 {
+		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
+	}
+
+	return ev
+}
+
 // --- Prompt ---
 
 func PromptEvent(prompt string) Event {
@@ -285,6 +371,70 @@ func PromptResultEvent(generation string, scores map[string]float64) Event {
 	ev := NewEvent(EventPromptResult, "system")
 	ev.Meta = map[string]string{"generation": truncate(generation, 256)}
 	ev.Values = scores
+	return ev
+}
+
+/*
+TrieGraphSnapshotEvent ships a JSON graph payload for one markovtrie.Store column.
+The browser lays out vertices and edges to match the live trie (possibly truncated).
+*/
+func TrieGraphSnapshotEvent(nodeID uint64, trieIdx int, graphJSON []byte) Event {
+	ev := NewEvent(EventTrieGraphSnapshot, fmtNodeID(nodeID))
+	ev.Values["trie_idx"] = float64(trieIdx)
+	ev.Meta["graph"] = string(graphJSON)
+
+	return ev
+}
+
+// --- Dataset / Tokenizer pipeline ---
+
+/*
+DatasetReadEvent fires when the dataset emits a chunk of raw bytes.
+bytesRead is the number of bytes in this chunk; totalBytes is the
+running total for this ingest session.
+*/
+func DatasetReadEvent(datasetName string, bytesRead, totalBytes int64, label string) Event {
+	ev := NewEvent(EventDatasetRead, "dataset")
+	ev.Label = label
+	ev.Values = map[string]float64{
+		"bytes_read":  float64(bytesRead),
+		"total_bytes": float64(totalBytes),
+	}
+	ev.Meta = map[string]string{"dataset": datasetName}
+	return ev
+}
+
+/*
+TokenizerChunkEvent fires when the tokenizer writes raw bytes into its
+ring buffer (ingest side).
+*/
+func TokenizerChunkEvent(bytesWritten int) Event {
+	ev := NewEvent(EventTokenizerChunk, "tokenizer")
+	ev.Values = map[string]float64{
+		"bytes_written": float64(bytesWritten),
+	}
+	return ev
+}
+
+/*
+TokenizerEmitEvent fires when the tokenizer mints a new Value from a
+drained chunk and publishes it downstream.
+*/
+func TokenizerEmitEvent(valueID uint64, label string) Event {
+	ev := NewEvent(EventTokenizerEmit, "tokenizer")
+	ev.Label = label
+	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	return ev
+}
+
+/*
+QueueSubmitEvent fires when the pool queue accepts a new work item.
+*/
+func QueueSubmitEvent(inflight int64) Event {
+	ev := NewEvent(EventQueueSubmit, "queue")
+	ev.Values = map[string]float64{
+		"inflight": float64(inflight),
+	}
 	return ev
 }
 

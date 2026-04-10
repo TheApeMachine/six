@@ -2,7 +2,6 @@ package compute
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -148,6 +147,12 @@ func NewBackend(
 	}); err != nil {
 		errnie.Error(err)
 		return nil
+	}
+
+	backend.queue = queue
+
+	if queue != nil {
+		queue.SetBackend(backend)
 	}
 
 	return backend
@@ -304,6 +309,40 @@ func (backend *Backend) ensureCorrelationIDs(frames []unsafe.Pointer) {
 	}
 }
 
+func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, correlation uint64) {
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		return kernel.FrameProgramOpcode(ptr), kernel.FrameCorrelationID(ptr)
+	}
+
+	return 0, 0
+}
+
+func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.Pointer, elapsed time.Duration) {
+	op, corr := firstFrameOpcodeAndCorrelation(frames)
+
+	viz.DefaultBus.Publish(viz.ALUDispatchEvent(
+		st.substrate.Name(),
+		op,
+		corr,
+		int(elapsed.Milliseconds()),
+	))
+}
+
+func substrateTargetLabel(target programmer.Target) string {
+	switch target {
+	case programmer.Metal:
+		return "metal"
+	case programmer.CUDA:
+		return "cuda"
+	default:
+		return "cpu"
+	}
+}
+
 /*
 Execute dispatches pre-compiled Value frames to the best available
 substrate. The programmer must have already compiled the intent into
@@ -338,6 +377,8 @@ func (backend *Backend) Execute(
 		int(elapsed.Milliseconds()),
 	))
 
+	backend.publishALUDispatch(st, frames, elapsed)
+
 	if err == nil {
 		backend.stampResidency(frames, st)
 	}
@@ -368,22 +409,31 @@ Compiler and hand it off — the backend decides which hardware to
 target at dispatch time.
 */
 func (backend *Backend) CompileAndExecute(
-	program any,
+	program *programmer.Compiler,
 ) error {
-	compiler, ok := program.(*programmer.Compiler)
-
-	if !ok {
-		return errnie.Error(fmt.Errorf("CompileAndExecute: expected *programmer.Compiler"))
-	}
-
-	framePtr := unsafe.Pointer(compiler.Frame())
+	framePtr := unsafe.Pointer(program.Frame())
 
 	backend.ensureCorrelationIDs([]unsafe.Pointer{framePtr})
 
 	st := backend.pick([]unsafe.Pointer{framePtr})
 
 	target := targetFor(st.substrate)
-	value := compiler.Compile(target)
+
+	compileStart := time.Now()
+	value := program.Compile(target)
+	compileNanos := time.Since(compileStart).Nanoseconds()
+
+	intent := program.Intent()
+	corr := kernel.FrameCorrelationID(unsafe.Pointer(value))
+
+	viz.DefaultBus.Publish(viz.CompilerCompileEvent(
+		substrateTargetLabel(target),
+		uint64(intent.Operation),
+		corr,
+		compileNanos,
+		program.UsesBatchAffinityLayout(),
+		program.FinalizerDepth(),
+	))
 
 	st.inflight.Add(1)
 
@@ -407,6 +457,8 @@ func (backend *Backend) CompileAndExecute(
 		st.substrate.Name(),
 		int(elapsed.Milliseconds()),
 	))
+
+	backend.publishALUDispatch(st, []unsafe.Pointer{unsafe.Pointer(value)}, elapsed)
 
 	if err == nil {
 		backend.stampResidency([]unsafe.Pointer{unsafe.Pointer(value)}, st)

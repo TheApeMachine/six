@@ -9,22 +9,22 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
+2 & prompt\_2 & 0.0000 & 0.1111 & 0.0526 & 0.0399 \\
 0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & prompt\_2 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (3 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Alice performs better than Bob on all lo\ldots}} & \multicolumn{2}{l}{\texttt{carol}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{Paris is the capital of France, confirme\ldots}} & \multicolumn{2}{l}{\texttt{paris}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{The weather is usually warm in summer. T\ldots}} & \multicolumn{2}{l}{\texttt{oak table}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{The weather is usually warm in summer. T\ldots}} & \multicolumn{2}{l}{\texttt{oak table}} & \multicolumn{2}{l}{\texttt{The The The The The}} \\
+\multicolumn{2}{l}{\texttt{Alice performs better than Bob on all lo\ldots}} & \multicolumn{2}{l}{\texttt{carol}} & \multicolumn{2}{l}{\texttt{is is is is is is is is is is is is is i\ldots}} \\
+\multicolumn{2}{l}{\texttt{Paris is the capital of France, confirme\ldots}} & \multicolumn{2}{l}{\texttt{paris}} & \multicolumn{2}{l}{\texttt{France, France, France, France, France,}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 3} & \multicolumn{3}{l}{Holdout: 3\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 3} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
+\multicolumn{3}{l}{Mean score: 0.0133} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0399} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

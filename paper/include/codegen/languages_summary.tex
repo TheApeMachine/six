@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-89 & Python & 0.0000 & 0.2800 & 0.2800 & 0.1273 \\
-113 & JavaScript & 0.0000 & 0.2600 & 0.2600 & 0.1182 \\
-391 & Go & 0.0000 & 0.2600 & 0.2600 & 0.1182 \\
+250 & Java & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
+74 & Python & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
+401 & C++ & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-146 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-110 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-295 & Java & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+168 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+169 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+170 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{·def encrypt(s):·    """Create a functio\ldots}} & \multicolumn{2}{l}{\texttt{else:·            out += c·    return ou\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
-\multicolumn{2}{l}{\texttt{/* Return a greatest common divisor of t\ldots}} & \multicolumn{2}{l}{\texttt{;·    a = b;·    b = temp \% b;·  \}·  ret\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
-\multicolumn{2}{l}{\texttt{/*The Fib4 number sequence is a sequence\ldots}} & \multicolumn{2}{l}{\texttt{results.shift();·  \}·  return results.po\ldots}} & \multicolumn{2}{l}{\texttt{sequence sequence sequence sequence sequ\ldots}} \\
-\multicolumn{2}{l}{\texttt{/* Test if gniven strig is a palindrome \ldots}} & \multicolumn{2}{l}{\texttt{nning\_of\_suffix).split('').reverse().joi\ldots}} & \multicolumn{2}{l}{\texttt{*/ */ */ */ */ */ */ */ */ */ */ */ */ *\ldots}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{);·        \}·        return sb.toString(\ldots}} & \multicolumn{2}{l}{\texttt{···· ···· ···· ···· ····}} \\
+\multicolumn{2}{l}{\texttt{·def total\_match(lst1, lst2):·    '''·  \ldots}} & \multicolumn{2}{l}{\texttt{return lst1·    else:·        return lst\ldots}} & \multicolumn{2}{l}{\texttt{· · · · ·}} \\
+\multicolumn{2}{l}{\texttt{/*·  "Given an array representing a bran\ldots}} & \multicolumn{2}{l}{\texttt{n(...evens), arr.indexOf(Math.min(...eve\ldots}} & \multicolumn{2}{l}{\texttt{Q·G·d·"·····1·2·····|·*·M·[·)·:····· Q·G\ldots}} \\
+\multicolumn{2}{l}{\texttt{/*·  You are given a non-empty list of p\ldots}} & \multicolumn{2}{l}{\texttt{if (frq[i] >= i)·      ans = i;·  return\ldots}} & \multicolumn{2}{l}{\texttt{··V·\%·"·Q···q·\#·M·N·(·*···\_·,·*·········\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0295} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1273} \\
+\multicolumn{3}{l}{Mean score: 0.0089} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0364} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

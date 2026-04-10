@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -12,7 +13,7 @@ func TestCompilerCompileMetalGPUProgramLayout(t *testing.T) {
 	t.Parallel()
 
 	Convey("Compile(Metal) writes opcode to the configured program region", t, func() {
-		raw, err := primitive.NewValue([]byte("metal-op"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("metal-op")))
 
 		So(err, ShouldBeNil)
 
@@ -28,7 +29,7 @@ func TestCompilerCompileMetalGPUProgramLayout(t *testing.T) {
 	})
 
 	Convey("Compile(Metal) leaves pass count at word 124 when one asset fits the rotation arena", t, func() {
-		raw, err := primitive.NewValue([]byte("passes"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("passes")))
 
 		So(err, ShouldBeNil)
 
@@ -45,7 +46,7 @@ func TestCompilerCompileMetalGPUProgramLayout(t *testing.T) {
 	})
 
 	Convey("Compile(Metal) uses pass count 1 when no assets are listed", t, func() {
-		raw, err := primitive.NewValue([]byte("empty-pass"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("empty-pass")))
 
 		So(err, ShouldBeNil)
 
@@ -59,7 +60,7 @@ func TestCompilerCompileMetalGPUProgramLayout(t *testing.T) {
 	})
 
 	Convey("Compile(Metal) with batch affinity skips rotation banks like CPU", t, func() {
-		raw, err := primitive.NewValue([]byte("m-affinity"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("m-affinity")))
 
 		So(err, ShouldBeNil)
 
@@ -77,12 +78,12 @@ func TestCompilerCompileMetalGPUProgramLayout(t *testing.T) {
 			CompilerWithBatchAffinityLayout(),
 		).Compile(Metal)
 
-		So(wordFromBytes(raw, 48), ShouldEqual, 0xc0de)
+		So(wordFromBytes(raw, kernel.NearestAffinityCandidatesStartWord), ShouldEqual, 0xc0de)
 	})
 }
 
 func BenchmarkCompilerCompileMetalGPUProgramLayout(b *testing.B) {
-	raw, err := primitive.NewValue([]byte("mbench"))
+	raw, err := primitive.FirstSegment(primitive.NewValue([]byte("mbench")))
 
 	if err != nil {
 		b.Fatal(err)

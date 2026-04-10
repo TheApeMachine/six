@@ -1,4 +1,16 @@
 services:
+  visualizer:
+    build:
+      context: ./visualizer
+    container_name: six-visualizer
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_VIZ_HOST=host.docker.internal
+      - VITE_VIZ_PORT=6600
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   lakefs:
     image: treeverse/lakefs:latest
     container_name: lakefs

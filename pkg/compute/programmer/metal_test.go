@@ -13,7 +13,7 @@ func TestCompilerMetalTransposedRotationBanks(t *testing.T) {
 	t.Parallel()
 
 	Convey("Compile(Metal) stores B rotations in SIMD-friendly transposed banks", t, func() {
-		raw, err := primitive.NewValue([]byte("transpose"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("transpose")))
 
 		So(err, ShouldBeNil)
 
@@ -51,7 +51,7 @@ func TestCompilerMetalTransposedRotationBanks(t *testing.T) {
 }
 
 func BenchmarkCompilerMetalExpandTransposedPath(b *testing.B) {
-	raw, err := primitive.NewValue([]byte("metal-rot"))
+	raw, err := primitive.FirstSegment(primitive.NewValue([]byte("metal-rot")))
 
 	if err != nil {
 		b.Fatal(err)

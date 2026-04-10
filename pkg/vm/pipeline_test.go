@@ -35,8 +35,8 @@ func TestPipeline(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		chunkWords := int(core.Cfg.Value.Region.Tokens.Bits / 8)
-		payload := bytes.Repeat([]byte{'p'}, chunkWords*5)
+		chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+		payload := bytes.Repeat([]byte{'p'}, chunkBytes*5)
 		source := bytes.NewReader(payload)
 
 		counter := &countingPublishable{}
@@ -66,9 +66,9 @@ func TestNestedPipelineBothStagesPublish(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		chunkWords := int(core.Cfg.Value.Region.Tokens.Bits / 8)
+		chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
 		frames := 4
-		payload := bytes.Repeat([]byte{'n'}, chunkWords*frames)
+		payload := bytes.Repeat([]byte{'n'}, chunkBytes*frames)
 		source := bytes.NewReader(payload)
 
 		innerPub := &countingPublishable{}
@@ -123,8 +123,8 @@ func BenchmarkPipeline_LoadFrom(b *testing.B) {
 
 	defer tokenizer.Close()
 
-	chunkWords := int(core.Cfg.Value.Region.Tokens.Bits / 8)
-	payload := bytes.Repeat([]byte{'q'}, chunkWords*32)
+	chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+	payload := bytes.Repeat([]byte{'q'}, chunkBytes*32)
 	counter := &countingPublishable{}
 
 	b.SetBytes(int64(len(payload)))
@@ -172,8 +172,8 @@ func BenchmarkNestedPipeline_LoadFrom(b *testing.B) {
 
 	defer tokenizer.Close()
 
-	chunkWords := int(core.Cfg.Value.Region.Tokens.Bits / 8)
-	payload := bytes.Repeat([]byte{'u'}, chunkWords*16)
+	chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+	payload := bytes.Repeat([]byte{'u'}, chunkBytes*16)
 	innerPub := &countingPublishable{}
 	outerPub := &countingPublishable{}
 

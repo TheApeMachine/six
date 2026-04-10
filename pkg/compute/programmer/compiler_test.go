@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -18,7 +20,7 @@ func TestNewCompiler(t *testing.T) {
 	t.Parallel()
 
 	Convey("New attaches options and Frame returns the Value", t, func() {
-		raw, err := primitive.NewValue([]byte("probe"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("probe")))
 
 		So(err, ShouldBeNil)
 
@@ -29,9 +31,15 @@ func TestNewCompiler(t *testing.T) {
 			raw,
 			CompilerWithIntent(intent),
 			CompilerWithBatchAffinityLayout(),
+			CompilerWithFinalizer(func(value *primitive.Value, next FinalizeNext) ([]*primitive.Value, error) {
+				return next(value)
+			}),
 		)
 
 		So(compiler.Frame(), ShouldEqual, raw)
+		So(compiler.Intent().Operation, ShouldEqual, Similarity)
+		So(compiler.FinalizerDepth(), ShouldEqual, 1)
+		So(compiler.UsesBatchAffinityLayout(), ShouldBeTrue)
 	})
 }
 
@@ -39,7 +47,7 @@ func TestCompilerCompile(t *testing.T) {
 	t.Parallel()
 
 	Convey("Compile(CPU) writes opcode and rotation passes", t, func() {
-		raw, err := primitive.NewValue([]byte("layout"))
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("layout")))
 
 		So(err, ShouldBeNil)
 
@@ -55,7 +63,11 @@ func TestCompilerCompile(t *testing.T) {
 
 		So(out, ShouldEqual, raw)
 
-		So(wordFromBytes(raw, 16)&0xF, ShouldEqual, uint64(Similarity)&0xF)
+		So(
+			wordFromBytes(raw, core.Cfg.Value.Region.Program.Start)&0xF,
+			ShouldEqual,
+			uint64(Similarity)&0xF,
+		)
 		So(wordFromBytes(raw, 124), ShouldBeGreaterThan, uint64(0))
 	})
 }
@@ -63,8 +75,8 @@ func TestCompilerCompile(t *testing.T) {
 func TestCompilerCompileBatchAffinity(t *testing.T) {
 	t.Parallel()
 
-	Convey("Compile(CPU) with batch layout writes candidates from word 48", t, func() {
-		raw, err := primitive.NewValue([]byte("affinity"))
+	Convey("Compile(CPU) with batch layout writes candidates at NearestAffinityCandidatesStartWord", t, func() {
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("affinity")))
 
 		So(err, ShouldBeNil)
 
@@ -87,12 +99,12 @@ func TestCompilerCompileBatchAffinity(t *testing.T) {
 
 		compiler.Compile(CPU)
 
-		So(wordFromBytes(raw, 48), ShouldEqual, 0xfeed)
+		So(wordFromBytes(raw, kernel.NearestAffinityCandidatesStartWord), ShouldEqual, 0xfeed)
 	})
 }
 
 func BenchmarkCompilerCompileCPU(b *testing.B) {
-	raw, err := primitive.NewValue([]byte("bench"))
+	raw, err := primitive.FirstSegment(primitive.NewValue([]byte("bench")))
 
 	if err != nil {
 		b.Fatal(err)

@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 )
 
 type stubQueueExecutor struct {
 	calls atomic.Int32
 }
 
-func (stub *stubQueueExecutor) CompileAndExecute(program any) error {
+func (stub *stubQueueExecutor) CompileAndExecute(program *programmer.Compiler) error {
 	stub.calls.Add(1)
 
 	return nil
@@ -136,7 +137,7 @@ func TestQueueSetBackend(t *testing.T) {
 		stub := &stubQueueExecutor{}
 
 		queue.SetBackend(stub)
-		queue.Execute(struct{}{})
+		queue.Publish(nil, "")
 		queue.Drain()
 
 		So(stub.calls.Load(), ShouldEqual, 1)
@@ -150,13 +151,13 @@ func TestQueueExecuteNil(t *testing.T) {
 	Convey("Execute with nil queue or backend returns early", t, func() {
 		var queue *Queue
 
-		queue.Execute(struct{}{})
+		queue.Publish(nil, "")
 
 		realQueue, err := NewQueue(context.Background())
 
 		So(err, ShouldBeNil)
 
-		realQueue.Execute(struct{}{})
+		realQueue.Publish(nil, "")
 		So(realQueue.Close(), ShouldBeNil)
 	})
 }
@@ -168,31 +169,6 @@ func TestQueueDrainNil(t *testing.T) {
 		var queue *Queue
 
 		queue.Drain()
-	})
-}
-
-func TestQueueExecuteSync(t *testing.T) {
-	t.Parallel()
-
-	Convey("ExecuteSync runs the backend in the calling goroutine", t, func() {
-		queue, err := NewQueue(context.Background())
-
-		So(err, ShouldBeNil)
-
-		stub := &stubQueueExecutor{}
-
-		queue.SetBackend(stub)
-		So(queue.ExecuteSync(struct{}{}), ShouldBeNil)
-		So(stub.calls.Load(), ShouldEqual, 1)
-
-		var nilQueue *Queue
-
-		So(nilQueue.ExecuteSync(struct{}{}), ShouldBeNil)
-
-		queue.SetBackend(nil)
-		So(queue.ExecuteSync(struct{}{}), ShouldBeNil)
-
-		So(queue.Close(), ShouldBeNil)
 	})
 }
 

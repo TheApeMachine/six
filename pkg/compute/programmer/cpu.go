@@ -3,6 +3,7 @@ package programmer
 import (
 	"math/bits"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -15,7 +16,7 @@ leaves 28 registers for B rotations — 14 rotations simultaneously.
 
 Layout:
 
-	word  16:     opcode (low 4 bits)
+	word   8:     opcode (low 4 bits)
 	word  124:    pass count (multi-asset)
 	words 32-95:  B rotations (16 rotations × 4 words)
 
@@ -28,7 +29,7 @@ func (compiler *Compiler) CPU(
 ) {
 	opcode := intent.Operation
 
-	value.Set(16, uint64(opcode))
+	value.Set(core.Cfg.Value.Region.Program.Start, uint64(opcode))
 
 	if useBatchAffinity {
 		applyBatchAffinityLayout(value, intent.Assets)

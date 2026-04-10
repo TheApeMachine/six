@@ -6,20 +6,20 @@
 
 #define WORDS                                    128
 #define TOKENS_START_WORD                        0
-#define TOKEN_WORDS                              8
-#define A_WORDS                                  4
-#define B_WORDS                                  4
-#define PROGRAM_START_WORD                       8
+#define TOKEN_WORDS                              16
+#define A_WORDS                                  8
+#define B_WORDS                                  8
+#define PROGRAM_START_WORD                       16
 #define PROGRAM_WORDS                            8
-#define SIGNALS_START_WORD                       16
+#define SIGNALS_START_WORD                       24
 #define SIGNALS_WORDS                            8
 #define NUM_ROTATIONS                            16
-#define SURFACE_ELEMENTS                         64
+#define SURFACE_ELEMENTS                         128
 #define AFFINITY_START_WORD                      123
 #define AFFINITY_WORDS                           5
 #define AFFINITY_BITS                            257
-#define AFFINITY_LAST_WORD_MASK                  1
-#define META_START_WORD                          40
+#define AFFINITY_LAST_WORD_MASK                  0x0000000000000001ULL
+#define META_START_WORD                          48
 #define META_WORDS                               8
 
 #endif // SUBSTRATE_PRIMITIVES_H

@@ -34,7 +34,7 @@ affinityLSHSamplesPerBit controls how many token bits vote for each affinity
 output bit via majority vote. Higher k stabilizes each bit but dilutes
 discrimination across the fixed token span (core.Cfg.Value.Region.Tokens.Bits).
 
-The default k was tuned when the token region is 512 bits: each output bit
+The default k was tuned when the token region is 512–1024 bits: each output bit
 samples a small, stride-dependent subset of those bits rather than the full
 span. The affinity output width stays AffinityBits (257); this constant does
 not enlarge the fingerprint, it only controls variance per output bit.
@@ -97,6 +97,16 @@ func (value *Value) ComputeAffinityLSH() error {
 		}
 
 		value[affStart+proj] = word
+	}
+
+	/*
+		An all-zero slab (or perfectly tied majority votes) yields a zero
+		vector; Kadabra refuses Publish on that fingerprint. Force a single
+		distinguishing bit so ingest and routing always have a non-degenerate key.
+	*/
+	if AffinityVectorIsZero(value.AffinityVector()) {
+		value[affStart] |= 1
+		value[affStart+AffinityWords-1] &= AffinityLastWordMask
 	}
 
 	return nil

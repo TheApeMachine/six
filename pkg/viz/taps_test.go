@@ -1,6 +1,7 @@
 package viz
 
 import (
+	"reflect"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -137,11 +138,19 @@ func TestTrieInsertEvent(t *testing.T) {
 	t.Parallel()
 
 	Convey("TrieInsertEvent stores sequence meta separate from label", t, func() {
-		ev := TrieInsertEvent(6, "tok", "lab")
+		ev := TrieInsertEvent(6, -1, "tok", "lab")
 
 		So(ev.Kind, ShouldEqual, EventTrieInsert)
 		So(ev.Label, ShouldEqual, "lab")
 		So(ev.Meta["sequence"], ShouldEqual, "tok")
+		_, hasIdx := ev.Values["trie_idx"]
+		So(hasIdx, ShouldBeFalse)
+	})
+
+	Convey("TrieInsertEvent records trie_idx when non-negative", t, func() {
+		ev := TrieInsertEvent(6, 3, "tok", "lab")
+
+		So(ev.Values["trie_idx"], ShouldEqual, 3.0)
 	})
 }
 
@@ -329,6 +338,59 @@ func TestPromptResultEvent(t *testing.T) {
 		So(ev.Source, ShouldEqual, "system")
 		So(ev.Meta["generation"], ShouldEqual, "gen")
 		So(ev.Values, ShouldResemble, scores)
+	})
+}
+
+func TestTrieGraphSnapshotEvent(t *testing.T) {
+	t.Parallel()
+
+	Convey("TrieGraphSnapshotEvent carries trie index and JSON graph", t, func() {
+		ev := TrieGraphSnapshotEvent(0xa, 4, []byte(`{"root_vid":0,"truncated":false}`))
+
+		So(ev.Kind, ShouldEqual, EventTrieGraphSnapshot)
+		So(ev.Source, ShouldEqual, "node_a")
+		So(ev.Values["trie_idx"], ShouldEqual, 4)
+		So(ev.Meta["graph"], ShouldEqual, `{"root_vid":0,"truncated":false}`)
+	})
+}
+
+func TestCompilerPipelineEvents(t *testing.T) {
+	t.Parallel()
+
+	Convey("compiler/ALU/finalizer taps round-trip on the wire", t, func() {
+		compile := CompilerCompileEvent("metal", 0x6, 42, 1500, true, 2)
+		So(compile.Kind, ShouldEqual, EventCompilerCompile)
+		So(compile.Label, ShouldEqual, "metal")
+		So(compile.Values["operation"], ShouldEqual, 6)
+		So(compile.Values["compile_ns"], ShouldEqual, 1500)
+		So(compile.Values["batch_affinity"], ShouldEqual, 1)
+		So(compile.Values["finalizer_depth"], ShouldEqual, 2)
+		So(compile.Meta["correlation"], ShouldEqual, "42")
+
+		alu := ALUDispatchEvent("cpu", 7, 99, 12)
+		So(alu.Kind, ShouldEqual, EventALUDispatch)
+		So(alu.Label, ShouldEqual, "cpu")
+		So(alu.Values["opcode"], ShouldEqual, 7)
+		So(alu.Values["duration_ms"], ShouldEqual, 12)
+		So(alu.Meta["correlation"], ShouldEqual, "99")
+
+		fin := FinalizerRunEvent(3, 2, 4, true)
+		So(fin.Kind, ShouldEqual, EventFinalizerRun)
+		So(fin.Values["depth"], ShouldEqual, 2)
+		So(fin.Values["emitted"], ShouldEqual, 4)
+		So(fin.Values["error"], ShouldEqual, 1)
+		So(fin.Meta["correlation"], ShouldEqual, "3")
+
+		for _, ev := range []Event{compile, alu, fin} {
+			raw := MarshalWireEvent(ev)
+			ft, got, _, _, _, err := UnmarshalWireMessage(raw)
+			So(err, ShouldBeNil)
+			So(ft, ShouldEqual, WireFrameEvent)
+			So(got.Kind, ShouldEqual, ev.Kind)
+			So(got.Label, ShouldEqual, ev.Label)
+			So(reflect.DeepEqual(got.Values, ev.Values), ShouldBeTrue)
+			So(reflect.DeepEqual(got.Meta, ev.Meta), ShouldBeTrue)
+		}
 	})
 }
 

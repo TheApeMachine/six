@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-836 & prompt\_836 & 0.0000 & 0.0964 & 0.0964 & 0.0438 \\
-487 & prompt\_487 & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
-378 & prompt\_378 & 0.0000 & 0.0729 & 0.0729 & 0.0331 \\
+28 & prompt\_28 & 0.0000 & 0.0343 & 0.0343 & 0.0156 \\
+0 & prompt\_0 & 0.0000 & 0.0332 & 0.0332 & 0.0151 \\
+456 & prompt\_456 & 0.0000 & 0.0294 & 0.0294 & 0.0134 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-721 & prompt\_721 & 0.0000 & 0.0029 & 0.0029 & 0.0013 \\
-155 & prompt\_155 & 0.0000 & 0.0032 & 0.0032 & 0.0015 \\
-988 & prompt\_988 & 0.0000 & 0.0035 & 0.0035 & 0.0016 \\
+616 & prompt\_616 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+998 & prompt\_998 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a big game. \ldots}} & \multicolumn{2}{l}{\texttt{play the big game now. He played and pla\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
-\multicolumn{2}{l}{\texttt{One day, Jack went fishing with his dad.\ldots}} & \multicolumn{2}{l}{\texttt{it. It was a magic mystery! Jack had so \ldots}} & \multicolumn{2}{l}{\texttt{Jack Jack Jack Jack Jack Jack Jack Jack \ldots}} \\
-\multicolumn{2}{l}{\texttt{Lily liked to draw pictures with her cra\ldots}} & \multicolumn{2}{l}{\texttt{e was wrong. He said, "I'm sorry, Lily. \ldots}} & \multicolumn{2}{l}{\texttt{Lily Lily Lily Lily Lily Lily Lily Lily \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time there was a crab named \ldots}} & \multicolumn{2}{l}{\texttt{nked Bob for finding them. ··Bob said, "\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a a a a a a a a a a a a a a a a \ldots}} \\
+\multicolumn{2}{l}{\texttt{One sunny day, a pretty boat was on the \ldots}} & \multicolumn{2}{l}{\texttt{e water on the boat and on Spot. Spot ju\ldots}} & \multicolumn{2}{l}{\texttt{boat boat boat boat boat}} \\
+\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{for them because they were sharing and h\ldots}} & \multicolumn{2}{l}{\texttt{it it was it it it it was it it it it wa\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time there was a penny. The \ldots}} & \multicolumn{2}{l}{\texttt{e penny! She smiled wide and said: "Oh p\ldots}} & \multicolumn{2}{l}{\texttt{was was was was was}} \\
+\multicolumn{2}{l}{\texttt{Tom and Mia are friends. They like to pl\ldots}} & \multicolumn{2}{l}{\texttt{hoosh, whoosh.··They are happy. They smi\ldots}} & \multicolumn{2}{l}{\texttt{Mia Mia Mia Mia Mia}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 1000} & \multicolumn{3}{l}{Holdout: 1000\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0113} & \multicolumn{3}{l}{Min: 0.0013 \quad Max: 0.0438} \\
+\multicolumn{3}{l}{Samples: 1000} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
+\multicolumn{3}{l}{Mean score: 0.0023} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0156} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

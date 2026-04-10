@@ -135,12 +135,12 @@ ValueRegionConfig holds the configuration for a Value's region.
 
 Layout (128 uint64 words = 1 KiB):
 
-	Tokens:   words  0– 7  (512 bits)
-	Program:  words  8–15  (512 bits)
-	Signals:  words 16–23  (512 bits)
-	Context:  words 24–31  (512 bits)
-	Gradient: words 32–39  (512 bits)
-	Meta:     words 40–47  (512 bits)
+	Tokens:   words  0–15  (1024 bits; 128 B Morton slab, up to 64 × 16-bit codes)
+	Program:  words  16–23  (512 bits)
+	Signals:  words  24–31  (512 bits)
+	Context:  words  32–39  (512 bits)
+	Gradient: words  40–47  (512 bits)
+	Meta:     words  48–55  (512 bits)
 	Reserved: words 48–117
 	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
@@ -159,6 +159,23 @@ type ValueRegionConfig struct {
 	Next     ValueOffsetConfig `mapstructure:"next"`
 	ID       ValueOffsetConfig `mapstructure:"id"`
 	Affinity ValueOffsetConfig `mapstructure:"affinity"`
+}
+
+/*
+MaxTokenIngestBytes is the largest raw byte span passed to primitive.NewValue
+from fixed-width ingest (e.g. vm.Tokenizer). It is half the Morton slab byte
+length: each stored code uses 2 bytes in the slab, so at most one new code
+per input byte stays within the slab without truncation.
+*/
+func (region ValueRegionConfig) MaxTokenIngestBytes() int {
+	slabBytes := int((region.Tokens.Bits + 7) / 8)
+	out := slabBytes / 2
+
+	if out < 1 {
+		return 1
+	}
+
+	return out
 }
 
 /*
@@ -376,26 +393,26 @@ func NewConfig() *Config {
 			Region: ValueRegionConfig{
 				Tokens: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.tokens.start"), 0),
-					Bits:  WithDefault(viper.GetUint64("value.region.tokens.bits"), 512),
+					Bits:  WithDefault(viper.GetUint64("value.region.tokens.bits"), 1024),
 				},
 				Program: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.program.start"), 8),
+					Start: WithDefault(viper.GetInt("value.region.program.start"), 16),
 					Bits:  WithDefault(viper.GetUint64("value.region.program.bits"), 512),
 				},
 				Signals: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.signals.start"), 16),
+					Start: WithDefault(viper.GetInt("value.region.signals.start"), 24),
 					Bits:  WithDefault(viper.GetUint64("value.region.signals.bits"), 512),
 				},
 				Context: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.context.start"), 24),
+					Start: WithDefault(viper.GetInt("value.region.context.start"), 32),
 					Bits:  WithDefault(viper.GetUint64("value.region.context.bits"), 512),
 				},
 				Gradient: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 32),
+					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 40),
 					Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
 				},
 				Meta: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.meta.start"), 40),
+					Start: WithDefault(viper.GetInt("value.region.meta.start"), 48),
 					Bits:  WithDefault(viper.GetUint64("value.region.meta.bits"), 512),
 				},
 				Prev: ValueOffsetConfig{

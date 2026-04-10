@@ -1,0 +1,30 @@
+\subsection{ Substrate Query Scaling }
+\label{sec:substrate_query_scaling}
+
+\paragraph{Task Description.}
+This experiment loads a 400-sample synthetic corpus (128\,B each,
+50\,KB) and issues $N = 50$ prefix queries in corpus-position order.
+We instrument the prediction machinery: beam confidence (top
+continuation log-score), score spread (gap between best and worst
+hypothesis — measures diversity), rejection rate (fraction of trie
+origins pruned at node-level beam), and origin diversity (how many
+tries contribute surviving hypotheses). These metrics expose whether
+the substrate's internal state scales gracefully or degrades as the
+corpus grows.
+
+\paragraph{Results.}
+Beam confidence rises across the query sequence (top-score
+$$\mu = -3.105$, $\sigma = 4.940$, median $= -3.466$, range $[-33.616,\,0.000]$, $N = 50$$). Score spread: $$\mu = 0.009$, $\sigma = 0.067$, median $= 0.000$, range $[0.000,\,0.472]$, $N = 50$$. Rejection rate: $$\mu = 0.018$, $\sigma = 0.126$, median $= 0.000$, range $[0.000,\,0.889]$, $N = 50$$.
+Origin diversity: $\mu = 1.0$ tries contributing per query.
+
+Figure~\ref{fig:substrate_query_scaling} shows four scaling
+perspectives: beam confidence trajectory (top-left), hypothesis
+diversity via score spread (top-right), mesh noise via rejection
+rate (bottom-left), and effective mesh utilization (bottom-right).
+
+\paragraph{Assessment.}
+Beam confidence: $\mu = -3.105$ ($\sigma = 4.940$). Rejection rate:
+$0.018$. Origin diversity: $\mu = 1.0$ tries contributing. The
+score spread panel shows whether surviving hypotheses are tightly
+clustered (low spread = consensus) or divergent (high spread =
+competing interpretations).

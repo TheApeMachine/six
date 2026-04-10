@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
@@ -33,7 +34,6 @@ type Machine struct {
 	tokenizer *Tokenizer
 	kadabra   *kadabra.Node
 	peers     []*kadabra.Node
-	meshSize  int
 }
 
 type machineOpts func(*Machine)
@@ -65,7 +65,6 @@ func NewMachine(
 		machine.queue,
 		compute.WithExploreEvery(128),
 	)
-	machine.queue.SetBackend(machine.backend)
 
 	if machine.kadabra, machine.err = kadabra.NewNode(
 		ctx,
@@ -75,48 +74,14 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
+	machine.kadabra.SetMeshExpandHandler(func(incoming *primitive.Affinity) bool {
+		return machine.meshExpandDuringLoad(incoming)
+	})
+
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx, machine.queue,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
-	}
-
-	// Spin up peer nodes and wire a full mesh for gossip/field dynamics.
-	if machine.meshSize > 1 {
-		wantPeers := machine.meshSize - 1
-		effective := wantPeers
-
-		if wantPeers > core.Cfg.Kadabra.MaxMeshPeers {
-			effective = core.Cfg.Kadabra.MaxMeshPeers
-
-			errnie.Warn(
-				"machine: meshSize trimmed to peer cap",
-				"requested_mesh_size", machine.meshSize,
-				"effective_peer_count", effective,
-				"cap", core.Cfg.Kadabra.MaxMeshPeers,
-			)
-		}
-
-		allNodes := []*kadabra.Node{machine.kadabra}
-
-		for idx := 0; idx < effective; idx++ {
-			name := fmt.Sprintf("peer-%d", idx+1)
-			peer, pErr := kadabra.NewNode(ctx, name, machine.queue)
-
-			if pErr != nil {
-				errnie.Warn("machine: peer node failed", "name", name, "err", pErr)
-				continue
-			}
-
-			machine.peers = append(machine.peers, peer)
-			allNodes = append(allNodes, peer)
-		}
-
-		for idx := range allNodes {
-			for jdx := idx + 1; jdx < len(allNodes); jdx++ {
-				kadabra.Connect(allNodes[idx], allNodes[jdx], 1.0)
-			}
-		}
 	}
 
 	return machine, validate.Require(map[string]any{
@@ -180,18 +145,45 @@ func (machine *Machine) Close() error {
 }
 
 /*
-MachineWithMesh creates additional kadabra peer nodes and wires
-them into a full mesh so gossip, field dynamics, and replication
-events flow between nodes during operation.
+meshExpandDuringLoad materializes another Kadabra node and rewires a full
+mesh among the primary, existing peers, and the newcomer when the primary’s
+ingest centroid saturates at ShannonLimit. Affinity is passed through for
+future shard-aware placement; peer count obeys MaxMeshPeers.
 */
-func MachineWithMesh(size int) machineOpts {
-	return func(machine *Machine) {
-		if size < 2 {
-			size = 2
-		}
+func (machine *Machine) meshExpandDuringLoad(incoming *primitive.Affinity) bool {
+	_ = incoming
 
-		machine.meshSize = size
+	if len(machine.peers) >= core.Cfg.Kadabra.MaxMeshPeers {
+		errnie.Warn(
+			"machine: dynamic mesh peer cap reached",
+			"peer_count", len(machine.peers),
+			"cap", core.Cfg.Kadabra.MaxMeshPeers,
+		)
+
+		return true
 	}
+
+	peer, peerErr := kadabra.NewNode(
+		machine.ctx,
+		fmt.Sprintf("peer-%d", len(machine.peers)+1),
+		machine.queue,
+	)
+
+	if peerErr != nil {
+		errnie.Warn("machine: dynamic mesh peer failed", "err", peerErr)
+
+		return true
+	}
+
+	backbone := append([]*kadabra.Node{machine.kadabra}, machine.peers...)
+
+	for _, existing := range backbone {
+		kadabra.Connect(peer, existing, 1.0)
+	}
+
+	machine.peers = append(machine.peers, peer)
+
+	return true
 }
 
 /*
@@ -212,8 +204,8 @@ Kadabra (no tokenizer → wire → ValueFromWireFrame round trip).
 kadabra.Publish snapshots each Value into a SequenceRecord and schedules
 the trie insert and replication fan-out on the shared pool.Queue. Load
 therefore calls Queue.Drain after the pipeline finishes so every scheduled
-insert has attempted to complete before the method returns (same queue
-covers mesh peers wired to this Machine).
+insert has attempted to complete before the method returns (the shared queue
+also serves peers added dynamically when ingest reaches ShannonLimit).
 */
 func (machine *Machine) Load(dataset data.Provider) error {
 	if err := validate.Require(map[string]any{
@@ -229,6 +221,7 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		false,
 		machine.tokenizer,
 		machine.kadabra,
+		machine.queue,
 	)
 
 	if err != nil {
@@ -236,10 +229,62 @@ func (machine *Machine) Load(dataset data.Provider) error {
 	}
 
 	loadErr := errnie.Error(pipeline.LoadFrom(dataset))
-
 	machine.queue.Drain()
 
 	return loadErr
+}
+
+/*
+LoadPrompts ingests structured samples: each Prompt.Text is chunked like a
+raw byte stream, and every chunk from that text is Published with the same
+label when HasLabel is set (empty string otherwise). The tokenizer ring is
+reused between samples via IngestReader, so performance matches repeated
+close-and-drain cycles without a second goroutine.
+
+Do not call LoadPrompts concurrently with Load on the same Machine; both
+use the shared Tokenizer.
+*/
+func (machine *Machine) LoadPrompts(provider data.PromptProvider) error {
+	if err := validate.Require(map[string]any{
+		"kadabra":   machine.kadabra,
+		"queue":     machine.queue,
+		"tokenizer": machine.tokenizer,
+	}); err != nil {
+		return errnie.Error(err)
+	}
+
+	if provider == nil {
+		return errnie.Error(fmt.Errorf("vm.Machine.LoadPrompts: nil PromptProvider"))
+	}
+
+	publishers := []transport.Publishable{
+		machine.kadabra,
+		machine.queue,
+	}
+
+	for prompt := range provider.GeneratePrompts() {
+		label := ""
+
+		if prompt.HasLabel {
+			label = prompt.Label
+		}
+
+		ingestErr := machine.tokenizer.IngestReader(
+			machine.ctx,
+			strings.NewReader(prompt.Text),
+			label,
+			publishers,
+			nil,
+		)
+
+		if ingestErr != nil {
+			return errnie.Error(ingestErr)
+		}
+	}
+
+	machine.queue.Drain()
+
+	return nil
 }
 
 /*
@@ -256,13 +301,15 @@ func (machine *Machine) Prompt(prompt string) (prediction *algo.Prediction, err 
 		return nil, errnie.Error(err)
 	}
 
-	value, err := primitive.NewValue([]byte(prompt))
+	values, err := primitive.NewValue([]byte(prompt))
 
 	if err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	defer value.Close()
+	defer primitive.CloseAll(values)
+
+	value := values[len(values)-1]
 
 	if prediction, err = machine.kadabra.Predict(value); err != nil {
 		return nil, errnie.Error(err)

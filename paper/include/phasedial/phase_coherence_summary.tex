@@ -9,9 +9,9 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
+6 & prompt\_6 & 0.0000 & 0.1154 & 0.1154 & 0.0524 \\
 4 & prompt\_4 & 0.0000 & 0.0952 & 0.0952 & 0.0433 \\
-0 & prompt\_0 & 0.0000 & 0.1000 & 0.0408 & 0.0347 \\
-5 & prompt\_5 & 0.0000 & 0.0526 & 0.0526 & 0.0239 \\
+0 & prompt\_0 & 0.0000 & 0.1000 & 0.0079 & 0.0287 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
@@ -25,15 +25,15 @@
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
+\multicolumn{2}{l}{\texttt{It was the best of times,}} & \multicolumn{2}{l}{\texttt{it was the worst of times.}} & \multicolumn{2}{l}{\texttt{It It It It It}} \\
 \multicolumn{2}{l}{\texttt{To be, or not to be,}} & \multicolumn{2}{l}{\texttt{that is the question.}} & \multicolumn{2}{l}{\texttt{be, be, be, be, be,}} \\
-\multicolumn{2}{l}{\texttt{Democracy requires i}} & \multicolumn{2}{l}{\texttt{ndividual sacrifice.}} & \multicolumn{2}{l}{\texttt{Democracy Democracy Democracy Democracy \ldots}} \\
 \multicolumn{2}{l}{\texttt{It is a truth universally acknowledged, \ldots}} & \multicolumn{2}{l}{\texttt{in possession of a good fortune, must be\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a}} \\
 \multicolumn{2}{l}{\texttt{The sky above the port was the color o}} & \multicolumn{2}{l}{\texttt{f television, tuned to a dead channel.}} & \multicolumn{2}{l}{\texttt{the the the the the}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 10\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0102} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0433} \\
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
+\multicolumn{3}{l}{Mean score: 0.0184} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0524} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

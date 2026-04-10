@@ -1,7 +1,6 @@
 package viz
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -62,14 +61,11 @@ func (r *RemoteBus) connectLocked() error {
 }
 
 func (r *RemoteBus) sendLocked(ev Event) {
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
+	data := MarshalWireEvent(ev)
 
 	_ = r.conn.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
 
-	if err := r.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	if err := r.conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 		r.conn.Close()
 		r.conn = nil
 	}

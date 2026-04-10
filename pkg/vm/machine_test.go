@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -57,6 +59,35 @@ func (provider *bytesProvider) Generate() iter.Seq[byte] {
 	}
 }
 
+/*
+staticPromptProvider drives LoadPrompts tests without external datasets.
+*/
+type staticPromptProvider struct {
+	seq iter.Seq[data.Prompt]
+}
+
+func newStaticPromptProvider(seq iter.Seq[data.Prompt]) *staticPromptProvider {
+	return &staticPromptProvider{seq: seq}
+}
+
+func (provider *staticPromptProvider) GeneratePrompts() iter.Seq[data.Prompt] {
+	return provider.seq
+}
+
+/*
+stubPublisherExecutor satisfies programmer.Executor for tests that skip real
+substrate execution while Finalize still runs on the publisher path.
+*/
+type stubPublisherExecutor struct{}
+
+func (*stubPublisherExecutor) CompileAndExecute(
+	program *programmer.Compiler,
+) error {
+	_ = program
+
+	return nil
+}
+
 func TestNewMachine(t *testing.T) {
 	Convey("NewMachine wires host, queue, backend, kadabra, and tokenizer", t, func() {
 		ctx := context.Background()
@@ -101,11 +132,44 @@ func TestMachineLoad(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		chunkWords := int(core.Cfg.Value.Region.Tokens.Bits / 8)
-		payload := bytes.Repeat([]byte{'m'}, chunkWords*3)
+		chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+		payload := bytes.Repeat([]byte{'m'}, chunkBytes*3)
 		provider := newBytesProvider(payload)
 
 		So(machine.Load(provider), ShouldBeNil)
+	})
+}
+
+func TestMachineLoadPrompts(t *testing.T) {
+	setupTokenizerValueConfig(t)
+
+	Convey("LoadPrompts ingests each prompt with its label on every chunk", t, func() {
+		ctx := context.Background()
+		machine, err := NewMachine(ctx)
+
+		So(err, ShouldBeNil)
+
+		defer func() {
+			So(machine.Close(), ShouldBeNil)
+		}()
+
+		chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+		textA := string(bytes.Repeat([]byte{'a'}, chunkBytes*2))
+		textB := string(bytes.Repeat([]byte{'b'}, chunkBytes))
+
+		provider := newStaticPromptProvider(func(yield func(data.Prompt) bool) {
+			if !yield(data.Prompt{
+				Text: textA, Label: "L1", HasLabel: true,
+			}) {
+				return
+			}
+
+			_ = yield(data.Prompt{
+				Text: textB, Label: "L2", HasLabel: true,
+			})
+		})
+
+		So(machine.LoadPrompts(provider), ShouldBeNil)
 	})
 }
 
@@ -156,8 +220,8 @@ func BenchmarkMachine_Load(b *testing.B) {
 
 	defer machine.Close()
 
-	chunkWords := int(core.Cfg.Value.Region.Tokens.Bits / 8)
-	payload := bytes.Repeat([]byte{'z'}, chunkWords*16)
+	chunkBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+	payload := bytes.Repeat([]byte{'z'}, chunkBytes*16)
 	provider := newBytesProvider(payload)
 
 	b.SetBytes(int64(len(payload)))

@@ -17,10 +17,12 @@ import (
 
 	"crypto/sha256"
 	"encoding/hex"
+	"sync/atomic"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 const hfBase = "https://huggingface.co"
@@ -55,11 +57,12 @@ type Dataset struct {
 	cacheLoading bool
 	cachedTokens []byte
 
-	readMu   sync.Mutex
-	readBuf  []byte
-	readPos  int
-	readErr  error
-	readDone bool
+	readMu        sync.Mutex
+	readBuf       []byte
+	readPos       int
+	readErr       error
+	readDone      bool
+	readTotalSent atomic.Int64
 }
 
 var _ data.Provider = (*Dataset)(nil)
@@ -238,6 +241,9 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 
 	n = copy(p, dataset.readBuf[dataset.readPos:])
 	dataset.readPos += n
+
+	total := dataset.readTotalSent.Add(int64(n))
+	viz.DefaultBus.Publish(viz.DatasetReadEvent(dataset.repo, int64(n), total, ""))
 
 	return n, nil
 }

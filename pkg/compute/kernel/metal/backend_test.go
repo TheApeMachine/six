@@ -31,9 +31,9 @@ func installSlot(frame *[128]uint64, slot int, instr uint32) {
 }
 
 func setupTestConfig() {
-	core.Cfg.Value.Region.Program.Start = 8
+	core.Cfg.Value.Region.Program.Start = 16
 	core.Cfg.Value.Region.Program.Bits = 512
-	core.Cfg.Value.Region.Signals.Start = 16
+	core.Cfg.Value.Region.Signals.Start = 24
 	core.Cfg.Value.Region.Signals.Bits = 512
 }
 

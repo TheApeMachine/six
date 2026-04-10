@@ -396,8 +396,8 @@ func parquetInts(row parquet.Row, column int) []int {
 /*
 jsonStoryFields unpacks the story object into text, answer, and type slices.
 */
-func jsonStoryFields(raw interface{}) ([]string, []string, []int) {
-	story, ok := raw.(map[string]interface{})
+func jsonStoryFields(raw any) ([]string, []string, []int) {
+	story, ok := raw.(map[string]any)
 	if !ok {
 		return nil, nil, nil
 	}
@@ -408,8 +408,8 @@ func jsonStoryFields(raw interface{}) ([]string, []string, []int) {
 /*
 jsonStrings coerces a JSON array of mixed types into a []string.
 */
-func jsonStrings(raw interface{}) []string {
-	items, ok := raw.([]interface{})
+func jsonStrings(raw any) []string {
+	items, ok := raw.([]any)
 	if !ok {
 		return nil
 	}
@@ -427,8 +427,8 @@ func jsonStrings(raw interface{}) []string {
 /*
 jsonInts coerces a JSON array of numbers into a []int.
 */
-func jsonInts(raw interface{}) []int {
-	items, ok := raw.([]interface{})
+func jsonInts(raw any) []int {
+	items, ok := raw.([]any)
 	if !ok {
 		return nil
 	}

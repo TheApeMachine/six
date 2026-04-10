@@ -251,7 +251,7 @@ func TestNodePredict(t *testing.T) {
 
 		payload := []byte("predict-token")
 
-		value, vErr := primitive.NewValue(payload)
+		value, vErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 		So(vErr, ShouldBeNil)
 
@@ -283,7 +283,7 @@ func TestNodePredict(t *testing.T) {
 
 		payload := []byte("classification token")
 
-		trainValue, vErr := primitive.NewValue(payload)
+		trainValue, vErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 		So(vErr, ShouldBeNil)
 
@@ -295,7 +295,7 @@ func TestNodePredict(t *testing.T) {
 
 		queue.Drain()
 
-		queryValue, qErr := primitive.NewValue(payload)
+		queryValue, qErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 		So(qErr, ShouldBeNil)
 
@@ -334,7 +334,7 @@ func TestNodePublish(t *testing.T) {
 		So(node.Publish(nil, "x"), ShouldNotBeNil)
 	})
 
-	Convey("zero affinity errors", t, func() {
+	Convey("zero affinity is recomputed inside Publish", t, func() {
 		ctx := context.Background()
 
 		queue, qErr := pool.NewQueue(ctx)
@@ -349,7 +349,7 @@ func TestNodePublish(t *testing.T) {
 
 		So(nErr, ShouldBeNil)
 
-		value, vErr := primitive.NewValue([]byte("no-lsh"))
+		value, vErr := primitive.FirstSegment(primitive.NewValue([]byte("no-lsh")))
 
 		So(vErr, ShouldBeNil)
 
@@ -357,7 +357,9 @@ func TestNodePublish(t *testing.T) {
 
 		value.SetAffinityVector([primitive.AffinityWords]uint64{})
 
-		So(node.Publish(value, "lbl"), ShouldNotBeNil)
+		So(primitive.AffinityVectorIsZero(value.AffinityVector()), ShouldBeTrue)
+		So(node.Publish(value, "lbl"), ShouldBeNil)
+		So(primitive.AffinityVectorIsZero(value.AffinityVector()), ShouldBeFalse)
 	})
 
 	Convey("after ComputeAffinityLSH, Publish schedules ingest", t, func() {
@@ -377,7 +379,7 @@ func TestNodePublish(t *testing.T) {
 
 		payload := []byte("publish-ok")
 
-		value, vErr := primitive.NewValue(payload)
+		value, vErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 		So(vErr, ShouldBeNil)
 
@@ -420,7 +422,7 @@ func BenchmarkNodePredict(b *testing.B) {
 
 	payload := []byte("bench-predict")
 
-	value, err := primitive.NewValue(payload)
+	value, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 	if err != nil {
 		b.Fatal(err)
@@ -473,7 +475,7 @@ func BenchmarkNodePublish(b *testing.B) {
 
 		payload := strconv.AppendInt(append([]byte("bench-pub-"), 'x'), counter, 10)
 
-		value, err := primitive.NewValue(payload)
+		value, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 		if err != nil {
 			b.Fatal(err)

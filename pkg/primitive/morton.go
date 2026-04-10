@@ -13,18 +13,9 @@ proximate points become numerically proximate in the linearized
 sequence, which means the trie's sequential context window captures
 multi-dimensional locality automatically.
 
-For text: byte value is X, boundary-local depth is Y. The trie sees
-a sequence where horizontally adjacent characters and vertically
-adjacent depth positions are both nearby in the linearized key.
-
-For images: pixel x is X, pixel y is Y. 2D spatial convolutions
-become 1D sequential patterns in the trie.
-
-For audio: time is X, frequency bin is Y. Spectral-temporal patterns
-linearize into the same sequential structure.
-
-For video: Encode(x, y, t). Spatiotemporal neighbourhoods collapse
-into sequential proximity.
+The encoder is agnostic to source semantics. Callers provide coordinates,
+whether those happen to describe ordinal structure, spatial position,
+frequency bins, time steps, or any other lattice.
 */
 type Morton struct {
 	dimensions   int
@@ -178,12 +169,72 @@ func maxEncodableCoord(bitsPerCoord int) uint32 {
 }
 
 /*
-EncodeBytesWithDepth morton-encodes a byte sequence using the paper's
-framing: byte value = X coordinate, boundary-local depth = Y
+EncodeInterleaved8x8 folds two 8-bit coordinates into one 16-bit Z-order key.
+It is the truncated 2D Morton schedule (eight bit-planes); high bits of each
+coordinate are ignored. Used for compact token keys in Value packing.
+*/
+func EncodeInterleaved8x8(x, y uint32) uint16 {
+	var code uint16
+
+	for bit := 0; bit < 8; bit++ {
+		code |= uint16((x>>bit)&1) << (2 * bit)
+		code |= uint16((y>>bit)&1) << (2*bit + 1)
+	}
+
+	return code
+}
+
+/*
+DecodeInterleaved8x8 splits a 16-bit Z-order key from EncodeInterleaved8x8.
+*/
+func DecodeInterleaved8x8(code uint16) (x, y uint32) {
+	for bit := 0; bit < 8; bit++ {
+		x |= uint32((code>>uint(2*bit))&1) << bit
+		y |= uint32((code>>uint(2*bit+1))&1) << bit
+	}
+
+	return x, y
+}
+
+/*
+EncodeBytesWithDepth16 applies one specific byte-stream projection:
+payload byte on one axis, boundary-reset ordinal depth on the other. It emits
+16-bit interleaved keys; only the low eight bits of depth participate in the
+key. Nil or empty boundaries never reset depth.
+*/
+func EncodeBytesWithDepth16(data []byte, boundaries []byte) []uint16 {
+	if len(data) == 0 {
+		return nil
+	}
+
+	boundarySet := make(map[byte]struct{}, len(boundaries))
+
+	for _, boundary := range boundaries {
+		boundarySet[boundary] = struct{}{}
+	}
+
+	codes := make([]uint16, len(data))
+	depth := uint32(0)
+
+	for idx, datum := range data {
+		codes[idx] = EncodeInterleaved8x8(uint32(datum), depth)
+		depth++
+
+		if _, isBoundary := boundarySet[datum]; isBoundary {
+			depth = 0
+		}
+	}
+
+	return codes
+}
+
+/*
+EncodeBytesWithDepth morton-encodes a byte sequence using one convenience
+projection: payload byte = X coordinate, boundary-local ordinal = Y
 coordinate. Depth resets at each boundary byte (e.g. space, newline).
 
-This is the text-mode encoding path. For image/audio, callers use
-Encode directly with pixel or spectrogram coordinates.
+Callers with richer source geometry should provide explicit coordinates to
+Encode instead of collapsing them into a single byte-depth walk.
 */
 func (morton *Morton) EncodeBytesWithDepth(
 	data []byte, boundaries []byte,

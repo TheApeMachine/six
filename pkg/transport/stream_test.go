@@ -53,7 +53,7 @@ func setupStreamWireConfig(tb testing.TB) {
 func wireFrame(tb testing.TB, payload []byte) []byte {
 	tb.Helper()
 
-	value, err := primitive.NewValue(payload)
+	value, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 	if err != nil {
 		tb.Fatal(err)

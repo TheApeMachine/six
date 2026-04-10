@@ -78,6 +78,22 @@ func TestNewConfig(t *testing.T) {
 	})
 }
 
+func TestValueRegionConfigMaxTokenIngestBytes(t *testing.T) {
+	Convey("MaxTokenIngestBytes is half the Morton slab in bytes (minimum 1)", t, func() {
+		region := ValueRegionConfig{
+			Tokens: ValueOffsetConfig{Bits: 1024},
+		}
+
+		So(region.MaxTokenIngestBytes(), ShouldEqual, 64)
+
+		small := ValueRegionConfig{
+			Tokens: ValueOffsetConfig{Bits: 8},
+		}
+
+		So(small.MaxTokenIngestBytes(), ShouldEqual, 1)
+	})
+}
+
 func BenchmarkNewConfig(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -70,6 +70,10 @@ func (experiment *GroupActionEquivarianceExperiment) Outcome() (any, Assertion, 
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *GroupActionEquivarianceExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *GroupActionEquivarianceExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0.0 // No data yet

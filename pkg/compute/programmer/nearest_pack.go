@@ -7,7 +7,7 @@ import (
 
 /*
 packNearestAffinityCandidates writes up to kernel.MaxNearestAffinityCandidates
-raw affinity vectors contiguously from word 32 for nearest-affinity batch
+raw affinity vectors contiguously from NearestAffinityCandidatesStartWord for nearest-affinity batch
 kernels. Each vector uses primitive.AffinityWords uint64s. Returns how many
 vectors were written (may be less than len(assets) when the frame is full).
 */

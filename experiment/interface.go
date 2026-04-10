@@ -80,6 +80,11 @@ Validation is intentionally two-tier:
     AddResult (and optionally Finalize on experiments that implement it). Tests
     must record one ExperimentalData row per prompt (Generation = substrate
     readout) or Outcome() stays at zero from an empty table.
+
+ 3. Per-prompt: OutcomeForPrompt(idx) mirrors Outcome()’s threshold but scores
+    only the row at idx (EvaluatorOutcomeForPrompt / OutcomeForTableRow), so
+    pipeline tests can show expected-vs-reality per sample instead of the
+    cumulative aggregate alone.
 */
 type PipelineExperiment interface {
 	Name() string
@@ -89,6 +94,7 @@ type PipelineExperiment interface {
 	HoldoutForPrompt(idx int) ([]byte, bool)
 	AddResult(ExperimentalData)
 	Outcome() (any, Assertion, any)
+	OutcomeForPrompt(idx int) (any, Assertion, any)
 	TableData() any
 	Artifacts() []Artifact
 }

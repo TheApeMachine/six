@@ -19,16 +19,16 @@ func setupSignalTest(tb testing.TB) {
 	core.Cfg.Value.Words = 128
 	core.Cfg.Value.Bytes = 1024
 	core.Cfg.Value.Region.Tokens.Start = 0
-	core.Cfg.Value.Region.Tokens.Bits = 512
-	core.Cfg.Value.Region.Program.Start = 8
+	core.Cfg.Value.Region.Tokens.Bits = 1024
+	core.Cfg.Value.Region.Program.Start = 16
 	core.Cfg.Value.Region.Program.Bits = 512
-	core.Cfg.Value.Region.Signals.Start = 16
+	core.Cfg.Value.Region.Signals.Start = 24
 	core.Cfg.Value.Region.Signals.Bits = 512
-	core.Cfg.Value.Region.Context.Start = 24
+	core.Cfg.Value.Region.Context.Start = 32
 	core.Cfg.Value.Region.Context.Bits = 512
-	core.Cfg.Value.Region.Gradient.Start = 32
+	core.Cfg.Value.Region.Gradient.Start = 40
 	core.Cfg.Value.Region.Gradient.Bits = 512
-	core.Cfg.Value.Region.Meta.Start = 40
+	core.Cfg.Value.Region.Meta.Start = 48
 	core.Cfg.Value.Region.Meta.Bits = 512
 	core.Cfg.Value.Region.Prev.Start = 120
 	core.Cfg.Value.Region.Next.Start = 121
@@ -284,6 +284,36 @@ func TestScanSignals(t *testing.T) {
 				So(signals[i].RunLen, ShouldBeLessThanOrEqualTo, signals[i-1].RunLen)
 			}
 		})
+	})
+}
+
+func TestScanSignalsUsesSignalsRegion(t *testing.T) {
+	setupSignalTest(t)
+
+	Convey("Given token structure that the ALU suppresses", t, func() {
+		v := newValueFromZeroFrame(t)
+		defer v.Close()
+
+		v[0] = 0xFFFFFFFFFFFFFFFF
+
+		for i := 4; i < 8; i++ {
+			v[i] = 0xFFFFFFFFFFFFFFFF
+		}
+
+		packBRotations(v)
+		packRotationOpcodes(v, []uint8{
+			0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+			0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		})
+
+		signals, err := ScanSignals(v, cpuRunner)
+
+		So(err, ShouldBeNil)
+		So(len(signals), ShouldBeGreaterThan, 0)
+
+		for _, signal := range signals {
+			So(signal.Kind, ShouldEqual, SignalZeroRun)
+		}
 	})
 }
 

@@ -5,6 +5,15 @@ import (
 )
 
 /*
+Executor is the interface that the compute backend satisfies. It
+allows the Queue to dispatch compiled programs without importing
+the compute package (which already imports pool).
+*/
+type Executor interface {
+	CompileAndExecute(program *Compiler) error
+}
+
+/*
 Target identifies which compute substrate the Value
 will execute on. The compiler emits a different
 layout for each target.
@@ -62,6 +71,7 @@ type Compiler struct {
 	value                  *primitive.Value
 	intent                 Intent
 	useBatchAffinityLayout bool
+	finalizers             []Finalizer
 }
 
 type compilerOption func(*Compiler)
@@ -109,9 +119,53 @@ func (compiler *Compiler) Frame() *primitive.Value {
 	return compiler.value
 }
 
+/*
+Intent returns the current compile intent (operation and assets).
+*/
+func (compiler *Compiler) Intent() Intent {
+	if compiler == nil {
+		return Intent{}
+	}
+
+	return compiler.intent
+}
+
+/*
+FinalizerDepth is the number of post-execute finalizers chained on Finalize.
+*/
+func (compiler *Compiler) FinalizerDepth() int {
+	if compiler == nil {
+		return 0
+	}
+
+	return len(compiler.finalizers)
+}
+
+/*
+UsesBatchAffinityLayout reports whether compile used the batch nearest-affinity layout.
+*/
+func (compiler *Compiler) UsesBatchAffinityLayout() bool {
+	return compiler != nil && compiler.useBatchAffinityLayout
+}
+
 func CompilerWithIntent(intent Intent) compilerOption {
 	return func(compiler *Compiler) {
 		compiler.intent = intent
+	}
+}
+
+/*
+CompilerWithFinalizer appends a post-execution finalizer to the compiler.
+Finalizers run only when Finalize is called by the owner after execution
+has completed, for example after queue.ExecuteSync returns.
+*/
+func CompilerWithFinalizer(finalizer Finalizer) compilerOption {
+	return func(compiler *Compiler) {
+		if finalizer == nil {
+			return
+		}
+
+		compiler.finalizers = append(compiler.finalizers, finalizer)
 	}
 }
 
@@ -125,4 +179,34 @@ func CompilerWithBatchAffinityLayout() compilerOption {
 	return func(compiler *Compiler) {
 		compiler.useBatchAffinityLayout = true
 	}
+}
+
+/*
+Finalize runs the compiler's post-execution finalizer chain against the frame.
+The compiler does not call this automatically because asynchronous queue
+execution has nowhere to return emitted Values; the caller owns that decision.
+*/
+func (compiler *Compiler) Finalize() ([]*primitive.Value, error) {
+	if compiler == nil || compiler.value == nil {
+		return nil, nil
+	}
+
+	finalize := FinalizeNext(func(*primitive.Value) ([]*primitive.Value, error) {
+		return nil, nil
+	})
+
+	for idx := len(compiler.finalizers) - 1; idx >= 0; idx-- {
+		current := compiler.finalizers[idx]
+		next := finalize
+
+		finalize = FinalizeNext(func(value *primitive.Value) ([]*primitive.Value, error) {
+			if current == nil {
+				return next(value)
+			}
+
+			return current(value, next)
+		})
+	}
+
+	return finalize(compiler.value)
 }

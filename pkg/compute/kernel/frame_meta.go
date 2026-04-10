@@ -17,6 +17,20 @@ const (
 )
 
 /*
+FrameProgramOpcode returns the 4-bit truth-table opcode in the program region
+(ProgramStartWord), matching cpu/metal/cuda Execute decoders.
+*/
+func FrameProgramOpcode(frame unsafe.Pointer) uint8 {
+	if frame == nil {
+		return 0
+	}
+
+	v := (*[128]uint64)(frame)
+
+	return uint8(v[ProgramStartWord] & 0xF)
+}
+
+/*
 FrameCorrelationID returns the uint64 stamped at FrameMetaCorrelationWord.
 */
 func FrameCorrelationID(frame unsafe.Pointer) uint64 {

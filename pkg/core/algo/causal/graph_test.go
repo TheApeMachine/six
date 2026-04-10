@@ -17,19 +17,22 @@ discarding) so the allocations return to the Value pool.
 func graphPrediction(
 	label string, fromID, toID uint64, leftText, rightText string,
 ) (*algo.Prediction, func()) {
-	left, err := primitive.NewValue([]byte(leftText))
+	leftChain, err := primitive.NewValue([]byte(leftText))
 
 	if err != nil {
 		panic(err)
 	}
 
-	right, err := primitive.NewValue([]byte(rightText))
+	rightChain, err := primitive.NewValue([]byte(rightText))
 
 	if err != nil {
-		left.Close()
+		primitive.CloseAll(leftChain)
 
 		panic(err)
 	}
+
+	left := leftChain[0]
+	right := rightChain[0]
 
 	left.Set(core.Cfg.Value.Region.ID.Start, fromID)
 	right.Set(core.Cfg.Value.Region.ID.Start, toID)
@@ -45,8 +48,8 @@ func graphPrediction(
 	prediction.Context = append(prediction.Context, leftCopy, rightCopy)
 
 	release := func() {
-		left.Close()
-		right.Close()
+		primitive.CloseAll(leftChain)
+		primitive.CloseAll(rightChain)
 	}
 
 	return prediction, release
@@ -59,7 +62,7 @@ func TestGraphUpdate(t *testing.T) {
 		graph := NewGraph()
 		prediction := algo.NewPrediction()
 
-		v, err := primitive.NewValue([]byte("solo"))
+		v, err := primitive.FirstSegment(primitive.NewValue([]byte("solo")))
 
 		So(err, ShouldBeNil)
 
@@ -135,13 +138,13 @@ func TestGraphIntervene(t *testing.T) {
 			So(err, ShouldBeNil)
 		}
 
-		working, err := primitive.NewValue([]byte("worker"))
+		working, err := primitive.FirstSegment(primitive.NewValue([]byte("worker")))
 
 		So(err, ShouldBeNil)
 
 		defer working.Close()
 
-		forced, err := primitive.NewValue([]byte("forced"))
+		forced, err := primitive.FirstSegment(primitive.NewValue([]byte("forced")))
 
 		So(err, ShouldBeNil)
 
@@ -195,13 +198,13 @@ func TestGraphCounterfactual(t *testing.T) {
 
 		seedABEdge(graph, 6)
 
-		observed, err := primitive.NewValue([]byte("obs-cf"))
+		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("obs-cf")))
 
 		So(err, ShouldBeNil)
 
 		defer observed.Close()
 
-		forced, err := primitive.NewValue([]byte("forced-cf"))
+		forced, err := primitive.FirstSegment(primitive.NewValue([]byte("forced-cf")))
 
 		So(err, ShouldBeNil)
 
@@ -223,13 +226,13 @@ func TestGraphObserveResidual(t *testing.T) {
 	Convey("ObserveResidual XORs affinity mismatch into the gradient tracker", t, func() {
 		graph := NewGraph()
 
-		predicted, err := primitive.NewValue([]byte("pred-or"))
+		predicted, err := primitive.FirstSegment(primitive.NewValue([]byte("pred-or")))
 
 		So(err, ShouldBeNil)
 
 		defer predicted.Close()
 
-		observed, err := primitive.NewValue([]byte("obs-or"))
+		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("obs-or")))
 
 		So(err, ShouldBeNil)
 
@@ -267,13 +270,13 @@ func TestGraphCounterfactualChain(t *testing.T) {
 
 		seedABEdge(graph, 6)
 
-		observed, err := primitive.NewValue([]byte("chain"))
+		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("chain")))
 
 		So(err, ShouldBeNil)
 
 		defer observed.Close()
 
-		forced, err := primitive.NewValue([]byte("chain-forced"))
+		forced, err := primitive.FirstSegment(primitive.NewValue([]byte("chain-forced")))
 
 		So(err, ShouldBeNil)
 
@@ -346,19 +349,19 @@ func TestGraphMediate(t *testing.T) {
 
 		seedABEdge(graph, 6)
 
-		value, err := primitive.NewValue([]byte("med-v"))
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("med-v")))
 
 		So(err, ShouldBeNil)
 
 		defer value.Close()
 
-		xForced, err := primitive.NewValue([]byte("med-x"))
+		xForced, err := primitive.FirstSegment(primitive.NewValue([]byte("med-x")))
 
 		So(err, ShouldBeNil)
 
 		defer xForced.Close()
 
-		zObs, err := primitive.NewValue([]byte("med-z"))
+		zObs, err := primitive.FirstSegment(primitive.NewValue([]byte("med-z")))
 
 		So(err, ShouldBeNil)
 
@@ -387,25 +390,25 @@ func TestGraphModerate(t *testing.T) {
 
 		seedABEdge(graph, 4)
 
-		value, err := primitive.NewValue([]byte("mod-v"))
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-v")))
 
 		So(err, ShouldBeNil)
 
 		defer value.Close()
 
-		xForced, err := primitive.NewValue([]byte("mod-x"))
+		xForced, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-x")))
 
 		So(err, ShouldBeNil)
 
 		defer xForced.Close()
 
-		z1, err := primitive.NewValue([]byte("mod-z1"))
+		z1, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-z1")))
 
 		So(err, ShouldBeNil)
 
 		defer z1.Close()
 
-		z2, err := primitive.NewValue([]byte("mod-z2"))
+		z2, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-z2")))
 
 		So(err, ShouldBeNil)
 
@@ -430,7 +433,7 @@ func TestGraphModerate(t *testing.T) {
 func BenchmarkGraphObserveResidual(b *testing.B) {
 	graph := NewGraph()
 
-	predicted, err := primitive.NewValue([]byte("bpr"))
+	predicted, err := primitive.FirstSegment(primitive.NewValue([]byte("bpr")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -438,7 +441,7 @@ func BenchmarkGraphObserveResidual(b *testing.B) {
 
 	defer predicted.Close()
 
-	observed, err := primitive.NewValue([]byte("bor"))
+	observed, err := primitive.FirstSegment(primitive.NewValue([]byte("bor")))
 
 	if err != nil {
 		b.Fatal(err)

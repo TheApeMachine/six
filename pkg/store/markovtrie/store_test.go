@@ -90,13 +90,13 @@ func TestStoreLoad(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		first, vErr := primitive.NewValue([]byte("aa"))
+		first, vErr := primitive.FirstSegment(primitive.NewValue([]byte("aa")))
 
 		So(vErr, ShouldBeNil)
 
 		defer first.Close()
 
-		second, vErr := primitive.NewValue([]byte("bb"))
+		second, vErr := primitive.FirstSegment(primitive.NewValue([]byte("bb")))
 
 		So(vErr, ShouldBeNil)
 
@@ -105,8 +105,8 @@ func TestStoreLoad(t *testing.T) {
 		So(store.Load(*first), ShouldBeNil)
 		So(store.Load(*second), ShouldBeNil)
 
-		So(store.root.Child("aa"), ShouldNotBeNil)
-		So(store.root.Child("aa").Child("bb"), ShouldNotBeNil)
+		So(store.root.Child(trieEdgeKey(*first)), ShouldNotBeNil)
+		So(store.root.Child(trieEdgeKey(*first)).Child(trieEdgeKey(*second)), ShouldNotBeNil)
 	})
 
 	Convey("Load with labels resets lastLeaf", t, func() {
@@ -114,7 +114,7 @@ func TestStoreLoad(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		tok, vErr := primitive.NewValue([]byte("tagged"))
+		tok, vErr := primitive.FirstSegment(primitive.NewValue([]byte("tagged")))
 
 		So(vErr, ShouldBeNil)
 
@@ -130,7 +130,7 @@ func TestStoreLoad(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		tokenValue, valueErr := primitive.NewValue([]byte("phase-tok"))
+		tokenValue, valueErr := primitive.FirstSegment(primitive.NewValue([]byte("phase-tok")))
 
 		So(valueErr, ShouldBeNil)
 
@@ -160,7 +160,7 @@ func TestStorePredict(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		tok, vErr := primitive.NewValue([]byte("walk-me"))
+		tok, vErr := primitive.FirstSegment(primitive.NewValue([]byte("walk-me")))
 
 		So(vErr, ShouldBeNil)
 
@@ -209,7 +209,7 @@ func TestStoreSignal(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		tok, vErr := primitive.NewValue([]byte("signal-tok"))
+		tok, vErr := primitive.FirstSegment(primitive.NewValue([]byte("signal-tok")))
 
 		So(vErr, ShouldBeNil)
 
@@ -324,7 +324,7 @@ func BenchmarkStoreLoadSequential(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	tok, err := primitive.NewValue([]byte("bench-load"))
+	tok, err := primitive.FirstSegment(primitive.NewValue([]byte("bench-load")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -351,7 +351,7 @@ func BenchmarkStoreSignals(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	tok, err := primitive.NewValue([]byte("sig-bench"))
+	tok, err := primitive.FirstSegment(primitive.NewValue([]byte("sig-bench")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -379,7 +379,7 @@ func BenchmarkStorePredict(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	tok, err := primitive.NewValue([]byte("bench-predict"))
+	tok, err := primitive.FirstSegment(primitive.NewValue([]byte("bench-predict")))
 
 	if err != nil {
 		b.Fatal(err)

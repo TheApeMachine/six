@@ -278,6 +278,10 @@ func (exp *GemmaIntegrationExperiment) Outcome() (any, Assertion, any) {
 	return exp.evaluator.Outcome(exp.Score())
 }
 
+func (exp *GemmaIntegrationExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(exp.evaluator, exp.tableData, idx)
+}
+
 func (exp *GemmaIntegrationExperiment) Score() float64 {
 	if len(exp.graftResults) > 0 {
 		ok := 0

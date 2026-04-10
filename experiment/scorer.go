@@ -35,6 +35,10 @@ func (scorer *ExtractionScorer) Aggregate(data []ExperimentalData) float64 {
 	return sum / float64(len(data))
 }
 
+func (scorer *ExtractionScorer) GateScore(row ExperimentalData) float64 {
+	return row.WeightedTotal
+}
+
 func EvalWithExtractionScorer() evalOpts {
 	return EvalWithScorer(&ExtractionScorer{})
 }
@@ -55,6 +59,13 @@ type Scorer interface {
 		Aggregate computes a single summary score over all collected results.
 	*/
 	Aggregate(data []ExperimentalData) float64
+
+	/*
+		GateScore is the per-row scalar aligned with Aggregate: what a single
+		sample contributes to the gate’s expectation scale (e.g. WeightedTotal,
+		Scores.Exact). Rows are assumed already Enrich’d.
+	*/
+	GateScore(row ExperimentalData) float64
 }
 
 /*
@@ -93,4 +104,83 @@ func (scorer *HoldoutScorer) Aggregate(data []ExperimentalData) float64 {
 	}
 
 	return sum / float64(len(data))
+}
+
+func (scorer *HoldoutScorer) GateScore(row ExperimentalData) float64 {
+	return row.WeightedTotal
+}
+
+/*
+HoldoutExactMeanScorer runs the same byte-level Enrich as HoldoutScorer so each
+row still carries Exact, Partial, Fuzzy, and WeightedTotal for tables and charts.
+Aggregate returns the mean Exact score only — matching the headline “Exact”
+bars in paper figures and avoiding inflated pipeline gates from partial/fuzzy
+credit that random-byte baselines were tuned for on WeightedTotal.
+*/
+type HoldoutExactMeanScorer struct{}
+
+func (HoldoutExactMeanScorer) Enrich(data *ExperimentalData) {
+	var hold HoldoutScorer
+
+	hold.Enrich(data)
+}
+
+func (HoldoutExactMeanScorer) Aggregate(data []ExperimentalData) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+
+	sum := 0.0
+
+	for _, row := range data {
+		sum += row.Scores.Exact
+	}
+
+	return sum / float64(len(data))
+}
+
+func (HoldoutExactMeanScorer) GateScore(row ExperimentalData) float64 {
+	return row.Scores.Exact
+}
+
+/*
+ScalingInstrumentScorer gates scaling/benchmark experiments on whether the
+pipeline produced a readout (or holds a Prediction), not on recovering a
+synthetic holdout suffix. Rows emitted from Finalize carry only metrics in
+Scores / WeightedTotal with empty Holdout and Generation; those are left
+untouched so throughput and compression summaries stay intact.
+*/
+type ScalingInstrumentScorer struct{}
+
+func (ScalingInstrumentScorer) Enrich(data *ExperimentalData) {
+	if len(data.Holdout) == 0 && len(data.Generation) == 0 && !strings.HasPrefix(data.Name, "prompt_") {
+		return
+	}
+
+	score := 0.0
+
+	if len(data.Generation) > 0 || data.Prediction != nil {
+		score = 1.0
+	}
+
+	data.Scores = Scores{Exact: score, Partial: score, Fuzzy: score}
+	data.WeightedTotal = score
+}
+
+func (ScalingInstrumentScorer) Aggregate(data []ExperimentalData) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+
+	sum := 0.0
+
+	for _, row := range data {
+		sum += row.WeightedTotal
+	}
+
+	return sum / float64(len(data))
+}
+
+func (ScalingInstrumentScorer) GateScore(row ExperimentalData) float64 {
+	return row.WeightedTotal
 }

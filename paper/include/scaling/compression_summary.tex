@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Compression — standardised result summary (N=13).}
+\caption{Compression — standardised result summary (N=51).}
 \label{tab:compression_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & prompt\_2 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+0 & prompt\_0 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+1 & prompt\_1 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+2 & prompt\_2 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-12 & 1 entries from 6 KB & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-11 & prompt\_11 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-10 & prompt\_10 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+50 & 50 entries from 25 KB & 25600.0000 & 50.0000 & 512.0000 & 0.9981 \\
+49 & prompt\_49 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+48 & prompt\_48 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{|\#u|hs!VB,\textbackslash\{\}.\%`Ckz\_=xe],*\textasciitilde{}'Z-hcn\^{}h2DS50xu\ldots}} & \multicolumn{2}{l}{\texttt{\#a9qI'p==ANNw]l\_Urd/*\textbackslash\{\}Y+(T\^{}z\#d.IoiNBN1OO\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{Tq|T1HC"GH(YRU-W@pIr<\_?I*([\$iXAHm2\$pTb[1\ldots}} & \multicolumn{2}{l}{\texttt{V\#LCpsXE/W!8al\%\^{}w[\^{}C\textasciitilde{}(C@VH98B\^{}@.>qLKmI1T\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{?4nbMWFeBQo\&<\^{}MhhT+@WcyTRg K[yJK\_06Y\{\{TJ\ldots}} & \multicolumn{2}{l}{\texttt{QU\textbackslash\{\}M\#HK\$x:w\{MKVRmD!m?\textasciitilde{}Vq"1N|r\textasciitilde{}2x\textbackslash\{\}:b8,C]D\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{4JLYRZ\$cyITUd(QC\}2\textbackslash\{\}yG6XiPxKWRtLayU.s]g\&y\ldots}} & \multicolumn{2}{l}{\texttt{U6AJa)Gw.]YQjXVO@<HX\{0VDZ3t'rm"7SaO9q\^{}63\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{|\#u|hs!VB,\textbackslash\{\}.\%`Ckz\_=xe],*\textasciitilde{}'Z-hcn\^{}h2DS50xu\ldots}} & \multicolumn{2}{l}{\texttt{oiNBN1OO6;qljjM.\textasciitilde{}j/'TfbjN]z|7L9B}} & \multicolumn{2}{l}{\texttt{·Z·x·\textasciitilde{}··· ·Z·x·\textasciitilde{}··· ·Z·x·\textasciitilde{}··· ·Z·x·\textasciitilde{}··· \ldots}} \\
+\multicolumn{2}{l}{\texttt{Tq|T1HC"GH(YRU-W@pIr<\_?I*([\$iXAHm2\$pTb[1\ldots}} & \multicolumn{2}{l}{\texttt{>qLKmI1TY\textbackslash\{\}1?Cz?uKBb9O8H!k]7V(0iM}} & \multicolumn{2}{l}{\texttt{····p·'·····`·3·]···)·j· ····p·'·····`·3\ldots}} \\
+\multicolumn{2}{l}{\texttt{Kd(w\textasciitilde{}\&nD)qEVo>jL9yP3q\textasciitilde{}9W]c4@\_*\}.!bnlX\_;r\ldots}} & \multicolumn{2}{l}{\texttt{(wb6wNR)VE":`a'f(Tc5kJ//\$45g\textasciitilde{}H0Z}} & \multicolumn{2}{l}{\texttt{···· ···· ···· ···· ····}} \\
+\multicolumn{2}{l}{\texttt{FIC-l`/wF\%(!oxr3YO9+5@5I\$b [,.Z\&+OPid,00\ldots}} & \multicolumn{2}{l}{\texttt{\textbackslash\{\}\%F\#Nw*\#Ge4y?Z\$R.+Wf==\&V7KEvY`8e}} & \multicolumn{2}{l}{\texttt{P·V·`·\&···W·t·\&·I·K·9·n·····=·\{·········\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 13} & \multicolumn{3}{l}{Holdout: 13\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 51} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
+\multicolumn{3}{l}{Mean score: 1.0000} & \multicolumn{3}{l}{Min: 0.9981 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

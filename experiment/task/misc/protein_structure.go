@@ -103,6 +103,10 @@ func (experiment *ProteinStructureExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *ProteinStructureExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *ProteinStructureExperiment) Score() float64 {
 	return experiment.evaluator.MeanScore(experiment.tableData)
 }

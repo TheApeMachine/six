@@ -164,6 +164,10 @@ func (e *ReconstructionExperiment) Outcome() (any, Assertion, any) {
 	return e.evaluator.Outcome(e.Score())
 }
 
+func (e *ReconstructionExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(e.evaluator, e.tableData, idx)
+}
+
 func (e *ReconstructionExperiment) Score() float64 {
 	return e.evaluator.MeanScore(e.tableData)
 }

@@ -140,7 +140,7 @@ func TestRequireChainLinkage(t *testing.T) {
 		})
 
 		Convey("When ID is set but Prev and Next are both zero", func() {
-			value, err := primitive.NewValue([]byte("payload"))
+			value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
 			So(err, ShouldBeNil)
 			defer func() { _ = value.Close() }()
 
@@ -150,7 +150,7 @@ func TestRequireChainLinkage(t *testing.T) {
 		})
 
 		Convey("When Prev is non-zero", func() {
-			value, err := primitive.NewValue([]byte("payload"))
+			value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
 			So(err, ShouldBeNil)
 			defer func() { _ = value.Close() }()
 
@@ -162,7 +162,7 @@ func TestRequireChainLinkage(t *testing.T) {
 		})
 
 		Convey("When Next is non-zero", func() {
-			value, err := primitive.NewValue([]byte("payload"))
+			value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
 			So(err, ShouldBeNil)
 			defer func() { _ = value.Close() }()
 
@@ -176,7 +176,7 @@ func TestRequireChainLinkage(t *testing.T) {
 }
 
 func BenchmarkRequireChainLinkagePass(b *testing.B) {
-	value, err := primitive.NewValue([]byte("payload"))
+	value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func BenchmarkRequireChainLinkagePass(b *testing.B) {
 }
 
 func BenchmarkRequireChainLinkageRejectUnlinked(b *testing.B) {
-	value, err := primitive.NewValue([]byte("payload"))
+	value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
 	if err != nil {
 		b.Fatal(err)
 	}

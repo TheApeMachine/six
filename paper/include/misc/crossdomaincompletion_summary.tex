@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{CrossDomainCompletion — standardised result summary (N=200).}
+\caption{CrossDomainCompletion — standardised result summary (N=199).}
 \label{tab:crossdomaincompletion_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+158 & Source Code & 0.0000 & 0.3400 & 0.3400 & 0.1545 \\
+26 & Natural Language & 0.0000 & 0.1600 & 0.1600 & 0.0727 \\
+192 & Source Code & 0.0000 & 0.1400 & 0.1400 & 0.0636 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-199 & Source Code & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-198 & Source Code & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+4 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+5 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 197 & Source Code & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Anarchism is a political philosophy and \ldots}} & \multicolumn{2}{l}{\texttt{gies·Political movements·Social theories\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{Albedo (; ) is the fraction of sunlight \ldots}} & \multicolumn{2}{l}{\texttt{ative transfer (optics)·Radiation·1760s \ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{MTVGKSSKMLQHIDYRMRCILQDGRIFIGTFKAFDKHMNL\ldots}} & \multicolumn{2}{l}{\texttt{EEEEEEEEEECCCCCCCCCEEEEEEEEEEEECHHHEEEEE\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{LSSKYSRNTELRRVEDNDIYRLAKILDENSCWRKLMSIIP\ldots}} & \multicolumn{2}{l}{\texttt{CCEHHHHHHHHHHCCCHHHHHHHHHHHHCCCCCCCCCCCC\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{TQGNTCGGETCSAAQVCLKGKCVCNEVHCRIRCKYGLKKD\ldots}} & \multicolumn{2}{l}{\texttt{ECCECCCCCEEEECCEEEECCCCCCCCCCCCECCCCCCCC\ldots}} & \multicolumn{2}{l}{\texttt{CCCCC CCCCC CCCCC CCCCC CCCCC}} \\
+\multicolumn{2}{l}{\texttt{Animation is the method that encompasses\ldots}} & \multicolumn{2}{l}{\texttt{s containing video clips·Film and video \ldots}} & \multicolumn{2}{l}{\texttt{Animation Animation Animation Animation \ldots}} \\
+\multicolumn{2}{l}{\texttt{In Greek mythology, Achilles ( ) or Achi\ldots}} & \multicolumn{2}{l}{\texttt{haracters in literature·Princes in Greek\ldots}} & \multicolumn{2}{l}{\texttt{( ( ( ( (}} \\
+\multicolumn{2}{l}{\texttt{Abraham Lincoln ( ; February 12, 1809·– \ldots}} & \multicolumn{2}{l}{\texttt{idents·Assassinated former subnational l\ldots}} & \multicolumn{2}{l}{\texttt{( ( ( ( (}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 200} & \multicolumn{3}{l}{Holdout: 200\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 199} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
+\multicolumn{3}{l}{Mean score: 0.0119} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1545} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

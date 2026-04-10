@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-8 & prompt\_8 & 0.0000 & 0.5556 & 0.1020 & 0.1701 \\
-2 & prompt\_2 & 0.0000 & 0.0190 & 0.0190 & 0.0087 \\
-7 & prompt\_7 & 0.0000 & 0.0168 & 0.0168 & 0.0076 \\
+8 & prompt\_8 & 0.0000 & 0.5556 & 0.5556 & 0.2525 \\
+0 & prompt\_0 & 0.0000 & 0.0556 & 0.0101 & 0.0170 \\
+2 & prompt\_2 & 0.0000 & 0.0032 & 0.0032 & 0.0014 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-4 & prompt\_4 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-9 & prompt\_9 & 0.0000 & 0.0063 & 0.0063 & 0.0029 \\
+9 & prompt\_9 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+7 & prompt\_7 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+5 & prompt\_5 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{= = = = = = = = = = = = = = = = = = = = \ldots}} \\
-\multicolumn{2}{l}{\texttt{The game began development in 2010 , car\ldots}} & \multicolumn{2}{l}{\texttt{such as making the game more forgiving f\ldots}} & \multicolumn{2}{l}{\texttt{= = = = = = = = = = = = = = = = = = = = \ldots}} \\
-\multicolumn{2}{l}{\texttt{= = Ga}} & \multicolumn{2}{l}{\texttt{meplay = = ·}} & \multicolumn{2}{l}{\texttt{= = = = = = = = = = = = = = = = = = = = \ldots}} \\
-\multicolumn{2}{l}{\texttt{= Valkyria}} & \multicolumn{2}{l}{\texttt{Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{= = = = = = = = = = = = = = = = = = = = \ldots}} \\
+\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{= = = = =}} \\
+\multicolumn{2}{l}{\texttt{= Valkyria}} & \multicolumn{2}{l}{\texttt{Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{the the the the the the the the the the \ldots}} \\
+\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{re nevertheless up to the task , exempli\ldots}} & \multicolumn{2}{l}{\texttt{. . . . .}} \\
+\multicolumn{2}{l}{\texttt{Troops are divided into five classes : S\ldots}} & \multicolumn{2}{l}{\texttt{atly affect the stats gained while in a \ldots}} & \multicolumn{2}{l}{\texttt{, , , , ,}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 10\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0203} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1701} \\
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
+\multicolumn{3}{l}{Mean score: 0.0272} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.2525} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

@@ -9,7 +9,9 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
@@ -49,6 +51,18 @@ type Node struct {
 	epochQueries      int
 	securityThreshold float64
 	queue             *pool.Queue
+
+	// meshLoad* is the primary-ingest centroid (Store with fanout). At
+	// ShannonLimit, onMeshExpand runs so vm.Machine can add a peer like
+	// selectOrSpawnTrie spawns another trie cluster.
+	meshLoadMu       sync.Mutex
+	meshLoadAffinity primitive.Affinity
+	meshLoadCount    uint64
+	onMeshExpand     func(*primitive.Affinity) bool
+
+	// trieGraphVizLast throttles full trie topology snapshots to the viz bus.
+	trieGraphVizMu   sync.Mutex
+	trieGraphVizLast map[int]time.Time
 }
 
 type nodeOption func(*Node)
@@ -124,6 +138,16 @@ func NewNode(
 }
 
 /*
+SetMeshExpandHandler registers the callback run when meshLoadAffinity is
+saturated during primary ingest. A false return aborts that record (Key
+released); nil or a true return resets the local load centroid so ingest
+can continue. Standalone nodes leave the handler nil and only reset.
+*/
+func (node *Node) SetMeshExpandHandler(handler func(*primitive.Affinity) bool) {
+	node.onMeshExpand = handler
+}
+
+/*
 Gossip returns the node's gossip layer for digest propagation.
 */
 func (node *Node) Gossip() *Gossip {
@@ -165,6 +189,23 @@ func (node *Node) Publish(
 
 	affVec := value.AffinityVector()
 
+	if primitive.AffinityVectorIsZero(affVec) {
+		if err := value.ComputeAffinityLSH(); err != nil {
+			return errnie.Error(fmt.Errorf(
+				"kadabra: zero affinity and ComputeAffinityLSH failed: %w",
+				err,
+			))
+		}
+
+		affVec = value.AffinityVector()
+	}
+
+	if primitive.AffinityVectorIsZero(affVec) {
+		return errnie.Error(fmt.Errorf(
+			"kadabra: refusing to publish Value with zero affinity — call ComputeAffinityLSH first",
+		))
+	}
+
 	record := SequenceRecord{
 		Value:     *value,
 		Affinity:  affVec,
@@ -173,12 +214,6 @@ func (node *Node) Publish(
 	}
 
 	record.Key = record.Hash()
-
-	if primitive.AffinityVectorIsZero(affVec) {
-		return errnie.Error(fmt.Errorf(
-			"kadabra: refusing to publish Value with zero affinity — call ComputeAffinityLSH first",
-		))
-	}
 
 	if err := node.Store(record); err != nil {
 		return errnie.Error(err)

@@ -1,15 +1,15 @@
-\subsection{Rule-Shift Adaptation}
+\subsection{ Rule-Shift Adaptation }
 \label{sec:rule_shift}
 
 \paragraph{Task Description.}
 This experiment injects a mid-stream rule change into the substrate without
 any explicit signal or re-training.  Two generative rules partition the
-$2N$ = 2-sample stream:
+$2N$ = 50-sample stream:
 
 \begin{itemize}[nosep]
-  \item \textbf{Rule A} (steps 0--1, $N=25$ samples):
+  \item \textbf{Rule A} (steps 0--25, $N=25$ samples):
         linear modular sequences, $b_k = (s_i + 3k) \bmod 251$.
-  \item \textbf{Rule B} (steps 1--2, $N=25$ samples):
+  \item \textbf{Rule B} (steps 25--50, $N=25$ samples):
         XOR-nonlinear sequences, $b_k = s_i \oplus (11k \bmod 256)$.
 \end{itemize}
 
@@ -20,15 +20,14 @@ is $\arg\max(K_A, K_B)$.
 
 \paragraph{Results.}
 Figure~\ref{fig:ruleshift_trajectory} shows the full adaptation
-trajectory.  The shift boundary is at step 1.  Rule B
-did not stabilise within the observation window.  Phase A had $1$ of
-$2$ steps won by Rule A
-(50\,\%); Phase B had $0$ of
-$0$ steps won by Rule B (0\,\%).
+trajectory.  The shift boundary is at step 25.  Rule B
+did not stabilise within the observation window.  Phase A had $23$ of
+$25$ steps won by Rule A
+(92\,%%); Phase B had $0$ of
+$25$ steps won by Rule B (0\,%%).
 
 \paragraph{Assessment.}
 The substrate did not complete the transition within the available window.
 At this scale, Rules A and B produce similar value cosine similarities;
 longer samples or larger \textit{N} would widen the attractor gap and make
 the shift detectable.
-

@@ -114,6 +114,10 @@ func (experiment *SteerabilityExperiment) Outcome() (any, gc.Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *SteerabilityExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *SteerabilityExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0

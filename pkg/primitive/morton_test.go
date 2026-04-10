@@ -267,6 +267,59 @@ func TestEncodeBytesWithDepth(t *testing.T) {
 	})
 }
 
+func TestEncodeInterleaved8x8(t *testing.T) {
+	Convey("Given EncodeInterleaved8x8", t, func() {
+		Convey("It should roundtrip low eight bits and ignore high bits", func() {
+			for _, pair := range []struct {
+				x, y, wantX, wantY uint32
+			}{
+				{0, 0, 0, 0},
+				{255, 255, 255, 255},
+				{255, 0, 255, 0},
+				{0, 255, 0, 255},
+				{0xAB | (3 << 16), 0xCD | (9 << 24), 0xAB, 0xCD},
+			} {
+				code := EncodeInterleaved8x8(pair.x, pair.y)
+				rx, ry := DecodeInterleaved8x8(code)
+
+				So(rx, ShouldEqual, pair.wantX)
+				So(ry, ShouldEqual, pair.wantY)
+			}
+		})
+	})
+}
+
+func TestEncodeBytesWithDepth16(t *testing.T) {
+	Convey("Given EncodeBytesWithDepth16", t, func() {
+		Convey("It should encode text with depth resetting at spaces", func() {
+			codes := EncodeBytesWithDepth16([]byte("ab cd"), []byte{' '})
+
+			So(len(codes), ShouldEqual, 5)
+
+			x0, y0 := DecodeInterleaved8x8(codes[0])
+			x1, y1 := DecodeInterleaved8x8(codes[1])
+			x2, y2 := DecodeInterleaved8x8(codes[2])
+			x3, y3 := DecodeInterleaved8x8(codes[3])
+			x4, y4 := DecodeInterleaved8x8(codes[4])
+
+			So(x0, ShouldEqual, 'a')
+			So(y0, ShouldEqual, 0)
+			So(x1, ShouldEqual, 'b')
+			So(y1, ShouldEqual, 1)
+			So(x2, ShouldEqual, ' ')
+			So(y2, ShouldEqual, 2)
+			So(x3, ShouldEqual, 'c')
+			So(y3, ShouldEqual, 0)
+			So(x4, ShouldEqual, 'd')
+			So(y4, ShouldEqual, 1)
+		})
+
+		Convey("It should return nil for empty input", func() {
+			So(EncodeBytesWithDepth16(nil, nil), ShouldBeNil)
+		})
+	})
+}
+
 func TestMortonMSB(t *testing.T) {
 	Convey("Given morton codes", t, func() {
 		Convey("It should return 0 for zero", func() {
@@ -332,6 +385,17 @@ func BenchmarkEncodeBytesWithDepth(b *testing.B) {
 
 	for idx := 0; idx < b.N; idx++ {
 		morton.EncodeBytesWithDepth(data, boundaries)
+	}
+}
+
+func BenchmarkEncodeBytesWithDepth16(b *testing.B) {
+	data := []byte("the quick brown fox jumps over the lazy dog")
+	boundaries := []byte{' '}
+
+	b.ResetTimer()
+
+	for idx := 0; idx < b.N; idx++ {
+		EncodeBytesWithDepth16(data, boundaries)
 	}
 }
 

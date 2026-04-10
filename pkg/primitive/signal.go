@@ -43,25 +43,21 @@ func longestOneRun(x uint64) int {
 }
 
 /*
-ScanSignals detects one-runs and zero-runs across the token region by
-inspecting each token word directly. The runner is called once to execute
-the surface program (populating Signals), then the token words themselves
-are scanned for contiguous bit runs.
-
+ScanSignalRegion scans the emitted Signals region for one-runs and zero-runs.
 Returns signals sorted by run length (longest first).
 */
-func ScanSignals(v *Value, runner func(*Value) error) ([]Signal, error) {
-	if err := runner(v); err != nil {
-		return nil, err
+func ScanSignalRegion(value *Value) []Signal {
+	if value == nil {
+		return nil
 	}
 
-	tokenStart := core.Cfg.Value.Region.Tokens.Start
-	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	signalStart := core.Cfg.Value.Region.Signals.Start
+	signalWords := int((core.Cfg.Value.Region.Signals.Bits + 63) / 64)
 
 	var signals []Signal
 
-	for i := range tokenWords {
-		word := v[tokenStart+i]
+	for i := range signalWords {
+		word := value[signalStart+i]
 
 		// Detect one-runs.
 		if oneRun := longestOneRun(word); oneRun >= 4 {
@@ -86,5 +82,17 @@ func ScanSignals(v *Value, runner func(*Value) error) ([]Signal, error) {
 		return signals[i].RunLen > signals[j].RunLen
 	})
 
-	return signals, nil
+	return signals
+}
+
+/*
+ScanSignals executes the surface program once, then scans the emitted
+Signals region for one-runs and zero-runs.
+*/
+func ScanSignals(v *Value, runner func(*Value) error) ([]Signal, error) {
+	if err := runner(v); err != nil {
+		return nil, err
+	}
+
+	return ScanSignalRegion(v), nil
 }

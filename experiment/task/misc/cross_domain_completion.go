@@ -150,6 +150,10 @@ func (experiment *CrossDomainCompletionExperiment) Outcome() (any, Assertion, an
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *CrossDomainCompletionExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *CrossDomainCompletionExperiment) Score() float64 {
 	return experiment.evaluator.MeanScore(experiment.tableData)
 }

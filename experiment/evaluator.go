@@ -94,6 +94,47 @@ func (evaluator *Evaluator) Outcome(score float64) (any, gc.Assertion, any) {
 	return score, gc.ShouldBeGreaterThanOrEqualTo, evaluator.expectation.threshold()
 }
 
+/*
+OutcomeForTableRow is the per-prompt counterpart to Outcome: it uses the same
+threshold as Outcome() but scores only the row at idx.
+
+Classification experiments (non-empty Evaluator labels): the scalar is 1 when
+the predicted class matches the gold label after ComputePredictions on that
+row, else 0 — comparable to the same baseline gate as the aggregate, as a
+per-sample pass/fail signal.
+
+Holdout experiments: the scalar is Scorer.GateScore (e.g. WeightedTotal or
+Scores.Exact), matching the aggregate’s scorer scale.
+*/
+func (evaluator *Evaluator) OutcomeForTableRow(table []ExperimentalData, idx int) (any, gc.Assertion, any) {
+	if evaluator == nil || idx < 0 || idx >= len(table) {
+		return 0.0, gc.ShouldBeNil, nil
+	}
+
+	thresh := evaluator.expectation.threshold()
+
+	if len(evaluator.labels) > 0 {
+		slice := table[idx : idx+1]
+		evaluator.ComputePredictions(slice)
+
+		row := &table[idx]
+
+		var score float64
+
+		if row.TrueLabel != nil && row.PredLabel != nil && *row.TrueLabel == *row.PredLabel {
+			score = 1.0
+		}
+
+		return score, gc.ShouldBeGreaterThanOrEqualTo, thresh
+	}
+
+	if evaluator.scorer == nil {
+		return 0.0, gc.ShouldBeNil, nil
+	}
+
+	return evaluator.scorer.GateScore(table[idx]), gc.ShouldBeGreaterThanOrEqualTo, thresh
+}
+
 func (expectation Expectation) threshold() float64 {
 	if expectation.Gate == ExpectationGateTarget {
 		return expectation.Target
@@ -136,7 +177,7 @@ func (evaluator *Evaluator) ComputePredictions(data []ExperimentalData) {
 		}
 
 		if len(found) == 1 {
-			data[idx].PredLabel = OptionalLabel(found[0])
+			data[idx].PredLabel = new(found[0])
 		}
 	}
 }
@@ -259,6 +300,14 @@ func EvalWithScorer(scorer Scorer) evalOpts {
 	return func(evaluator *Evaluator) {
 		evaluator.scorer = scorer
 	}
+}
+
+/*
+EvalWithScalingInstrumentScorer uses ScalingInstrumentScorer for experiments
+where the gate is instrumentation success, not holdout fidelity.
+*/
+func EvalWithScalingInstrumentScorer() evalOpts {
+	return EvalWithScorer(&ScalingInstrumentScorer{})
 }
 
 /*

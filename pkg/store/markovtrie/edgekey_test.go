@@ -23,8 +23,8 @@ func setupMarkovTrieValueConfig(tb testing.TB) {
 func TestTrieEdgeKey(t *testing.T) {
 	setupMarkovTrieValueConfig(t)
 
-	Convey("trieEdgeKey matches String for token payload", t, func() {
-		value, err := primitive.NewValue([]byte("tok"))
+	Convey("Given a Value with token payload", t, func() {
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("tok")))
 
 		So(err, ShouldBeNil)
 
@@ -32,20 +32,37 @@ func TestTrieEdgeKey(t *testing.T) {
 
 		stack := *value
 
-		So(trieEdgeKey(stack), ShouldEqual, stack.String())
+		Convey("It should produce a non-empty Morton-coded key", func() {
+			key := trieEdgeKey(stack)
+
+			So(len(key), ShouldBeGreaterThan, 0)
+		})
+
+		Convey("It should be deterministic", func() {
+			key1 := trieEdgeKey(stack)
+			key2 := trieEdgeKey(stack)
+
+			So(key1, ShouldEqual, key2)
+		})
+
+		Convey("It should roundtrip through String", func() {
+			So(stack.String(), ShouldEqual, "tok")
+		})
 	})
 
-	Convey("empty token region yields empty key", t, func() {
+	Convey("Given an empty token region", t, func() {
 		var zero primitive.Value
 
-		So(trieEdgeKey(zero), ShouldEqual, "")
+		Convey("It should yield empty key", func() {
+			So(trieEdgeKey(zero), ShouldEqual, "")
+		})
 	})
 }
 
 func BenchmarkTrieEdgeKey(b *testing.B) {
 	setupMarkovTrieValueConfig(b)
 
-	value, err := primitive.NewValue([]byte("benchmark-token"))
+	value, err := primitive.FirstSegment(primitive.NewValue([]byte("benchmark-token")))
 
 	if err != nil {
 		b.Fatal(err)

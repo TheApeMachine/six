@@ -8,8 +8,23 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/transport"
 )
+
+type labelCapturePublishable struct {
+	labels []string
+}
+
+func (capture *labelCapturePublishable) Publish(value *primitive.Value, label string) error {
+	if value != nil {
+		_ = value.Close()
+	}
+
+	capture.labels = append(capture.labels, label)
+
+	return nil
+}
 
 func mustTestQueue(tb testing.TB) *pool.Queue {
 	tb.Helper()
@@ -63,7 +78,7 @@ func TestTokenizerRead(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(tokenizer, ShouldNotBeNil)
 
-		chunkLen := int(core.Cfg.Value.Region.Tokens.Bits / 8)
+		chunkLen := core.Cfg.Value.Region.MaxTokenIngestBytes()
 		chunk := bytes.Repeat([]byte{'q'}, chunkLen)
 		frameBuf := make([]byte, core.Cfg.Value.Bytes)
 
@@ -96,7 +111,7 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		chunkLen := int(core.Cfg.Value.Region.Tokens.Bits / 8)
+		chunkLen := core.Cfg.Value.Region.MaxTokenIngestBytes()
 		chunks := 4
 		payload := bytes.Repeat([]byte{'d'}, chunkLen*chunks)
 
@@ -116,6 +131,49 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 		So(counter.n, ShouldEqual, chunks)
 
 		tokenizer.ResetAfterEOF()
+	})
+}
+
+func TestTokenizerIngestReader(t *testing.T) {
+	setupTokenizerValueConfig(t)
+
+	Convey("IngestReader publishes every chunk with the same label per reader", t, func() {
+		tokenizer, err := NewTokenizer(t.Context(), mustTestQueue(t))
+
+		So(err, ShouldBeNil)
+
+		chunkLen := core.Cfg.Value.Region.MaxTokenIngestBytes()
+		chunks := 3
+		payload := bytes.Repeat([]byte{'i'}, chunkLen*chunks)
+		capture := &labelCapturePublishable{}
+		publishers := []transport.Publishable{capture}
+
+		So(tokenizer.IngestReader(
+			t.Context(),
+			bytes.NewReader(payload),
+			"class-a",
+			publishers,
+			nil,
+		), ShouldBeNil)
+
+		So(len(capture.labels), ShouldEqual, chunks)
+
+		for _, label := range capture.labels {
+			So(label, ShouldEqual, "class-a")
+		}
+
+		So(tokenizer.IngestReader(
+			t.Context(),
+			bytes.NewReader(bytes.Repeat([]byte{'j'}, chunkLen*2)),
+			"class-b",
+			publishers,
+			nil,
+		), ShouldBeNil)
+
+		So(len(capture.labels), ShouldEqual, chunks+2)
+
+		So(capture.labels[chunks], ShouldEqual, "class-b")
+		So(capture.labels[chunks+1], ShouldEqual, "class-b")
 	})
 }
 
@@ -139,7 +197,7 @@ func BenchmarkTokenizerRead(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	chunkLen := int(core.Cfg.Value.Region.Tokens.Bits / 8)
+	chunkLen := core.Cfg.Value.Region.MaxTokenIngestBytes()
 	chunk := bytes.Repeat([]byte{'r'}, chunkLen)
 	frameBuf := make([]byte, core.Cfg.Value.Bytes)
 
@@ -179,7 +237,7 @@ func BenchmarkTokenizerDrainPublishedValues(b *testing.B) {
 
 	defer tokenizer.Close()
 
-	chunkLen := int(core.Cfg.Value.Region.Tokens.Bits / 8)
+	chunkLen := core.Cfg.Value.Region.MaxTokenIngestBytes()
 	chunk := bytes.Repeat([]byte{'e'}, chunkLen)
 	counter := &countingPublishable{}
 	publishers := []transport.Publishable{counter}
@@ -204,5 +262,55 @@ func BenchmarkTokenizerDrainPublishedValues(b *testing.B) {
 		}
 
 		tokenizer.ResetAfterEOF()
+	}
+}
+
+func BenchmarkTokenizerIngestReader(b *testing.B) {
+	setupTokenizerValueConfig(b)
+
+	queue, err := pool.NewQueue(b.Context())
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() {
+		queue.Drain()
+		_ = queue.Close()
+	}()
+
+	tokenizer, err := NewTokenizer(b.Context(), queue)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer tokenizer.Close()
+
+	chunkLen := core.Cfg.Value.Region.MaxTokenIngestBytes()
+	payload := bytes.Repeat([]byte{'g'}, chunkLen*4)
+	counter := &countingPublishable{}
+	publishers := []transport.Publishable{counter}
+
+	b.SetBytes(int64(len(payload)))
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		counter.n = 0
+
+		if err := tokenizer.IngestReader(
+			b.Context(),
+			bytes.NewReader(payload),
+			"bench-lbl",
+			publishers,
+			nil,
+		); err != nil {
+			b.Fatal(err)
+		}
+
+		if counter.n != 4 {
+			b.Fatalf("chunks: got %d want 4", counter.n)
+		}
 	}
 }

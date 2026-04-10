@@ -3,6 +3,7 @@ package kadabra
 import (
 	"fmt"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/viz"
@@ -60,7 +61,7 @@ func (node *Node) enqueueRecord(record SequenceRecord, fanout bool) error {
 	}
 
 	node.queue.SubmitTracked(func() {
-		inserted := node.applyRecordToTrie(record)
+		inserted := node.applyRecordToTrie(record, fanout)
 
 		if !inserted || !fanout || node.replicationFactor <= 1 {
 			return
@@ -93,7 +94,7 @@ func (node *Node) enqueueRecord(record SequenceRecord, fanout bool) error {
 	return nil
 }
 
-func (node *Node) applyRecordToTrie(record SequenceRecord) bool {
+func (node *Node) applyRecordToTrie(record SequenceRecord, primaryIngest bool) bool {
 	if node == nil || node.routing == nil {
 		return false
 	}
@@ -103,6 +104,15 @@ func (node *Node) applyRecordToTrie(record SequenceRecord) bool {
 	}
 
 	aff := primitive.AffinityWithVector(record.Affinity)
+
+	if primaryIngest {
+		if !node.blendMeshLoadCentroid(&aff) {
+			node.routing.releaseRecordKey(record.Key)
+
+			return false
+		}
+	}
+
 	trie := node.selectOrSpawnTrie(&aff)
 
 	if trie == nil {
@@ -117,9 +127,49 @@ func (node *Node) applyRecordToTrie(record SequenceRecord) bool {
 		return false
 	}
 
+	trieIdx := node.trieIndex(trie)
+
 	viz.DefaultBus.Publish(viz.TrieInsertEvent(
-		node.ID, record.Value.String(), record.Label,
+		node.ID, trieIdx, record.Value.String(), record.Label,
 	))
+
+	node.publishTrieGraphViz(trie)
+
+	return true
+}
+
+/*
+blendMeshLoadCentroid folds primary-ingest affinities toward meshLoadAffinity.
+While the centroid popcount stays below ShannonLimit it blends like a trie
+cluster; at saturation it invokes onMeshExpand and resets when expansion
+succeeds, matching selectOrSpawnTrie’s spawnTrie decision at node scale.
+*/
+func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
+	shannonLimit := core.Cfg.Kadabra.ShannonLimit
+
+	node.meshLoadMu.Lock()
+	defer node.meshLoadMu.Unlock()
+
+	if node.meshLoadCount == 0 {
+		node.meshLoadAffinity = *incoming
+		node.meshLoadCount = 1
+
+		return true
+	}
+
+	if node.meshLoadAffinity.Popcount() < shannonLimit {
+		count := node.meshLoadCount
+		node.meshLoadCount = node.meshLoadAffinity.Blend(incoming, count, shannonLimit)
+
+		return true
+	}
+
+	if node.onMeshExpand != nil && !node.onMeshExpand(incoming) {
+		return false
+	}
+
+	node.meshLoadAffinity = *incoming
+	node.meshLoadCount = 1
 
 	return true
 }

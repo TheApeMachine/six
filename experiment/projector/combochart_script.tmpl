@@ -15,7 +15,7 @@
                 lineStyle: { color }
             };
             if (s.type === 'bar') {
-                return { ...base, type: 'bar', barWidth: s.barWidth || '15%', itemStyle: { color, borderRadius: [4, 4, 0, 0] } };
+                return { ...base, type: 'bar', barWidth: s.barWidth || '15%', itemStyle: { color } };
             } else if (s.type === 'dashed') {
                 return { ...base, type: 'line', smooth: false, symbol: s.symbol || 'diamond', symbolSize: 6,
                          lineStyle: { color, type: 'dashed', width: 1.5 } };

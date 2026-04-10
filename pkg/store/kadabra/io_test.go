@@ -63,7 +63,7 @@ func TestSelectOrSpawnTrieScalarPath(t *testing.T) {
 		for idx := range requiredSpawns {
 			payload := fmt.Appendf(nil, "scalar-%d", idx)
 
-			value, vErr := primitive.NewValue(payload)
+			value, vErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 			So(vErr, ShouldBeNil)
 
@@ -119,7 +119,7 @@ func TestNodePredictManyTriesSelectsByAffinity(t *testing.T) {
 		for idx := range 10 {
 			payload := fmt.Appendf(nil, "fan-%d", idx)
 
-			value, vErr := primitive.NewValue(payload)
+			value, vErr := primitive.FirstSegment(primitive.NewValue(payload))
 
 			So(vErr, ShouldBeNil)
 
@@ -147,7 +147,7 @@ func TestNodePredictManyTriesSelectsByAffinity(t *testing.T) {
 
 		queryPayload := []byte("fan-query")
 
-		query, vErr := primitive.NewValue(queryPayload)
+		query, vErr := primitive.FirstSegment(primitive.NewValue(queryPayload))
 
 		So(vErr, ShouldBeNil)
 
@@ -195,7 +195,7 @@ func BenchmarkSelectOrSpawnTrieScalar(b *testing.B) {
 	for idx := range requiredSpawns {
 		payload := fmt.Appendf(nil, "bench-scalar-%d", idx)
 
-		value, err := primitive.NewValue(payload)
+		value, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 		if err != nil {
 			b.Fatal(err)

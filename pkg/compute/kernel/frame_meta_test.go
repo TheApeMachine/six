@@ -31,4 +31,13 @@ func TestFrameMetaResidencyAndCorrelation(t *testing.T) {
 		StampFrameResidency(ptr, 2)
 		So(ResidencySubstrateIndex(ptr), ShouldEqual, 2)
 	})
+
+	Convey("FrameProgramOpcode reads low nibble of program word 16", t, func() {
+		var words [128]uint64
+		ptr := unsafe.Pointer(&words[0])
+
+		v := (*[128]uint64)(ptr)
+		v[ProgramStartWord] = 0xA
+		So(FrameProgramOpcode(ptr), ShouldEqual, 0xA)
+	})
 }

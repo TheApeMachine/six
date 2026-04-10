@@ -14,7 +14,9 @@ logging:
     # Empty path writes to ./trace.log under the process working directory.
     path: ""
   elasticsearch:
-    # Must be true for logs to ship. Or export ELASTICSEARCH_ENABLED=true.
+    # Ship structured logs to Elasticsearch. Set false when the cluster is not
+    # running (or export ELASTICSEARCH_ENABLED=0) to avoid noisy I/O; errnie also
+    # rate-limits repeated ES errors when enabled but unreachable.
     enabled: true
     urls:
       - https://127.0.0.1:9200
@@ -112,21 +114,21 @@ value:
   region:
     tokens:
       start: 0
-      bits: 512
+      bits: 1024
     program:
-      start: 8
-      bits: 512
-    signals:
       start: 16
       bits: 512
-    context:
+    signals:
       start: 24
       bits: 512
-    gradient:
+    context:
       start: 32
       bits: 512
-    meta:
+    gradient:
       start: 40
+      bits: 512
+    meta:
+      start: 48
       bits: 512
     prev:
       start: 120
@@ -184,6 +186,14 @@ programs:
     FALSE 0 5
     FALSE 0 6
     FALSE 0 7
+    FALSE 0 8
+    FALSE 0 9
+    FALSE 0 10
+    FALSE 0 11
+    FALSE 0 12
+    FALSE 0 13
+    FALSE 0 14
+    FALSE 0 15
     FALSE 0 57
     FALSE 0 58
     FALSE 0 59

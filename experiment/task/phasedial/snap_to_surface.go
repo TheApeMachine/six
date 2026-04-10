@@ -70,6 +70,10 @@ func (experiment *SnapToSurfaceExperiment) Outcome() (any, gc.Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *SnapToSurfaceExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *SnapToSurfaceExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0.0 // No data yet

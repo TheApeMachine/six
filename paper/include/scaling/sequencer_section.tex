@@ -1,20 +1,24 @@
-\subsection{Sequencer Boundary Detection and Retrieval}
+\subsection{ Sequencer Boundary Detection Scaling }
 \label{sec:sequencer}
 
 \paragraph{Task Description.}
-The sequencer experiment evaluates the boundary detection and retrieval
-quality of the tokeniser's Sequencer module.  A 1\,000-sample synthetic
-dataset (128 bytes per sample) is ingested; each sample is split at an
-MDL-detected boundary, with the suffix serving as the held-out target.
-The retrieval score measures how accurately the substrate recovers the
-held-out bytes given the prefix as a query.
+The sequencer experiment uses boundary-aware splits (32-byte suffix
+holdouts) on a 200-sample corpus. $N = 50$ queries are issued in
+corpus-position order. Does boundary detection maintain prediction
+quality as queries target progressively deeper data? Metrics are
+beam confidence, rejection rate, and origin diversity.
 
 \paragraph{Results.}
-Figure~\ref{fig:sequencer_map} shows the per-sample score fingerprint
-heatmap and weighted score distribution across $N = 189$ test samples.
-The substrate retained 0 unique entries.
-Mean retrieval weighted score: 0.000.
+Beam confidence rises across 50 queries (top-score $$\mu = -3.048$, $\sigma = 3.778$, median $= -3.466$, range $[-24.698,\,0.000]$, $N = 50$$).
+Rejection rate: $\mu = 0.018$. Origin diversity: $\mu = 1.0$ tries.
+Substrate entries: 50.
 
-Retrieval quality was low.  The synthetic dataset's uniform byte
-distribution produces boundaries that do not correlate strongly with
-value attractor boundaries at this substrate size.
+Figure~\ref{fig:sequencer_map} shows beam confidence trajectory
+(top-left), cumulative convergence (top-right), boundary routing
+noise (bottom-left), and mesh utilization (bottom-right).
+
+\paragraph{Assessment.}
+Beam confidence: $$\mu = -3.048$, $\sigma = 3.778$, median $= -3.466$, range $[-24.698,\,0.000]$, $N = 50$$ (trend: rises). Rejection: $0.018$.
+The four-panel view shows whether boundary detection quality,
+routing efficiency, and adaptive signals move together or
+independently across corpus depth.

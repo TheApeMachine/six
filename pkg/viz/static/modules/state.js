@@ -1,0 +1,33 @@
+export const state = {
+  nodes: new Map(),
+  edges: new Map(),
+  fieldArcs: new Map(),
+  eigenmodeRing: null,
+  floaters: [],
+  particles: [],
+  edgeParticles: [],
+  events: [],
+  paused: false,
+  scrubPos: -1,
+  selected: null,
+  selectedTrieVertex: null,
+  selectedPipeline: null,
+  eventCount: 0,
+  droppedCount: 0,
+  compute: {
+    substrates: {},
+    totalDispatches: 0,
+    recentActions: [],
+  },
+  throughput: {
+    buckets: new Float32Array(120),
+    idx: 0,
+    countThisSec: 0,
+    lastSec: 0,
+  },
+  statsDirty: false,
+  pipeline: {
+    stages: new Map(),
+    flowParticles: [],
+  },
+};

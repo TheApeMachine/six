@@ -28,7 +28,8 @@ the node's tries slice.
 The entire distance computation and argmin reduction happen in-band
 inside the Value frame. The programmer compiles a batch distance
 layout, the backend dispatches it to the best substrate, and the
-kernel writes the winning index and distance into words 22 and 23.
+kernel writes the winning index and distance into the last two words
+of the signals region (SignalsStartWord+6, +7).
 Go never touches raw distance arrays.
 */
 func (node *Node) selectOrSpawnTrie(
@@ -70,24 +71,27 @@ func (node *Node) selectOrSpawnTrie(
 			},
 		),
 		programmer.CompilerWithBatchAffinityLayout(),
+		programmer.CompilerWithFinalizer(func(value *primitive.Value, next programmer.FinalizeNext) ([]*primitive.Value, error) {
+			sig := kernel.SignalsStartWord
+
+			bestIdx := int(frame[sig+6])
+			bestDist := int(frame[sig+7])
+
+			if bestIdx >= 0 && bestIdx < len(tries) && bestDist <= threshold {
+				cluster := tries[bestIdx]
+
+				if cluster.Affinity.Popcount() < shannonLimit {
+					count := cluster.AffinityCount.Load()
+					cluster.AffinityCount.Store(cluster.Affinity.Blend(affinity, count, shannonLimit))
+					return []*primitive.Value{value}, nil
+				}
+			}
+
+			return nil, nil
+		}),
 	)
 
-	node.queue.ExecuteSync(compiler)
-
-	bestIdx := int(frame[22])
-	bestDist := int(frame[23])
-
-	if bestIdx >= 0 && bestIdx < len(tries) && bestDist <= threshold {
-		cluster := tries[bestIdx]
-
-		if cluster.Affinity.Popcount() < shannonLimit {
-			count := cluster.AffinityCount.Load()
-			cluster.AffinityCount.Store(cluster.Affinity.Blend(affinity, count, shannonLimit))
-
-			return cluster
-		}
-	}
-
+	node.queue.Publish(compiler.Frame(), "kadabra:selectOrSpawnTrie")
 	return node.spawnTrie(affinity)
 }
 

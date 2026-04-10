@@ -9,14 +9,11 @@ import (
 )
 
 /*
-CompressionExperiment measures collision-as-compression in the substrate.
-Provides a 50-sample synthetic dataset (128 B each). The Pipeline ingests and
-prompts normally. Finalize measures the ratio of raw input bytes to stored
-substrate entries, characterising deduplication efficiency.
-
-Note: the sample count is intentionally modest (50) so that the full
-ingest+prompt cycle completes within the test-suite timeout. The paper prose
-explains that the ratio would sharpen at larger N.
+CompressionExperiment measures how de-duplication efficiency scales with
+corpus depth. Ingests 200 samples (128 B each) and issues 50 prefix queries
+drawn from positions spread across the corpus. By examining retrieval
+quality as a function of sample index (corpus depth), we see whether
+compression degrades fidelity for data ingested earlier versus later.
 */
 type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
@@ -24,16 +21,18 @@ type CompressionExperiment struct {
 	prompt    []string
 	holdouts  [][]byte
 	evaluator *tools.Evaluator
+	nSamples  int
+	sampleLen int
 }
 
 func NewCompressionExperiment() *CompressionExperiment {
 	return &CompressionExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   NewSyntheticDataset(128, 50, 99),
-		// Baseline 0.05: the normalized compression ratio (r/(r+1))
-		// should be positive for any non-trivial deduplication.
-		// Target 0.80: strong collision-as-compression at this sample size.
+		dataset:   NewSyntheticDataset(128, 200, 99),
+		nSamples:  200,
+		sampleLen: 128,
 		evaluator: tools.NewEvaluator(
+			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.80),
 		),
 	}
@@ -51,7 +50,8 @@ func (experiment *CompressionExperiment) Prompts() []string {
 		experiment.prompt = experiment.prompt[:0]
 		return experiment.prompt
 	}
-	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 12, 0)
+
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 50, 32)
 	return experiment.prompt
 }
 
@@ -59,6 +59,7 @@ func (experiment *CompressionExperiment) HoldoutForPrompt(idx int) ([]byte, bool
 	if idx < 0 || idx >= len(experiment.holdouts) {
 		return nil, false
 	}
+
 	return experiment.holdouts[idx], true
 }
 
@@ -71,6 +72,10 @@ func (experiment *CompressionExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *CompressionExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *CompressionExperiment) Score() float64 {
 	return experiment.evaluator.MeanScore(experiment.tableData)
 }
@@ -80,19 +85,25 @@ func (experiment *CompressionExperiment) TableData() any {
 }
 
 func (experiment *CompressionExperiment) Artifacts() []tools.Artifact {
-	return CompressionArtifacts(experiment.tableData)
+	return CompressionArtifacts(experiment.tableData, experiment.nSamples, experiment.sampleLen)
 }
 
 func (experiment *CompressionExperiment) Finalize(substrate any) error {
-	rawBytes := 50 * 128
-	entries := 1
+	rawBytes := experiment.nSamples * experiment.sampleLen
 
-	// Each entry stores a filter value + fingerprint + readout.
-	// Effective compression = raw bytes / entries.
-	ratio := 0.0
-	if entries > 0 {
-		ratio = float64(rawBytes) / float64(entries)
+	entries := 0
+
+	for _, row := range experiment.tableData {
+		if len(row.Generation) > 0 {
+			entries++
+		}
 	}
+
+	if entries == 0 {
+		entries = 1
+	}
+
+	ratio := float64(rawBytes) / float64(entries)
 
 	experiment.AddResult(tools.ExperimentalData{
 		Idx:  len(experiment.tableData),
@@ -102,7 +113,7 @@ func (experiment *CompressionExperiment) Finalize(substrate any) error {
 			Partial: float64(entries),
 			Fuzzy:   ratio,
 		},
-		WeightedTotal: ratio / (ratio + 1.0), // normalized [0,1)
+		WeightedTotal: ratio / (ratio + 1.0),
 	})
 
 	return nil

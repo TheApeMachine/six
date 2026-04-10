@@ -45,7 +45,7 @@ func TestGossipDigests(t *testing.T) {
 
 		So(nErr, ShouldBeNil)
 
-		value, vErr := primitive.NewValue([]byte("gossip-row"))
+		value, vErr := primitive.FirstSegment(primitive.NewValue([]byte("gossip-row")))
 
 		So(vErr, ShouldBeNil)
 
@@ -91,7 +91,7 @@ func BenchmarkGossipDigests(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	value, err := primitive.NewValue([]byte("gossip-bench"))
+	value, err := primitive.FirstSegment(primitive.NewValue([]byte("gossip-bench")))
 
 	if err != nil {
 		b.Fatal(err)

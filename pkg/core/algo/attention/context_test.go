@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestNewContext(t *testing.T) {
@@ -20,7 +22,7 @@ func TestNewContext(t *testing.T) {
 		context := NewContext(tokens, vocab, co)
 
 		So(context, ShouldNotBeNil)
-		So(len(context.Run()), ShouldEqual, 2)
+		So(len(context.tokens), ShouldEqual, 2)
 	})
 }
 
@@ -37,11 +39,19 @@ func TestContextRun(t *testing.T) {
 		}
 
 		context := NewContext(tokens, vocab, co)
-		out := context.Run()
+		prediction := algo.NewPrediction()
+		v, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha")))
 
-		So(len(out), ShouldEqual, 2)
-		So(out[0].Original, ShouldEqual, "alpha")
-		So(out[1].Original, ShouldEqual, "alpha")
+		So(err, ShouldBeNil)
+
+		defer v.Close()
+
+		prediction.Context = append(prediction.Context, *v)
+		context.Update(prediction)
+
+		So(len(context.coOccurrence), ShouldEqual, 2)
+		So(context.coOccurrence["alpha"]["beta"], ShouldEqual, 0.9)
+		So(context.coOccurrence["beta"]["alpha"], ShouldEqual, 0.8)
 	})
 }
 
@@ -63,6 +73,14 @@ func BenchmarkContextRun(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_ = context.Run()
+		prediction := algo.NewPrediction()
+		v, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha")))
+
+		So(err, ShouldBeNil)
+
+		defer v.Close()
+
+		prediction.Context = append(prediction.Context, *v)
+		context.Update(prediction)
 	}
 }

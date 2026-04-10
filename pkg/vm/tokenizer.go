@@ -14,14 +14,12 @@ import (
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/transport"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 var bufPool = sync.Pool{
 	New: func() any {
-		return make(
-			[]byte,
-			int(core.Cfg.Value.Region.Tokens.Bits/8),
-		)
+		return make([]byte, core.Cfg.Value.Region.MaxTokenIngestBytes())
 	},
 }
 
@@ -66,7 +64,7 @@ func NewTokenizer(
 
 	rb := ringbuffer.New(
 		int(
-			(core.Cfg.Value.Region.Tokens.Bits / 8) * uint64(core.Cfg.Value.Bytes),
+			uint64(core.Cfg.Value.Region.MaxTokenIngestBytes()) * uint64(core.Cfg.Value.Bytes),
 		),
 	)
 
@@ -137,14 +135,19 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 }
 
 /*
-adoptChunk mints tokenizer.current from one raw ingest chunk and links the
-doubly-linked ID chain across successive Values. The previous current is
-closed when replaced.
-*/
-func (tokenizer *Tokenizer) adoptChunk(chunk []byte) (*primitive.Value, error) {
-	old := tokenizer.current
+adoptChunk mints one or more *primitive.Value segments from a raw ingest chunk
+(via primitive.NewValue), chains Prev/Next across segments, then links the
+first new segment to the previous tokenizer.current (if any). The previous
+current is closed after writing its Next to the new head.
 
-	next, err := primitive.NewValue(chunk)
+Chunk length is at most MaxTokenIngestBytes so a single chunk usually yields
+one segment; longer logical payloads still never truncate because NewValue
+splits across segments inside one call.
+
+Returns every new segment (ordered); tokenizer.current becomes the tail.
+*/
+func (tokenizer *Tokenizer) adoptChunk(chunk []byte) ([]*primitive.Value, error) {
+	segments, err := primitive.NewValue(chunk)
 
 	if err != nil {
 		tokenizer.err = err
@@ -152,23 +155,27 @@ func (tokenizer *Tokenizer) adoptChunk(chunk []byte) (*primitive.Value, error) {
 		return nil, errnie.Error(err)
 	}
 
+	old := tokenizer.current
+	first := segments[0]
+	last := segments[len(segments)-1]
+
 	if old != nil {
-		next.Set(
+		first.Set(
 			core.Cfg.Value.Region.Prev.Start,
 			old.ID(),
 		)
 
 		old.Set(
 			core.Cfg.Value.Region.Next.Start,
-			next.ID(),
+			first.ID(),
 		)
 
 		_ = old.Close()
 	}
 
-	tokenizer.current = next
+	tokenizer.current = last
 
-	return next, nil
+	return segments, nil
 }
 
 /*
@@ -221,32 +228,36 @@ func (tokenizer *Tokenizer) DrainPublishedValues(
 		rbN, rbErr := tokenizer.rb.Read(buf)
 
 		if rbN > 0 {
-			next, adoptErr := tokenizer.adoptChunk(buf[:rbN])
+			minted, adoptErr := tokenizer.adoptChunk(buf[:rbN])
 
 			if adoptErr != nil {
 				return adoptErr
 			}
 
-			for _, publisher := range publishers {
-				if pubErr := publisher.Publish(next, label); pubErr != nil {
-					return pubErr
-				}
-			}
+			for _, seg := range minted {
+				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), label))
 
-			if frameTee != nil {
-				frameBuf := frameBacking[:frameNeed]
-				frameN, readErr := next.Read(frameBuf)
-
-				if frameN > 0 && errors.Is(readErr, io.EOF) {
-					readErr = nil
+				for _, publisher := range publishers {
+					if pubErr := publisher.Publish(seg, label); pubErr != nil {
+						return pubErr
+					}
 				}
 
-				if readErr != nil {
-					return errnie.Error(readErr)
-				}
+				if frameTee != nil {
+					frameBuf := frameBacking[:frameNeed]
+					frameN, readErr := seg.Read(frameBuf)
 
-				if _, wErr := frameTee.Write(frameBuf[:frameN]); wErr != nil {
-					return wErr
+					if frameN > 0 && errors.Is(readErr, io.EOF) {
+						readErr = nil
+					}
+
+					if readErr != nil {
+						return errnie.Error(readErr)
+					}
+
+					if _, wErr := frameTee.Write(frameBuf[:frameN]); wErr != nil {
+						return wErr
+					}
 				}
 			}
 
@@ -273,8 +284,65 @@ func (tokenizer *Tokenizer) DrainPublishedValues(
 	}
 }
 
+/*
+IngestReader copies r through the tokenizer write side, closes the pipe
+writer once, drains minted *primitive.Value records to publishers with
+label, then ResetAfterEOF for another bounded reader.
+
+One label applies to every Publish for that reader, so a logical sample
+split across multiple fixed-width Values needs no delimiter bytes—only
+that those bytes are copied before the next IngestReader call with the
+next label.
+
+Do not use IngestReader concurrently with transport.Pipeline on the same
+Tokenizer; Pipeline already runs a background DrainPublishedValues on this
+ring.
+*/
+func (tokenizer *Tokenizer) IngestReader(
+	ctx context.Context,
+	r io.Reader,
+	label string,
+	publishers []transport.Publishable,
+	frameTee io.Writer,
+) (err error) {
+	if tokenizer == nil {
+		return errnie.Error(errors.New("vm.Tokenizer.IngestReader: nil Tokenizer"))
+	}
+
+	if len(publishers) == 0 {
+		return errnie.Error(errors.New("vm.Tokenizer.IngestReader: need at least one Publishable"))
+	}
+
+	if err := validate.Require(map[string]any{
+		"pw": tokenizer.pw,
+		"rb": tokenizer.rb,
+	}); err != nil {
+		return errnie.Error(err)
+	}
+
+	if _, err = io.Copy(tokenizer, r); err != nil {
+		return errnie.Error(err)
+	}
+
+	if err = tokenizer.ClosePipeWriter(); err != nil {
+		return errnie.Error(err)
+	}
+
+	if err = tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee); err != nil {
+		return errnie.Error(err)
+	}
+
+	tokenizer.ResetAfterEOF()
+
+	return nil
+}
+
 func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
-	return tokenizer.pw.Write(p)
+	n, err = tokenizer.pw.Write(p)
+	if n > 0 {
+		viz.DefaultBus.Publish(viz.TokenizerChunkEvent(n))
+	}
+	return
 }
 
 /*

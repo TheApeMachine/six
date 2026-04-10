@@ -27,7 +27,7 @@ func TestStoreGenerate(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		tok, vErr := primitive.NewValue([]byte("root-child"))
+		tok, vErr := primitive.FirstSegment(primitive.NewValue([]byte("root-child")))
 
 		So(vErr, ShouldBeNil)
 
@@ -46,13 +46,13 @@ func TestStoreGenerate(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		parent, vErr := primitive.NewValue([]byte("gen-p"))
+		parent, vErr := primitive.FirstSegment(primitive.NewValue([]byte("gen-p")))
 
 		So(vErr, ShouldBeNil)
 
 		defer parent.Close()
 
-		child, vErr := primitive.NewValue([]byte("gen-c"))
+		child, vErr := primitive.FirstSegment(primitive.NewValue([]byte("gen-c")))
 
 		So(vErr, ShouldBeNil)
 
@@ -77,7 +77,7 @@ func BenchmarkStoreGenerate(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	parent, err := primitive.NewValue([]byte("gb-p"))
+	parent, err := primitive.FirstSegment(primitive.NewValue([]byte("gb-p")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -85,7 +85,7 @@ func BenchmarkStoreGenerate(b *testing.B) {
 
 	defer parent.Close()
 
-	child, err := primitive.NewValue([]byte("gb-c"))
+	child, err := primitive.FirstSegment(primitive.NewValue([]byte("gb-c")))
 
 	if err != nil {
 		b.Fatal(err)

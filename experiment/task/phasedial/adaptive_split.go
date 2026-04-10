@@ -69,6 +69,10 @@ func (experiment *AdaptiveSplitExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *AdaptiveSplitExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *AdaptiveSplitExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0

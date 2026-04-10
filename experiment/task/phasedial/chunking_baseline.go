@@ -72,6 +72,10 @@ func (experiment *ChunkingBaselineExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *ChunkingBaselineExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *ChunkingBaselineExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0

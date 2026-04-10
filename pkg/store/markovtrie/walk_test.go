@@ -18,13 +18,13 @@ func TestStoreWalk(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		first, vErr := primitive.NewValue([]byte("w1"))
+		first, vErr := primitive.FirstSegment(primitive.NewValue([]byte("w1")))
 
 		So(vErr, ShouldBeNil)
 
 		defer first.Close()
 
-		second, vErr := primitive.NewValue([]byte("w2"))
+		second, vErr := primitive.FirstSegment(primitive.NewValue([]byte("w2")))
 
 		So(vErr, ShouldBeNil)
 
@@ -53,7 +53,7 @@ func TestStoreWalkPath(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		tok, vErr := primitive.NewValue([]byte("exists"))
+		tok, vErr := primitive.FirstSegment(primitive.NewValue([]byte("exists")))
 
 		So(vErr, ShouldBeNil)
 
@@ -86,7 +86,7 @@ func BenchmarkStoreWalk(b *testing.B) {
 	for idx := range 6 {
 		payload := append([]byte("walk-node-"), byte('a'+idx))
 
-		tok, err := primitive.NewValue(payload)
+		tok, err := primitive.FirstSegment(primitive.NewValue(payload))
 
 		if err != nil {
 			b.Fatal(err)
@@ -119,7 +119,7 @@ func BenchmarkStoreWalkPath(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	tok, err := primitive.NewValue([]byte("walk-bench"))
+	tok, err := primitive.FirstSegment(primitive.NewValue([]byte("walk-bench")))
 
 	if err != nil {
 		b.Fatal(err)

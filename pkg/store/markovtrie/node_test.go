@@ -13,7 +13,7 @@ func TestNewNode(t *testing.T) {
 	t.Parallel()
 
 	Convey("NewNode wires ID from Value and empty children map", t, func() {
-		value, err := primitive.NewValue([]byte("node-id"))
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("node-id")))
 
 		So(err, ShouldBeNil)
 
@@ -33,7 +33,7 @@ func TestNodeChild(t *testing.T) {
 	t.Parallel()
 
 	Convey("Child misses when map empty", t, func() {
-		value, err := primitive.NewValue([]byte("solo"))
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("solo")))
 
 		So(err, ShouldBeNil)
 
@@ -51,13 +51,13 @@ func TestNodeStoreChild(t *testing.T) {
 	t.Parallel()
 
 	Convey("storeChild inserts under trieEdgeKey token", t, func() {
-		rootVal, err := primitive.NewValue([]byte("root"))
+		rootVal, err := primitive.FirstSegment(primitive.NewValue([]byte("root")))
 
 		So(err, ShouldBeNil)
 
 		defer rootVal.Close()
 
-		childVal, err := primitive.NewValue([]byte("leaf"))
+		childVal, err := primitive.FirstSegment(primitive.NewValue([]byte("leaf")))
 
 		So(err, ShouldBeNil)
 
@@ -78,7 +78,7 @@ func TestNodeStoreChild(t *testing.T) {
 func BenchmarkNodeStoreChild(b *testing.B) {
 	setupMarkovTrieValueConfig(b)
 
-	rootVal, err := primitive.NewValue([]byte("r"))
+	rootVal, err := primitive.FirstSegment(primitive.NewValue([]byte("r")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -88,7 +88,7 @@ func BenchmarkNodeStoreChild(b *testing.B) {
 
 	root := NewNode(*rootVal)
 
-	childVal, err := primitive.NewValue([]byte("c"))
+	childVal, err := primitive.FirstSegment(primitive.NewValue([]byte("c")))
 
 	if err != nil {
 		b.Fatal(err)

@@ -12,7 +12,7 @@ import (
 func coordinatorValue(tb testing.TB, text string) primitive.Value {
 	tb.Helper()
 
-	value, err := primitive.NewValue([]byte(text))
+	value, err := primitive.FirstSegment(primitive.NewValue([]byte(text)))
 
 	if err != nil {
 		tb.Fatal(err)

@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/experiment/trialmap"
+	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -106,6 +107,10 @@ func (experiment *BabiExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *BabiExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *BabiExperiment) Score() float64 {
 	return experiment.evaluator.MeanScore(experiment.tableData)
 }
@@ -114,7 +119,12 @@ func (experiment *BabiExperiment) TableData() any {
 	return experiment.tableData
 }
 
-// ── Artifact generation ─────────────────────────────────────────────
+/*
+Answer returns the predicted answer label for this QA task.
+*/
+func (experiment *BabiExperiment) Answer(prediction *algo.Prediction) string {
+	return prediction.Label()
+}
 
 func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 	n := len(experiment.tableData)

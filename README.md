@@ -9,14 +9,6 @@ This research project started from a simple question: "Can we reject gradient de
 
 ---
 
-## Motivations
-
-1. I can't afford a $20k+ GPU, so the only realistic option is to attempt to side-step that obstacle.
-2. If you reject the 1847 origin of gradient-descent, at best the algorithm is over 70 years old, let's try something else.
-3. I like to explore interesting problems, and this is by far the most interesting problem of our time.
-
----
-
 ## Architecture
 
 Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
@@ -116,11 +108,11 @@ flowchart TD
 
 The current field path now carries a finite-field phase hierarchy alongside the existing adaptive signals:
 
-| Layer | Field | Phase state |
-|-------|-------|-------------|
-| MarkovTrie | `GF(257)` | Trie-local byte-phase signature |
-| Kadabra Node | `GF(8191)` | Regional chord aggregated from active tries |
-| Mesh Field | `GF(65537)` | Global eigenphase aggregated from gossiped node phases |
+| Layer        | Field       | Phase state                                            |
+|--------------|-------------|--------------------------------------------------------|
+| MarkovTrie   | `GF(257)`   | Trie-local byte-phase signature                        |
+| Kadabra Node | `GF(8191)`  | Regional chord aggregated from active tries            |
+| Mesh Field   | `GF(65537)` | Global eigenphase aggregated from gossiped node phases |
 
 Instead of treating attention as an explicit weight matrix, Six can now project a dominant global phase back down the stack. Tries rotate their local phase toward the field, beam search boosts continuations that constructively interfere with that phase, and online learning gates plasticity when incoming context is out of phase with the current mesh-wide mode.
 
@@ -138,16 +130,11 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 └───────────┴────────────┴────────────┴────────────┴────────────┴─────────────┴──────┴──────┴─────┴────────────┘
 ```
 
-- **Token region**: Raw input data, encoded as bits across 8 words.
-- **Affinity region**: A 512-bit locality-sensitive hash (8 independent SimHash projections) that fingerprints the content. This determines where the Value lives in the network.
+- **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
+- **Affinity region**: A 257-bit locality-sensitive hash (8 independent SimHash projections) that fingerprints the content. This determines where the Value lives in the network.
 - **Program region**: 32-bit instruction slots that execute on the Value's own bits. When Values encounter each other, their programs run — no external interpreter needed.
 - **Prev/Next**: Linked-list pointers for chaining Values into sequences and graphs.
 - **ID**: 64-bit unique identifier.
-
-**RULES**
-
-- `Value` operates on itself. It uses its own `Token` region as data.
-- `Values` that encounter each other potentially modify the way they compute.
 
 ### The ALU
 
@@ -160,6 +147,51 @@ Once the `Value` comes out of the `ALU` those `Signals` are used to emit new `Va
 The linear sweep is a deliberate limitation in favor of having a system that includes loops and branching, as it is highly sympathetic to the hardware, eliminating thread-divergion on the GPU, and enabling parallelism via SIMD on the CPU.
 
 To recover the ability for loops and branching, a final instruction can be written (need to take some of the reserved region) to mark a `Value` for a loop (re)cycle, or branch traversal. When the `Value` comes out of the `ALU` and is marked as such, it is then (re)placed onto a priority `Queue` in the orchestrator and fed back into the `ALU` for another run.
+
+### Signals
+
+When two Values are paired, their token regions are compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.
+
+Two operations produce two kinds of signal:
+
+**Cancel (XOR → longest zero-run)**
+
+XOR produces zeros wherever two Values encode the same information. The longest contiguous zero-run reveals the largest shared component.
+
+Given three sentences encoded as Values:
+
+```
+Value A:  [Sandra] [is in the] [Garden]
+Value B:  [Roy]    [is in the] [Kitchen]
+Value C:  [Harold] [is in the] [Kitchen]
+```
+
+When Value A is paired with Value B, the XOR of their token regions produces zeros across the bit-span where `is in the` is encoded, because that substring is identical in both. Shorter zero-runs also appear for any incidentally shared bits, but the **longest run wins** and becomes the decisive signal.
+
+The cancel signal emits three new Values:
+
+- `{is in the}` — the shared component, extracted as a structural label
+- `[Sandra]` — left residue, linked forward through the label
+- `[Roy]` — right residue, linked forward through the label
+
+Repeating this across all pairs builds a graph (using PrevID, and NextID, based on ValueID, this should be by emitting new Values, not by mutating existing ones):
+
+```
+{is in the}   -points to→ [Sandra, Roy, Harold]
+[Sandra]      -points to→ [Garden]
+[Roy, Harold] -points to→ [Kitchen]
+[Kitchen]     -points to→ [Roy, Harold]
+```
+
+This structure can now answer queries through the same mechanism. The prompt `"Where is Roy?"` cancels `{is}` against the existing `{is in the}` label, which points to `[Sandra, Roy, Harold]`. Then `[Roy]` cancels against that set, resolving to `[Kitchen]`.
+
+**Merge (AND → longest one-run)**
+
+AND produces ones only where both Values agree. The longest contiguous one-run reveals a convergence point, where two Values share dense overlapping structure. Merge emits Values that consolidate the shared region, linking the sources through it.
+
+In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both Values agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
+
+**The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `ScanSignals` detects all of them, sorts by length, and the longest of each kind becomes the local action. Shorter signals are published for inter-cluster exchange.
 
 ## MarkovTrie: Learning Without Gradients
 

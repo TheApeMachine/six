@@ -5,6 +5,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 var _ tools.HoldoutProvider = (*TextOverlapExperiment)(nil)
@@ -95,11 +96,22 @@ func (experiment *TextOverlapExperiment) Outcome() (any, gc.Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *TextOverlapExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *TextOverlapExperiment) Score() float64 {
 	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *TextOverlapExperiment) TableData() any { return experiment.tableData }
+
+/*
+Answer returns the generated text continuation.
+*/
+func (experiment *TextOverlapExperiment) Answer(prediction *algo.Prediction) string {
+	return prediction.String()
+}
 
 func (experiment *TextOverlapExperiment) Artifacts() []tools.Artifact {
 	return TextOverlapArtifacts(experiment.tableData, experiment.Score())

@@ -9,10 +9,11 @@ import (
 )
 
 /*
-SequencerExperiment evaluates boundary detection and retrieval quality.
-Provides a 1000-sample synthetic dataset. The Pipeline ingests through the
-Sequencer and prompts with held-out suffixes. Score reflects retrieval accuracy
-over all prompts.
+SequencerExperiment evaluates how boundary detection and retrieval quality
+scale across corpus depth. Ingests 200 samples (128 B each) through the
+Sequencer and issues 50 queries with 32-byte held-out suffixes drawn from
+positions spread across the corpus. The scaling question: does retrieval
+accuracy degrade for samples ingested later as the substrate fills?
 */
 type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
@@ -25,12 +26,9 @@ type SequencerExperiment struct {
 func NewSequencerExperiment() *SequencerExperiment {
 	return &SequencerExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   NewSyntheticDataset(128, 50, 77),
-		// Baseline 0.05: synthetic 128-byte samples with 32-byte holdout.
-		// The sequencer must detect boundaries and route retrieval correctly.
-		// Any partial byte recovery demonstrates boundary-aware indexing.
-		// Target 0.50: strong structural retrieval on synthetic data.
+		dataset:   NewSyntheticDataset(128, 200, 77),
 		evaluator: tools.NewEvaluator(
+			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
 	}
@@ -49,7 +47,8 @@ func (experiment *SequencerExperiment) Prompts() []string {
 		experiment.holdouts = nil
 		return experiment.prompt
 	}
-	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 32)
+
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 50, 32)
 	return experiment.prompt
 }
 
@@ -57,6 +56,7 @@ func (experiment *SequencerExperiment) HoldoutForPrompt(idx int) ([]byte, bool) 
 	if idx < 0 || idx >= len(experiment.holdouts) {
 		return nil, false
 	}
+
 	return experiment.holdouts[idx], true
 }
 
@@ -67,6 +67,10 @@ func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData)
 
 func (experiment *SequencerExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
+}
+
+func (experiment *SequencerExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
 }
 
 func (experiment *SequencerExperiment) Score() float64 {
@@ -84,14 +88,24 @@ func (experiment *SequencerExperiment) Artifacts() []tools.Artifact {
 func (experiment *SequencerExperiment) RawOutput() bool { return false }
 
 func (experiment *SequencerExperiment) Finalize(substrate any) error {
-	entries := 1
+	entries := 0
+
+	for _, row := range experiment.tableData {
+		if len(row.Generation) > 0 {
+			entries++
+		}
+	}
+
+	if entries == 0 {
+		entries = 1
+	}
 
 	experiment.AddResult(tools.ExperimentalData{
 		Idx:  len(experiment.tableData),
 		Name: fmt.Sprintf("Summary: %d substrate entries", entries),
 		Scores: tools.Scores{
 			Exact:   float64(entries),
-			Partial: experiment.Score(),
+			Partial: float64(entries),
 		},
 		WeightedTotal: experiment.Score(),
 	})

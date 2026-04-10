@@ -47,10 +47,10 @@ const (
 	EventAdaptiveUpdate
 
 	// Intra-node field dynamics (trie-to-trie within a single node).
-	EventTrieCoupling   // Coupling strength between two local tries
-	EventTrieMode       // Eigenmode membership assignment for a trie
-	EventTriePressure   // Asymmetric decay/learn pressure applied to a trie
-	EventTrieSignal     // Per-trie signal snapshot (surprisal, entropy, growth)
+	EventTrieCoupling // Coupling strength between two local tries
+	EventTrieMode     // Eigenmode membership assignment for a trie
+	EventTriePressure // Asymmetric decay/learn pressure applied to a trie
+	EventTrieSignal   // Per-trie signal snapshot (surprisal, entropy, growth)
 
 	// Hierarchical beam search.
 	EventBeamCollect  // Node collected continuations from tries
@@ -61,18 +61,32 @@ const (
 	// User interaction.
 	EventPrompt
 	EventPromptResult
+
+	// Exact Markov trie topology (bounded snapshot for debugging).
+	EventTrieGraphSnapshot
+
+	// Compiler → ALU → finalizer pipeline (pkg/compute/programmer, backend.Execute).
+	EventCompilerCompile
+	EventALUDispatch
+	EventFinalizerRun
+
+	// Dataset → Tokenizer ingest pipeline.
+	EventDatasetRead
+	EventTokenizerChunk
+	EventTokenizerEmit
+	EventQueueSubmit
 )
 
 // Event is a single visualization datum. All fields are value types so events
 // can be safely queued, serialized, and replayed without data races.
 type Event struct {
-	Kind      EventKind              `json:"kind"`
-	Timestamp int64                  `json:"ts"`   // unix microseconds
-	Source    string                 `json:"src"`  // originating component id
-	Target    string                 `json:"tgt"`  // optional target component id
-	Label     string                 `json:"lbl"`  // human-readable summary
-	Values    map[string]float64     `json:"vals"` // numeric payload
-	Meta      map[string]string      `json:"meta"` // string payload
+	Kind      EventKind          `json:"kind"`
+	Timestamp int64              `json:"ts"`   // unix microseconds
+	Source    string             `json:"src"`  // originating component id
+	Target    string             `json:"tgt"`  // optional target component id
+	Label     string             `json:"lbl"`  // human-readable summary
+	Values    map[string]float64 `json:"vals"` // numeric payload
+	Meta      map[string]string  `json:"meta"` // string payload
 }
 
 // Now returns a microsecond timestamp.

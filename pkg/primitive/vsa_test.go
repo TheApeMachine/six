@@ -12,7 +12,7 @@ func TestValueComputeAffinityLSH(t *testing.T) {
 
 	Convey("ComputeAffinityLSH fills affinity words from token bits", t, func() {
 		tokens := randomTokenBytes()
-		value, err := NewValue(tokens[:])
+		value, err := FirstSegment(NewValue(tokens[:]))
 
 		So(err, ShouldBeNil)
 
@@ -58,7 +58,7 @@ func TestValueComputeAffinityFromContext(t *testing.T) {
 	})
 
 	Convey("Empty context falls back to LSH", t, func() {
-		value, err := NewValue([]byte("ctx-empty"))
+		value, err := FirstSegment(NewValue([]byte("ctx-empty")))
 
 		So(err, ShouldBeNil)
 

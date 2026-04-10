@@ -210,6 +210,10 @@ func (exp *RuleShiftExperiment) Outcome() (any, Assertion, any) {
 	return exp.evaluator.Outcome(exp.Score())
 }
 
+func (exp *RuleShiftExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(exp.evaluator, exp.tableData, idx)
+}
+
 func (exp *RuleShiftExperiment) Score() float64 {
 	return exp.evaluator.MeanScore(exp.tableData)
 }
@@ -268,7 +272,7 @@ func (exp *RuleShiftExperiment) Artifacts() []tools.Artifact {
 
 	// Winner bar data as numeric (A=1, B=0) for the bottom panel.
 	winnerVals := make([]float64, steps)
-	
+
 	for i, w := range exp.winner {
 		if w == "A" {
 			winnerVals[i] = 1.0

@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -125,6 +126,10 @@ func (experiment *BlindClassificationExperiment) Outcome() (
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
+func (experiment *BlindClassificationExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
+	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+}
+
 func (experiment *BlindClassificationExperiment) Score() float64 {
 	experiment.ComputePredictions()
 	n := len(experiment.tableData)
@@ -136,6 +141,13 @@ func (experiment *BlindClassificationExperiment) Score() float64 {
 
 func (experiment *BlindClassificationExperiment) TableData() any {
 	return experiment.tableData
+}
+
+/*
+Answer returns the predicted class label for this classification task.
+*/
+func (experiment *BlindClassificationExperiment) Answer(prediction *algo.Prediction) string {
+	return prediction.Label()
 }
 
 func (experiment *BlindClassificationExperiment) Artifacts() []tools.Artifact {

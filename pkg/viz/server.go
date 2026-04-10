@@ -177,12 +177,7 @@ func (s *Server) broadcastStats(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg, _ := json.Marshal(map[string]any{
-				"action":  "stats",
-				"dropped": s.bus.Dropped(),
-			})
-
-			s.send(msg, nil)
+			s.send(MarshalWireStats(s.bus.Dropped()), nil)
 		}
 	}
 }
@@ -209,27 +204,17 @@ func (s *Server) send(data []byte, exclude *wsClient) {
 }
 
 func (s *Server) broadcastEvent(ev Event) {
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
-
-	s.send(data, nil)
+	s.send(MarshalWireEvent(ev), nil)
 }
 
 func (s *Server) broadcastExcept(ev Event, exclude *wsClient) {
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
-
-	s.send(data, exclude)
+	s.send(MarshalWireEvent(ev), exclude)
 }
 
 /*
 writeLoop is the single goroutine that owns writes to a connection.
 All outbound data is funneled through client.outbound so gorilla
-never sees concurrent WriteMessage calls.
+never sees concurrent WriteMessage calls. Viz data uses binary frames; pings stay WS control.
 */
 func (s *Server) writeLoop(ctx context.Context, client *wsClient) {
 	pingTicker := time.NewTicker(30 * time.Second)
@@ -246,7 +231,7 @@ func (s *Server) writeLoop(ctx context.Context, client *wsClient) {
 			}
 
 			_ = client.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			if err := client.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := client.conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 				return
 			}
 
@@ -322,25 +307,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	sort.Strings(nodeIDs)
 
-	boot, err := json.Marshal(map[string]any{
-		"action": "bootstrap",
-		"nodes":  nodeIDs,
-	})
-	if err == nil {
-		// Blocking: a non-blocking send drops the entire replay when the buffer
-		// cannot absorb bootstrap + history in one scheduler quantum (common for
-		// paper-sized timelines or late-joining browsers).
-		client.outbound <- boot
-	}
+	// Blocking: a non-blocking send drops the entire replay when the buffer
+	// cannot absorb bootstrap + history in one scheduler quantum (common for
+	// paper-sized timelines or late-joining browsers).
+	client.outbound <- MarshalWireBootstrap(nodeIDs)
 
 	// Send timeline history so new clients catch up (same blocking guarantee).
 	for _, ev := range history {
-		data, err := json.Marshal(ev)
-		if err != nil {
-			continue
-		}
-
-		client.outbound <- data
+		client.outbound <- MarshalWireEvent(ev)
 	}
 
 	// Read loop: handle client commands.
@@ -350,16 +324,24 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if ev, ok := TryUnmarshalWireEvent(message); ok {
+			log.Printf("viz: inbound event kind=%d src=%s", ev.Kind, ev.Source)
+			s.timeline.Record(ev)
+			s.broadcastExcept(ev, client)
+			continue
+		}
+
 		var cmd ClientCommand
 		if json.Unmarshal(message, &cmd) == nil && cmd.Action != "" {
 			s.handleCommand(client, cmd)
-		} else {
-			var ev Event
-			if json.Unmarshal(message, &ev) == nil && ev.Timestamp != 0 {
-				log.Printf("viz: inbound event kind=%d src=%s", ev.Kind, ev.Source)
-				s.timeline.Record(ev)
-				s.broadcastExcept(ev, client)
-			}
+			continue
+		}
+
+		var ev Event
+		if json.Unmarshal(message, &ev) == nil && ev.Timestamp != 0 {
+			log.Printf("viz: inbound event kind=%d src=%s", ev.Kind, ev.Source)
+			s.timeline.Record(ev)
+			s.broadcastExcept(ev, client)
 		}
 	}
 }
@@ -385,22 +367,20 @@ func (s *Server) handleCommand(client *wsClient, cmd ClientCommand) {
 		}
 
 		events := s.timeline.Range(req.From, req.To)
-		resp, _ := json.Marshal(map[string]any{
-			"action": "scrub_result",
-			"events": events,
-		})
-
-		client.outbound <- resp
+		client.outbound <- MarshalWireScrub(events)
 
 	case "snapshot_save":
 		data := s.timeline.Snapshot()
-		resp, _ := json.Marshal(map[string]any{
+		resp, err := json.Marshal(map[string]any{
 			"action":   "snapshot_data",
 			"snapshot": data,
 		})
+		if err != nil {
+			return
+		}
 
 		select {
-		case client.outbound <- resp:
+		case client.outbound <- MarshalWireJSONBlob(resp):
 		default:
 		}
 	}

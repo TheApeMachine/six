@@ -32,13 +32,13 @@ func TestSearchUpdate(t *testing.T) {
 			Confidence: 1,
 		})
 
-		left, err := primitive.NewValue([]byte("start middle"))
+		left, err := primitive.FirstSegment(primitive.NewValue([]byte("start middle")))
 
 		So(err, ShouldBeNil)
 
 		defer left.Close()
 
-		right, err := primitive.NewValue([]byte("middle end"))
+		right, err := primitive.FirstSegment(primitive.NewValue([]byte("middle end")))
 
 		So(err, ShouldBeNil)
 
@@ -132,7 +132,7 @@ func TestSearchPhaseBias(t *testing.T) {
 func BenchmarkSearchUpdate(b *testing.B) {
 	search := NewSearch()
 
-	left, err := primitive.NewValue([]byte("alpha beta gamma"))
+	left, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta gamma")))
 
 	if err != nil {
 		b.Fatal(err)
@@ -140,7 +140,7 @@ func BenchmarkSearchUpdate(b *testing.B) {
 
 	defer left.Close()
 
-	right, err := primitive.NewValue([]byte("beta gamma delta"))
+	right, err := primitive.FirstSegment(primitive.NewValue([]byte("beta gamma delta")))
 
 	if err != nil {
 		b.Fatal(err)

@@ -33,7 +33,7 @@ func TestClassifierUpdate(t *testing.T) {
 			Confidence: 1,
 		})
 
-		vTrain, err := primitive.NewValue([]byte("good data"))
+		vTrain, err := primitive.FirstSegment(primitive.NewValue([]byte("good data")))
 
 		So(err, ShouldBeNil)
 
@@ -63,7 +63,7 @@ func TestClassifierValue(t *testing.T) {
 		classifier := NewClassifier()
 		prediction := algo.NewPrediction()
 
-		v, err := primitive.NewValue([]byte("signal"))
+		v, err := primitive.FirstSegment(primitive.NewValue([]byte("signal")))
 
 		So(err, ShouldBeNil)
 
@@ -111,7 +111,7 @@ func TestClassifierValue(t *testing.T) {
 
 func BenchmarkClassifierUpdate(b *testing.B) {
 	classifier := NewClassifier()
-	payload, _ := primitive.NewValue([]byte("feature token stream"))
+	payload, _ := primitive.FirstSegment(primitive.NewValue([]byte("feature token stream")))
 
 	defer payload.Close()
 

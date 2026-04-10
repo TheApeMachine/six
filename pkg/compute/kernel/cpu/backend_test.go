@@ -13,16 +13,16 @@ import (
 
 func installCPUTestLayout() {
 	core.Cfg.Value.Region.Tokens.Start = 0
-	core.Cfg.Value.Region.Tokens.Bits = 512
-	core.Cfg.Value.Region.Program.Start = 8
+	core.Cfg.Value.Region.Tokens.Bits = 1024
+	core.Cfg.Value.Region.Program.Start = 16
 	core.Cfg.Value.Region.Program.Bits = 512
-	core.Cfg.Value.Region.Signals.Start = 16
+	core.Cfg.Value.Region.Signals.Start = 24
 	core.Cfg.Value.Region.Signals.Bits = 512
-	core.Cfg.Value.Region.Context.Start = 24
+	core.Cfg.Value.Region.Context.Start = 32
 	core.Cfg.Value.Region.Context.Bits = 512
-	core.Cfg.Value.Region.Gradient.Start = 32
+	core.Cfg.Value.Region.Gradient.Start = 40
 	core.Cfg.Value.Region.Gradient.Bits = 512
-	core.Cfg.Value.Region.Meta.Start = 40
+	core.Cfg.Value.Region.Meta.Start = 48
 	core.Cfg.Value.Region.Meta.Bits = 512
 	core.Cfg.Value.Region.Prev.Start = 120
 	core.Cfg.Value.Region.Next.Start = 121
@@ -38,7 +38,7 @@ func init() {
 
 /*
 setupV2 prepares a Value with the V2 layout: single opcode at
-ProgramStartWord (8), A in words 0-3, and B rotation 0 (unrotated)
+ProgramStartWord, A in words 0-3, and B rotation 0 (unrotated)
 at words 32-35. This mirrors what the SIMD kernels consume.
 */
 func setupV2(v *[128]uint64, op uint8, a [4]uint64, b [4]uint64) {
@@ -199,12 +199,12 @@ func TestExecuteBatchDistance(t *testing.T) {
 			var v [128]uint64
 
 			// Query: all zeros (words 0-7).
-			// Candidates at word 32, each 8 words.
+			// Candidates at NearestAffinityCandidatesStartWord, each 8 words.
 			// Candidate 0: all zeros → distance 0.
 			// Candidate 1: word 0 = 0xFF → distance 8.
-			v[kernel.ProgramStartWord] = 0x6       // XOR opcode
-			v[kernel.NearestAffinityBatchWord] = 2 // 2 candidates
-			v[32+8+0] = 0xFF                       // candidate 1, word 0
+			v[kernel.ProgramStartWord] = 0x6                        // XOR opcode
+			v[kernel.NearestAffinityBatchWord] = 2                  // 2 candidates
+			v[kernel.NearestAffinityCandidatesStartWord+8+0] = 0xFF // candidate 1, word 0
 
 			err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&v)})
 			convey.So(err, convey.ShouldBeNil)
