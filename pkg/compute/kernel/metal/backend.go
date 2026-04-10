@@ -116,11 +116,16 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		v := (*[128]uint64)(ptr)
-		opcode := v[kernel.ProgramStartWord] & 0xF
+		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
+		opcode := rawOpcode & kernel.OpcodeBooleanMask
 		batchCount := v[kernel.NearestAffinityBatchWord]
 
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
+		}
+
+		if kernel.ExecuteGeometricFrame(ptr, rawOpcode) {
+			continue
 		}
 
 		if opcode == 0x6 && batchCount > 0 {

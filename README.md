@@ -148,6 +148,18 @@ The linear sweep is a deliberate limitation in favor of having a system that inc
 
 To recover the ability for loops and branching, a final instruction can be written (need to take some of the reserved region) to mark a `Value` for a loop (re)cycle, or branch traversal. When the `Value` comes out of the `ALU` and is marked as such, it is then (re)placed onto a priority `Queue` in the orchestrator and fed back into the `ALU` for another run.
 
+### Geometric ALU
+
+The Boolean ALU keeps the low 4-bit truth-table opcodes exactly as-is. The high nibble now has a Projective Geometric Algebra lane for 64-byte multivectors:
+
+| Opcode | Operation | Frame contract                            |
+|--------|-----------|-------------------------------------------|
+| `0x10` | Compose   | `Signals = Context · Gradient`            |
+| `0x20` | Sandwich  | `Signals = Context · Gradient · Context†` |
+| `0x30` | Reverse   | `Signals = Context†`                      |
+
+`Context`, `Gradient`, and `Signals` are each 512-bit regions, so each holds one `pkg/core/numeric/geometry.Multivector` without changing the 1024-byte `Value` stride. The current kernel dispatch preserves the full opcode byte before falling back to the Boolean low nibble, so geometric opcodes cannot collapse to `FALSE`. Dedicated Metal/CUDA PGA kernels can replace the host geometric path without changing the frame ABI.
+
 ### Signals
 
 When two Values are paired, their token regions are compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.

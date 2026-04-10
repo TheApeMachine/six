@@ -1,6 +1,7 @@
 package programmer
 
 import (
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -39,9 +40,10 @@ type Intent struct {
 
 /*
 Operation is what the Value needs to do with its
-data and assets. Each operation maps to a truth
-table opcode, but the compiler decides how to
-arrange data around it.
+data and assets. Boolean operations map to truth
+table opcodes; geometric operations use the high
+nibble as a PGA ALU selector while the compiler
+arranges the in-band operands around it.
 */
 type Operation uint64
 
@@ -50,6 +52,10 @@ const (
 	Distance   Operation = 0x6 // XOR + popcount — how different
 	Bind       Operation = 0x6 // XOR — associative pairing
 	Bundle     Operation = 0x7 // OR — superposition
+
+	GeometricCompose  Operation = Operation(kernel.OpcodeGeometricCompose)
+	GeometricSandwich Operation = Operation(kernel.OpcodeGeometricSandwich)
+	GeometricReverse  Operation = Operation(kernel.OpcodeGeometricReverse)
 )
 
 /*

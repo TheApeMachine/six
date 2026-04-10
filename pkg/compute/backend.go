@@ -209,6 +209,34 @@ func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 	return best
 }
 
+func (backend *Backend) pickCPU() *substrateState {
+	for _, st := range backend.states {
+		if st == nil || st.substrate == nil {
+			continue
+		}
+
+		if st.substrate.Name() == "cpu" {
+			return st
+		}
+	}
+
+	return nil
+}
+
+func framesUseGeometricOpcode(frames []unsafe.Pointer) bool {
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		if kernel.IsGeometricOpcode(uint64(kernel.FrameProgramRawOpcode(ptr))) {
+			return true
+		}
+	}
+
+	return false
+}
+
 /*
 nextPickExploresResidency returns true on every exploreEvery-th scheduling
 decision so the balancer can ignore migration cost for one pick.
@@ -315,7 +343,7 @@ func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, corr
 			continue
 		}
 
-		return kernel.FrameProgramOpcode(ptr), kernel.FrameCorrelationID(ptr)
+		return kernel.FrameProgramRawOpcode(ptr), kernel.FrameCorrelationID(ptr)
 	}
 
 	return 0, 0
@@ -355,6 +383,12 @@ func (backend *Backend) Execute(
 	backend.ensureCorrelationIDs(frames)
 
 	st := backend.pick(frames)
+
+	if framesUseGeometricOpcode(frames) {
+		if cpuState := backend.pickCPU(); cpuState != nil {
+			st = cpuState
+		}
+	}
 
 	st.inflight.Add(1)
 
@@ -416,6 +450,12 @@ func (backend *Backend) CompileAndExecute(
 	backend.ensureCorrelationIDs([]unsafe.Pointer{framePtr})
 
 	st := backend.pick([]unsafe.Pointer{framePtr})
+
+	if kernel.IsGeometricOpcode(uint64(program.Intent().Operation)) {
+		if cpuState := backend.pickCPU(); cpuState != nil {
+			st = cpuState
+		}
+	}
 
 	target := targetFor(st.substrate)
 

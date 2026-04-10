@@ -65,10 +65,14 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 	for _, ptr := range frames {
 		v := (*[128]uint64)(ptr)
-		opcode := v[kernel.ProgramStartWord] & 0xF
+		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
+		opcode := rawOpcode & kernel.OpcodeBooleanMask
 		batchCount := v[kernel.NearestAffinityBatchWord]
 
 		switch {
+		case kernel.ExecuteGeometricFrame(ptr, rawOpcode):
+			continue
+
 		case opcode == 0x6 && batchCount > 0:
 			backend.executeBatchDistance(v, int(batchCount))
 

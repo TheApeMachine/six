@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"context"
+	"math"
 	"math/bits"
 	"testing"
 	"unsafe"
@@ -9,6 +10,7 @@ import (
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 )
 
 func installCPUTestLayout() {
@@ -136,6 +138,27 @@ func TestExecute(t *testing.T) {
 			err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&v)})
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(readSignal(&v, 0), convey.ShouldEqual, uint8(0xFF))
+		})
+
+		convey.Convey("Geometric opcodes use the high-nibble PGA lane", func() {
+			var v [128]uint64
+
+			motor := geometry.Rotor(math.Pi/2, 0, 0, 1)
+			target := geometry.Multivector{0, 0, 0, 0, 1, 0, 0, 0}
+			expected := motor.Sandwich(target)
+
+			v[kernel.ProgramStartWord] = kernel.OpcodeGeometricSandwich
+			*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.ContextStartWord])) = motor
+			*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.GradientStartWord])) = target
+
+			err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&v)})
+
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(
+				*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.SignalsStartWord])),
+				convey.ShouldResemble,
+				expected,
+			)
 		})
 
 		convey.Convey("Nil frame returns error", func() {

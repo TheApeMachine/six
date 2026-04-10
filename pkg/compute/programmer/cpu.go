@@ -31,6 +31,10 @@ func (compiler *Compiler) CPU(
 ) {
 	opcode := intent.Operation
 
+	if compiler.compileGeometricLayout(value, intent) {
+		return
+	}
+
 	value.Set(core.Cfg.Value.Region.Program.Start, uint64(opcode))
 
 	if useBatchAffinity {

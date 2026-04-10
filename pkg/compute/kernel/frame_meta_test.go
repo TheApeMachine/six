@@ -40,6 +40,16 @@ func TestFrameMetaResidencyAndCorrelation(t *testing.T) {
 		frameWords[ProgramStartWord] = 0xA
 		So(FrameProgramOpcode(ptr), ShouldEqual, 0xA)
 	})
+
+	Convey("FrameProgramRawOpcode preserves the geometric high nibble", t, func() {
+		var words [128]uint64
+		ptr := unsafe.Pointer(&words[0])
+
+		frameWords := (*[128]uint64)(ptr)
+		frameWords[ProgramStartWord] = OpcodeGeometricSandwich
+		So(FrameProgramOpcode(ptr), ShouldEqual, 0)
+		So(FrameProgramRawOpcode(ptr), ShouldEqual, uint8(OpcodeGeometricSandwich))
+	})
 }
 
 func BenchmarkFrameProgramOpcode(b *testing.B) {
