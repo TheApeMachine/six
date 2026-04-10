@@ -11,6 +11,7 @@ static id<MTLCommandQueue> commandQueue = nil;
 
 static id<MTLComputePipelineState> pipelineUnifiedBitwise  = nil;
 static id<MTLComputePipelineState> pipelineNearestAffinity = nil;
+static id<MTLComputePipelineState> pipelineGeometric       = nil;
 
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
@@ -91,6 +92,13 @@ int init_metal(const char* metallib_path) {
             commandQueue = nil; device = nil; initResult = -5; return;
         }
 
+        pipelineGeometric = makePipeline(library, @"geometric_kernel", &error);
+
+        if (!pipelineGeometric) {
+            NSLog(@"metal: failed to create geometric pipeline: %@", error);
+            commandQueue = nil; device = nil; initResult = -6; return;
+        }
+
         initResult = 0;
     });
 
@@ -146,6 +154,42 @@ int unified_bitwise_metal(void* a_host, uint32_t num_values) {
         [enc setBuffer:poolA   offset:0 atIndex:0];
 
         dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
+        [enc endEncoding];
+
+        int r = commitAndWait(cb);
+        if (r != 0) return r;
+
+        memcpy(a_host, [poolA contents], reqBytes);
+        return 0;
+    }
+}
+
+/*
+Geometric dispatch — each Value carries the high-nibble PGA opcode and the
+kernel preserves the in-frame 64-bit multivector ABI around Metal's native
+float arithmetic core.
+*/
+int geometric_metal(void* a_host, uint32_t num_values) {
+    if (!pipelineGeometric || !a_host || num_values == 0) return -1;
+    if (ensure_pool(num_values) != 0) return -1;
+
+    @autoreleasepool {
+        NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
+        NSUInteger la = [poolA length];
+        if (la < reqBytes) {
+            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu",
+                  (unsigned long)reqBytes, (unsigned long)la);
+            return -7;
+        }
+
+        memcpy([poolA contents], a_host, reqBytes);
+
+        id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
+        id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
+
+        [enc setBuffer:poolA offset:0 atIndex:0];
+
+        dispatchKernel(enc, pipelineGeometric, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);

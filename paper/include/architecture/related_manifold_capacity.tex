@@ -18,10 +18,11 @@ neural co-variabilities to downstream task efficiency.
 
 The Value representation provides a concrete setting in which these
 geometric quantities can be characterized.  Each Value occupies a point
-in $\{0,1\}^{8192}$, and a collection of Values derived from related
-inputs (for example, different byte sequences sharing a common prefix)
-defines a discrete manifold in this space.  The relevant geometric
-properties are:
+in $\{0,1\}^{8192}$ and also carries an eight-lane PGA coordinate in its
+Context region.  A collection of Values derived from related inputs (for
+example, different byte sequences sharing a common prefix) therefore
+defines both a discrete affinity manifold and a continuous local
+transition manifold.  The relevant geometric properties are:
 
 \begin{itemize}[nosep]
   \item \textbf{Intrinsic dimension:} bounded by the number of bits
@@ -34,12 +35,13 @@ properties are:
 \end{itemize}
 
 A population-count-based similarity score between two Values---the
-Hamming inner product---functions as a linear readout over this binary
-manifold space.  The discriminative capacity of this readout, i.e., how
-many distinct input classes it can separate, is therefore directly
-governed by the geometric properties that Chung's theory characterizes.
-Formal application of manifold capacity bounds to the Value
-representation is a direction for future analytical work.
+Hamming inner product---functions as a linear readout over the binary
+manifold space, while cosine similarity between multivectors functions
+as the local readout for the geometric lane.  The discriminative
+capacity of these readouts is therefore governed by the geometric
+properties that Chung's theory characterizes.  Formal application of
+manifold capacity bounds to the Value representation is a direction for
+future analytical work.
 
 \paragraph{Relationship to Noncommutative Algebra.}
 Hataya and Hashimoto \citep{hataya2023noncommutative} provide a formal
@@ -49,10 +51,11 @@ generalizes neural network parameters from scalars to elements of a
 noncommutative $C^*$-algebra.
 
 As discussed in \Cref{sec:related_algebraic_topology}, the composition
-of boolean operations over Values is non-commutative: different orderings
-of the same operations produce different frame states.  This
+of Boolean and PGA operations over Values is non-commutative: different
+orderings of the same operations produce different frame states.  This
 non-commutativity is structural rather than learned---it arises from the
-sequential application of truth tables to a shared binary substrate.  The
-question of whether this prescribed non-commutative structure yields the
-representational benefits that Hataya and Hashimoto's theory predicts is
-addressed empirically in the experimental sections.
+sequential application of truth tables and geometric products to a shared
+frame substrate.  The question of whether this prescribed
+non-commutative structure yields the representational benefits that
+Hataya and Hashimoto's theory predicts is addressed empirically in the
+experimental sections.

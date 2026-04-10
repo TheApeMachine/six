@@ -6,7 +6,9 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 )
 
 /*
@@ -77,6 +79,30 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 	})
 }
 
+func TestBackendExecuteGeometric(t *testing.T) {
+	Convey("Given a Metal backend and a geometric opcode", t, func() {
+		if Available() == 0 {
+			t.Skip("Metal backend unavailable")
+		}
+
+		backend := NewBackend(0, BackendWithObserver(nil))
+
+		var frame [128]uint64
+		left := geometry.Multivector{1, 2, 3, 4, 5, 6, 7, 8}
+		right := geometry.Multivector{2, -1, 4, 0, 1, 3, -2, 5}
+		expected := left.GeometricProduct(right)
+
+		frame[kernel.ProgramStartWord] = kernel.OpcodeGeometricCompose
+		writeMetalTestMultivector(&frame, kernel.ContextStartWord, left)
+		writeMetalTestMultivector(&frame, kernel.GradientStartWord, right)
+
+		err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&frame)})
+
+		So(err, ShouldBeNil)
+		So(readMetalTestMultivector(&frame, kernel.SignalsStartWord), ShouldResemble, expected)
+	})
+}
+
 func TestSchedule(t *testing.T) {
 	Convey("Schedule executes the supplied job", t, func() {
 		backend := NewBackend(0)
@@ -90,4 +116,41 @@ func TestSchedule(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(called, ShouldBeTrue)
 	})
+}
+
+func BenchmarkBackendExecuteGeometric(b *testing.B) {
+	if Available() == 0 {
+		b.Skip("Metal backend unavailable")
+	}
+
+	backend := NewBackend(0, BackendWithObserver(nil))
+	var frame [128]uint64
+
+	writeMetalTestMultivector(
+		&frame,
+		kernel.ContextStartWord,
+		geometry.Multivector{1, 2, 3, 4, 5, 6, 7, 8},
+	)
+	writeMetalTestMultivector(
+		&frame,
+		kernel.GradientStartWord,
+		geometry.Multivector{2, -1, 4, 0, 1, 3, -2, 5},
+	)
+
+	frame[kernel.ProgramStartWord] = kernel.OpcodeGeometricCompose
+	ptr := unsafe.Pointer(&frame)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = backend.Execute([]unsafe.Pointer{ptr})
+	}
+}
+
+func writeMetalTestMultivector(frame *[128]uint64, start int, mv geometry.Multivector) {
+	*(*geometry.Multivector)(unsafe.Pointer(&frame[start])) = mv
+}
+
+func readMetalTestMultivector(frame *[128]uint64, start int) geometry.Multivector {
+	return *(*geometry.Multivector)(unsafe.Pointer(&frame[start]))
 }

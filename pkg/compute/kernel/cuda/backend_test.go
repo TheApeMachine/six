@@ -4,106 +4,80 @@ package cuda
 
 import (
 	"testing"
+	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 )
 
-func TestCUDABackend_BatchCorrectness(t *testing.T) {
+func TestAvailable(t *testing.T) {
+	if Available() == 0 {
+		t.Skip("CUDA backend unavailable")
+	}
+
 	Convey("Given the CUDA backend", t, func() {
-		backend := NewBackend()
-		count, err := backend.Available()
-
-		if err != nil || count == 0 {
-			t.Skip("CUDA backend unavailable")
-		}
-
-		left, right := internaltest.SampleBatch(32)
-
-		Convey("Bitwise operations should match primitive truth exactly", func() {
-			dst := make([]primitive.Value, len(left))
-
-			err := backend.BitwiseAnd(
-				internaltest.ValuesPointer(left),
-				internaltest.ValuesPointer(right),
-				internaltest.ValuesPointer(dst),
-				uint32(len(left)),
-			)
-			So(err, ShouldBeNil)
-			So(dst, ShouldResemble, internaltest.ExpectedBinary(left, right, func(a, b uint64) uint64 { return a & b }))
-
-			err = backend.BitwiseXor(
-				internaltest.ValuesPointer(left),
-				internaltest.ValuesPointer(right),
-				internaltest.ValuesPointer(dst),
-				uint32(len(left)),
-			)
-			So(err, ShouldBeNil)
-			So(dst, ShouldResemble, internaltest.ExpectedBinary(left, right, operation.XOR))
-		})
-
-		Convey("MotorApply and RollLeft should match primitive truth exactly", func() {
-			motorDst := make([]primitive.Value, len(left))
-			err := backend.MotorApply(
-				internaltest.ValuesPointer(left),
-				internaltest.ValuesPointer(right),
-				internaltest.ValuesPointer(motorDst),
-				uint32(len(left)),
-			)
-			So(err, ShouldBeNil)
-			So(motorDst, ShouldResemble, internaltest.ExpectedMotorApply(left, right))
-
-			rollDst := make([]primitive.Value, len(left))
-			err = backend.RollLeft(
-				internaltest.ValuesPointer(left),
-				internaltest.ValuesPointer(rollDst),
-				31,
-				uint32(len(left)),
-			)
-			So(err, ShouldBeNil)
-			So(rollDst, ShouldResemble, internaltest.ExpectedRollLeft(left, 31))
-		})
+		So(Available(), ShouldBeGreaterThan, 0)
 	})
 }
 
-func BenchmarkCUDABackend_BitwiseAnd(b *testing.B) {
-	backend := NewBackend()
-	if count, err := backend.Available(); err != nil || count == 0 {
+func TestBackendExecuteGeometric(t *testing.T) {
+	Convey("Given a CUDA backend and a geometric opcode", t, func() {
+		if Available() == 0 {
+			t.Skip("CUDA backend unavailable")
+		}
+
+		backend := NewBackend(0, BackendWithObserver(nil))
+
+		var frame [128]uint64
+		left := geometry.Multivector{1, 2, 3, 4, 5, 6, 7, 8}
+		right := geometry.Multivector{2, -1, 4, 0, 1, 3, -2, 5}
+		expected := left.GeometricProduct(right)
+
+		frame[kernel.ProgramStartWord] = kernel.OpcodeGeometricCompose
+		writeCUDATestMultivector(&frame, kernel.ContextStartWord, left)
+		writeCUDATestMultivector(&frame, kernel.GradientStartWord, right)
+
+		err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&frame)})
+
+		So(err, ShouldBeNil)
+		So(readCUDATestMultivector(&frame, kernel.SignalsStartWord), ShouldResemble, expected)
+	})
+}
+
+func BenchmarkBackendExecuteGeometric(b *testing.B) {
+	if Available() == 0 {
 		b.Skip("CUDA backend unavailable")
 	}
 
-	for _, size := range []int{1, 16, 256, 1024} {
-		left, right := internaltest.SampleBatch(size)
-		dst := make([]primitive.Value, size)
+	backend := NewBackend(0, BackendWithObserver(nil))
+	var frame [128]uint64
 
-		b.Run("batch_"+benchmarkLabel(size), func(b *testing.B) {
-			b.ReportAllocs()
+	writeCUDATestMultivector(
+		&frame,
+		kernel.ContextStartWord,
+		geometry.Multivector{1, 2, 3, 4, 5, 6, 7, 8},
+	)
+	writeCUDATestMultivector(
+		&frame,
+		kernel.GradientStartWord,
+		geometry.Multivector{2, -1, 4, 0, 1, 3, -2, 5},
+	)
 
-			for b.Loop() {
-				_ = backend.BitwiseAnd(
-					internaltest.ValuesPointer(left),
-					internaltest.ValuesPointer(right),
-					internaltest.ValuesPointer(dst),
-					uint32(size),
-				)
-			}
-		})
+	frame[kernel.ProgramStartWord] = kernel.OpcodeGeometricCompose
+	ptr := unsafe.Pointer(&frame)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = backend.Execute([]unsafe.Pointer{ptr})
 	}
 }
 
-/*
-benchmarkLabel converts the small batch sizes used in this file.
-*/
-func benchmarkLabel(size int) string {
-	if size == 1 {
-		return "1"
-	}
-	if size == 16 {
-		return "16"
-	}
-	if size == 256 {
-		return "256"
-	}
+func writeCUDATestMultivector(frame *[128]uint64, start int, mv geometry.Multivector) {
+	*(*geometry.Multivector)(unsafe.Pointer(&frame[start])) = mv
+}
 
-	return "1024"
+func readCUDATestMultivector(frame *[128]uint64, start int) geometry.Multivector {
+	return *(*geometry.Multivector)(unsafe.Pointer(&frame[start]))
 }

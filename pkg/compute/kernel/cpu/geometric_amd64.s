@@ -1,0 +1,283 @@
+//go:build amd64
+
+#include "textflag.h"
+
+// =========================================================================
+// geometricFrame: AMD64 SSE2 scalar-FP PGA lane.
+//
+// func geometricFrame(value *uint64, opcode uint64) bool
+//
+// The Boolean CPU backend already targets AVX2 for bitwise hot loops. The
+// PGA lane is a sparse 8x8 float64 product, so scalar SSE2 instructions keep
+// the dependency graph explicit while avoiding Go call overhead.
+// =========================================================================
+TEXT ·geometricFrame(SB), NOSPLIT, $128-17
+	MOVQ	value+0(FP), DI
+	MOVQ	opcode+8(FP), AX
+
+	ANDQ	$0xF0, AX
+
+	CMPQ	AX, $0x10
+	JE	geom_compose
+
+	CMPQ	AX, $0x20
+	JE	geom_sandwich
+
+	CMPQ	AX, $0x30
+	JE	geom_reverse
+
+	MOVB	$0, ret+16(FP)
+	RET
+
+geom_compose:
+	LEAQ	256(DI), SI
+	LEAQ	320(DI), DX
+	LEAQ	192(DI), R8
+	CALL	·geometricProductStore(SB)
+	MOVB	$1, ret+16(FP)
+	RET
+
+geom_sandwich:
+	LEAQ	256(DI), SI
+	LEAQ	320(DI), DX
+	LEAQ	tmp-128(SP), R8
+	CALL	·geometricProductStore(SB)
+
+	MOVQ	$0x8000000000000000, R9
+	LEAQ	rev-64(SP), DX
+
+	MOVQ	256(DI), AX
+	MOVQ	AX, 0(DX)
+
+	MOVQ	264(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 8(DX)
+
+	MOVQ	272(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 16(DX)
+
+	MOVQ	280(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 24(DX)
+
+	MOVQ	288(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 32(DX)
+
+	MOVQ	296(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 40(DX)
+
+	MOVQ	304(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 48(DX)
+
+	MOVQ	312(DI), AX
+	MOVQ	AX, 56(DX)
+
+	LEAQ	tmp-128(SP), SI
+	LEAQ	192(DI), R8
+	CALL	·geometricProductStore(SB)
+
+	MOVB	$1, ret+16(FP)
+	RET
+
+geom_reverse:
+	MOVQ	$0x8000000000000000, R9
+
+	MOVQ	256(DI), AX
+	MOVQ	AX, 192(DI)
+
+	MOVQ	264(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 200(DI)
+
+	MOVQ	272(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 208(DI)
+
+	MOVQ	280(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 216(DI)
+
+	MOVQ	288(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 224(DI)
+
+	MOVQ	296(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 232(DI)
+
+	MOVQ	304(DI), AX
+	XORQ	R9, AX
+	MOVQ	AX, 240(DI)
+
+	MOVQ	312(DI), AX
+	MOVQ	AX, 248(DI)
+
+	MOVB	$1, ret+16(FP)
+	RET
+
+TEXT ·geometricProductStore(SB), NOSPLIT|NOFRAME, $0
+	// out[0] = l0*r0 - l4*r4 - l5*r5 - l6*r6
+	MOVSD	0(SI), X0
+	MULSD	0(DX), X0
+	MOVSD	32(SI), X1
+	MULSD	32(DX), X1
+	SUBSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	40(DX), X1
+	SUBSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	48(DX), X1
+	SUBSD	X1, X0
+	MOVSD	X0, 0(R8)
+
+	// out[1]
+	MOVSD	0(SI), X0
+	MULSD	8(DX), X0
+	MOVSD	8(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	16(SI), X1
+	MULSD	32(DX), X1
+	SUBSD	X1, X0
+	MOVSD	24(SI), X1
+	MULSD	40(DX), X1
+	ADDSD	X1, X0
+	MOVSD	32(SI), X1
+	MULSD	16(DX), X1
+	ADDSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	24(DX), X1
+	SUBSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	56(DX), X1
+	SUBSD	X1, X0
+	MOVSD	56(SI), X1
+	MULSD	48(DX), X1
+	SUBSD	X1, X0
+	MOVSD	X0, 8(R8)
+
+	// out[2]
+	MOVSD	0(SI), X0
+	MULSD	16(DX), X0
+	MOVSD	8(SI), X1
+	MULSD	32(DX), X1
+	ADDSD	X1, X0
+	MOVSD	16(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	24(SI), X1
+	MULSD	48(DX), X1
+	SUBSD	X1, X0
+	MOVSD	32(SI), X1
+	MULSD	8(DX), X1
+	SUBSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	56(DX), X1
+	SUBSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	24(DX), X1
+	ADDSD	X1, X0
+	MOVSD	56(SI), X1
+	MULSD	40(DX), X1
+	SUBSD	X1, X0
+	MOVSD	X0, 16(R8)
+
+	// out[3]
+	MOVSD	0(SI), X0
+	MULSD	24(DX), X0
+	MOVSD	8(SI), X1
+	MULSD	40(DX), X1
+	SUBSD	X1, X0
+	MOVSD	16(SI), X1
+	MULSD	48(DX), X1
+	ADDSD	X1, X0
+	MOVSD	24(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	32(SI), X1
+	MULSD	56(DX), X1
+	SUBSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	8(DX), X1
+	ADDSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	16(DX), X1
+	SUBSD	X1, X0
+	MOVSD	56(SI), X1
+	MULSD	32(DX), X1
+	SUBSD	X1, X0
+	MOVSD	X0, 24(R8)
+
+	// out[4]
+	MOVSD	0(SI), X0
+	MULSD	32(DX), X0
+	MOVSD	32(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	48(DX), X1
+	ADDSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	40(DX), X1
+	SUBSD	X1, X0
+	MOVSD	X0, 32(R8)
+
+	// out[5]
+	MOVSD	0(SI), X0
+	MULSD	40(DX), X0
+	MOVSD	32(SI), X1
+	MULSD	48(DX), X1
+	SUBSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	32(DX), X1
+	ADDSD	X1, X0
+	MOVSD	X0, 40(R8)
+
+	// out[6]
+	MOVSD	0(SI), X0
+	MULSD	48(DX), X0
+	MOVSD	32(SI), X1
+	MULSD	40(DX), X1
+	ADDSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	32(DX), X1
+	SUBSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	X0, 48(R8)
+
+	// out[7]
+	MOVSD	0(SI), X0
+	MULSD	56(DX), X0
+	MOVSD	8(SI), X1
+	MULSD	48(DX), X1
+	ADDSD	X1, X0
+	MOVSD	16(SI), X1
+	MULSD	40(DX), X1
+	ADDSD	X1, X0
+	MOVSD	24(SI), X1
+	MULSD	32(DX), X1
+	ADDSD	X1, X0
+	MOVSD	32(SI), X1
+	MULSD	24(DX), X1
+	ADDSD	X1, X0
+	MOVSD	40(SI), X1
+	MULSD	16(DX), X1
+	ADDSD	X1, X0
+	MOVSD	48(SI), X1
+	MULSD	8(DX), X1
+	ADDSD	X1, X0
+	MOVSD	56(SI), X1
+	MULSD	0(DX), X1
+	ADDSD	X1, X0
+	MOVSD	X0, 56(R8)
+
+	RET

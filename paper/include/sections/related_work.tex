@@ -8,21 +8,33 @@ The Value representation is situated within the Hyperdimensional
 Computing (HDC) and Vector Symbolic Architecture (VSA) family.  Classical
 VSA frameworks use high-dimensional random vectors ($D \ge 10{,}000$)
 with binding, bundling, and permutation operations.  The Value provides
-an 8192-bit binary frame with the complete set of sixteen boolean
-functions, subsuming the standard VSA operators while using a
-deterministic rather than random encoding.  The Kadabra routing layer
+an 8192-bit binary frame with the complete set of sixteen Boolean
+functions and a separate PGA multivector lane, subsuming the standard
+VSA Boolean operators while adding a continuous transition operator.
+The Kadabra routing layer
 addresses the bundling saturation problem by distributing content across
 a population of specialized MarkovTries rather than superposing
 everything into a single high-dimensional vector.
 
-\paragraph{Discrete Symmetry in Machine Learning.}
+\paragraph{Discrete and Continuous Symmetry in Machine Learning.}
 Equivariant neural networks exploit continuous symmetry groups to build
-inductive biases.  The Value architecture uses the discrete boolean
-algebra over $\{0,1\}^{8192}$ as its computational substrate, providing
-deterministic algebraic closure rather than learned equivariance.  The
-non-commutativity of composed boolean operations encodes sequence order
-without explicit positional embeddings; the LFSR sequence generator
-provides an additional deterministic position signal.
+inductive biases.  The Value architecture uses the discrete Boolean
+algebra over $\{0,1\}^{8192}$ as its fast computational substrate while
+using Projective Geometric Algebra as a localized continuous symmetry
+operator over rigid motions.  The non-commutativity of composed
+operations encodes sequence order without learned positional embeddings;
+finite-field phase and PGA transition motors provide complementary
+discrete and continuous sequence signals.
+
+\paragraph{Geometric Algebra and Procrustes Alignment.}
+Geometric algebra has been used to represent rotations, translations,
+and other transformations as algebraic products, while Orthogonal
+Procrustes analysis provides a classical closed-form alignment between
+paired point clouds.  Six uses these ideas in a constrained systems
+setting: one 64-byte frame region holds a $\mathrm{Cl}(3,0,1)$
+multivector, geometric opcodes apply products in the compute substrate,
+and Procrustes rotations align sensory/action manifolds and episodic
+memory without introducing gradient-trained embedding tables.
 
 \paragraph{Content-Addressable Memory and Attention.}
 Hopfield networks and modern transformer-based associative memories
@@ -30,7 +42,7 @@ store patterns as energy minima or attention-weighted retrievals.  The
 architecture differs in mechanism: the MarkovTrie stores patterns as
 suffix paths with decayed counts, and the Field implements attention
 through eigenmode detection and asymmetric projection rather than
-query-key-value dot products.  The Field's affine coupling and phase
+query-key-value dot products.  The Field's affinity coupling and phase
 coherence criteria replace learned attention weights with
 gossip-derived structural and dynamic alignment.
 
@@ -38,7 +50,7 @@ gossip-derived structural and dynamic alignment.
 The surprisal-modulated plasticity of the MarkovTrie relates to
 predictive coding frameworks in neuroscience, where prediction error
 drives learning.  The key distinction is that the trie derives its
-learning rate, decay factor, and eight other parameters from its own
+learning rate, decay factor, and other parameters from its own
 prediction error statistics, creating a fully self-tuning system
 without external hyperparameter optimization.
 

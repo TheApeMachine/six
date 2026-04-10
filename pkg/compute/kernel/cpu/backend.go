@@ -70,7 +70,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		batchCount := v[kernel.NearestAffinityBatchWord]
 
 		switch {
-		case kernel.ExecuteGeometricFrame(ptr, rawOpcode):
+		case geometricFrame((*uint64)(ptr), rawOpcode):
 			continue
 
 		case opcode == 0x6 && batchCount > 0:

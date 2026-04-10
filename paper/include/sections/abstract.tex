@@ -8,13 +8,16 @@ and learning emerges from the interaction of adaptive probabilistic
 tries, content-addressable routing, and collective eigenmode selection.
 
 The fundamental primitive is a 1024-byte frame---128 sixty-four-bit
-words---partitioned into regions for token data, a 512-bit
-locality-sensitive affinity fingerprint, an embedded program of sixteen
-two-input boolean truth tables, and a signals region for ALU output.
-Frames are routed through a Kademlia-style distributed hash table where
+words---partitioned into regions for token data, an embedded program,
+Boolean and geometric execution lanes, a 257-bit locality-sensitive
+affinity fingerprint, and structural link words.  The low opcode nibble
+retains the complete set of two-input Boolean truth tables; the high
+nibble dispatches Projective Geometric Algebra operations over 64-byte
+multivector lanes held in the same frame.  Frames are routed through a
+Kademlia-style distributed hash table where
 each node maintains a MarkovTrie: a suffix trie that learns online via
 surprise-modulated plasticity, adapting its own decay rate, learning
-rate, and nine other parameters from signals it already computes.
+rate, and other runtime parameters from signals it already computes.
 
 A gossip protocol propagates compact digests of each trie's adaptive
 state across the network.  From these digests, each node's Field
@@ -25,9 +28,12 @@ elsewhere.  This mechanism functions as attention by differential
 survival, without matrices, softmax, or learned parameters.
 
 The system processes all input modalities as raw byte sequences,
-requiring no learned encoders or modality-specific preprocessing.  A
-multi-substrate backend dispatches boolean operations to CPU, CUDA, or
-Metal hardware.  We evaluate the architecture across text
+requiring no learned encoders or modality-specific preprocessing.
+Continuous geometric state is used locally for transition motors,
+Procrustes alignment, and episodic re-alignment, while the affinity
+path remains a dense Boolean filter.  A multi-substrate backend
+dispatches frame operations to CPU, CUDA, or Metal hardware, including
+native geometric kernels.  We evaluate the architecture across text
 classification, code generation, image reconstruction, logical
 reasoning, and text generation.  All experiments execute within the
 substrate and produce their own documentation artifacts, yielding the

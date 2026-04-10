@@ -1,20 +1,27 @@
-\subsection{The Two-Tiered Universe: Address Plane and Logic Plane}
+\subsection{Address and Logic Planes}
 \label{sec:dual_architecture}
 
-The architecture introduces a fundamental bifurcation between static persistent storage and volatile generative reasoning. Rather than a monolithic neural network, the system operates across two interacting structural planes, strictly separating the human-facing input/output symbols from the machine's internal reasoning substrate.
+The current architecture separates two concerns without splitting the
+representation.  The same 1024-byte Value frame participates in both the
+address plane and the logic plane; the distinction is operational rather
+than structural.
 
-\subsubsection{The Address Plane (DMT): The Static Ground}
-The Address Plane functions as the deterministic, append-only long-term memory of the system, implemented as a Morton-keyed radix trie (DMT---Distributed Merkle Trie). It eschews traditional continuous embeddings in favor of a \textbf{Thermodynamic Trie}. 
+\subsubsection{The Address Plane}
 
-Crucially, \textbf{the (input and output) value IS the key, and the stored value is the link to the system's native value type.} Specifically, every input byte represents the X-coordinate of a Morton key, and its boundary-local depth (which resets at sequencer boundaries) forms the Y-coordinate. Because the byte value is explicitly encoded as the spatial coordinate itself, the stored 8191-bit Value (128 core blocks $\times$ 64 bits $+$ 3 shell blocks $=$ 131 total blocks) at that coordinate is completely free of lexical identity. Instead, the stored Value acts as a local computational operator---a native element of the $\operatorname{GF}(8191)$ Mersenne prime field ($2^{13}-1$) that carries affine phase, routing hints, and rotational momentum. By resetting the local depth at each structural boundary, identical byte sequences geometrically collapse onto the same coordinate, making \emph{collision} synonymous with \emph{compression}.
+The address plane is the persistent content-routing layer.  Each Value
+derives a 257-bit affinity vector from its token slab and Kadabra routes
+the frame to the closest MarkovTrie replicas in that affinity space.
+This plane is intentionally discrete: XOR distance and population count
+provide the low-latency filter that reduces a large distributed memory
+to a small candidate set.
 
-\subsubsection{The Logic Plane: Volatile Reasoning and Ephemeral Registers}
-In contrast to the static Address Plane, the Logic Plane provides a volatile, high-dimensional scratchpad explicitly designed for associative reasoning and BVP cantilever solving. When prompted, the system activates an interpreter that maintains \textbf{Ephemeral Execution Registers}---transient state comprising the program counter, running phase, and accumulated output---that exist only to seed backtracking and interpolation, without ever being persisted into the trie.
+\subsubsection{The Logic Plane}
 
-Reasoning in the Logic Plane diverges significantly from auto-regressive next-token prediction, treating computation as a process of geometric resonance and affine group rotation over $\operatorname{GF}(8191)$. The execution lifecycle aligns with this logic:
-\begin{enumerate}[nosep]
-    \item \textbf{Excite:} The prompt's input bytes are converted into Values, seeding the initial $\operatorname{GF}(8191)$ phase with measurable momentum.
-    \item \textbf{Rotate:} The interpreter applies affine transforms $f(x) = (ax + b) \pmod{8191}$, advancing the state vector through the field. Rotation \emph{is} execution.
-    \item \textbf{Measure:} The newly computed phase is compared against stored entries in the Address Plane via PhaseDial scoring or GF rotation resolver. Constructive interference (phase-locking) produces a continuation, while destructive interference triggers the \textbf{Frustration Engine} to pivot the orbit.
-    \item \textbf{Halt \& Project:} The process repeats until reaching a fixed point or saturation horizon. The final coordinates are decoded (reversing the Morton coordinate back to the byte key) to translate the answer back into human-facing semantics.
-\end{enumerate}
+The logic plane is the executable in-frame substrate.  Low-nibble
+opcodes apply Boolean truth tables to token, signal, context, and
+metadata words.  High-nibble opcodes interpret Context, Gradient, and
+Signals as 64-byte PGA multivectors and execute composition, sandwich
+application, or reversal.  The GF(257), GF(8191), and GF(65537) phase
+hierarchy remains the discrete resonance channel, while PGA transition
+motors provide the continuous spatial channel used for candidate
+rescoring, multimodal alignment, and episodic re-alignment.

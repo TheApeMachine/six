@@ -36,9 +36,10 @@ The Value operates at a dimensionality ($D = 8192$) within the classical
 HD regime ($D \ge 4{,}000$), gaining the concentration-of-measure
 benefits of high-dimensional spaces.  The compensation for any residual
 collision risk between similar inputs is the population of frames in
-the Region: rather than encoding all information into a single
+the runtime: rather than encoding all information into a single
 high-dimensional vector, the system distributes content across many
-frames that interact through boolean operations.
+frames that interact through Boolean operations and, after pruning,
+through PGA transition motors.
 
 \paragraph{VSA on Emerging Hardware.}
 Kleyko et al.\ \citep{kleyko2022vsa} survey VSA as a computing framework
@@ -47,6 +48,9 @@ They identify the core VSA operations---binding, bundling, and
 permutation---as naturally parallelizable primitives that map efficiently
 to non-von-Neumann architectures.  The multi-substrate backend described
 in \Cref{sec:multi_backend} instantiates this principle: the entire
-execution pipeline reduces to SIMD bitwise operations with no
+filtering pipeline reduces to SIMD bitwise operations with no
 data-dependent branching, making it portable across any hardware that
-supports population count and integer comparison.
+supports population count and integer comparison.  The newer geometric
+lane is deliberately narrower: it requires efficient floating-point
+vector arithmetic only for the candidate set that survives the Boolean
+filter.

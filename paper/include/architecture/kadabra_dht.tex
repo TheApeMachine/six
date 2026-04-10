@@ -28,7 +28,7 @@ high-index buckets.
 
 \subsubsection{Affinity-Based Value Routing}
 
-When a Value is published to the network, its 512-bit affinity vector
+When a Value is published to the network, its 257-bit affinity vector
 (\Cref{sec:entropy_routing}) determines the target nodes.  The system
 computes the XOR distance between the Value's affinity and each
 candidate node's affinity, then routes the Value to the $r = 3$ closest
@@ -65,7 +65,7 @@ At each epoch boundary, every node broadcasts a compact
 \texttt{FieldDigest} to its routing peers.  A digest contains:
 \begin{itemize}[nosep]
   \item The originating \texttt{NodeID}.
-  \item The node's 512-bit affinity vector.
+  \item The node's 257-bit affinity vector.
   \item Surprisal mean $\bar{S}$, variance $\sigma_S^2$, and
         previous-epoch mean $\bar{S}_{\text{prev}}$ (for computing
         phase velocity).

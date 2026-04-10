@@ -91,8 +91,8 @@ func Available() int {
 Execute dispatches frames to the appropriate Metal kernel based on
 the opcode in each Value's program region (word 16). Batch distance
 frames (opcode 0x6 with count at word 124) route to the fused
-XOR+popcount kernel. All others go through the unified bitwise
-kernel which reads the opcode on-device.
+XOR+popcount kernel. Geometric opcodes route to the PGA kernel.
+All other frames go through the unified bitwise kernel.
 */
 func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	if !metalReady.Load() {
@@ -124,7 +124,20 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
 
-		if kernel.ExecuteGeometricFrame(ptr, rawOpcode) {
+		if kernel.IsGeometricOpcode(rawOpcode) {
+			if C.geometric_metal(ptr, 1) != 0 {
+				err := NewMetalKernelError(
+					kernel.KernelErrDispatchFailed,
+					errors.New("geometric dispatch failed"),
+					"Execute",
+				)
+
+				kv := kernel.CorrelationKeyvals(ptr)
+				backend.observer.Error("metal.Backend.Execute", err, kv...)
+
+				return err
+			}
+
 			continue
 		}
 

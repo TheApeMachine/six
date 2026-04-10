@@ -19,8 +19,9 @@ substrate:
 \begin{enumerate}[nosep]
   \item \textbf{Values} (Layer~1): fixed-width 1024-byte binary frames
         carrying token data, a locality-sensitive affinity fingerprint,
-        an embedded boolean program, and a signals region---
-        simultaneously data, code, and execution context.
+        an embedded program, Boolean and geometric execution lanes, and
+        structural links---simultaneously data, code, and execution
+        context.
   \item \textbf{MarkovTrie} (Layer~2): an adaptive probabilistic suffix
         trie that learns from every observation via surprise-modulated
         plasticity, requiring no training epochs, loss functions, or
@@ -36,11 +37,15 @@ substrate:
         suppressing it elsewhere.
 \end{enumerate}
 
-Computation at Layer~1 consists of applying the sixteen two-input
-boolean truth tables across designated regions of one or more frames.
-Because programs are stored within frames, there is no boundary between
-the instruction stream and the data it operates on; a frame may serve
-as passive storage, an executable program, or both simultaneously.
+Computation at Layer~1 is a two-lane in-frame ALU.  The low opcode
+nibble applies the sixteen two-input Boolean truth tables across
+designated regions of one or more frames.  The high opcode nibble
+dispatches Projective Geometric Algebra (PGA) operations---composition,
+sandwich application, and reversal---over 64-byte multivectors stored in
+the Context, Gradient, and Signals regions.  Because programs and
+operands are stored within frames, there is no boundary between the
+instruction stream and the data it operates on; a frame may serve as
+passive storage, an executable program, a geometric motor, or all three.
 
 Learning at Layer~2 is driven entirely by surprisal.  The trie's
 learning rate, decay rate, prune threshold, classification context,
@@ -49,25 +54,27 @@ unsupervised threshold are all derived online from signals the trie
 already computes---no hyperparameter search is required.
 
 Routing at Layer~3 exploits a SimHash projection of the token content
-into the affinity region: eight independent locality-sensitive hash
-projections using prime strides ensure that Values with similar content
-are routed to the same network node, where a single MarkovTrie
-accumulates expertise in that content domain.
+into the affinity region: five independent locality-sensitive hash
+projections using prime strides populate a 257-bit address so that
+Values with similar content are routed to the same network node, where a
+single MarkovTrie accumulates expertise in that content domain.
 
 Attention at Layer~4 emerges from the interaction of gossip-propagated
 digests.  Each node broadcasts a compact summary of its surprisal,
-growth rate, and affinity vector.  The Field detects clusters of
-nodes whose affinity vectors align at multiple spatial scales and
-whose surprisal velocities are phase-coherent, then modulates each
-node's decay and learning multipliers to concentrate capacity on the
-dominant pattern.
+growth rate, finite-field phase, and affinity vector.  The Field detects
+clusters of nodes whose affinity vectors clear an adaptive Jaccard
+coupling threshold, then uses surprisal-velocity phase coherence and the
+global finite-field phase to modulate each node's decay and learning
+multipliers toward the dominant pattern.
 
-The architecture does not employ floating-point arithmetic, gradient-based
-optimization, or learned parameters.  A multi-substrate backend routes
-the underlying boolean operations to whichever compute hardware is
-available---CPU, NVIDIA CUDA, or Apple Metal---through a unified kernel
-interface that requires only bitwise logic, integer comparison, and
-population count.
+The architecture does not employ gradient-based optimization or learned
+parameters.  Its fast path remains dense Boolean logic---XOR distance,
+population count, and truth-table evaluation---but the current runtime
+also uses localized floating-point geometry for PGA motors, Orthogonal
+Procrustes alignment, and episodic drift correction.  A multi-substrate
+backend routes both Boolean and geometric frame operations to whichever
+compute hardware is available---CPU, NVIDIA CUDA, or Apple Metal---
+through a unified kernel interface.
 
 We evaluate the system across five experimental domains: text
 classification, multi-language code generation, CIFAR-10 image
@@ -81,18 +88,22 @@ The contributions of this paper are as follows.  First, we define the
 four-layer architecture: the Value frame, the MarkovTrie, the Kadabra
 DHT, and the Field---and show how they compose into a functioning
 runtime that learns without gradients.  Second, we provide the
-mathematical foundations: SimHash collision bounds, affine coupling
-for eigenmode detection, surprise-modulated plasticity, and the
-asymmetric field projection that implements attention by differential
-survival.  Third, we report empirical results across modalities,
+mathematical foundations: SimHash collision bounds, affinity coupling
+for eigenmode detection, surprise-modulated plasticity, PGA transition
+operators, and Orthogonal Procrustes alignment for cross-domain
+projection.  Third, we describe the native kernel path that preserves
+the Boolean filter while adding CPU, CUDA, and Metal execution for the
+geometric lane.  Fourth, we report empirical results across modalities,
 providing a baseline characterization of what this class of
-architecture can and cannot achieve.  Fourth, we demonstrate a
+architecture can and cannot achieve.  Fifth, we demonstrate a
 self-documenting experimental pipeline in which the system produces
 both results and the corresponding research artifact.
 
 This work does not aim to match the performance of large parameterized
 models on standard benchmarks.  Its purpose is to explore a different
-point in the design space: one where all computation reduces to
-deterministic, hardware-native bitwise operations, where learning is
-local and surprisal-driven, and where attention emerges from collective
-dynamics rather than from learned projection matrices.
+point in the design space: one where retrieval and filtering reduce to
+deterministic, hardware-native bitwise operations; where continuous
+geometry is introduced only where it supplies an explicit spatial
+operator; where learning is local and surprisal-driven; and where
+attention emerges from collective dynamics rather than from learned
+projection matrices.

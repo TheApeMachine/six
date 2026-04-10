@@ -13,30 +13,43 @@ and how Values compose into larger structures.
 
 \subsubsection{The Data Plane}
 
-The Token region (words 0--7, 512 bits) holds the raw content of a
-Value: packed byte data derived from the input stream.  The Affinity
-region (words 8--15, 512 bits) stores an 8-word locality-sensitive
-fingerprint (\Cref{sec:entropy_routing}) that serves as the frame's
-topological address in the distributed routing layer.  The bidirectional
-link pointers (words 125--126) record predecessor and successor edges,
+The Token region (words 0--15, 1024 bits) holds the raw content of a
+Value: packed byte data derived from the input stream.  The Program
+region (words 16--23) holds executable instructions, the Signals region
+(words 24--31) receives ALU output, and the Context, Gradient, and Meta
+regions (words 32--55) provide three 64-byte execution and metadata
+lanes.  Context and Gradient deliberately share the same width as the
+Signals region so each can also hold one eight-lane PGA multivector
+without changing the frame stride.  Reserved words 56--117 remain
+available to higher-level mechanisms; words 118--119 are used by kernel
+transport for correlation and substrate residency.  The bidirectional
+link pointers (words 120--121) record predecessor and successor edges,
 threading Values into sequences that preserve ingestion order.  The
-unique frame identifier (word 127) provides a stable reference for
-cross-frame addressing.
+unique frame identifier (word 122) provides a stable reference for
+cross-frame addressing.  The Affinity region (words 123--127, 257 bits)
+stores a five-word locality-sensitive fingerprint
+(\Cref{sec:entropy_routing}) that serves as the frame's topological
+address in the distributed routing layer.
 
 \subsubsection{The Execution Plane}
 
 The Program region (words 16--23, 512 bits) holds up to 32 packed
 instruction slots.  When a frame is submitted to the compute backend,
-the backend reads the instruction at the current program counter,
-decodes its four-bit opcode, applies the boolean truth table across
-the specified source and destination spans, and writes the result
-into the Signals region (words 24--31).
+the backend reads the instruction at the current program counter and
+decodes the opcode.  Low-nibble opcodes apply Boolean truth tables
+across the specified source and destination spans.  High-nibble opcodes
+route the frame to the geometric ALU, where Context and Gradient are
+read as PGA multivectors and the result is written into Signals
+(words 24--31).
 
-Program execution proceeds as a linear sweep: the Token region is split
-into two operand spans $A$ and $B$, with $B$ rotated in 8-bit steps
-at each instruction.  This rotation ensures that successive instructions
-operate on different alignments of the input, extracting progressively
-finer structural features.
+Boolean program execution proceeds as a linear sweep: the Token region
+is split into two operand spans $A$ and $B$, with $B$ rotated in 8-bit
+steps at each instruction.  This rotation ensures that successive
+instructions operate on different alignments of the input, extracting
+progressively finer structural features.  Geometric execution does not
+rotate token spans; it treats the in-frame multivectors as a motor,
+target, or result according to the opcode contract
+(\Cref{tab:geometric_opcodes}).
 
 \subsubsection{Interaction Between Planes}
 
@@ -47,19 +60,21 @@ region can rewrite an instruction.  This bidirectional access has four
 consequences.
 
 First, a frame can \emph{inspect its own data}.  A program can read
-token bytes, compare affinity fingerprints, or accumulate statistics
-over the Token region using boolean operations, storing results in the
-Signals region for downstream consumption.
+token bytes, compare affinity fingerprints, accumulate statistics over
+the Token region using Boolean operations, or apply a geometric motor to
+its Context/Gradient lanes, storing results in the Signals region for
+downstream consumption.
 
 Second, a frame can \emph{modify its own program}.  Because program
 words are addressable data, an instruction can overwrite a later
 instruction, enabling conditional behavior without explicit branch
 primitives.
 
-Third, when two frames interact through the compute backend, each
-frame can read from the other's data and program regions.  One frame's
-program can operate on another frame's tokens, compare affinity
-vectors across frames, or copy instructions between frames.
+Third, when two frames interact through the compute backend, each frame
+can read from the other's data and program regions.  One frame's program
+can operate on another frame's tokens, compare affinity vectors across
+frames, copy instructions between frames, or carry the motor needed to
+transform another frame's multivector into the Signals lane.
 
 Fourth, interaction can \emph{emit new Values}.  A program that
 identifies derived structure---such as the residual after factoring
@@ -70,7 +85,7 @@ interactions.
 
 \subsubsection{Values as Linked Sequences}
 
-The Prev~ID (word 125) and Next~ID (word 126) pointers define a
+The Prev~ID (word 120) and Next~ID (word 121) pointers define a
 doubly-linked chain over the population of Values ingested from a
 data source.  During ingestion, the Machine (\Cref{sec:substrate})
 links each new Value to its predecessor, preserving the temporal order

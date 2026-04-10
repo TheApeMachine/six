@@ -3,6 +3,91 @@
 #include <stdio.h>
 #include "../shared/primitives.h"
 
+#define CONTEXT_START_WORD 32
+#define GRADIENT_START_WORD 40
+#define OPCODE_GEOMETRIC_MASK 0xF0
+#define OPCODE_GEOMETRIC_COMPOSE 0x10
+#define OPCODE_GEOMETRIC_SANDWICH 0x20
+#define OPCODE_GEOMETRIC_REVERSE 0x30
+
+/*
+Multivector is the Cl(3,0,1) 8-lane payload carried in the Value frame.
+The frame remains uint64_t at rest so the Boolean and geometric ALUs share the
+same 1024-byte ABI; CUDA reinterprets the lanes only at arithmetic boundaries.
+*/
+struct Multivector {
+    double v[8];
+};
+
+static __device__ __forceinline__ double word_to_double(uint64_t word) {
+    return __longlong_as_double((long long)word);
+}
+
+static __device__ __forceinline__ uint64_t double_to_word(double value) {
+    return (uint64_t)__double_as_longlong(value);
+}
+
+static __device__ __forceinline__ Multivector load_multivector(uint64_t* frame, int start) {
+    Multivector mv;
+
+    #pragma unroll
+    for (int idx = 0; idx < 8; idx++) {
+        mv.v[idx] = word_to_double(frame[start + idx]);
+    }
+
+    return mv;
+}
+
+static __device__ __forceinline__ void store_multivector(uint64_t* frame, int start, Multivector mv) {
+    #pragma unroll
+    for (int idx = 0; idx < 8; idx++) {
+        frame[start + idx] = double_to_word(mv.v[idx]);
+    }
+}
+
+static __device__ __forceinline__ Multivector geometric_product(Multivector left, Multivector right) {
+    Multivector out;
+
+    out.v[0] = left.v[0]*right.v[0] - left.v[4]*right.v[4] - left.v[5]*right.v[5] - left.v[6]*right.v[6];
+
+    out.v[1] = left.v[0]*right.v[1] + left.v[1]*right.v[0] - left.v[2]*right.v[4] + left.v[3]*right.v[5] +
+               left.v[4]*right.v[2] - left.v[5]*right.v[3] - left.v[6]*right.v[7] - left.v[7]*right.v[6];
+
+    out.v[2] = left.v[0]*right.v[2] + left.v[1]*right.v[4] + left.v[2]*right.v[0] - left.v[3]*right.v[6] -
+               left.v[4]*right.v[1] - left.v[5]*right.v[7] + left.v[6]*right.v[3] - left.v[7]*right.v[5];
+
+    out.v[3] = left.v[0]*right.v[3] - left.v[1]*right.v[5] + left.v[2]*right.v[6] + left.v[3]*right.v[0] -
+               left.v[4]*right.v[7] + left.v[5]*right.v[1] - left.v[6]*right.v[2] - left.v[7]*right.v[4];
+
+    out.v[4] = left.v[0]*right.v[4] + left.v[4]*right.v[0] + left.v[5]*right.v[6] - left.v[6]*right.v[5];
+    out.v[5] = left.v[0]*right.v[5] - left.v[4]*right.v[6] + left.v[5]*right.v[0] + left.v[6]*right.v[4];
+    out.v[6] = left.v[0]*right.v[6] + left.v[4]*right.v[5] - left.v[5]*right.v[4] + left.v[6]*right.v[0];
+
+    out.v[7] = left.v[0]*right.v[7] + left.v[1]*right.v[6] + left.v[2]*right.v[5] + left.v[3]*right.v[4] +
+               left.v[4]*right.v[3] + left.v[5]*right.v[2] + left.v[6]*right.v[1] + left.v[7]*right.v[0];
+
+    return out;
+}
+
+static __device__ __forceinline__ Multivector reverse(Multivector mv) {
+    Multivector out;
+
+    out.v[0] =  mv.v[0];
+    out.v[1] = -mv.v[1];
+    out.v[2] = -mv.v[2];
+    out.v[3] = -mv.v[3];
+    out.v[4] = -mv.v[4];
+    out.v[5] = -mv.v[5];
+    out.v[6] = -mv.v[6];
+    out.v[7] =  mv.v[7];
+
+    return out;
+}
+
+static __device__ __forceinline__ Multivector sandwich(Multivector motor, Multivector target) {
+    return geometric_product(geometric_product(motor, target), reverse(motor));
+}
+
 /*
 UniversalBitwise kernel — CUDA implementation.
 
@@ -111,6 +196,46 @@ __global__ void nearest_affinity_kernel(
     distances[id] = dist;
 }
 
+/*
+Geometric kernel — PGA lane for Value-local multivectors.
+
+The opcode is read from the high nibble of Program[0], leaving the low nibble
+available for Boolean truth tables. Context and Gradient are interpreted as
+8x float64 multivectors and Signals receives the computed result.
+*/
+__global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
+    uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= num_values) return;
+
+    uint32_t base = id * WORDS;
+    uint64_t* frame = A + base;
+    uint8_t op = (uint8_t)(frame[PROGRAM_START_WORD] & OPCODE_GEOMETRIC_MASK);
+
+    if (op != OPCODE_GEOMETRIC_COMPOSE &&
+        op != OPCODE_GEOMETRIC_SANDWICH &&
+        op != OPCODE_GEOMETRIC_REVERSE) {
+        return;
+    }
+
+    Multivector left = load_multivector(frame, CONTEXT_START_WORD);
+    Multivector right = load_multivector(frame, GRADIENT_START_WORD);
+
+    if (op == OPCODE_GEOMETRIC_COMPOSE) {
+        store_multivector(frame, SIGNALS_START_WORD, geometric_product(left, right));
+        return;
+    }
+
+    if (op == OPCODE_GEOMETRIC_SANDWICH) {
+        store_multivector(frame, SIGNALS_START_WORD, sandwich(left, right));
+        return;
+    }
+
+    if (op == OPCODE_GEOMETRIC_REVERSE) {
+        store_multivector(frame, SIGNALS_START_WORD, reverse(left));
+        return;
+    }
+}
+
 static uint64_t* d_pool_A = nullptr;
 static uint32_t pool_capacity = 0;
 
@@ -200,6 +325,54 @@ extern "C" {
         if (cudaGetLastError()        != cudaSuccess) return -3;
         if (cudaDeviceSynchronize()   != cudaSuccess) return -4;
         if (cudaMemcpy(distances_host, d_aff_distances, dist_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+
+        return 0;
+    }
+
+    int geometric_cuda(
+        int device_id,
+        void* a_host,
+        uint32_t num_values
+    ) {
+        if (!a_host || num_values == 0) return -1;
+        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+        if (ensure_pool(num_values) != 0) return -1;
+
+        size_t bytes = (size_t)num_values * WORDS * sizeof(uint64_t);
+
+        cudaError_t cpyErr = cudaMemcpy(d_pool_A, a_host, bytes, cudaMemcpyHostToDevice);
+        if (cpyErr != cudaSuccess) {
+            fprintf(stderr, "geometric_cuda: cudaMemcpy H->D failed: %s\n",
+                    cudaGetErrorString(cpyErr));
+            return -4;
+        }
+
+        const int threadsPerBlock = 256;
+        int blocks = (int)((num_values + threadsPerBlock - 1) / threadsPerBlock);
+        if (blocks < 1) blocks = 1;
+
+        geometric_kernel<<<blocks, threadsPerBlock>>>((uint64_t*)d_pool_A, num_values);
+
+        cudaError_t launchErr = cudaGetLastError();
+        if (launchErr != cudaSuccess) {
+            fprintf(stderr, "geometric_cuda: kernel launch failed: %s\n",
+                    cudaGetErrorString(launchErr));
+            return -2;
+        }
+
+        cudaError_t syncErr = cudaDeviceSynchronize();
+        if (syncErr != cudaSuccess) {
+            fprintf(stderr, "geometric_cuda: cudaDeviceSynchronize failed: %s\n",
+                    cudaGetErrorString(syncErr));
+            return -3;
+        }
+
+        cpyErr = cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
+        if (cpyErr != cudaSuccess) {
+            fprintf(stderr, "geometric_cuda: cudaMemcpy D->H failed: %s\n",
+                    cudaGetErrorString(cpyErr));
+            return -6;
+        }
 
         return 0;
     }

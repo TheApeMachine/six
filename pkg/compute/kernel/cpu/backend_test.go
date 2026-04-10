@@ -152,13 +152,13 @@ func TestExecute(t *testing.T) {
 			*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.GradientStartWord])) = target
 
 			err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&v)})
+			actual := *(*geometry.Multivector)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 
 			convey.So(err, convey.ShouldBeNil)
-			convey.So(
-				*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.SignalsStartWord])),
-				convey.ShouldResemble,
-				expected,
-			)
+
+			for idx := range expected {
+				convey.So(actual[idx], convey.ShouldAlmostEqual, expected[idx], 1e-14)
+			}
 		})
 
 		convey.Convey("Nil frame returns error", func() {
@@ -262,6 +262,31 @@ func BenchmarkExecute(b *testing.B) {
 		)
 		ptrs[i] = unsafe.Pointer(&values[i])
 	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		if err := backend.Execute(ptrs); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkExecuteGeometric(b *testing.B) {
+	installCPUTestLayout()
+
+	backend := NewBackend(context.Background())
+
+	var v [128]uint64
+	motor := geometry.Rotor(math.Pi/2, 0, 0, 1)
+	target := geometry.Multivector{0, 0, 0, 0, 1, 0, 0, 0}
+
+	v[kernel.ProgramStartWord] = kernel.OpcodeGeometricSandwich
+	*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.ContextStartWord])) = motor
+	*(*geometry.Multivector)(unsafe.Pointer(&v[kernel.GradientStartWord])) = target
+
+	ptrs := []unsafe.Pointer{unsafe.Pointer(&v)}
 
 	b.ResetTimer()
 	b.ReportAllocs()

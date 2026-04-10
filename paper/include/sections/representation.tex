@@ -6,8 +6,10 @@
 
 The system operates on a single primitive type called a \emph{Value}: a
 fixed-width binary frame of 1024 bytes, organized as 128 sixty-four-bit
-words.  All computation is expressed as transformations over Values using
-the complete set of two-input boolean functions.
+words.  Computation is expressed as transformations over Values using a
+hybrid ALU: dense Boolean truth tables for filtering and symbolic
+binding, and Projective Geometric Algebra operations for continuous
+transition and alignment.
 
 \paragraph{Frame Layout.}
 Each Value is partitioned into contiguous regions with distinct roles,
@@ -24,38 +26,47 @@ and bit widths.  The default layout is:
     \toprule
     \textbf{Region} & \textbf{Words} & \textbf{Bits} & \textbf{Purpose} \\
     \midrule
-    Tokens    & 0--7     & 512  & Raw input bytes, packed token data \\
-    Affinity  & 8--15    & 512  & 8 independent SimHash projections \\
-    Program   & 16--23   & 512  & 32 bitwise instruction slots \\
-    Signals   & 24--31   & 512  & ALU output from program execution \\
-    Reserved  & 32--124  & 5952 & Application-defined metadata \\
-    Prev ID   & 125      & 64   & Link to predecessor Value \\
-    Next ID   & 126      & 64   & Link to successor Value \\
-    ID        & 127      & 64   & Unique frame identifier \\
+    Tokens    & 0--15    & 1024 & Raw input bytes, Morton-packed token data \\
+    Program   & 16--23   & 512  & 32 packed instruction slots \\
+    Signals   & 24--31   & 512  & Boolean ALU output or PGA result \\
+    Context   & 32--39   & 512  & Context words or one 8-lane multivector \\
+    Gradient  & 40--47   & 512  & Residual words or one 8-lane multivector \\
+    Meta      & 48--55   & 512  & Adaptive metadata and runtime signals \\
+    Reserved  & 56--117  & 3968 & Application-defined metadata \\
+    Kernel    & 118--119 & 128  & Correlation and substrate residency words \\
+    Prev ID   & 120      & 64   & Link to predecessor Value \\
+    Next ID   & 121      & 64   & Link to successor Value \\
+    ID        & 122      & 64   & Unique frame identifier \\
+    Affinity  & 123--127 & 257  & 5-word locality-sensitive fingerprint \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 The Token region holds the raw byte content of an input datum.  The
-Affinity region stores a locality-sensitive fingerprint used for
-content-addressable routing (\Cref{sec:entropy_routing}).  The Program
-region contains executable instructions that the multi-substrate backend
-applies to the frame's own data.  The Signals region receives the output
-of program execution, serving as a write target for the ALU.  The
+Program region contains executable instructions that the multi-substrate
+backend applies to the frame's own data.  The Signals region receives
+Boolean output and also acts as the destination for geometric products.
+The Context, Gradient, and Signals regions are each exactly 64 bytes:
+large enough for one PGA multivector with eight \texttt{float64} lanes.
+Boolean algorithms still access these regions as words, while geometric
+algorithms reinterpret them as continuous coordinates.  The
 Prev/Next/ID words thread Values into doubly-linked sequences that
-preserve ingestion order.
+preserve ingestion order.  The Affinity region stores a 257-bit
+locality-sensitive fingerprint used for content-addressable routing
+(\Cref{sec:entropy_routing}); the final affinity word uses only its
+least significant bit.
 
 This layout is not fixed at compile time.  A configuration file specifies
 the word offsets and bit widths for every region, allowing the frame
 geometry to be altered without modifying the runtime.
 
 \paragraph{The Sixteen Boolean Operations.}
-The instruction set consists of the sixteen two-input boolean
+The Boolean sub-instruction set consists of the sixteen two-input Boolean
 functions, each encoded as a four-bit truth table.  During execution,
 pairs of bits drawn from two operand spans are used to index into the
 truth table; the resulting bit is written to the destination.  Because
 these operations are applied across \emph{spans}---contiguous runs of
-bits within a frame---each instruction performs parallel boolean
+bits within a frame---each instruction performs parallel Boolean
 evaluation over an arbitrary bit-width in a single step.
 
 The sixteen operations partition into functional roles:
@@ -92,27 +103,57 @@ The sixteen operations partition into functional roles:
         Used for clearing and signaling.
 \end{itemize}
 
-No higher-level arithmetic or symbolic primitives are provided.  All
-behavior is constructed by composing these operations across the
-regions of one or more frames.
+\paragraph{Geometric ALU Extensions.}
+The Boolean instruction set occupies the low opcode nibble.  The high
+nibble is reserved for geometric opcodes over the 64-byte multivector
+lanes:
+
+\begin{table}[h]
+  \centering
+  \caption{Geometric opcode contract.  The multivector layout is the
+           even subalgebra of $\mathrm{Cl}(3,0,1)$:
+           $(1,e_{01},e_{02},e_{03},e_{12},e_{31},e_{23},e_{0123})$.}
+  \label{tab:geometric_opcodes}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Opcode} & \textbf{Operation} & \textbf{Frame contract} \\
+    \midrule
+    \texttt{0x10} & Compose  & $\text{Signals} \leftarrow \text{Context} \cdot \text{Gradient}$ \\
+    \texttt{0x20} & Sandwich & $\text{Signals} \leftarrow \text{Context} \cdot \text{Gradient} \cdot \text{Context}^{\dagger}$ \\
+    \texttt{0x30} & Reverse  & $\text{Signals} \leftarrow \text{Context}^{\dagger}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+These opcodes add continuous rigid-motion operators without changing the
+frame stride or removing the Boolean path.  The fast affinity filter
+continues to use XOR and population count; the geometric lane is applied
+after pruning to rescore candidates, align domains, or re-align episodic
+memory.  Thus higher-level behavior is constructed by composing Boolean
+and geometric operations across the same in-frame regions.
 
 \paragraph{Program Execution.}
-The ALU partitions the Token region into two operand spans, $A$ and $B$.
-Span~$A$ is held steady; span~$B$ is rotated in 8-bit steps.  The
-program counter advances through the Program region one opcode at a time,
-applying the corresponding boolean truth table between $A$ and the
-rotated $B$.  Results are emitted as Signal bits into the Signals
-region.  Programs may set loop bits to request re-enqueuing for
+For Boolean opcodes, the ALU partitions the Token region into two
+operand spans, $A$ and $B$.  Span~$A$ is held steady; span~$B$ is
+rotated in 8-bit steps.  The program counter advances through the
+Program region one opcode at a time, applying the corresponding truth
+table between $A$ and the rotated $B$.  Results are emitted as Signal
+bits into the Signals region.  For geometric opcodes, the backend reads
+Context and Gradient as multivectors and writes the 8-lane result into
+Signals.  Programs may set loop bits to request re-enqueuing for
 iterative execution.
 
 \paragraph{Instruction Encoding.}
 Each instruction occupies a thirty-two-bit word with three fields: a
-source operand, a destination operand, and a four-bit opcode.  Operands
-may reference named regions, pointer dereferences, or fourteen-bit
-immediate values.  A flag field distinguishes register references from
-immediates.  An assembler translates a textual representation---one
-instruction per line---into the packed binary form.  Extended instruction
-words support memory-load markers for use in query and prompt firmware.
+source operand, a destination operand, and an opcode.  Boolean firmware
+uses the low four bits as a truth-table literal.  Geometric firmware
+uses the high nibble to select the PGA operation while preserving the
+same packed instruction format.  Operands may reference named regions,
+pointer dereferences, or fourteen-bit immediate values.  A flag field
+distinguishes register references from immediates.  An assembler
+translates a textual representation---one instruction per line---into
+the packed binary form.  Extended instruction words support memory-load
+markers for use in query and prompt firmware.
 
 \paragraph{Programs as Data.}
 Programs reside within the same frame that holds data.  The Program

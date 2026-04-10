@@ -1,0 +1,271 @@
+//go:build arm64
+
+#include "textflag.h"
+
+// ============================================================================
+// geometricFrame: ARM64 scalar-FP/NEON-register PGA lane.
+//
+// func geometricFrame(value *uint64, opcode uint64) bool
+//
+// Frame layout:
+//   Context  word 32, byte 256: left motor / operand
+//   Gradient word 40, byte 320: right target / operand
+//   Signals  word 24, byte 192: output multivector
+//
+// The implementation keeps operands in FP/SIMD registers. Sandwich writes the
+// first product into Signals, reloads it, and overwrites Signals with the final
+// product so the function can stay NOFRAME on ARM64.
+// ============================================================================
+TEXT ·geometricFrame(SB), NOSPLIT|NOFRAME, $0-17
+	MOVD	value+0(FP), R0
+	MOVD	opcode+8(FP), R1
+	MOVD	R30, R27
+
+	AND	$0xF0, R1, R1
+
+	CMP	$0x10, R1
+	BEQ	geom_compose
+
+	CMP	$0x20, R1
+	BEQ	geom_sandwich
+
+	CMP	$0x30, R1
+	BEQ	geom_reverse
+
+	MOVD	$0, R1
+	MOVB	R1, ret+16(FP)
+	MOVD	R27, R30
+	RET
+
+geom_compose:
+	FMOVD	256(R0), F0
+	FMOVD	264(R0), F1
+	FMOVD	272(R0), F2
+	FMOVD	280(R0), F3
+	FMOVD	288(R0), F4
+	FMOVD	296(R0), F5
+	FMOVD	304(R0), F6
+	FMOVD	312(R0), F7
+
+	FMOVD	320(R0), F8
+	FMOVD	328(R0), F9
+	FMOVD	336(R0), F10
+	FMOVD	344(R0), F11
+	FMOVD	352(R0), F12
+	FMOVD	360(R0), F13
+	FMOVD	368(R0), F14
+	FMOVD	376(R0), F15
+
+	ADD	$192, R0, R3
+	BL	geom_product_store
+
+	MOVD	$1, R1
+	MOVB	R1, ret+16(FP)
+	MOVD	R27, R30
+	RET
+
+geom_sandwich:
+	FMOVD	256(R0), F0
+	FMOVD	264(R0), F1
+	FMOVD	272(R0), F2
+	FMOVD	280(R0), F3
+	FMOVD	288(R0), F4
+	FMOVD	296(R0), F5
+	FMOVD	304(R0), F6
+	FMOVD	312(R0), F7
+
+	FMOVD	320(R0), F8
+	FMOVD	328(R0), F9
+	FMOVD	336(R0), F10
+	FMOVD	344(R0), F11
+	FMOVD	352(R0), F12
+	FMOVD	360(R0), F13
+	FMOVD	368(R0), F14
+	FMOVD	376(R0), F15
+
+	ADD	$192, R0, R3
+	BL	geom_product_store
+
+	FMOVD	192(R0), F0
+	FMOVD	200(R0), F1
+	FMOVD	208(R0), F2
+	FMOVD	216(R0), F3
+	FMOVD	224(R0), F4
+	FMOVD	232(R0), F5
+	FMOVD	240(R0), F6
+	FMOVD	248(R0), F7
+
+	FMOVD	256(R0), F8
+	FMOVD	264(R0), F9
+	FMOVD	272(R0), F10
+	FMOVD	280(R0), F11
+	FMOVD	288(R0), F12
+	FMOVD	296(R0), F13
+	FMOVD	304(R0), F14
+	FMOVD	312(R0), F15
+
+	FNEGD	F9, F9
+	FNEGD	F10, F10
+	FNEGD	F11, F11
+	FNEGD	F12, F12
+	FNEGD	F13, F13
+	FNEGD	F14, F14
+
+	ADD	$192, R0, R3
+	BL	geom_product_store
+
+	MOVD	$1, R1
+	MOVB	R1, ret+16(FP)
+	MOVD	R27, R30
+	RET
+
+geom_reverse:
+	FMOVD	256(R0), F16
+	FMOVD	F16, 192(R0)
+
+	FMOVD	264(R0), F16
+	FNEGD	F16, F16
+	FMOVD	F16, 200(R0)
+
+	FMOVD	272(R0), F16
+	FNEGD	F16, F16
+	FMOVD	F16, 208(R0)
+
+	FMOVD	280(R0), F16
+	FNEGD	F16, F16
+	FMOVD	F16, 216(R0)
+
+	FMOVD	288(R0), F16
+	FNEGD	F16, F16
+	FMOVD	F16, 224(R0)
+
+	FMOVD	296(R0), F16
+	FNEGD	F16, F16
+	FMOVD	F16, 232(R0)
+
+	FMOVD	304(R0), F16
+	FNEGD	F16, F16
+	FMOVD	F16, 240(R0)
+
+	FMOVD	312(R0), F16
+	FMOVD	F16, 248(R0)
+
+	MOVD	$1, R1
+	MOVB	R1, ret+16(FP)
+	MOVD	R27, R30
+	RET
+
+geom_product_store:
+	// out[0] = l0*r0 - l4*r4 - l5*r5 - l6*r6
+	FMULD	F8, F0, F16
+	FMULD	F12, F4, F17
+	FSUBD	F17, F16, F16
+	FMULD	F13, F5, F17
+	FSUBD	F17, F16, F16
+	FMULD	F14, F6, F17
+	FSUBD	F17, F16, F16
+	FMOVD	F16, 0(R3)
+
+	// out[1]
+	FMULD	F9, F0, F16
+	FMULD	F8, F1, F17
+	FADDD	F17, F16, F16
+	FMULD	F12, F2, F17
+	FSUBD	F17, F16, F16
+	FMULD	F13, F3, F17
+	FADDD	F17, F16, F16
+	FMULD	F10, F4, F17
+	FADDD	F17, F16, F16
+	FMULD	F11, F5, F17
+	FSUBD	F17, F16, F16
+	FMULD	F15, F6, F17
+	FSUBD	F17, F16, F16
+	FMULD	F14, F7, F17
+	FSUBD	F17, F16, F16
+	FMOVD	F16, 8(R3)
+
+	// out[2]
+	FMULD	F10, F0, F16
+	FMULD	F12, F1, F17
+	FADDD	F17, F16, F16
+	FMULD	F8, F2, F17
+	FADDD	F17, F16, F16
+	FMULD	F14, F3, F17
+	FSUBD	F17, F16, F16
+	FMULD	F9, F4, F17
+	FSUBD	F17, F16, F16
+	FMULD	F15, F5, F17
+	FSUBD	F17, F16, F16
+	FMULD	F11, F6, F17
+	FADDD	F17, F16, F16
+	FMULD	F13, F7, F17
+	FSUBD	F17, F16, F16
+	FMOVD	F16, 16(R3)
+
+	// out[3]
+	FMULD	F11, F0, F16
+	FMULD	F13, F1, F17
+	FSUBD	F17, F16, F16
+	FMULD	F14, F2, F17
+	FADDD	F17, F16, F16
+	FMULD	F8, F3, F17
+	FADDD	F17, F16, F16
+	FMULD	F15, F4, F17
+	FSUBD	F17, F16, F16
+	FMULD	F9, F5, F17
+	FADDD	F17, F16, F16
+	FMULD	F10, F6, F17
+	FSUBD	F17, F16, F16
+	FMULD	F12, F7, F17
+	FSUBD	F17, F16, F16
+	FMOVD	F16, 24(R3)
+
+	// out[4]
+	FMULD	F12, F0, F16
+	FMULD	F8, F4, F17
+	FADDD	F17, F16, F16
+	FMULD	F14, F5, F17
+	FADDD	F17, F16, F16
+	FMULD	F13, F6, F17
+	FSUBD	F17, F16, F16
+	FMOVD	F16, 32(R3)
+
+	// out[5]
+	FMULD	F13, F0, F16
+	FMULD	F14, F4, F17
+	FSUBD	F17, F16, F16
+	FMULD	F8, F5, F17
+	FADDD	F17, F16, F16
+	FMULD	F12, F6, F17
+	FADDD	F17, F16, F16
+	FMOVD	F16, 40(R3)
+
+	// out[6]
+	FMULD	F14, F0, F16
+	FMULD	F13, F4, F17
+	FADDD	F17, F16, F16
+	FMULD	F12, F5, F17
+	FSUBD	F17, F16, F16
+	FMULD	F8, F6, F17
+	FADDD	F17, F16, F16
+	FMOVD	F16, 48(R3)
+
+	// out[7]
+	FMULD	F15, F0, F16
+	FMULD	F14, F1, F17
+	FADDD	F17, F16, F16
+	FMULD	F13, F2, F17
+	FADDD	F17, F16, F16
+	FMULD	F12, F3, F17
+	FADDD	F17, F16, F16
+	FMULD	F11, F4, F17
+	FADDD	F17, F16, F16
+	FMULD	F10, F5, F17
+	FADDD	F17, F16, F16
+	FMULD	F9, F6, F17
+	FADDD	F17, F16, F16
+	FMULD	F8, F7, F17
+	FADDD	F17, F16, F16
+	FMOVD	F16, 56(R3)
+
+	RET

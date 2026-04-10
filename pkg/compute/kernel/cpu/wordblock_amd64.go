@@ -38,3 +38,6 @@ func universalBitwiseV2(value *uint64, numRotations int)
 
 //go:noescape
 func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
+
+//go:noescape
+func geometricFrame(value *uint64, opcode uint64) bool

@@ -5,8 +5,8 @@
 \label{sec:substrate}
 
 Values do not execute in isolation.  The runtime organizes them into a
-four-layer processing pipeline: the compute backend executes boolean
-programs on individual frames, the MarkovTrie learns from sequences of
+four-layer processing pipeline: the compute backend executes Boolean and
+geometric programs on individual frames, the MarkovTrie learns from sequences of
 frames, the Kadabra DHT routes frames to specialized tries, and the
 Field projects collective pressure across the network.
 
@@ -15,11 +15,11 @@ Field projects collective pressure across the network.
 A load-balanced \emph{Backend} abstracts the heterogeneous hardware
 available on the host.  At initialization, the Backend probes for
 NVIDIA CUDA devices, Apple Metal devices, and the always-present CPU,
-registering each as a compute substrate.  All substrates implement a
-common interface: \texttt{UniversalBitwise}, which reads a four-bit
-opcode from a Value's current instruction, applies the corresponding
-boolean truth table across the frame's operand spans, writes the result
-to the Signals region, and advances the program counter.
+registering each as a compute substrate.  All substrates implement the
+same \texttt{Execute(frames []unsafe.Pointer)} contract: the programmer
+compiles intent into the Value layout, the substrate reads the opcode
+from the Program region, and the backend dispatches internally to the
+right hardware path.
 
 The Backend selects a substrate for each batch through latency-aware
 routing:
@@ -31,9 +31,16 @@ routing:
   \item When all substrates are saturated, overflow to the CPU.
 \end{enumerate}
 
-CPU execution uses SIMD fast-paths for homogeneous instruction runs,
-processing Values in tiles of 64.  The boolean truth table for each
-instruction is applied via a four-term mask expansion:
+The dispatch table contains three hot paths.  Low-nibble Boolean opcodes
+use the truth-table ALU.  Opcode \texttt{0x6} with an in-frame batch
+marker uses a fused XOR+population-count nearest-affinity kernel over
+SIMD-padded candidate rows.  High-nibble geometric opcodes
+(\texttt{0x10}, \texttt{0x20}, \texttt{0x30}) use the PGA lane, reading
+Context and Gradient as eight-lane multivectors and writing the result
+to Signals.
+
+CPU Boolean execution uses word-parallel logic.  The truth table for
+each instruction is applied via a four-term mask expansion:
 \begin{equation}
   \text{out} = (A \mathbin{\&} B \mathbin{\&} m_0)
              \mathbin{|} (A \mathbin{\&} \bar{B} \mathbin{\&} m_1)
@@ -41,9 +48,15 @@ instruction is applied via a four-term mask expansion:
              \mathbin{|} (\bar{A} \mathbin{\&} \bar{B} \mathbin{\&} m_3)
   \label{eq:truth_table_expansion}
 \end{equation}
-where $m_0 m_1 m_2 m_3$ are the four bits of the opcode.  This
-executes in constant time per 64-bit word, independent of which of the
-sixteen boolean functions is selected.
+where $m_0 m_1 m_2 m_3$ are the four bits of the opcode.  This executes
+in constant time per 64-bit word, independent of which of the sixteen
+Boolean functions is selected.  CPU affinity distance uses native SIMD
+popcount paths, and CPU geometric execution uses hand-written ARM64 and
+AMD64 floating-point/SIMD assembly for the multivector product.  CUDA
+executes the geometric lane in native \texttt{float64}; Metal preserves
+the 64-bit frame ABI and converts to native \texttt{float32} arithmetic
+inside the shader because Apple Metal does not expose double precision
+in portable compute shaders.
 
 \paragraph{Priority Spill Ring.}
 A bounded multi-producer, multi-consumer ring buffer (capacity 65{,}536

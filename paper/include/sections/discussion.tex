@@ -21,11 +21,20 @@ Value representation processes text, images, code, and structured
 logical data through identical pipelines.  No modality-specific
 encoders, tokenizers, or preprocessing stages are required.
 
-\emph{Hardware-native parallelism.}  The boolean instruction set maps
-directly to SIMD and GPU architectures, with all operations executing at
-fixed, data-independent latency.  The multi-substrate backend
+\emph{Hardware-native parallelism.}  The Boolean instruction set maps
+directly to SIMD and GPU architectures, with Boolean operations executing
+at fixed, data-independent latency.  The multi-substrate backend
 demonstrates that the same computation can be dispatched to CPU, CUDA,
-or Metal without algorithmic modification.
+or Metal without algorithmic modification.  The current implementation
+extends that claim to the bounded geometric lane: CPU uses native
+assembly for the PGA product, CUDA executes the lane in \texttt{float64},
+and Metal executes an ABI-preserving \texttt{float32} shader path.
+
+\emph{Geometric alignment.}  PGA Context multivectors now participate in
+MarkovTrie transition rescoring, multimodal sensory/action Procrustes
+alignment, and episodic memory re-alignment.  This provides an explicit
+continuous operator where the earlier architecture relied only on
+finite-field phase and affinity overlap.
 
 \emph{Emergent specialization.}  The combination of SimHash affinity
 projection and Kademlia routing produces content-based clustering:
@@ -54,7 +63,16 @@ boolean operations attenuates with depth.  Each operation can only
 redistribute existing bits or set bits to zero or one; there is no
 amplification mechanism analogous to residual connections.  Deep
 multi-step reasoning chains are therefore limited by the rate at which
-signal degrades under repeated boolean transformation.
+signal degrades under repeated Boolean transformation.  The geometric
+lane mitigates this for transition scoring but does not by itself supply
+a general mechanism for deep symbolic composition.
+
+\emph{Geometric validation.}  The PGA and Procrustes paths are now
+implemented natively, but their contribution still needs systematic
+ablation.  In particular, the runtime should quantify when the geometric
+rescoring term improves beam ranking, when Procrustes improves
+cross-domain action selection, and how much Metal's \texttt{float32}
+shader arithmetic diverges from the CPU/CUDA \texttt{float64} reference.
 
 \emph{Scale comparison.}  The system has not been benchmarked against
 large autoregressive models on standard leaderboards.  The experimental
@@ -81,9 +99,11 @@ Varying the frame width (512, 1024, 2048 bytes) would characterize the
 trade-off between representational capacity and computational cost.
 Disabling the Field and measuring the effect on downstream task
 performance would isolate the contribution of eigenmode-based attention.
-Varying the number of SimHash projections (4, 8, 16) and the majority
-vote parameter $k$ would quantify the relationship between affinity
-precision and routing quality.
+Varying the number of SimHash projections and the majority vote
+parameter $k$ would quantify the relationship between affinity precision
+and routing quality.  Disabling the geometric continuation boost,
+domain Procrustes alignment, and episodic re-alignment independently
+would quantify the contribution of continuous geometry.
 
 \paragraph{Scaling Experiments.}
 Measuring classification accuracy and generation quality as a function
@@ -104,3 +124,11 @@ The current system retrieves via trie lookup and episodic $k$-NN.
 Introducing content-addressable indexing over the affinity space (e.g.,
 locality-sensitive hashing trees) would enable sub-linear retrieval
 across the full Kadabra network.
+
+\paragraph{Geometric Kernel Measurement.}
+The native kernels should be benchmarked across batch sizes and
+substrates.  In particular, the CPU assembly path should be compared
+against the scalar reference on both ARM64 and AMD64, CUDA should be
+measured for candidate-batch throughput, and Metal should be evaluated
+for numerical drift introduced by shader-side \texttt{float32}
+arithmetic.

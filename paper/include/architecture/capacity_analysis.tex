@@ -15,48 +15,54 @@ $2^{8192}$ possible binary configurations.  Partitioning into functional
 regions yields the following independent state counts:
 
 \begin{align}
-  |\Omega_{\text{token}}|   &= 2^{512}   && \text{(words 0--7)} \\
-  |\Omega_{\text{affinity}}| &= 2^{512}  && \text{(words 8--15)} \\
+  |\Omega_{\text{token}}|   &= 2^{1024}  && \text{(words 0--15)} \\
   |\Omega_{\text{program}}|  &= 2^{512}  && \text{(words 16--23)} \\
-  |\Omega_{\text{signal}}|   &= 2^{512}  && \text{(words 24--31)}
+  |\Omega_{\text{signal}}|   &= 2^{512}  && \text{(words 24--31)} \\
+  |\Omega_{\text{context}}|  &= 2^{512}  && \text{(words 32--39)} \\
+  |\Omega_{\text{gradient}}| &= 2^{512}  && \text{(words 40--47)} \\
+  |\Omega_{\text{meta}}|     &= 2^{512}  && \text{(words 48--55)} \\
+  |\Omega_{\text{affinity}}| &= 2^{257}  && \text{(words 123--127)}
 \end{align}
 
 Because program and data regions are independently addressable, the
 joint state space of a single frame is the Cartesian product of its
-regions, substantially larger than any single region alone.
+regions, substantially larger than any single region alone.  The
+Context, Gradient, and Signals regions also admit continuous
+interpretations as three eight-lane \texttt{float64} multivectors, but
+their storage remains the same 512-bit lanes accounted for above.
 
 \subsubsection{SimHash Projection and Collision Bounds}
 
-The affinity region is computed from the token region via eight
+The affinity region is computed from the token region via five
 independent SimHash projections (\Cref{sec:entropy_routing}).  Each
-projection $h_j$ ($j = 1, \ldots, 8$) uses a distinct prime stride
-$p_j \in \{73, 97, 113, 131, 151, 167, 181, 199\}$ to sample $k = 7$
-token bits per output bit via majority vote.
+projection $h_j$ ($j = 1, \ldots, 5$) uses a distinct prime stride
+$p_j \in \{73, 97, 113, 131, 151\}$ to sample $k = 7$ token bits per
+output bit via majority vote.
 
 For two Values $u, v$ with token Hamming distance $\delta(u,v)$ over
-512 bits, the per-bit agreement probability of a single SimHash
+the configured token width $D_T$ (1024 bits by default), the per-bit
+agreement probability of a single SimHash
 projection is:
 \begin{equation}
   \Pr\bigl[h_j(u)_i = h_j(v)_i\bigr]
     = \sum_{t=0}^{\lfloor k/2 \rfloor} \binom{k}{t}\, p^t\, (1-p)^{k-t}
   \label{eq:simhash_agreement}
 \end{equation}
-where $p = \delta(u,v) / 512$ is the fractional Hamming distance.  At
+where $p = \delta(u,v) / D_T$ is the fractional Hamming distance.  At
 $k=7$, this function amplifies the similarity signal: inputs differing
 in fewer than $5\%$ of token bits produce affinity vectors with expected
 Hamming agreement exceeding $96\%$, while inputs differing in more than
 $40\%$ of bits produce near-chance agreement ($\approx 50\%$).
 
-The eight projections are independent because $\gcd(p_j, 512) = 1$ for
-all primes $p_j$ (none divide $512 = 2^9$), and any two projections
-with strides $p_j, p_k$ first re-collide after $\text{lcm}(p_j, p_k) =
-p_j \cdot p_k \gg 512$ steps---they never revisit the same sampling
-pattern within the 512-bit input.
+The five projections avoid structural aliasing because
+$\gcd(p_j, D_T) = 1$ for the default power-of-two token width, and any
+two projections with strides $p_j, p_k$ first re-collide after
+$\text{lcm}(p_j, p_k) = p_j \cdot p_k$ steps.
 
 \subsubsection{Kademlia Metric from Affinity}
 
 The affinity vector defines a metric space via XOR distance.  For two
-Values with affinity words $\mathbf{a}, \mathbf{b} \in \{0,1\}^{512}$,
+Values with affinity words $\mathbf{a}, \mathbf{b} \in \{0,1\}^{257}$,
 the routing distance is:
 \begin{equation}
   d(\mathbf{a}, \mathbf{b})
@@ -143,7 +149,7 @@ The states-per-kilobyte ratio is comparable across architectures, as
 information density is ultimately bounded by the entropy of the
 underlying bits.  The key difference is the navigation strategy:
 parameterized models traverse state space through gradient updates
-over continuous parameters, while the Value architecture traverses
-it through boolean composition at the frame level, surprise-modulated
-trie updates at the learning level, and eigenmode selection at the
-collective level (\Cref{sec:field}).
+over continuous parameters, while the Value architecture traverses it
+through Boolean composition and localized PGA transformations at the
+frame level, surprise-modulated trie updates at the learning level, and
+eigenmode selection at the collective level (\Cref{sec:field}).

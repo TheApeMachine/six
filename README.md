@@ -123,28 +123,29 @@ The `Value` type comes from the idea that machine intelligence currently lacks i
 A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
 ```text
-┌───────────┬────────────┬────────────┬────────────┬────────────┬─────────────┬──────┬──────┬─────┬────────────┐
-│  Tokens   │  Program   │  Signals   │  Context   │    Meta    │  Reserved   │ Prev │ Next │ ID  │  Affinity  │
-│ 512 bits  │  512 bits  │  512 bits  │  512 bits  │  512 bits  │  6464 bits  │  64  │  64  │ 64  │  257 bits  │
-│ words 0-7 │ words16-23 │ words24-31 │ words24-31 │ words24-31 │ words32-124 │  125 │  126 │ 127 │ words 8-15 │
-└───────────┴────────────┴────────────┴────────────┴────────────┴─────────────┴──────┴──────┴─────┴────────────┘
+┌─────────────┬────────────┬────────────┬────────────┬──────────────┬────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
+│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │    Meta    │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
+│  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │  512 bits  │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
+│ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │ words48-55 │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
+└─────────────┴────────────┴────────────┴────────────┴──────────────┴────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
 ```
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
-- **Affinity region**: A 257-bit locality-sensitive hash (8 independent SimHash projections) that fingerprints the content. This determines where the Value lives in the network.
+- **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines where the Value lives in the network.
 - **Program region**: 32-bit instruction slots that execute on the Value's own bits. When Values encounter each other, their programs run — no external interpreter needed.
+- **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
 - **Prev/Next**: Linked-list pointers for chaining Values into sequences and graphs.
 - **ID**: 64-bit unique identifier.
 
 ### The ALU
 
-The `UniversalBitwise` method is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the operations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
+The Boolean ALU path is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the operations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
 
-Because alignment is important in this process the `Token` region and `Program` region are the same size, so the `A` part of the data can be held steady while the `B` part of the data is rotated. The "line number" of the `Program` acts as the "program counter" in this case. Rotations need to happen in steps of 8 positions at a time, given our data exists at byte-level granularity.
+Because alignment is important in this process the `Program` region is sized for 32 packed instruction slots over the fixed token slab. The `A` span of token data can be held steady while the `B` span is rotated, and the "line number" of the `Program` acts as the local program counter. Rotations happen in steps of 8 positions at a time, matching byte-level granularity.
 
 Once the `Value` comes out of the `ALU` those `Signals` are used to emit new `Values` which are linked via the `PrevID`, `NextID`, and `ValueID` regions.
 
-The linear sweep is a deliberate limitation in favor of having a system that includes loops and branching, as it is highly sympathetic to the hardware, eliminating thread-divergion on the GPU, and enabling parallelism via SIMD on the CPU.
+The linear sweep is a deliberate limitation over loops and branching, as it is sympathetic to the hardware, eliminating thread divergence on the GPU and enabling parallelism via SIMD on the CPU.
 
 To recover the ability for loops and branching, a final instruction can be written (need to take some of the reserved region) to mark a `Value` for a loop (re)cycle, or branch traversal. When the `Value` comes out of the `ALU` and is marked as such, it is then (re)placed onto a priority `Queue` in the orchestrator and fed back into the `ALU` for another run.
 
@@ -158,7 +159,7 @@ The Boolean ALU keeps the low 4-bit truth-table opcodes exactly as-is. The high 
 | `0x20` | Sandwich  | `Signals = Context · Gradient · Context†` |
 | `0x30` | Reverse   | `Signals = Context†`                      |
 
-`Context`, `Gradient`, and `Signals` are each 512-bit regions, so each holds one `pkg/core/numeric/geometry.Multivector` without changing the 1024-byte `Value` stride. The current kernel dispatch preserves the full opcode byte before falling back to the Boolean low nibble, so geometric opcodes cannot collapse to `FALSE`. Dedicated Metal/CUDA PGA kernels can replace the host geometric path without changing the frame ABI.
+`Context`, `Gradient`, and `Signals` are each 512-bit regions, so each holds one `pkg/core/numeric/geometry.Multivector` without changing the 1024-byte `Value` stride. The kernel dispatch preserves the full opcode byte before falling back to the Boolean low nibble, so geometric opcodes cannot collapse to `FALSE`. CPU, Metal, and CUDA now all expose the same PGA lane; the native kernels read the high nibble in-band and write their 8-lane result back into `Signals`. CPU uses hand-written ARM64 and AMD64 assembly for the PGA product, CUDA executes the lane as native `float64`, and Metal preserves the 64-bit frame ABI while converting to native `float32` arithmetic at the GPU boundary because Apple Metal does not expose double precision in shader code.
 
 Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its payload and writes it into `Context`. Boolean code can still inspect the same lanes through `ContextVector`, but the geometric path treats the region as a continuous coordinate. The programmer layer can now emit first-class `GeometricIntent` operands, so a `Value` can carry its rotor and target into the compute substrate instead of relying on an external interpreter.
 
@@ -256,9 +257,9 @@ Episodic memory stores one geometry vector per event. `Buffer.Realign` lets an i
 
 Kadabra is a Kademlia-style distributed hash table where the nodes are MarkovTries. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges.
 
-**Affinity-based routing**: When a Value is published, its 512-bit affinity fingerprint determines which trie stores it. Values with similar content cluster on the same node. This is not a design choice imposed from outside — it follows from the LSH property: similar inputs produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
+**Affinity-based routing**: When a Value is published, its 257-bit affinity fingerprint determines which trie stores it. Values with similar content cluster on the same node. This is not a design choice imposed from outside — it follows from the LSH property: similar inputs produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
 
-**Replication**: Each Value is stored on the `k` closest nodes by affinity distance (Hamming distance over the 512-bit affinity vectors). This provides both redundancy and the ability for multiple tries to learn from the same data.
+**Replication**: Each Value is stored on the `k` closest nodes by affinity distance (Hamming distance over the 257-bit affinity vectors). This provides both redundancy and the ability for multiple tries to learn from the same data.
 
 **Adaptive peer selection**: Each routing bucket tracks peer quality over epochs. Every `EpochQueries` queries, the bucket scores its peers by latency, explores alternatives, and swaps in better candidates. This is the Kadabra algorithm — a multi-armed bandit at the routing layer.
 
@@ -268,9 +269,9 @@ Kadabra is a Kademlia-style distributed hash table where the nodes are MarkovTri
 
 The field is the mechanism that binds isolated tries into a coherent system. It is not a data structure that nodes query — it is a force that acts on them.
 
-**Gossip protocol**: At each epoch boundary, every node broadcasts a compact `FieldDigest` — its current surprisal, classification entropy, growth rate, and affinity vector — to all routing peers. The digest is small (a few floats and 8 uint64s) and propagation is automatic.
+**Gossip protocol**: At each epoch boundary, every node broadcasts a compact `FieldDigest` — its current surprisal, classification entropy, growth rate, node phase, and 257-bit affinity vector — to all routing peers. Propagation is automatic.
 
-**Eigenmode detection**: When a node absorbs a digest, the field recomputes emergent eigenmodes — clusters of structurally aligned, phase-coherent tries. Structural alignment is measured by **affine coupling**: instead of raw Hamming distance, the field evaluates overlap across multiple affine rotations of the affinity vectors, capturing alignment at different scales. Phase coherence is measured by **surprisal velocity** — whether nodes are rising or falling in surprisal together.
+**Eigenmode detection**: When a node absorbs a digest, the field recomputes emergent eigenmodes — clusters of structurally aligned tries. Structural alignment is measured by Jaccard coupling over the 257-bit affinity vectors, with the coupling threshold learned from the observed pairwise distribution. Phase coherence is measured by **surprisal velocity** during pressure projection — whether nodes are rising or falling in surprisal together.
 
 **Top-down projection**: The dominant eigenmode — the cluster with the most collective energy — is what the system is "attending to" right now. The field projects asymmetric pressure onto each trie:
 
@@ -289,11 +290,11 @@ This is attention without an attention mechanism. No query-key-value matrices, n
 
 Values execute their programs on a multi-substrate backend that automatically selects the best available hardware:
 
-1. **CPU**: Universal bitwise executor with SIMD fast-paths. Processes Values in tiles of 64, detecting homogeneous instruction runs for vectorized execution. Supports all 16 boolean truth-table operations plus popcount, shifts, and addition.
+1. **CPU**: Universal bitwise executor with SIMD affinity distance kernels and hand-written ARM64/AMD64 assembly for the PGA product. Supports all 16 boolean truth-table operations plus geometric `Compose`, `Sandwich`, and `Reverse`.
 
-2. **Apple Metal**: GPU compute shaders for macOS. Compiled from Metal Shading Language at build time.
+2. **Apple Metal**: GPU compute shaders for macOS. Compiled from Metal Shading Language at build time. The geometric lane preserves the 64-bit frame ABI and uses native `float32` arithmetic in the shader.
 
-3. **NVIDIA CUDA**: GPU kernels for NVIDIA hardware. Generated via cgo bindings.
+3. **NVIDIA CUDA**: GPU kernels for NVIDIA hardware. Generated via cgo bindings. The geometric lane uses native `float64`.
 
 The `compute.Backend` load-balancer probes available substrates at startup and routes work to whichever has the least in-flight depth and lowest exponential moving average service time. When all accelerators are saturated, work overflows to CPU.
 
@@ -325,13 +326,16 @@ value:
   words: 128
   bytes: 1024
   region:
-    tokens:   { start: 0,   bits: 512 }
-    affinity: { start: 8,   bits: 512 }
+    tokens:   { start: 0,   bits: 1024 }
     program:  { start: 16,  bits: 512 }
-    reserved: { start: 24,  bits: 6464 }
-    prev:     { start: 125, bits: 64 }
-    next:     { start: 126, bits: 64 }
-    id:       { start: 127, bits: 64 }
+    signals:  { start: 24,  bits: 512 }
+    context:  { start: 32,  bits: 512 }
+    gradient: { start: 40,  bits: 512 }
+    meta:     { start: 48,  bits: 512 }
+    prev:     { start: 120, bits: 64 }
+    next:     { start: 121, bits: 64 }
+    id:       { start: 122, bits: 64 }
+    affinity: { start: 123, bits: 257 }
 
 kadabra:
   bits: 64

@@ -1,65 +1,63 @@
 % ============================================================================
-% RELATED: HARDWARE-ACCELERATED BOOLEAN COMPUTATION
+% RELATED: HARDWARE-ACCELERATED FRAME COMPUTATION
 % ============================================================================
-\subsection{Hardware-Accelerated Boolean Computation}
+\subsection{Hardware-Accelerated Frame Computation}
 \label{sec:related_hardware_accel}
 
 The Value architecture is designed to align with the native instruction
-sets of modern parallel hardware.  Every operation in the system reduces
-to a combination of bitwise logic (AND, OR, XOR, NOT), population count
-(popcount), and integer comparison---instructions that execute in a
-single clock cycle on contemporary CPU, GPU, and accelerator
-architectures.
+sets of modern parallel hardware.  The fast filter path reduces to
+bitwise logic (AND, OR, XOR, NOT), population count, and integer
+comparison---instructions that execute efficiently on contemporary CPU,
+GPU, and accelerator architectures.  The current implementation also
+adds a bounded geometric path for PGA multivector products after the
+Boolean candidate set has been pruned.
 
 \paragraph{SIMD and GPU Mapping.}
-Each Value is 1024 bytes, or sixteen 512-bit SIMD registers on x86
-(AVX-512) and thirty-two 256-bit registers on ARM (NEON).  A single
-boolean truth-table operation across an entire Value therefore requires
-at most 16--32 SIMD instructions, independent of the semantic content of
-the frame.  On GPU hardware, the same operation maps to a threadgroup
-dispatch where each thread processes one 64-bit word of the frame.
+Each Value is 1024 bytes.  Boolean truth-table execution and affinity
+distance kernels operate directly over the 128 64-bit words of the
+frame, while the geometric lane reads three 64-byte regions as
+eight-lane multivectors.  On GPU hardware, the Boolean path maps to
+threadgroup dispatch over words or candidate rows, and the geometric
+path maps to one frame-local multivector product per work item.
 
 The system provides three backend implementations:
 
 \begin{itemize}[nosep]
-  \item \textbf{CPU:} A portable implementation that iterates over the
-        128 words of each frame, applying the selected truth table via
-        bitwise logic and writing the result in-place.  Population count
-        is computed via the hardware \texttt{popcount} intrinsic where
-        available.
+  \item \textbf{CPU:} A word-parallel Boolean implementation, native
+        SIMD affinity distance kernels, and hand-written ARM64/AMD64
+        assembly for the PGA geometric product.
   \item \textbf{Apple Metal:} Compute shaders dispatch value operations
-        across threadgroups, with each thread processing one 64-bit
-        word.  The Metal backend is compiled from shader source at build
-        time using \texttt{xcrun}.
+        across threadgroups.  The geometric lane preserves the 64-bit
+        frame ABI and converts to native \texttt{float32} arithmetic
+        within the shader.
   \item \textbf{NVIDIA CUDA:} Equivalent kernels dispatch across warps,
-        with coalesced memory access patterns to maximize memory
-        bandwidth utilization.
+        with coalesced memory access patterns and native \texttt{float64}
+        arithmetic for the geometric lane.
 \end{itemize}
 
 \paragraph{Deterministic Latency.}
-Because every instruction is a fixed-length bitwise operation over a
-fixed-size frame, execution time is data-independent: there are no
-variable-length encodings, no data-dependent branches, and no
-floating-point precision concerns.  This property makes worst-case
-latency trivially analyzable and eliminates the tail-latency variance
-that characterizes matrix-multiplication-based inference on the same
-hardware.
+Because every instruction is a fixed-length operation over a fixed-size
+frame, execution time is tightly bounded: there are no variable-length
+encodings and no data-dependent loops.  The Boolean path remains the
+lowest-latency path and supplies the first-stage filter.  The geometric
+path introduces floating-point arithmetic, so its precision properties
+are substrate-specific: CUDA and CPU use \texttt{float64}, while Metal
+uses \texttt{float32} inside the shader while preserving the frame's
+64-bit storage contract.
 
 \paragraph{Write-Optimized Access Patterns.}
-The Region's multi-tier buffering structure (primary channel, spill
-channel, overflow queue) is designed for write-heavy workloads.  Writes
-never block: a frame is always accepted into the next available tier.
-Reads are non-blocking and return \texttt{io.EOF} when the Region is
-empty.  This lock-free design avoids the contention that arises in
-shared-memory architectures when multiple producers and consumers
-compete for the same data structure, and it ensures that the GPU
-backends are never stalled waiting for a synchronization barrier.
+The backend tracks per-substrate pressure with atomic counters and an
+exponential moving average of service time.  Residency metadata in the
+frame lets the router penalize unnecessary physical hops, while periodic
+exploration prevents the scheduler from sticking to a stale substrate
+choice.  Overflow work is admitted through the pool queue rather than a
+blocking synchronization point.
 
 \paragraph{Relationship to In-Memory Computing.}
-The all-boolean, fixed-size nature of Value operations is particularly
-well-suited to emerging in-memory computing architectures, where bitwise
-operations can be performed directly within memory arrays without
-transferring data to a separate processing unit.  While the current
-implementation uses conventional CPU and GPU hardware, the instruction
-set imposes no requirements beyond bitwise logic and population count,
-making it portable to any substrate that supports these primitives.
+The Boolean portion of Value execution is particularly well-suited to
+emerging in-memory computing architectures, where bitwise operations can
+be performed directly within memory arrays without transferring data to
+a separate processing unit.  The geometric portion is intentionally
+bounded to three 64-byte regions, making it a separable acceleration
+target for substrates that provide efficient vector floating-point
+execution.

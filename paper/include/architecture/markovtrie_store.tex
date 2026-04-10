@@ -25,6 +25,8 @@ The trie is a rooted tree in which each node $n$ stores:
         $T_n = \sum_{\ell} c_n(\ell)$.
   \item Depth $d_n$ (distance from the root).
   \item A timestamp $t_n$ recording the last update step.
+  \item A transition motor $M_n$ derived from the parent and child
+        Context multivectors.
 \end{itemize}
 
 Paths from root to leaf encode observed token sequences.  The depth of
@@ -157,18 +159,62 @@ hyperparameters; they are derived from the trie's adaptive state
 (\Cref{tab:adaptive_params}).  Beam candidates are extended while
 their cumulative probability exceeds a threshold, producing
 completions whose length and diversity adapt to the trie's confidence
-in the current context.
+in the current context.  Candidate rescoring is two-phase.  First, the
+trie-local GF(257) phase vector boosts continuations that interfere
+constructively with the current local phase.  Second, the geometric lane
+derives a candidate motor from the current Context multivector and the
+candidate's deterministic multivector, applies it through the sandwich
+product, and boosts candidates whose steered point aligns with the local
+attractor:
+\begin{equation}
+  \text{boost}(\tau)
+    = \log\!\left(1 + g \cdot
+      \frac{\cos(M_{\tau} X M_{\tau}^{\dagger}, A) +
+            \cos(X_{\tau}, A)}{2}\right)
+  \label{eq:geometric_continuation_boost}
+\end{equation}
+where $X$ is the current context coordinate, $X_{\tau}$ is the candidate
+coordinate, $A$ is the mean Context multivector over the prediction
+path, and $g$ is a fixed gain in the scorer.
+
+\subsubsection{Cross-Domain Procrustes Alignment}
+
+The \texttt{MultimodalCoordinator} maintains independent sensory,
+action, and reward tries.  When sensory--action--reward triples are
+observed, the coordinator records immutable coactivation statistics:
+terminal affinities, terminal IDs, reward residuals, and the sensory,
+action, and reward Context multivectors.  Once at least eight paired
+sensory/action samples are available, it solves an Orthogonal Procrustes
+problem:
+\begin{equation}
+  R^* = \arg\min_{R^\mathsf{T}R = I} \lVert AR - B \rVert_F
+  \label{eq:domain_procrustes}
+\end{equation}
+where $A$ contains sensory coordinates and $B$ contains action
+coordinates.  The resulting rotation is published atomically as an
+immutable domain alignment.  During policy inference, sensory
+coordinates can be projected into the action manifold before candidate
+actions are scored, giving the coordinator a direct geometric path in
+addition to affinity and causal-residual evidence.
 
 \subsubsection{Episodic Memory}
 
 A bounded episodic buffer (default capacity 1000) stores recent
-token sequences with timestamps.  During prediction, the buffer
+token sequences with timestamps and a deterministic geometric coordinate
+for each event.  During prediction, the buffer
 contributes a $k$-nearest-neighbor tail to the trie's probability
 estimates.  The blend weight between trie predictions and episodic
 recall is itself adaptive: when episodic matches are high-quality
 (low edit distance to the query), the blend weight increases; when
 matches are poor, the trie's own estimates dominate.  This provides
 fast adaptation to recent context without retraining the trie.
+
+The buffer also exposes a Procrustes re-alignment operation for idle
+consolidation.  A caller samples stored events, resolves their current
+coordinates in the backing trie, solves a Procrustes rotation from old
+episodic coordinates to current trie coordinates, and applies that
+rotation to the whole buffer.  This prevents old short-term memories from
+drifting away from a manifold that has moved under continued learning.
 
 \subsubsection{Experience-Driven Learning}
 

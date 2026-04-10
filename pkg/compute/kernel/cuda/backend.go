@@ -9,6 +9,7 @@ int cuda_device_count();
 void cleanup_cuda_pools();
 
 int unified_bitwise_cuda(int device_id, void* a_host, uint32_t num_values);
+int geometric_cuda(int device_id, void* a_host, uint32_t num_values);
 int nearest_affinity_cuda(int device_id, void* query_host, void* candidates_host, uint32_t count, uint32_t* distances_host);
 */
 import "C"
@@ -106,8 +107,8 @@ func Available() int {
 Execute dispatches frames to the appropriate CUDA kernel based on
 the opcode in each Value's program region (word 16). Batch distance
 frames (opcode 0x6 with count at word 124) route to the fused
-XOR+popcount kernel. All others go through the unified bitwise
-kernel which reads the opcode on-device.
+XOR+popcount kernel. Geometric opcodes route to the PGA kernel.
+All other frames go through the unified bitwise kernel.
 */
 func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	if len(frames) == 0 {
@@ -128,7 +129,29 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
 
-		if kernel.ExecuteGeometricFrame(ptr, rawOpcode) {
+		if kernel.IsGeometricOpcode(rawOpcode) {
+			if C.geometric_cuda(
+				C.int(backend.deviceIdx),
+				ptr,
+				C.uint32_t(1),
+			) != 0 {
+				err := NewCUDAKernelError(
+					kernel.KernelErrDispatchFailed,
+					errors.New("geometric dispatch failed"),
+					"Execute",
+					1,
+				)
+
+				kv := append(
+					[]any{"device_idx", backend.deviceIdx},
+					kernel.CorrelationKeyvals(ptr)...,
+				)
+
+				backend.observer.Error("cuda.Backend.Execute", err, kv...)
+
+				return err
+			}
+
 			continue
 		}
 

@@ -1,14 +1,16 @@
 % ============================================================================
 % TOPOLOGICAL SEQUENCING AND LFSR PHASE ENCODING
 % ============================================================================
-\subsection{Sequence Encoding and Phase Rotation}
+\subsection{Sequence Encoding and Transition Geometry}
 \label{sec:topological_sequencing}
 
-The system processes all input as raw byte streams.  To preserve
-sequential structure within the trie-based memory substrate, the
-architecture encodes sequence position through a deterministic
-phase-rotation mechanism based on a linear feedback shift register
-(LFSR) over the Mersenne prime field.
+The system processes all input as raw byte streams.  Sequential
+structure is preserved at three levels: Value link words record
+ingestion order, the MarkovTrie stores observed suffix paths, and the
+geometric lane records transition motors between adjacent token
+multivectors.  The older finite-field LFSR utility remains available as
+a deterministic phase primitive, but it is no longer the only sequence
+signal in the architecture.
 
 \subsubsection{LFSR Sequence Generator}
 
@@ -32,47 +34,30 @@ that every nonzero 13-bit pattern appears exactly once in the cycle
 before repeating.  This provides a deterministic, collision-free
 sequence index for up to 8191 consecutive tokens.
 
-\subsubsection{Delta Accumulation}
+\subsubsection{Transition Motors}
 
-Sequential structure is captured through a differential encoding.  For
-consecutive Values $v_t$ and $v_{t-1}$, the system computes a
-compressed delta sketch:
+Each newly minted Value derives a stable eight-lane multivector from its
+payload and writes it into the Context region.  For consecutive tokens
+with multivectors $X_t$ and $X_{t+1}$, the trie can construct a
+transition motor:
 \begin{equation}
-  \delta_t = \bigoplus_{w=0}^{n-1}
-    \bigl(\text{token}_w(v_t) \oplus \text{token}_w(v_{t-1})\bigr)
-  \label{eq:delta_accumulation}
+  M_{t \rightarrow t+1} = X_{t+1} \cdot X_t^{\dagger}
+  \label{eq:transition_motor}
 \end{equation}
-where $\bigoplus$ denotes XOR accumulation across all $n$ token words.
-This collapses the full 512-bit token difference into a single 64-bit
-sketch stored in the state accumulator word.  The delta sketch captures
-\emph{what changed} between consecutive frames without preserving the
-full differential, providing a compact sequential signal that the
-MarkovTrie can condition on.
-
-\subsubsection{Predictive Delta Application}
-
-Given a current Value $v_t$ and its accumulated delta $\delta_t$, the
-system generates a predicted next-token region by applying the delta
-forward:
-\begin{equation}
-  \hat{\text{token}}_w(v_{t+1}) = \text{token}_w(v_t) \oplus \delta_t
-  \qquad \forall\; w = 0, \ldots, n-1
-  \label{eq:delta_prediction}
-\end{equation}
-
-This prediction is not intended to be exact; it provides a
-content-based prior for retrieval and generation that biases the system
-toward continuations consistent with the recent direction of change.
+where $\dagger$ denotes reversal in the PGA even subalgebra.  During
+continuation rescoring, a candidate motor is applied through the
+sandwich product and compared with the local attractor.  This keeps the
+GF(257) phase path as the fast discrete filter while adding a continuous
+trajectory signal after the candidate set has already been pruned.
 
 \subsubsection{Sequence Position via LFSR Advance}
 
-Each Value's sequence word is advanced by one LFSR step upon creation,
-producing a deterministic sequence index that encodes temporal position
-without requiring positional embeddings.  The LFSR state maps sequence
+When a caller needs an explicit deterministic sequence phase, it can
+advance the LFSR by one step per position.  The LFSR state maps sequence
 chronology to a pseudo-random but reproducible index: two Values at the
-same position in different sequences share the same LFSR state,
-enabling the trie to recognize positional patterns (e.g., ``the third
-token in a sentence'') without explicit positional features.
+same position in different sequences share the same LFSR state, enabling
+the trie to recognize positional patterns without learned positional
+embeddings.
 
 For sequences longer than 8191 tokens, the LFSR wraps, but the
 combination of LFSR state and token content remains discriminative

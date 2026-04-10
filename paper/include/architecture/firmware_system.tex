@@ -19,7 +19,9 @@ Each firmware segment is specified as a sequence of textual instructions
 in the format \texttt{source destination operation}.  Operands may name
 a register, a pointer dereference, or a fourteen-bit immediate value.
 The operation field is a four-bit binary literal selecting one of the
-sixteen truth tables.  An assembler translates each line into a packed
+sixteen truth tables for Boolean firmware.  Geometric firmware uses the
+same packed instruction word while setting the high opcode nibble to
+select the PGA lane.  An assembler translates each line into a packed
 thirty-two-bit instruction word.  Extended instruction words (encoded as
 raw 32-bit integers) support memory-load markers and active-slot
 directives used by the query and prompt firmware.

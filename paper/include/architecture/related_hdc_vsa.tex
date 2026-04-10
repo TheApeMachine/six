@@ -20,20 +20,22 @@ The Value maps onto this framework with specific design choices.  At
 8192 bits, each frame operates in a dimensionality approaching the
 classical HD regime ($D \ge 4{,}000$), gaining the
 concentration-of-measure benefits that make high-dimensional binary
-vectors approximately orthogonal under random sampling.  The boolean
+vectors approximately orthogonal under random sampling.  The Boolean
 instruction set provides all sixteen two-input operations, subsuming the
 standard VSA binding and bundling operators as special cases: bitwise AND
 serves as a similarity probe, bitwise OR implements bundling through
 disjunction, and circular shift (achievable through register-offset
-addressing) provides positional binding.
+addressing) provides positional binding.  The geometric opcode lane adds
+a second VSA-like operator family: PGA motors compose transitions and
+apply them to target coordinates without leaving the fixed frame.
 
 Gayler's analysis \citep{gayler2003vector} demonstrated that VSAs
 support systematic compositional generalization because binding and
 bundling preserve algebraic structure.  The Value architecture inherits
 this property: the encoding of input bytes into the data region is
-deterministic, and the sixteen boolean operations are closed over the
-binary frame, meaning that any sequence of operations on valid frames
-produces a valid frame.
+deterministic, the sixteen Boolean operations are closed over the binary
+frame, and the geometric lane is closed over the eight-lane multivector
+representation stored in Context, Gradient, and Signals.
 
 A notable difference from classical HDC is the absence of a fixed
 bundling threshold.  Standard VSAs operate in a flat vector space where
