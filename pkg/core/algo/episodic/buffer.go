@@ -3,19 +3,29 @@ package episodic
 import (
 	"fmt"
 	"math"
+	"strings"
 
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/numeric/probability"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
 Event is one labeled token sequence stored in the rolling buffer.
 */
 type Event struct {
-	ID     string
-	Tokens []string
-	Label  string
-	Step   int
+	ID       string
+	Tokens   []string
+	Label    string
+	Step     int
+	Geometry primitive.FrameMultivector
 }
+
+/*
+CoordinateResolver resolves an episodic event to the current manifold
+coordinate in the backing store.
+*/
+type CoordinateResolver func(Event) (primitive.FrameMultivector, bool)
 
 /*
 Episode is the public snapshot of one buffer row.
@@ -70,10 +80,11 @@ func (buffer *Buffer) Push(tokens []string, label string, step int) {
 	buffer.sequenceCounter++
 
 	buffer.events = append(buffer.events, Event{
-		ID:     fmt.Sprintf("ep_%d", buffer.sequenceCounter),
-		Tokens: append([]string(nil), tokens...),
-		Label:  label,
-		Step:   step,
+		ID:       fmt.Sprintf("ep_%d", buffer.sequenceCounter),
+		Tokens:   append([]string(nil), tokens...),
+		Label:    label,
+		Step:     step,
+		Geometry: eventGeometry(tokens),
 	})
 
 	overflow := len(buffer.events) - buffer.capacity
@@ -206,6 +217,65 @@ func (buffer *Buffer) Blend(contextTokens []string, label string, trie map[strin
 }
 
 /*
+Realign rotates episodic coordinates toward current backing-store coordinates.
+Callers should use this from an idle consolidation loop after the main trie has
+moved; the buffer only owns the in-place Procrustes update.
+*/
+func (buffer *Buffer) Realign(resolve CoordinateResolver, sampleLimit int) error {
+	if buffer.Empty() || resolve == nil {
+		return nil
+	}
+
+	if sampleLimit <= 0 || sampleLimit > len(buffer.events) {
+		sampleLimit = len(buffer.events)
+	}
+
+	matA := make([][]float64, 0, sampleLimit)
+	matB := make([][]float64, 0, sampleLimit)
+
+	for eventIndex := 0; eventIndex < sampleLimit; eventIndex++ {
+		event := buffer.events[eventIndex]
+
+		if event.Geometry.IsZero() {
+			continue
+		}
+
+		current, ok := resolve(event)
+
+		if !ok || current.IsZero() {
+			continue
+		}
+
+		matA = append(matA, eventGeometryRow(event.Geometry))
+		matB = append(matB, eventGeometryRow(current))
+	}
+
+	if len(matA) < primitive.RegionWords {
+		return nil
+	}
+
+	result, err := geometry.Procrustes(
+		matA,
+		matB,
+		len(matA),
+		primitive.RegionWords,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	for eventIndex := range buffer.events {
+		buffer.events[eventIndex].Geometry = rotateEventGeometry(
+			result.R,
+			buffer.events[eventIndex].Geometry,
+		)
+	}
+
+	return nil
+}
+
+/*
 PickRandom returns a random event from the buffer using the provided index.
 */
 func (buffer *Buffer) PickRandom(index int) *Event {
@@ -227,6 +297,43 @@ func (buffer *Buffer) Len() int {
 	}
 
 	return len(buffer.events)
+}
+
+func eventGeometry(tokens []string) primitive.FrameMultivector {
+	return primitive.NewFrameMultivector([]byte(strings.Join(tokens, "\x00")))
+}
+
+func eventGeometryRow(vector primitive.FrameMultivector) []float64 {
+	row := make([]float64, primitive.RegionWords)
+
+	for idx := range primitive.RegionWords {
+		row[idx] = vector[idx]
+	}
+
+	return row
+}
+
+func rotateEventGeometry(
+	rotation [][]float64,
+	vector primitive.FrameMultivector,
+) primitive.FrameMultivector {
+	if len(rotation) != primitive.RegionWords || vector.IsZero() {
+		return vector
+	}
+
+	var out primitive.FrameMultivector
+
+	for row := range primitive.RegionWords {
+		if len(rotation[row]) != primitive.RegionWords {
+			return vector
+		}
+
+		for col := range primitive.RegionWords {
+			out[row] += rotation[row][col] * vector[col]
+		}
+	}
+
+	return out.Normalize()
 }
 
 func nextTokenAfterContext(sequence []string, context []string) (string, bool) {

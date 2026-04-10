@@ -36,6 +36,7 @@ layout inside the Value.
 type Intent struct {
 	Operation Operation
 	Assets    [][]uint64
+	Geometric *GeometricIntent
 }
 
 /*
@@ -56,6 +57,7 @@ const (
 	GeometricCompose  Operation = Operation(kernel.OpcodeGeometricCompose)
 	GeometricSandwich Operation = Operation(kernel.OpcodeGeometricSandwich)
 	GeometricReverse  Operation = Operation(kernel.OpcodeGeometricReverse)
+	Transform         Operation = GeometricSandwich
 )
 
 /*

@@ -1,9 +1,11 @@
 package episodic
 
 import (
+	"math"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestNewBuffer(t *testing.T) {
@@ -119,6 +121,30 @@ func TestBufferPickRandom(t *testing.T) {
 	})
 }
 
+func TestBufferRealign(t *testing.T) {
+	t.Parallel()
+
+	Convey("Realign applies Procrustes drift correction to stored geometry", t, func() {
+		buffer := NewBuffer(16, 0.5, 3, 0.1, 0.9)
+
+		for idx := range primitive.RegionWords {
+			buffer.Push([]string{"token", string(rune('a' + idx))}, "L", idx)
+		}
+
+		target := rotateTestGeometry(buffer.events[0].Geometry)
+		before := testGeometryDistance(buffer.events[0].Geometry, target)
+
+		err := buffer.Realign(func(event Event) (primitive.FrameMultivector, bool) {
+			return rotateTestGeometry(event.Geometry), true
+		}, primitive.RegionWords)
+
+		after := testGeometryDistance(buffer.events[0].Geometry, target)
+
+		So(err, ShouldBeNil)
+		So(after, ShouldBeLessThan, before)
+	})
+}
+
 func TestBufferLen(t *testing.T) {
 	t.Parallel()
 
@@ -144,4 +170,24 @@ func BenchmarkBufferNextDistribution(b *testing.B) {
 	for b.Loop() {
 		_ = buffer.NextDistribution(ctx, label)
 	}
+}
+
+func rotateTestGeometry(vector primitive.FrameMultivector) primitive.FrameMultivector {
+	out := vector
+
+	out[0] = -vector[1]
+	out[1] = vector[0]
+
+	return out.Normalize()
+}
+
+func testGeometryDistance(left primitive.FrameMultivector, right primitive.FrameMultivector) float64 {
+	var distance float64
+
+	for lane := range primitive.RegionWords {
+		diff := left[lane] - right[lane]
+		distance += diff * diff
+	}
+
+	return math.Sqrt(distance)
 }

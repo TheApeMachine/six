@@ -1,10 +1,6 @@
 package kernel
 
-import (
-	"unsafe"
-
-	"github.com/theapemachine/six/pkg/core/numeric/geometry"
-)
+import "unsafe"
 
 const (
 	OpcodeBooleanMask   uint64 = 0x0F
@@ -62,15 +58,15 @@ func ExecuteGeometricFrame(frame unsafe.Pointer, opcode uint64) bool {
 	left := multivectorAt(frameWords, ContextStartWord)
 	right := multivectorAt(frameWords, GradientStartWord)
 
-	var out geometry.Multivector
+	var out frameMultivector
 
 	switch opcode & OpcodeGeometricMask {
 	case OpcodeGeometricCompose:
-		out = left.GeometricProduct(right)
+		out = left.geometricProduct(right)
 	case OpcodeGeometricSandwich:
-		out = left.Sandwich(right)
+		out = left.sandwich(right)
 	case OpcodeGeometricReverse:
-		out = left.Reverse()
+		out = left.reverse()
 	}
 
 	writeMultivectorAt(frameWords, SignalsStartWord, out)
@@ -78,10 +74,53 @@ func ExecuteGeometricFrame(frame unsafe.Pointer, opcode uint64) bool {
 	return true
 }
 
-func multivectorAt(frameWords *[128]uint64, start int) geometry.Multivector {
-	return *(*geometry.Multivector)(unsafe.Pointer(&frameWords[start]))
+type frameMultivector [8]float64
+
+func multivectorAt(frameWords *[128]uint64, start int) frameMultivector {
+	return *(*frameMultivector)(unsafe.Pointer(&frameWords[start]))
 }
 
-func writeMultivectorAt(frameWords *[128]uint64, start int, mv geometry.Multivector) {
-	*(*geometry.Multivector)(unsafe.Pointer(&frameWords[start])) = mv
+func writeMultivectorAt(frameWords *[128]uint64, start int, mv frameMultivector) {
+	*(*frameMultivector)(unsafe.Pointer(&frameWords[start])) = mv
+}
+
+func (mv frameMultivector) geometricProduct(other frameMultivector) frameMultivector {
+	return frameMultivector{
+		mv[0]*other[0] - mv[4]*other[4] - mv[5]*other[5] - mv[6]*other[6],
+
+		mv[0]*other[1] + mv[1]*other[0] - mv[2]*other[4] + mv[3]*other[5] +
+			mv[4]*other[2] - mv[5]*other[3] - mv[6]*other[7] - mv[7]*other[6],
+
+		mv[0]*other[2] + mv[1]*other[4] + mv[2]*other[0] - mv[3]*other[6] -
+			mv[4]*other[1] - mv[5]*other[7] + mv[6]*other[3] - mv[7]*other[5],
+
+		mv[0]*other[3] - mv[1]*other[5] + mv[2]*other[6] + mv[3]*other[0] -
+			mv[4]*other[7] + mv[5]*other[1] - mv[6]*other[2] - mv[7]*other[4],
+
+		mv[0]*other[4] + mv[4]*other[0] + mv[5]*other[6] - mv[6]*other[5],
+
+		mv[0]*other[5] - mv[4]*other[6] + mv[5]*other[0] + mv[6]*other[4],
+
+		mv[0]*other[6] + mv[4]*other[5] - mv[5]*other[4] + mv[6]*other[0],
+
+		mv[0]*other[7] + mv[1]*other[6] + mv[2]*other[5] + mv[3]*other[4] +
+			mv[4]*other[3] + mv[5]*other[2] + mv[6]*other[1] + mv[7]*other[0],
+	}
+}
+
+func (mv frameMultivector) reverse() frameMultivector {
+	return frameMultivector{
+		mv[0],
+		-mv[1],
+		-mv[2],
+		-mv[3],
+		-mv[4],
+		-mv[5],
+		-mv[6],
+		mv[7],
+	}
+}
+
+func (mv frameMultivector) sandwich(target frameMultivector) frameMultivector {
+	return mv.geometricProduct(target).geometricProduct(mv.reverse())
 }

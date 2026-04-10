@@ -34,6 +34,9 @@ type coactivationStat struct {
 	SensoryAffinity [primitive.AffinityWords]uint64
 	ActionAffinity  [primitive.AffinityWords]uint64
 	RewardAffinity  [primitive.AffinityWords]uint64
+	SensoryVector   primitive.FrameMultivector
+	ActionVector    primitive.FrameMultivector
+	RewardVector    primitive.FrameMultivector
 }
 
 /*
@@ -58,6 +61,7 @@ type MultimodalCoordinator struct {
 	Reward       *Store
 	causal       *causal.Graph
 	coactivation atomic.Pointer[coactivationMap]
+	actionAlign  atomic.Pointer[domainAlignment]
 }
 
 /*
@@ -210,6 +214,9 @@ func (coordinator *MultimodalCoordinator) ObserveOutcomeInRegimes(
 		sensory.AffinityVector(),
 		action.AffinityVector(),
 		reward.AffinityVector(),
+		sensory.ContextMultivector(),
+		action.ContextMultivector(),
+		reward.ContextMultivector(),
 	)
 
 	regimeLabels := coordinator.causalRegimeLabels(causalRegimes)
@@ -252,6 +259,9 @@ func (coordinator *MultimodalCoordinator) ActionScores(
 	candidates := coordinator.sensoryCandidateWeights(sensory.String(), sensoryPrediction)
 
 	snapshot := coordinator.coactivation.Load()
+	projectedAction, hasProjection := coordinator.projectSensoryAction(
+		sensory.ContextMultivector(),
+	)
 
 	if snapshot == nil || len(snapshot.m) == 0 {
 		return nil, predictErr
@@ -268,6 +278,20 @@ func (coordinator *MultimodalCoordinator) ActionScores(
 		}
 
 		weight, matched := candidates[sensorySequence]
+		projectionWeight := 0.0
+
+		if hasProjection {
+			projectionWeight = frameMultivectorCosine(projectedAction, stat.ActionVector)
+
+			if projectionWeight < 0 {
+				projectionWeight = 0
+			}
+		}
+
+		if projectionWeight > 0 {
+			weight += projectionWeight
+			matched = true
+		}
 
 		if !matched || stat.Count <= 0 {
 			continue
@@ -323,6 +347,9 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 	sensoryAffinity [primitive.AffinityWords]uint64,
 	actionAffinity [primitive.AffinityWords]uint64,
 	rewardAffinity [primitive.AffinityWords]uint64,
+	sensoryVector primitive.FrameMultivector,
+	actionVector primitive.FrameMultivector,
+	rewardVector primitive.FrameMultivector,
 ) {
 	if coordinator == nil || linkKey == "" {
 		return
@@ -354,6 +381,9 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 			stat.SensoryAffinity = sensoryAffinity
 			stat.ActionAffinity = actionAffinity
 			stat.RewardAffinity = rewardAffinity
+			stat.SensoryVector = sensoryVector
+			stat.ActionVector = actionVector
+			stat.RewardVector = rewardVector
 		}
 
 		base[linkKey] = stat
@@ -361,6 +391,8 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 		next := &coactivationMap{m: base}
 
 		if coordinator.coactivation.CompareAndSwap(old, next) {
+			coordinator.actionAlign.Store(newDomainAlignment(base))
+
 			return
 		}
 	}

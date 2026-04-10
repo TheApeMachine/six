@@ -132,6 +132,34 @@ func TestCompilerCompileGeometric(t *testing.T) {
 		So(wordFromBytes(raw, kernel.GradientStartWord), ShouldEqual, right[0])
 		So(wordFromBytes(raw, kernel.GradientStartWord+7), ShouldEqual, right[7])
 	})
+
+	Convey("Compile(CPU) accepts a first-class GeometricIntent", t, func() {
+		raw, err := primitive.FirstSegment(primitive.NewValue([]byte("pga-intent")))
+
+		So(err, ShouldBeNil)
+
+		defer raw.Close()
+
+		rotor := primitive.NewFrameMultivector([]byte("rotor"))
+		target := primitive.NewFrameMultivector([]byte("target"))
+		intent := Intent{
+			Operation: Transform,
+			Geometric: NewGeometricIntent(
+				rotor,
+				target,
+			),
+		}
+
+		New(raw, CompilerWithIntent(intent)).Compile(CPU)
+
+		So(
+			wordFromBytes(raw, core.Cfg.Value.Region.Program.Start)&0xFF,
+			ShouldEqual,
+			uint64(kernel.OpcodeGeometricSandwich),
+		)
+		So(raw.ContextMultivector(), ShouldResemble, rotor)
+		So(raw.GradientMultivector(), ShouldResemble, target)
+	})
 }
 
 func BenchmarkCompilerCompileCPU(b *testing.B) {

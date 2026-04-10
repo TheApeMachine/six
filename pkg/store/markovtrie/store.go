@@ -621,6 +621,15 @@ func (store *Store) rescoreContinuations(prediction *algo.Prediction) {
 		return
 	}
 
+	store.rescorePhaseContinuations(prediction)
+	store.rescoreGeometricContinuations(prediction)
+
+	slices.SortStableFunc(prediction.Continuations, func(leftCont algo.Continuation, rightCont algo.Continuation) int {
+		return cmp.Compare(rightCont.Score, leftCont.Score)
+	})
+}
+
+func (store *Store) rescorePhaseContinuations(prediction *algo.Prediction) {
 	localPhase := store.LocalPhase()
 	localMode := localPhase.Dominant()
 
@@ -639,8 +648,4 @@ func (store *Store) rescoreContinuations(prediction *algo.Prediction) {
 
 		candidate.Score += math.Log(bias)
 	}
-
-	slices.SortStableFunc(prediction.Continuations, func(leftCont algo.Continuation, rightCont algo.Continuation) int {
-		return cmp.Compare(rightCont.Score, leftCont.Score)
-	})
 }

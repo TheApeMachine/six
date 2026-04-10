@@ -24,6 +24,7 @@ type Node struct {
 	ID          uint64
 	value       primitive.Value
 	children    atomic.Pointer[childMap]
+	transition  primitive.FrameMultivector
 	TotalVisits atomic.Uint64
 	Depth       int
 	parent      atomic.Pointer[Node]
@@ -67,6 +68,18 @@ func (node *Node) Children() map[string]*Node {
 }
 
 /*
+TransitionMotor returns the PGA motor that moves from the parent Value to this
+node's Value. The root has no parent, so its motor is zero.
+*/
+func (node *Node) TransitionMotor() primitive.FrameMultivector {
+	if node == nil {
+		return primitive.FrameMultivector{}
+	}
+
+	return node.transition
+}
+
+/*
 storeChild publishes a new child under the edge keyed by value's
 token using copy-on-write CAS. If a child already exists for
 that token, it is replaced.
@@ -78,6 +91,10 @@ func (node *Node) storeChild(value primitive.Value, child *Node) {
 
 	token := trieEdgeKey(value)
 	child.Depth = node.Depth + 1
+	child.transition = transitionMotor(
+		node.value.ContextMultivector(),
+		value.ContextMultivector(),
+	)
 
 	for {
 		old := node.children.Load()

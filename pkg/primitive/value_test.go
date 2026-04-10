@@ -585,6 +585,39 @@ func TestValueContextVector(t *testing.T) {
 	})
 }
 
+func TestValueContextMultivector(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("NewValue seeds a stable non-zero Context multivector", t, func() {
+		left, err := FirstSegment(NewValue([]byte("geometric-token")))
+
+		So(err, ShouldBeNil)
+
+		defer left.Close()
+
+		right, err := FirstSegment(NewValue([]byte("geometric-token")))
+
+		So(err, ShouldBeNil)
+
+		defer right.Close()
+
+		So(left.ContextMultivector().IsZero(), ShouldBeFalse)
+		So(left.ContextMultivector(), ShouldResemble, right.ContextMultivector())
+	})
+
+	Convey("Context multivectors round-trip through the raw region words", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		mv := NewFrameMultivector([]byte("coordinate"))
+		value.SetContextMultivector(mv)
+
+		So(value.ContextMultivector(), ShouldResemble, mv)
+		So(FrameMultivectorFromWords(mv.Words()), ShouldResemble, mv)
+	})
+}
+
 func TestValueBindContext(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
@@ -628,6 +661,26 @@ func TestValueGradientVector(t *testing.T) {
 		value.AccumulateGradient(delta)
 
 		So(value.GradientVector(), ShouldResemble, [RegionWords]uint64{})
+	})
+}
+
+func TestValueGeometricRegions(t *testing.T) {
+	setupPrimitiveValueTest(t)
+
+	Convey("Gradient and Signals multivectors address independent 512-bit regions", t, func() {
+		value := newValueFromZeroFrame(t)
+
+		defer value.Close()
+
+		gradient := NewFrameMultivector([]byte("momentum"))
+		signals := NewFrameMultivector([]byte("result"))
+
+		value.SetGradientMultivector(gradient)
+		value.SetSignalsMultivector(signals)
+
+		So(value.GradientMultivector(), ShouldResemble, gradient)
+		So(value.SignalsMultivector(), ShouldResemble, signals)
+		So(value.ContextMultivector(), ShouldResemble, FrameMultivector{})
 	})
 }
 

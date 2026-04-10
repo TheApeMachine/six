@@ -72,6 +72,7 @@ func TestNodeStoreChild(t *testing.T) {
 
 		So(root.Child(key), ShouldEqual, child)
 		So(child.parent.Load(), ShouldEqual, root)
+		So(child.TransitionMotor().IsZero(), ShouldBeFalse)
 	})
 }
 

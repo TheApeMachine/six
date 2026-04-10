@@ -247,6 +247,45 @@ func TestMultimodalCoordinatorActionScores(t *testing.T) {
 		So(scores[0].Action, ShouldEqual, "left")
 		So(scores[0].Score, ShouldBeGreaterThan, scores[1].Score)
 	})
+
+	Convey("ActionScores projects unseen sensory coordinates through Procrustes alignment", t, func() {
+		coordinator, err := NewMultimodalCoordinator(context.Background())
+
+		So(err, ShouldBeNil)
+
+		for lane := range primitive.RegionWords {
+			sensory := coordinatorValue(t, "sense-procrustes-"+string(rune('a'+lane)))
+			action := coordinatorValue(t, "act-procrustes-"+string(rune('a'+lane)))
+			reward := coordinatorValue(t, "reward-procrustes-"+string(rune('a'+lane)))
+			vector := basisFrameMultivector(lane)
+
+			sensory.SetContextMultivector(vector)
+			action.SetContextMultivector(vector)
+
+			So(coordinator.ObserveOutcome(sensory, action, reward, 2), ShouldBeNil)
+		}
+
+		So(coordinator.actionAlign.Load(), ShouldNotBeNil)
+
+		query := coordinatorValue(t, "unseen-procrustes")
+		query.SetContextMultivector(basisFrameMultivector(3))
+
+		scores, scoreErr := coordinator.ActionScores(query)
+
+		So(scoreErr, ShouldBeNil)
+		So(len(scores), ShouldBeGreaterThan, 0)
+		So(scores[0].Action, ShouldEqual, "act-procrustes-d")
+	})
+}
+
+func basisFrameMultivector(lane int) primitive.FrameMultivector {
+	var vector primitive.FrameMultivector
+
+	if lane >= 0 && lane < primitive.RegionWords {
+		vector[lane] = 1
+	}
+
+	return vector
 }
 
 func TestMultimodalCoordinatorPredictAction(t *testing.T) {

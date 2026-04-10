@@ -7,11 +7,12 @@
 # Pass -checklinkname=0 so the linker allows those references (see `go help build`).
 LDFLAGS := -ldflags='-checklinkname=0'
 
-DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.capnp'
+DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.s'
 # Source extensions plus only visualizer/static/index.html (no other HTML).
 # Drop any .md (README.md is injected separately so it is first and only markdown).
 DUMP_FIND := find . -type f \( \( $(DUMP_EXTS) \) -o -path './visualizer/static/index.html' \) \
 	| grep -v '/vendor/' \
+	| grep -v '/node_modules/' \
 	| grep -v '^\./experiment/' \
 	| grep -v '^\./paper/' \
 	| grep -v '_test\.go$$' \
