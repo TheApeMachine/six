@@ -28,3 +28,12 @@ It is useful when experiments need prompt boundaries and optional labels.
 type PromptProvider interface {
 	GeneratePrompts() iter.Seq[Prompt]
 }
+
+/*
+LabeledPromptProvider marks PromptProvider implementations whose prompts carry
+supervision labels that should be preserved during machine ingest.
+*/
+type LabeledPromptProvider interface {
+	PromptProvider
+	HasPromptLabels() bool
+}

@@ -16,21 +16,26 @@
     }
   ],
   "name": "Prose Chaining",
+  "outcome": {
+    "actual": 0.026005104381306536,
+    "passed": true,
+    "threshold": 0.004824581705353215
+  },
   "results": [
     {
       "Idx": 0,
       "Name": "prompt_0",
       "Prefix": "ID0gVmFsa3lyaWEg",
       "Holdout": "Q2hyb25pY2xlcyBJSUkgPSAK",
-      "Generation": "dGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhl",
+      "Generation": "VmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSA9IFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhID0gVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSA9",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.05555555555555555,
-        "Fuzzy": 0.010101010101010102
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.016988062442607896,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null,
       "Prediction": {
@@ -38,18 +43,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "dGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhl",
-            "Score": -41.95611906625657,
+            "Sequence": "VmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSA9IFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhID0gVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSA9",
+            "Score": -28.700408390715083,
             "Origin": 0
           },
           {
-            "Sequence": "dGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIFMgdGhlIHRoZQ==",
-            "Score": -42.748482700760995,
+            "Sequence": "VmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSA9IFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhID0gVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYQ==",
+            "Score": -28.851659066783327,
             "Origin": 0
           },
           {
-            "Sequence": "dGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZSBTIHRoZSB0aGUgdGhlIHRoZSB0aGUgdGhlIHRoZQ==",
-            "Score": -42.748482700760995,
+            "Sequence": "VmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSBWYWxreXJpYSA9IFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhIFZhbGt5cmlhID0gVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgVmFsa3lyaWEgPQ==",
+            "Score": -28.851659066783327,
             "Origin": 0
           }
         ],
@@ -60,13 +65,13 @@
           "4": {}
         },
         "Rejected": [
-          15463171881070231555,
-          15463171881070231562,
-          15463171881070231563,
-          15463171881070231558,
-          15463171881070231556,
-          15463171881070231554,
           15463171881070231560,
+          15463171881070231557,
+          15463171881070231553,
+          15463171881070231558,
+          15463171881070231561,
+          15463171881070231556,
+          15463171881070231555,
           15463171881070231559
         ]
       }
@@ -76,7 +81,7 @@
       "Name": "prompt_1",
       "Prefix": "IFNlbmrFjSBubyBWYWxreXJpYSAzIDogVW5yZWNvcmRlZCBDaHJvbmljbGVzICggSmFwYW5lc2UgOiDmiKbloLTjga7jg7TjgqHjg6vjgq3jg6Xjg6rjgqIzICwgbGl0IC4gVmFsa3lyaWEgb2YgdGhlIEJhdHRsZWZpZWxkIDMgKSAsIGNvbW1vbmx5IHJlZmVycmVkIHRvIGFzIFZhbGt5cmlhIENocm9uaWNsZXMgSUlJIG91dHNpZGUgSmFwYW4gLCBpcyBhIHRhY3RpY2FsIHJvbGUgQC1AIHBsYXlpbmcgdmlkZW8gZ2FtZSBkZXZlbG9wZWQgYnkgU2VnYSBhbmQgTWVkaWEuVmlzaW9uIGZvciB0aGUgUGxheVN0YXQ=",
       "Holdout": "aW9uIFBvcnRhYmxlIC4gUmVsZWFzZWQgaW4gSmFudWFyeSAyMDExIGluIEphcGFuICwgaXQgaXMgdGhlIHRoaXJkIGdhbWUgaW4gdGhlIFZhbGt5cmlhIHNlcmllcyAuIEVtcGxveWluZyB0aGUgc2FtZSBmdXNpb24gb2YgdGFjdGljYWwgYW5kIHJlYWwgQC1AIHRpbWUgZ2FtZXBsYXkgYXMgaXRzIHByZWRlY2Vzc29ycyAsIHRoZSBzdG9yeSBydW5zIHBhcmFsbGVsIHRvIHRoZSBmaXJzdCBnYW1lIGFuZCBmb2xsb3dzIHRoZSAiIE5hbWVsZXNzICIgLCBhIHBlbmFsIG1pbGl0YXJ5IHVuaXQgc2VydmluZyB0aGUgbmF0aW9uIG9mIEdhbGxpYSBkdXJpbmcgdGhlIFNlY29uZCBFdXJvcGFuIFdhciB3aG8gcGVyZm9ybSBzZWNyZXQgYmxhY2sgb3BlcmF0aW9ucyBhbmQgYXJlIHBpdHRlZCBhZ2FpbnN0IHRoZSBJbXBlcmlhbCB1bml0ICIgQ2FsYW1hdHkgUmF2ZW4gIiAuIAo=",
-      "Generation": "OiA6IDogOiA6",
+      "Generation": "TWVkaWEuVmlzaW9uIE1lZGlhLlZpc2lvbiBNZWRpYS5WaXNpb24gTWVkaWEuVmlzaW9uIE1lZGlhLlZpc2lvbg==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -92,18 +97,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "OiA6IDogOiA6",
-            "Score": -8.523740461192126,
+            "Sequence": "TWVkaWEuVmlzaW9uIE1lZGlhLlZpc2lvbiBNZWRpYS5WaXNpb24gTWVkaWEuVmlzaW9uIE1lZGlhLlZpc2lvbg==",
+            "Score": -8.047189562170502,
             "Origin": 0
           },
           {
-            "Sequence": "OiA6IDogOiAo",
-            "Score": -9.216887641752072,
+            "Sequence": "TWVkaWEuVmlzaW9uIE1lZGlhLlZpc2lvbiBNZWRpYS5WaXNpb24gTWVkaWEuVmlzaW9uIFBsYXlTdGF0",
+            "Score": -8.047189562170502,
             "Origin": 0
           },
           {
-            "Sequence": "OiA6IDogOiAz",
-            "Score": -9.216887641752072,
+            "Sequence": "TWVkaWEuVmlzaW9uIE1lZGlhLlZpc2lvbiBNZWRpYS5WaXNpb24gTWVkaWEuVmlzaW9uIGFuZA==",
+            "Score": -8.047189562170502,
             "Origin": 0
           }
         ],
@@ -138,17 +143,17 @@
         "Continuations": [
           {
             "Sequence": "LCAsICwgLCAs",
-            "Score": -12.424533248940001,
+            "Score": -5.493061443340549,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCAyMDEw",
-            "Score": -12.424533248940001,
+            "Sequence": "LCAsICwgLCBhZGp1c3RtZW50cw==",
+            "Score": -5.493061443340549,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBUaGU=",
-            "Score": -12.424533248940001,
+            "Sequence": "LCAsICwgLCBwbGU=",
+            "Score": -5.493061443340549,
             "Origin": 0
           }
         ],
@@ -166,7 +171,7 @@
       "Name": "prompt_3",
       "Prefix": "IEl0IG1ldCB3aXRoIHBvc2l0aXZlIHNhbGVzIGluIEphcGFuICwgYW5kIHdhcyBwcmFpc2VkIGJ5IGJvdGggSmFwYW5lc2UgYW5kIHdlc3Rlcm4gY3JpdGljcyAuIEFmdGVyIHJlbGVhc2UgLCBpdCByZWNlaXZlZCBkb3dubG9hZGFibGUgY29udGVudCAsIGFsb25nIHdpdGggYW4gZXhwYW5kZWQgZWRpdGlvbiBpbiBOb3ZlbWJlciBvZiB0aGF0IHllYXIgLiBJdCB3YXMgYWxzbyBhZGFwdGVkIGludG8gbQ==",
       "Holdout": "YW5nYSBhbmQgYW4gb3JpZ2luYWwgdmlkZW8gYW5pbWF0aW9uIHNlcmllcyAuIER1ZSB0byBsb3cgc2FsZXMgb2YgVmFsa3lyaWEgQ2hyb25pY2xlcyBJSSAsIFZhbGt5cmlhIENocm9uaWNsZXMgSUlJIHdhcyBub3QgbG9jYWxpemVkICwgYnV0IGEgZmFuIHRyYW5zbGF0aW9uIGNvbXBhdGlibGUgd2l0aCB0aGUgZ2FtZSAncyBleHBhbmRlZCBlZGl0aW9uIHdhcyByZWxlYXNlZCBpbiAyMDE0IC4gTWVkaWEuVmlzaW9uIHdvdWxkIHJldHVybiB0byB0aGUgZnJhbmNoaXNlIHdpdGggdGhlIGRldmVsb3BtZW50IG9mIFZhbGt5cmlhIDogQXp1cmUgUmV2b2x1dGlvbiBmb3IgdGhlIFBsYXlTdGF0aW9uIDQgLiAK",
-      "Generation": "LCAsICwgLCAs",
+      "Generation": "LiAuIC4gLiAu",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -182,18 +187,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "LCAsICwgLCAs",
-            "Score": -13.195286648076294,
+            "Sequence": "LiAuIC4gLiAu",
+            "Score": -10.986122886681098,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBJdA==",
-            "Score": -13.195286648076294,
+            "Sequence": "LiAuIC4gLiBJdA==",
+            "Score": -10.986122886681098,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBK",
-            "Score": -13.195286648076294,
+            "Sequence": "LiAuIC4gLiBhZGFwdGVk",
+            "Score": -10.986122886681098,
             "Origin": 0
           }
         ],
@@ -273,17 +278,17 @@
         "Continuations": [
           {
             "Sequence": "LCAsICwgLCAs",
-            "Score": -10.986122886681098,
+            "Score": -10.39720770839918,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBBcw==",
-            "Score": -10.986122886681098,
+            "Sequence": "LCAsICwgLCBhcw==",
+            "Score": -10.39720770839918,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBDaHJvbmljbGU=",
-            "Score": -10.986122886681098,
+            "Sequence": "LCAsICwgLCBjYW4=",
+            "Score": -10.39720770839918,
             "Origin": 0
           }
         ],
@@ -301,7 +306,7 @@
       "Name": "prompt_6",
       "Prefix": "IFRoZSBnYW1lICdzIGJhdHRsZSBzeXN0ZW0gLCB0aGUgQmxpVFogc3lzdGVtICwgaXMgY2FycmllZCBvdmVyIGRpcmVjdGx5IGZyb20gVmFsa3lpcmEgQ2hyb25pY2xlcyAuIER1cmluZyBtaXNzaW9ucyAsIHBsYXllcnMgc2VsZWN0IGVhY2ggdW5pdCB1c2luZyBhIHRvcCBALUAgZG93biBwZXJzcGVjdGl2ZSBvZiB0aGUgYmF0dGxlZmllbGQgbWFwIDogb25jZSBhIGNoYXJhY3RlciBpcyBzZWxlY3RlZCAsIHRoZSBwbGF5ZXIgbW92ZXMgdGhlIGNoYXJhY3RlciBhcm91bmQgdGhlIGJhdHRsZWZpZWxkIGluIHRoaXJkIEAtQCBwZXJzb24gLiBBIGNoYXJhY3RlciBjYW4gb25seSBhY3Qgb25jZSBwZXIgQC1AIHR1cm4gLCBidXQgY2hhcmFjdGVycyBjYW4gYmUgZ3JhbnRlZCBtdWx0aXBsZSB0dXJucyBhdCB0aGUgZXhwZW5zZSBvZiBvdGhlciBjaGFyYWN0ZXJzICcgdHVybnMgLiBFYWNoIGNoYXJhY3RlciBoYXMgYSBmaWVsZCBhbmQgZGlzdGFuY2Ugb2YgbW92ZW1lbnQgbGltaXRlZCBieSB0aGVpciBBY3Rpb24gR2F1Z2UgLiBVcCB0byBuaW5lIGNoYXJhY3RlcnMgY2FuIGJlIGFzc2lnbmVkIHRvIGEgc2luZ2xlIG1pc3Npb24gLiBEdXJpbmcgZ2FtZXBsYXkgLCBjaGFyYWN0ZXJzIHdpbGwgY2FsbCBvdXQgaWYgc29tZXRoaW5nIGhhcHBlbg==",
       "Holdout": "cyB0byB0aGVtICwgc3VjaCBhcyB0aGVpciBoZWFsdGggcG9pbnRzICggSFAgKSBnZXR0aW5nIGxvdyBvciBiZWluZyBrbm9ja2VkIG91dCBieSBlbmVteSBhdHRhY2tzIC4gRWFjaCBjaGFyYWN0ZXIgaGFzIHNwZWNpZmljICIgUG90ZW50aWFscyAiICwgc2tpbGxzIHVuaXF1ZSB0byBlYWNoIGNoYXJhY3RlciAuIFRoZXkgYXJlIGRpdmlkZWQgaW50byAiIFBlcnNvbmFsIFBvdGVudGlhbCAiICwgd2hpY2ggYXJlIGlubmF0ZSBza2lsbHMgdGhhdCByZW1haW4gdW5hbHRlcmVkIHVubGVzcyBvdGhlcndpc2UgZGljdGF0ZWQgYnkgdGhlIHN0b3J5IGFuZCBjYW4gZWl0aGVyIGhlbHAgb3IgaW1wZWRlIGEgY2hhcmFjdGVyICwgYW5kICIgQmF0dGxlIFBvdGVudGlhbHMgIiAsIHdoaWNoIGFyZSBncm93biB0aHJvdWdob3V0IHRoZSBnYW1lIGFuZCBhbHdheXMgZ3JhbnQgYm9vbnMgdG8gYSBjaGFyYWN0ZXIgLiBUbyBsZWFybiBCYXR0bGUgUG90ZW50aWFscyAsIGVhY2ggY2hhcmFjdGVyIGhhcyBhIHVuaXF1ZSAiIE1hc3RlcnMgVGFibGUgIiAsIGEgZ3JpZCBALUAgYmFzZWQgc2tpbGwgdGFibGUgdGhhdCBjYW4gYmUgdXNlZCB0byBhY3F1aXJlIGFuZCBsaW5rIGRpZmZlcmVudCBza2lsbHMgLiBDaGFyYWN0ZXJzIGFsc28gaGF2ZSBTcGVjaWFsIEFiaWxpdGllcyB0aGF0IGdyYW50IHRoZW0gdGVtcG9yYXJ5IGJvb3N0cyBvbiB0aGUgYmF0dGxlZmllbGQgOiBLdXJ0IGNhbiBhY3RpdmF0ZSAiIERpcmVjdCBDb21tYW5kICIgYW5kIG1vdmUgYXJvdW5kIHRoZSBiYXR0bGVmaWVsZCB3aXRob3V0IGRlcGxldGluZyBoaXMgQWN0aW9uIFBvaW50IGdhdWdlICwgdGhlIGNoYXJhY3RlciBSZWlsYSBjYW4gc2hpZnQgaW50byBoZXIgIiBWYWxreXJpYSBGb3JtICIgYW5kIGJlY29tZSBpbnZpbmNpYmxlICwgd2hpbGUgSW1jYSBjYW4gdGFyZ2V0IG11bHRpcGxlIGVuZW15IHVuaXRzIHdpdGggaGVyIGhlYXZ5IHdlYXBvbiAuIAo=",
-      "Generation": "LCAsICwgLCAs",
+      "Generation": "aGFwcGVuIGhhcHBlbiBoYXBwZW4gaGFwcGVuIGhhcHBlbg==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -317,18 +322,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "LCAsICwgLCAs",
-            "Score": -9.359010884507956,
+            "Sequence": "aGFwcGVuIGhhcHBlbiBoYXBwZW4gaGFwcGVuIGhhcHBlbg==",
+            "Score": -3.4657359027997265,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBzeXN0ZW0=",
-            "Score": -9.359010884507956,
+            "Sequence": "aGFwcGVuIGhhcHBlbiBoYXBwZW4gaGFwcGVuIG5n",
+            "Score": -3.4657359027997265,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgc3lzdGVtICw=",
-            "Score": -9.359010884507956,
+            "Sequence": "aGFwcGVuIGhhcHBlbiBoYXBwZW4gbmcgaGFwcGVu",
+            "Score": -3.4657359027997265,
             "Origin": 0
           }
         ],
@@ -346,15 +351,15 @@
       "Name": "prompt_7",
       "Prefix": "IFRyb29wcyBhcmUgZGl2aWRlZCBpbnRvIGZpdmUgY2xhc3NlcyA6IFNjb3V0cyAsIFNob2NrdHJvb3BlcnMgLCBFbmdpbmVlcnMgLCBMYW5jZXJzIGFuZCBBcm1vcmVkIFNvbGRpZXIgLiBUcm9vcGVycyBjYW4gc3dpdGNoIGNsYXNzZXMgYnkgY2hhbmdpbmcgdGhlaXIgYXNzaWduZWQgd2VhcG9uIC4gQ2hhbmdpbmcgY2xhc3MgZG9lcyBub3QgZ3Jl",
       "Holdout": "YXRseSBhZmZlY3QgdGhlIHN0YXRzIGdhaW5lZCB3aGlsZSBpbiBhIHByZXZpb3VzIGNsYXNzIC4gV2l0aCB2aWN0b3J5IGluIGJhdHRsZSAsIGV4cGVyaWVuY2UgcG9pbnRzIGFyZSBhd2FyZGVkIHRvIHRoZSBzcXVhZCAsIHdoaWNoIGFyZSBkaXN0cmlidXRlZCBpbnRvIGZpdmUgZGlmZmVyZW50IGF0dHJpYnV0ZXMgc2hhcmVkIGJ5IHRoZSBlbnRpcmUgc3F1YWQgLCBhIGZlYXR1cmUgZGlmZmVyaW5nIGZyb20gZWFybHkgZ2FtZXMgJyBtZXRob2Qgb2YgZGlzdHJpYnV0aW5nIHRvIGRpZmZlcmVudCB1bml0IHR5cGVzIC4gCg==",
-      "Generation": "LCAsICwgLCAs",
+      "Generation": "Z3JlIGdyZSBncmUgZ3JlIGdyZQ==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0,
-        "Fuzzy": 0
+        "Partial": 0.010067114093959731,
+        "Fuzzy": 0.010067114093959731
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.004575960951799878,
       "TrueLabel": null,
       "PredLabel": null,
       "Prediction": {
@@ -362,18 +367,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "LCAsICwgLCAs",
-            "Score": -8.523740461192126,
+            "Sequence": "Z3JlIGdyZSBncmUgZ3JlIGdyZQ==",
+            "Score": -3.4657359027997265,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCA6",
-            "Score": -9.216887641752072,
+            "Sequence": "Z3JlIGdyZSBncmUgZ3JlIG90",
+            "Score": -3.4657359027997265,
             "Origin": 0
           },
           {
-            "Sequence": "LCAsICwgLCBTY291dHM=",
-            "Score": -9.216887641752072,
+            "Sequence": "Z3JlIGdyZSBncmUgb3QgZ3Jl",
+            "Score": -3.4657359027997265,
             "Origin": 0
           }
         ],
@@ -436,7 +441,7 @@
       "Name": "prompt_9",
       "Prefix": "IFRoZSBnYW1lIHRha2VzIHBsYWNlIGR1cmluZyB0aGUgU2Vjb25kIEV1cm9wYW4gV2FyIC4gR2FsbGlhbiBBcm15IFNxdWFkIDQyMiAsIGFsc28ga25vd24gYXMgIiBUaGUgTmFtZWxlc3MgIiAsIGFyZSBhIHBlbmFsIG1pbGl0YXJ5IHVuaXQgY29tcG9zZWQgb2YgY3JpbWluYWxzICwgZm9yZWlnbiBkZXNlcnRlcnMgLCBhbmQgbWlsaXRhcnkgb2ZmZW5kZXJzIHdob3NlIHJlYWwgbmFtZXMgYXJlIGVyYXNlZCBmcm9tIHRoZSByZWNvcmRzIGFuZCB0aGVyZW9uIG9mZmljaWFsbHkgcmVmZXJyZWQgdG8gYnkgbnVtYmVycyAuIE9yZGVyZWQgYnkgdGhlIEdhbGxpYW4gbWlsaXRhcnkgdG8gcGVyZm9ybSB0aGUgbW9zdCBkYW5nZXJvdXMgbWlzc2lvbnMgdGhhdCB0aGUgUmVndWxhciBBcm15IGFuZCBNaWxpdGlhIHdpbGwgbm90IGRvICwgdGhleSBh",
       "Holdout": "cmUgbmV2ZXJ0aGVsZXNzIHVwIHRvIHRoZSB0YXNrICwgZXhlbXBsaWZpZWQgYnkgdGhlaXIgbW90dG8gLCBBbHRhaGEgQWJpbGlhICwgbWVhbmluZyAiIEFsd2F5cyBSZWFkeSAuICIgVGhlIHRocmVlIG1haW4gY2hhcmFjdGVycyBhcmUgTm8uNyBLdXJ0IElydmluZyAsIGFuIGFybXkgb2ZmaWNlciBmYWxzZWx5IGFjY3VzZWQgb2YgdHJlYXNvbiB3aG8gd2lzaGVzIHRvIHJlZGVlbSBoaW1zZWxmIDsgQWNlIE5vLjEgSW1jYSAsIGEgZmVtYWxlIERhcmNzZW4gaGVhdnkgd2VhcG9ucyBzcGVjaWFsaXN0IHdobyBzZWVrcyByZXZlbmdlIGFnYWluc3QgdGhlIFZhbGt5cmlhIHdobyBkZXN0cm95ZWQgaGVyIGhvbWUgOyBhbmQgTm8uMTMgUmllbGEgTWFyY2VsbGlzICwgYSBzZWVtaW5nbHkgamlueGVkIHlvdW5nIHdvbWFuIHdobyBpcyB1bmtub3dpbmdseSBhIGRlc2NlbmRhbnQgb2YgdGhlIFZhbGt5cmlhIC4gVG9nZXRoZXIgd2l0aCB0aGVpciBmZWxsb3cgc3F1YWQgbWVtYmVycyAsIHRoZXNlIHRocmVlIGFyZSB0YXNrZWQgdG8gZmlnaHQgYWdhaW5zdCBhIG15c3RlcmlvdXMgSW1wZXJpYWwgdW5pdCBrbm93biBhcyBDYWxhbWl0eSBSYXZlbiAsIGNvbnNpc3Rpbmcgb2YgbW9zdGx5IERhcmNzZW4gc29sZGllcnMgLiAK",
-      "Generation": "LiAuIC4gLiAu",
+      "Generation": "LCAsICwgLCAs",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -452,18 +457,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "LiAuIC4gLiAu",
-            "Score": -12.424533248940001,
+            "Sequence": "LCAsICwgLCAs",
+            "Score": -11.512925464970227,
             "Origin": 0
           },
           {
-            "Sequence": "LiAuIC4gLiBBcg==",
-            "Score": -12.424533248940001,
+            "Sequence": "LCAsICwgLCBBcm15",
+            "Score": -11.512925464970227,
             "Origin": 0
           },
           {
-            "Sequence": "LiAuIC4gLiBFdXJvcGFu",
-            "Score": -12.424533248940001,
+            "Sequence": "LCAsICwgLCBNaWxpdGlh",
+            "Score": -11.512925464970227,
             "Origin": 0
           }
         ],
@@ -477,6 +482,6 @@
       }
     }
   ],
-  "score": 0.02724631453038734,
+  "score": 0.026005104381306536,
   "section": "textgen"
 }

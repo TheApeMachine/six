@@ -46,6 +46,11 @@ func TestSearchUpdate(t *testing.T) {
 
 		prediction.Context = append(prediction.Context, *left, *right)
 
+		ranked := search.rankFromContext(prediction)
+
+		So(ranked, ShouldNotBeEmpty)
+		So(ranked[0].Token, ShouldEqual, "middle")
+
 		out, err := search.Update(prediction)
 
 		So(err, ShouldBeNil)

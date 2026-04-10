@@ -306,6 +306,11 @@ func (experiment *TextClassificationExperiment) applyClassificationSchema(row *t
 func (experiment *TextClassificationExperiment) resolveClassificationRow(row *tools.ExperimentalData) {
 	labels := experiment.ClassLabels()
 
+	if classIdx, ok := unambiguousLabelSubstringIndex(string(row.Classification), labels); ok {
+		experiment.applyClassificationSchema(row, classIdx)
+		return
+	}
+
 	if classIdx, ok := unambiguousLabelSubstringIndex(string(row.Generation), labels); ok {
 		experiment.applyClassificationSchema(row, classIdx)
 		return

@@ -133,6 +133,7 @@ func writeResultsSnapshot(experiment tools.PipelineExperiment) error {
 		"name":    experiment.Name(),
 		"section": experiment.Section(),
 		"results": experiment.TableData(),
+		"outcome": outcomeSnapshot(experiment),
 		"artifacts": artifactMetadataList(
 			experiment.Artifacts(),
 		),
@@ -147,6 +148,30 @@ func writeResultsSnapshot(experiment tools.PipelineExperiment) error {
 		tools.Slugify(experiment.Name())+"_results.json",
 		experiment.Section(),
 	)
+}
+
+func outcomeSnapshot(experiment tools.PipelineExperiment) map[string]any {
+	actual, assertion, threshold := experiment.Outcome()
+
+	passed := true
+	message := ""
+
+	if assertion != nil {
+		message = assertion(actual, threshold)
+		passed = message == ""
+	}
+
+	snapshot := map[string]any{
+		"actual":    actual,
+		"threshold": threshold,
+		"passed":    passed,
+	}
+
+	if message != "" {
+		snapshot["message"] = message
+	}
+
+	return snapshot
 }
 
 func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperiment, artifact tools.Artifact) error {

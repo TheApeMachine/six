@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"io"
 	"iter"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -123,7 +124,7 @@ func (experiment *LanguagesExperiment) Prompts() []string {
 			continue
 		}
 		prefix, tail := tools.ByteSuffixLastN(p.Text, 50)
-		if tail == "" {
+		if prefix == "" || tail == "" {
 			continue
 		}
 		experiment.prompt = append(experiment.prompt, prefix)
@@ -350,7 +351,29 @@ func (md *multiDataset) Generate() iter.Seq[byte] {
 }
 
 func (md *multiDataset) Read(p []byte) (n int, err error) {
-	return md.datasets[md.current].Read(p)
+	for n < len(p) && md.current < len(md.datasets) {
+		read, readErr := md.datasets[md.current].Read(p[n:])
+		n += read
+
+		if readErr == io.EOF {
+			md.current++
+			continue
+		}
+
+		if readErr != nil {
+			return n, readErr
+		}
+
+		if read == 0 {
+			return n, nil
+		}
+	}
+
+	if n == 0 {
+		return 0, io.EOF
+	}
+
+	return n, nil
 }
 
 func (md *multiDataset) Close() error {

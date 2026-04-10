@@ -12,7 +12,7 @@ rejection rate) degrades as the substrate processes more requests.
 \paragraph{Results.}
 Total time: 0\,ms. Ingestion rate: 0.0\,KB/s (50 entries).
 Per-query latency remains stable across the sequence (mean 0.1\,ms,
-range [0.0,\,1.0]\,ms). Beam confidence: $$\mu = -3.205$, $\sigma = 5.577$, median $= -3.466$, range $[-38.600,\,0.000]$, $N = 50$$.
+range [0.0,\,1.0]\,ms). Beam confidence: $$\mu = -3.229$, $\sigma = 5.735$, median $= -3.466$, range $[-39.813,\,0.000]$, $N = 50$$.
 Rejection rate: $\mu = 0.018$.
 
 Figure~\ref{fig:pipeline_throughput_chart} shows the latency
@@ -22,7 +22,7 @@ confidence under load (bottom-left), and substrate pressure signals
 
 \paragraph{Assessment.}
 Latency stays flat across the query sequence (mean 0.1\,ms,
-$\sigma = 0.2$\,ms) with low rejection ($0.018$). The pipeline
+$\sigma = 0.3$\,ms) with low rejection ($0.018$). The pipeline
 scales linearly with query count at this corpus size—no evidence
 of substrate congestion, lock contention, or cache thrashing.
 Beam confidence remains coherent under sustained load.

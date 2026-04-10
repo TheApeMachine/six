@@ -48,6 +48,17 @@ type Queue struct {
 }
 
 /*
+publishFramePool gives Queue.Publish ownership of the frame handed to backend
+workers; tokenizers may close and recycle the original Value before async ALU
+work runs.
+*/
+var publishFramePool = sync.Pool{
+	New: func() any {
+		return new(primitive.Value)
+	},
+}
+
+/*
 NewQueue constructs a Queue that owns its own goroutine pool sized to
 the available CPU cores minus one (leaving the main thread free).
 */
@@ -108,11 +119,12 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 		return errors.New("queue: no backend")
 	}
 
-	frame := value
+	frame := publishFramePool.Get().(*primitive.Value)
 
-	if frame == nil {
-		// Heap-backed so the pool goroutine does not capture a stack address.
-		frame = new(primitive.Value)
+	if value == nil {
+		*frame = primitive.Value{}
+	} else {
+		*frame = *value
 	}
 
 	aSpan := frame[0:31]
@@ -123,6 +135,9 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 
 	queue.pool.Submit(func() {
 		defer func() {
+			*frame = primitive.Value{}
+			publishFramePool.Put(frame)
+
 			if queue.inflight.Add(-1) == 0 {
 				queue.drainMu.Lock()
 				queue.drainWait.Broadcast()

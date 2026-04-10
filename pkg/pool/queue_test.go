@@ -8,6 +8,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type stubQueueExecutor struct {
@@ -16,6 +17,19 @@ type stubQueueExecutor struct {
 
 func (stub *stubQueueExecutor) CompileAndExecute(program *programmer.Compiler) error {
 	stub.calls.Add(1)
+
+	return nil
+}
+
+type snapshotQueueExecutor struct {
+	release chan struct{}
+	word    chan uint64
+}
+
+func (stub *snapshotQueueExecutor) CompileAndExecute(program *programmer.Compiler) error {
+	<-stub.release
+
+	stub.word <- program.Frame()[0]
 
 	return nil
 }
@@ -141,6 +155,34 @@ func TestQueueSetBackend(t *testing.T) {
 		queue.Drain()
 
 		So(stub.calls.Load(), ShouldEqual, 1)
+		So(queue.Close(), ShouldBeNil)
+	})
+}
+
+func TestQueuePublish(t *testing.T) {
+	Convey("Publish snapshots the frame before async execution", t, func() {
+		queue, err := NewQueue(context.Background())
+
+		So(err, ShouldBeNil)
+
+		stub := &snapshotQueueExecutor{
+			release: make(chan struct{}),
+			word:    make(chan uint64, 1),
+		}
+
+		queue.SetBackend(stub)
+
+		value := &primitive.Value{}
+		value.Set(0, 7)
+
+		So(queue.Publish(value, ""), ShouldBeNil)
+
+		value.Set(0, 99)
+		close(stub.release)
+
+		queue.Drain()
+
+		So(<-stub.word, ShouldEqual, uint64(7))
 		So(queue.Close(), ShouldBeNil)
 	})
 }

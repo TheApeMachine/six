@@ -16,13 +16,18 @@
     }
   ],
   "name": "Compression",
+  "outcome": {
+    "actual": 0.9999617780835531,
+    "passed": true,
+    "threshold": 0.004303700441575781
+  },
   "results": [
     {
       "Idx": 0,
       "Name": "prompt_0",
       "Prefix": "fCN1fGhzIVZCLFwuJWBDa3pfPXhlXSwqfidaLWhjbl5oMkRTNTB4dTpsfXF8KXN9WFlCRys0WX16NEpDfmZOSCNhOXFJJ3A9PUFOTnddbF9VcmQvKlxZKyhUXnojZC5J",
       "Holdout": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUI=",
-      "Generation": "EFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2aIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiBaHHkdKx1YH0sOLR97H8AZwxmkGLcYxQ6SD+Eb8x/MHZogEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2a",
+      "Generation": "tSC1ILUg4iC1ILUgtSC1IOIgtSC1ILUgtSDiILUgtSC1ILUg4iC1ILUgtSC1IOIgtQ==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
@@ -38,18 +43,18 @@
         "Labels": [],
         "Continuations": [
           {
-            "Sequence": "EFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2aIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiBaHHkdKx1YH0sOLR97H8AZwxmkGLcYxQ6SD+Eb8x/MHZogEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2a",
-            "Score": -28.718142913955024,
+            "Sequence": "tSC1ILUg4iC1ILUgtSC1IOIgtSC1ILUgtSDiILUgtSC1ILUg4iC1ILUgtSC1IOIgtQ==",
+            "Score": -29.885139496873855,
             "Origin": 0
           },
           {
-            "Sequence": "EFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiB8HGsgfBxrIHwcayB8HGsgfBxrIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiBaHHkdKx1YH0sOLR97H8AZwxmkGLcYxQ6SD+Eb8x/MHZogEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2a",
-            "Score": -30.220126610327558,
+            "Sequence": "tSC1ILUg4iC1ILUgtSC1IOIgtSC1ILUgtSDiILUgtSC1ILUg4iC1ILUgtSC1ILUgtQ==",
+            "Score": -30.594930662086238,
             "Origin": 0
           },
           {
-            "Sequence": "fBxrIHwcayB8HGsgfBxrIHwcayAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2aIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiBaHHkdKx1YH0sOLR97H8AZwxmkGLcYxQ6SD+Eb8x/MHZogEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgEFoEeBF+BBkGIFoceR0rHVgfSw4tH3sfwBnDGaQYtxjFDpIP4RvzH8wdmiAQWgR4EX4EGQYgEFoEeBF+BBkGIBBaBHgRfgQZBiAQWgR4EX4EGQYgWhx5HSsdWB9LDi0fex/AGcMZpBi3GMUOkg/hG/MfzB2a",
-            "Score": -30.220126610327558,
+            "Sequence": "tSC1ILUg4iC1ILUgtSC1IOIgtSC1ILUgtSDiILUgtSC1ILUgtSC1ILUgtSC1IOIgtQ==",
+            "Score": -30.594930662086238,
             "Origin": 0
           }
         ],
@@ -60,14 +65,14 @@
           "4": {}
         },
         "Rejected": [
-          15463171881070231555,
-          15463171881070231557,
           15463171881070231558,
-          15463171881070231562,
           15463171881070231553,
           15463171881070231560,
+          15463171881070231561,
+          15463171881070231554,
           15463171881070231559,
-          15463171881070231554
+          15463171881070231555,
+          15463171881070231557
         ]
       }
     },

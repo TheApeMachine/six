@@ -66,8 +66,32 @@ type staticPromptProvider struct {
 	seq iter.Seq[data.Prompt]
 }
 
+var _ data.Provider = (*staticPromptProvider)(nil)
+var _ data.PromptProvider = (*staticPromptProvider)(nil)
+var _ data.LabeledPromptProvider = (*staticPromptProvider)(nil)
+
 func newStaticPromptProvider(seq iter.Seq[data.Prompt]) *staticPromptProvider {
 	return &staticPromptProvider{seq: seq}
+}
+
+func (provider *staticPromptProvider) Read(destination []byte) (n int, err error) {
+	_ = destination
+
+	return 0, io.EOF
+}
+
+func (provider *staticPromptProvider) Close() error {
+	return nil
+}
+
+func (provider *staticPromptProvider) HasPromptLabels() bool {
+	return true
+}
+
+func (provider *staticPromptProvider) Generate() iter.Seq[byte] {
+	return func(yield func(byte) bool) {
+		_ = yield
+	}
 }
 
 func (provider *staticPromptProvider) GeneratePrompts() iter.Seq[data.Prompt] {
@@ -137,6 +161,33 @@ func TestMachineLoad(t *testing.T) {
 		provider := newBytesProvider(payload)
 
 		So(machine.Load(provider), ShouldBeNil)
+	})
+
+	Convey("Load preserves PromptProvider labels when available", t, func() {
+		ctx := context.Background()
+		machine, err := NewMachine(ctx)
+
+		So(err, ShouldBeNil)
+
+		defer func() {
+			So(machine.Close(), ShouldBeNil)
+		}()
+
+		provider := newStaticPromptProvider(func(yield func(data.Prompt) bool) {
+			_ = yield(data.Prompt{
+				Text:     "orbital launch telemetry",
+				Label:    "space",
+				HasLabel: true,
+			})
+		})
+
+		So(machine.Load(provider), ShouldBeNil)
+
+		prediction, promptErr := machine.Prompt("orbital launch telemetry")
+
+		So(promptErr, ShouldBeNil)
+		So(prediction, ShouldNotBeNil)
+		So(prediction.Label(), ShouldEqual, "space")
 	})
 }
 

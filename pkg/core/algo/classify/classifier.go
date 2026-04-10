@@ -1,8 +1,8 @@
 package classify
 
 import (
-	"bytes"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/theapemachine/six/pkg/core/algo"
@@ -281,11 +281,7 @@ func (classifier *Classifier) tokenize(
 	var tokens []string
 
 	for _, value := range prediction.Context {
-		slab := value.TokenRegionBytes()
-
-		for _, field := range bytes.Fields(slab) {
-			tokens = append(tokens, string(field))
-		}
+		tokens = append(tokens, strings.Fields(value.String())...)
 	}
 
 	return tokens

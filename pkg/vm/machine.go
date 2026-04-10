@@ -208,6 +208,10 @@ insert has attempted to complete before the method returns (the shared queue
 also serves peers added dynamically when ingest reaches ShannonLimit).
 */
 func (machine *Machine) Load(dataset data.Provider) error {
+	if promptProvider, ok := dataset.(data.LabeledPromptProvider); ok && promptProvider.HasPromptLabels() {
+		return machine.LoadPrompts(promptProvider)
+	}
+
 	if err := validate.Require(map[string]any{
 		"kadabra":   machine.kadabra,
 		"queue":     machine.queue,

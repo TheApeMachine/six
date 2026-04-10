@@ -2,6 +2,7 @@ package misc
 
 import (
 	"fmt"
+	"io"
 	"iter"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -120,7 +121,7 @@ func (experiment *CrossDomainCompletionExperiment) Prompts() []string {
 			continue
 		}
 		pr, ho := tools.ByteSuffixLastN(p.Text, 50)
-		if ho == "" {
+		if pr == "" || ho == "" {
 			continue
 		}
 		experiment.prompt = append(experiment.prompt, pr)
@@ -347,6 +348,7 @@ before value resonance can reliably recover novel suffixes.`
 type multiDomainDataset struct {
 	datasets    []data.Provider
 	domainNames []string
+	current     int
 }
 
 func (m *multiDomainDataset) Generate() iter.Seq[byte] {
@@ -362,7 +364,29 @@ func (m *multiDomainDataset) Generate() iter.Seq[byte] {
 }
 
 func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
-	return m.datasets[0].Read(p)
+	for n < len(p) && m.current < len(m.datasets) {
+		read, readErr := m.datasets[m.current].Read(p[n:])
+		n += read
+
+		if readErr == io.EOF {
+			m.current++
+			continue
+		}
+
+		if readErr != nil {
+			return n, readErr
+		}
+
+		if read == 0 {
+			return n, nil
+		}
+	}
+
+	if n == 0 {
+		return 0, io.EOF
+	}
+
+	return n, nil
 }
 
 func (m *multiDomainDataset) Close() error {

@@ -230,7 +230,7 @@ The unified entry point is `Predict(data) -> Prediction` — the caller passes d
 
 Internally, each layer talks through the same `algo.Prediction` envelope and `algo.Stack` orchestration object, so trie-local inference, node-level composition, and field feedback all reuse one interface instead of accumulating layer-specific management code.
 
-For control, a multimodal coordinator can bind sensory, action, and reward tries while maintaining coactivation-weighted expected reward for each observed `(sensory, action, reward)` triplet. A causal graph simultaneously tracks how stable each `sensory -> action -> reward` path remains across reward labels, and policy projection biases action ranking toward those invariant paths before projecting ranked continuations upward through the same prediction envelope.
+For control, a multimodal coordinator can bind sensory, action, and reward tries while maintaining coactivation-weighted expected reward for each observed `(sensory, action, reward)` triplet. Reward stays the terminal variable; causal regime labels describe the environment where the transition should remain stable, such as field phase, sensory cluster, source, or intervention family. The causal graph tracks `sensory -> action -> reward` path reliability from regime invariance and support, penalizes paths with high reward-affinity residual drift, and policy projection biases action ranking toward the strongest bottleneck edge before projecting ranked continuations upward through the same prediction envelope.
 
 ### Kadabra: Distributed Knowledge Routing
 
@@ -353,6 +353,8 @@ make test
 
 # Generate experiment paper
 make paper
+# The pipeline emits current experiment results; gate pass/fail is stored in
+# the result snapshots so paper generation is not blocked by research baselines.
 
 # CPU profile an experiment
 make pprof EXP=Text_Classification

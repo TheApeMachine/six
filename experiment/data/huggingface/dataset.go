@@ -66,6 +66,7 @@ type Dataset struct {
 
 var _ data.Provider = (*Dataset)(nil)
 var _ data.PromptProvider = (*Dataset)(nil)
+var _ data.LabeledPromptProvider = (*Dataset)(nil)
 var _ io.Reader = (*Dataset)(nil)
 
 type datasetOpts func(*Dataset)
@@ -111,6 +112,10 @@ func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 
 	v, ok := dataset.labels[id]
 	return v, ok
+}
+
+func (dataset *Dataset) HasPromptLabels() bool {
+	return dataset != nil && dataset.labelColumn != ""
 }
 
 /*

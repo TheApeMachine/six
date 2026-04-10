@@ -99,6 +99,10 @@ func (experiment *BabiExperiment) Section() string {
 }
 
 func (experiment *BabiExperiment) AddResult(results tools.ExperimentalData) {
+	if len(results.Classification) > 0 {
+		results.Generation = results.Classification
+	}
+
 	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }

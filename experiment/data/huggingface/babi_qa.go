@@ -40,6 +40,7 @@ type BabiQADataset struct {
 }
 
 var _ data.PromptProvider = (*BabiQADataset)(nil)
+var _ data.LabeledPromptProvider = (*BabiQADataset)(nil)
 
 /*
 NewBabiQA creates a BabiQADataset. Accepts same opts as Dataset (repo, subset, etc.).
@@ -85,6 +86,10 @@ func (dataset *BabiQADataset) Read(p []byte) (n int, err error) {
 
 func (dataset *BabiQADataset) Close() error {
 	return dataset.base.Close()
+}
+
+func (dataset *BabiQADataset) HasPromptLabels() bool {
+	return true
 }
 
 /*

@@ -102,6 +102,38 @@ func TestMultimodalCoordinatorObserveOutcome(t *testing.T) {
 		So(snapshot.m[key].RewardSum, ShouldAlmostEqual, 2.5, 1e-9)
 		So(snapshot.m[key].Count, ShouldAlmostEqual, 1, 1e-9)
 	})
+
+	Convey("ObserveOutcome records reward residuals for repeated state-action outcomes", t, func() {
+		coordinator, err := NewMultimodalCoordinator(context.Background())
+
+		So(err, ShouldBeNil)
+
+		sensory := coordinatorValue(t, "sense-r")
+		action := coordinatorValue(t, "move-r")
+		good := coordinatorValue(t, "reward-good-r")
+		bad := coordinatorValue(t, "reward-bad-r")
+		var goodAffinity [primitive.AffinityWords]uint64
+		var badAffinity [primitive.AffinityWords]uint64
+
+		goodAffinity[0] = 0xf00
+		badAffinity[0] = 0x00f
+
+		good.SetAffinityVector(goodAffinity)
+		bad.SetAffinityVector(badAffinity)
+
+		So(coordinator.ObserveOutcome(sensory, action, good, 2), ShouldBeNil)
+
+		tracker := coordinator.causal.Value().Signals[algo.InterventionResidual]
+		before := tracker.Value()
+
+		So(coordinator.ObserveOutcome(sensory, action, bad, -1), ShouldBeNil)
+
+		snapshot := coordinator.coactivation.Load()
+		key := coordinator.LinkKey("sense-r", "move-r", "reward-bad-r")
+
+		So(tracker.Value(), ShouldBeGreaterThan, before)
+		So(snapshot.m[key].ResidualSum, ShouldBeGreaterThan, 0)
+	})
 }
 
 func TestMultimodalCoordinatorActionScores(t *testing.T) {
@@ -143,41 +175,45 @@ func TestMultimodalCoordinatorActionScores(t *testing.T) {
 		reward := coordinatorValue(t, "reward")
 
 		So(
-			coordinator.ObserveOutcome(
+			coordinator.ObserveOutcomeInRegimes(
 				sensory,
 				left,
 				reward,
 				2,
+				[]string{"bright"},
 				"good",
 			),
 			ShouldBeNil,
 		)
 		So(
-			coordinator.ObserveOutcome(
+			coordinator.ObserveOutcomeInRegimes(
 				sensory,
 				left,
 				reward,
 				2,
+				[]string{"dim"},
 				"excellent",
 			),
 			ShouldBeNil,
 		)
 		So(
-			coordinator.ObserveOutcome(
+			coordinator.ObserveOutcomeInRegimes(
 				sensory,
 				right,
 				reward,
 				2,
+				[]string{"bright"},
 				"good",
 			),
 			ShouldBeNil,
 		)
 		So(
-			coordinator.ObserveOutcome(
+			coordinator.ObserveOutcomeInRegimes(
 				sensory,
 				right,
 				reward,
 				2,
+				[]string{"bright"},
 				"good",
 			),
 			ShouldBeNil,
@@ -346,6 +382,38 @@ func BenchmarkMultimodalCoordinatorObserveOutcome(b *testing.B) {
 			action,
 			reward,
 			3,
+			"good",
+		)
+
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkMultimodalCoordinatorObserveOutcomeInRegimes(b *testing.B) {
+	setupMarkovTrieValueConfig(b)
+
+	coordinator, err := NewMultimodalCoordinator(context.Background())
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	sensory := coordinatorValue(b, "state")
+	action := coordinatorValue(b, "forward")
+	reward := coordinatorValue(b, "good")
+	regimes := []string{"phase:3"}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		err := coordinator.ObserveOutcomeInRegimes(
+			sensory,
+			action,
+			reward,
+			3,
+			regimes,
 			"good",
 		)
 

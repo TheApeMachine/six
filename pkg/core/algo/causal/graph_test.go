@@ -6,6 +6,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
+	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -104,7 +105,39 @@ func TestGraphUpdate(t *testing.T) {
 		}
 
 		So(graph.EdgeInvariance(1, 2), ShouldBeGreaterThan, 0)
+		So(graph.EdgeReliability(1, 2), ShouldBeGreaterThan, 0)
 		So(len(graph.CausalParents(2, 0.1)), ShouldEqual, 1)
+	})
+
+	Convey("Update uses captured phase as a causal regime suffix", t, func() {
+		graph := NewGraph()
+
+		phase := algo.NewPrediction()
+		phase.Signals[algo.GlobalPhase] = numeric.NewDerivedFrom(3)
+
+		_, err := graph.Update(phase)
+
+		So(err, ShouldBeNil)
+
+		pred, release := graphPrediction("env", 11, 12, "p0", "p1")
+		_, err = graph.Update(pred)
+		release()
+
+		So(err, ShouldBeNil)
+
+		phase = algo.NewPrediction()
+		phase.Signals[algo.GlobalPhase] = numeric.NewDerivedFrom(4)
+
+		_, err = graph.Update(phase)
+
+		So(err, ShouldBeNil)
+
+		pred, release = graphPrediction("env", 11, 12, "p0", "p1")
+		_, err = graph.Update(pred)
+		release()
+
+		So(err, ShouldBeNil)
+		So(graph.EdgeInvariance(11, 12), ShouldBeGreaterThan, 0)
 	})
 }
 
@@ -115,6 +148,23 @@ func TestGraphEdgeInvariance(t *testing.T) {
 		graph := NewGraph()
 
 		So(graph.EdgeInvariance(9, 9), ShouldEqual, 0)
+	})
+}
+
+func TestGraphEdgeReliability(t *testing.T) {
+	t.Parallel()
+
+	Convey("EdgeReliability keeps single-regime support below transportable invariance", t, func() {
+		graph := NewGraph()
+
+		pred, release := graphPrediction("solo", 5, 6, "a", "b")
+		_, err := graph.Update(pred)
+		release()
+
+		So(err, ShouldBeNil)
+		So(graph.EdgeInvariance(5, 6), ShouldEqual, 0)
+		So(graph.EdgeReliability(5, 6), ShouldBeGreaterThan, 0)
+		So(graph.EdgeReliability(5, 6), ShouldBeLessThan, 0.5)
 	})
 }
 
@@ -175,6 +225,20 @@ func BenchmarkGraphUpdate(b *testing.B) {
 		pred, release := graphPrediction("a", 3, 4, "l", "r")
 		_, _ = graph.Update(pred)
 		release()
+	}
+}
+
+func BenchmarkGraphEdgeReliability(b *testing.B) {
+	graph := NewGraph()
+
+	pred, release := graphPrediction("a", 3, 4, "l", "r")
+	_, _ = graph.Update(pred)
+	release()
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = graph.EdgeReliability(3, 4)
 	}
 }
 

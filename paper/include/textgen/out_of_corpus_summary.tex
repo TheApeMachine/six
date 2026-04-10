@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & prompt\_0 & 0.0000 & 0.2667 & 0.0816 & 0.0876 \\
+8 & prompt\_8 & 0.0000 & 0.1250 & 0.0417 & 0.0417 \\
+4 & prompt\_4 & 0.0000 & 0.1000 & 0.0417 & 0.0348 \\
 1 & prompt\_1 & 0.0000 & 0.0055 & 0.0055 & 0.0025 \\
-2 & prompt\_2 & 0.0000 & 0.0038 & 0.0038 & 0.0017 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
 9 & prompt\_9 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-8 & prompt\_8 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 7 & prompt\_7 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+6 & prompt\_6 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= Valkyria Chr}} & \multicolumn{2}{l}{\texttt{onicles III = ·}} & \multicolumn{2}{l}{\texttt{= = = = = = = = = = = = = = = = = = = = \ldots}} \\
-\multicolumn{2}{l}{\texttt{Senjō no Valkyria 3 : Unrecorded Chronic\ldots}} & \multicolumn{2}{l}{\texttt{n the Valkyria series . Employing the sa\ldots}} & \multicolumn{2}{l}{\texttt{: : : : :}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{he three main characters are No.7 Kurt I\ldots}} & \multicolumn{2}{l}{\texttt{. . . . .}} \\
-\multicolumn{2}{l}{\texttt{= = Pl}} & \multicolumn{2}{l}{\texttt{ot = = ·}} & \multicolumn{2}{l}{\texttt{= = = = =}} \\
+\multicolumn{2}{l}{\texttt{= = Pl}} & \multicolumn{2}{l}{\texttt{ot = = ·}} & \multicolumn{2}{l}{\texttt{··S· ··S· ··S· ··S· ··S·}} \\
+\multicolumn{2}{l}{\texttt{= = Game}} & \multicolumn{2}{l}{\texttt{play = = ·}} & \multicolumn{2}{l}{\texttt{··S· ··S· ··S· ··S· ··S·}} \\
+\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{he three main characters are No.7 Kurt I\ldots}} & \multicolumn{2}{l}{\texttt{·,·*·· ·,·*·· ·,·*·· ·,·*·· ·,·*··}} \\
+\multicolumn{2}{l}{\texttt{Troops are divided into five classes : S\ldots}} & \multicolumn{2}{l}{\texttt{lass . With victory in battle , experien\ldots}} & \multicolumn{2}{l}{\texttt{·7·····!·2·X·K·(·+·····9·/··············\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
-\multicolumn{3}{l}{Mean score: 0.0095} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0876} \\
+\multicolumn{3}{l}{Mean score: 0.0081} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0417} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

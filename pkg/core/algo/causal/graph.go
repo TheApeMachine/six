@@ -3,6 +3,7 @@ package causal
 import (
 	"math"
 	"math/bits"
+	"strconv"
 	"sync"
 
 	"github.com/theapemachine/six/pkg/core/algo"
@@ -37,15 +38,21 @@ type edge struct {
 	labelCounts map[string]float64
 	totalCount  float64
 	invariance  float64
+	reliability float64
 }
 
 /*
 recomputeInvariance measures how stable P(to|from) is across labels.
 Uses coefficient of variation (stdev/mean) inverted to [0,1].
+Reliability keeps single-regime evidence useful while still giving
+cross-regime invariance more authority once enough labels exist.
 */
 func (edge *edge) recomputeInvariance() {
+	support := edge.supportConfidence()
+
 	if len(edge.labelCounts) < 2 {
 		edge.invariance = 0
+		edge.reliability = support * 0.5
 		return
 	}
 
@@ -67,10 +74,20 @@ func (edge *edge) recomputeInvariance() {
 
 	if mean <= 0 {
 		edge.invariance = 0
+		edge.reliability = 0
 		return
 	}
 
 	edge.invariance = 1.0 / (1.0 + math.Sqrt(variance)/mean)
+	edge.reliability = support * edge.invariance
+}
+
+func (edge *edge) supportConfidence() float64 {
+	if edge == nil || edge.totalCount <= 0 {
+		return 0
+	}
+
+	return edge.totalCount / (edge.totalCount + float64(len(edge.labelCounts)+1))
 }
 
 /*
@@ -96,13 +113,13 @@ regions:
 	          the prediction carries latent state from the
 	          original observation.
 
-The invariance score across labels IS the causal strength signal.
-The field's cross-cluster exposure provides the label diversity
-that makes invariance meaningful — no explicit causal discovery
-algorithm needed.
+The edge tracks two related quantities: transportable invariance across
+regime labels, and support-adjusted reliability for policy. Field phase
+can be captured as part of the regime label so the same edge can become
+stable only under a specific mesh mode.
 
 Signals produced:
-  - CausalStrength: smoothed mean invariance across observed edges.
+  - CausalStrength: smoothed mean reliability across observed edges.
   - InterventionResidual: smoothed Hamming distance between
     predicted and observed affinities after intervention.
 */
@@ -113,6 +130,7 @@ type Graph struct {
 	prediction      *algo.Prediction
 	causalStrength  *numeric.Derived
 	residualTracker *numeric.Derived
+	phaseRegime     string
 }
 
 /*
@@ -142,24 +160,22 @@ func NewGraph() *Graph {
 
 /*
 Update receives a walked trie path in prediction.Context and the
-current target labels. Consecutive Value pairs in the path are directed
-edges. Per-label counts accumulate on each edge and invariance is
-recomputed. The CausalStrength signal tracks the smoothed mean
-invariance across all edges observed this update.
+current causal regime label in prediction.Targets. Consecutive Value
+pairs in the path are directed edges. Per-regime counts accumulate on
+each edge and invariance/reliability are recomputed. The CausalStrength
+signal tracks the smoothed mean reliability across all edges observed
+this update.
 */
 func (graph *Graph) Update(
 	prediction *algo.Prediction,
 ) (*algo.Prediction, error) {
+	graph.capturePhaseRegime(prediction)
+
 	if prediction == nil || len(prediction.Context) < 2 {
 		return graph.prediction, nil
 	}
 
-	label := ""
-	targets := prediction.SupervisionLabels()
-
-	if len(targets) > 0 {
-		label = string(targets[0].Label)
-	}
+	label := graph.updateLabel(prediction)
 
 	if label == "" {
 		return graph.prediction, nil
@@ -167,7 +183,7 @@ func (graph *Graph) Update(
 
 	graph.mu.Lock()
 
-	var totalInvariance float64
+	var totalReliability float64
 	var edgeCount int
 
 	for idx := 0; idx < len(prediction.Context)-1; idx++ {
@@ -189,17 +205,64 @@ func (graph *Graph) Update(
 		entry.totalCount++
 		entry.recomputeInvariance()
 
-		totalInvariance += entry.invariance
+		totalReliability += entry.reliability
 		edgeCount++
 	}
 
 	graph.mu.Unlock()
 
 	if edgeCount > 0 {
-		graph.causalStrength.Next(totalInvariance / float64(edgeCount))
+		graph.causalStrength.Next(totalReliability / float64(edgeCount))
 	}
 
 	return graph.prediction, nil
+}
+
+func (graph *Graph) capturePhaseRegime(prediction *algo.Prediction) {
+	if graph == nil || prediction == nil || prediction.Signals == nil {
+		return
+	}
+
+	globalPhase, ok := prediction.Signals[algo.GlobalPhase]
+
+	if !ok || globalPhase == nil {
+		return
+	}
+
+	lane, active := algo.ParseGlobalPhaseIndex(globalPhase.Value())
+	regime := ""
+
+	if active && lane >= 0 {
+		regime = "phase:" + strconv.Itoa(lane)
+	}
+
+	graph.mu.Lock()
+	graph.phaseRegime = regime
+	graph.mu.Unlock()
+}
+
+func (graph *Graph) updateLabel(prediction *algo.Prediction) string {
+	targets := prediction.SupervisionLabels()
+
+	if len(targets) == 0 {
+		return ""
+	}
+
+	label := string(targets[0].Label)
+
+	if label == "" {
+		return ""
+	}
+
+	graph.mu.RLock()
+	phaseRegime := graph.phaseRegime
+	graph.mu.RUnlock()
+
+	if phaseRegime == "" {
+		return label
+	}
+
+	return label + "\x1e" + phaseRegime
 }
 
 func (graph *Graph) Value() *algo.Prediction {
@@ -224,6 +287,24 @@ func (graph *Graph) EdgeInvariance(from, to uint64) float64 {
 }
 
 /*
+EdgeReliability returns the support-adjusted strength for a directed edge.
+Single-regime evidence can contribute up to half strength; cross-regime
+invariance can approach full strength as support grows.
+*/
+func (graph *Graph) EdgeReliability(from, to uint64) float64 {
+	graph.mu.RLock()
+	defer graph.mu.RUnlock()
+
+	entry := graph.edges[edgeKey{from: from, to: to}]
+
+	if entry == nil {
+		return 0
+	}
+
+	return entry.reliability
+}
+
+/*
 CausalParents returns edges leading into the given Value ID sorted
 by invariance descending. Only edges above the threshold are
 returned — these are the candidate causal parents in the SCM.
@@ -242,9 +323,10 @@ func (graph *Graph) CausalParents(
 		}
 
 		parents = append(parents, ParentEdge{
-			ID:         key.from,
-			Invariance: entry.invariance,
-			Count:      entry.totalCount,
+			ID:          key.from,
+			Invariance:  entry.invariance,
+			Reliability: entry.reliability,
+			Count:       entry.totalCount,
 		})
 	}
 
@@ -261,9 +343,10 @@ func (graph *Graph) CausalParents(
 ParentEdge is a single causal parent with its invariance score.
 */
 type ParentEdge struct {
-	ID         uint64
-	Invariance float64
-	Count      float64
+	ID          uint64
+	Invariance  float64
+	Reliability float64
+	Count       float64
 }
 
 /*

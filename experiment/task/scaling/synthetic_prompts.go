@@ -31,7 +31,7 @@ func syntheticSamplePrompts(ds *SyntheticDataset, maxPrompts, suffixBytes int) (
 		} else {
 			pr, ho = tools.BytePrefixFraction(s, 0.5)
 		}
-		if ho == "" {
+		if pr == "" || ho == "" {
 			continue
 		}
 		prompts = append(prompts, pr)

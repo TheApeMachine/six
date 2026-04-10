@@ -1,8 +1,8 @@
 package beam
 
 import (
-	"bytes"
 	"math"
+	"strings"
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -334,10 +334,7 @@ func (search *Search) rankFromContext(
 	var total float64
 
 	for _, value := range prediction.Context {
-		slab := value.TokenRegionBytes()
-
-		for _, field := range bytes.Fields(slab) {
-			token := string(field)
+		for _, token := range strings.Fields(value.String()) {
 			freq[token]++
 			total++
 		}
@@ -379,8 +376,7 @@ func (search *Search) extractPrefix(
 	}
 
 	last := prediction.Context[len(prediction.Context)-1]
-	slab := last.TokenRegionBytes()
-	fields := bytes.Fields(slab)
+	fields := strings.Fields(last.String())
 
 	if len(fields) == 0 {
 		return nil
@@ -389,7 +385,7 @@ func (search *Search) extractPrefix(
 	out := make([]string, len(fields))
 
 	for idx, field := range fields {
-		out[idx] = string(field)
+		out[idx] = field
 	}
 
 	return out

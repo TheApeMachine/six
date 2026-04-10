@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-6 & prompt\_6 & 0.0000 & 0.1154 & 0.1154 & 0.0524 \\
-4 & prompt\_4 & 0.0000 & 0.0952 & 0.0952 & 0.0433 \\
-5 & prompt\_5 & 0.0000 & 0.0526 & 0.0526 & 0.0239 \\
+4 & prompt\_4 & 0.0000 & 0.0476 & 0.0256 & 0.0176 \\
+7 & prompt\_7 & 0.0000 & 0.0435 & 0.0145 & 0.0145 \\
+5 & prompt\_5 & 0.0000 & 0.0263 & 0.0156 & 0.0100 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & prompt\_9 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 8 & prompt\_8 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-7 & prompt\_7 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+6 & prompt\_6 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+3 & prompt\_3 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{It was the best of times,}} & \multicolumn{2}{l}{\texttt{it was the worst of times.}} & \multicolumn{2}{l}{\texttt{It It It It It}} \\
-\multicolumn{2}{l}{\texttt{To be, or not to be,}} & \multicolumn{2}{l}{\texttt{that is the question.}} & \multicolumn{2}{l}{\texttt{be, be, be, be, be,}} \\
-\multicolumn{2}{l}{\texttt{It is a truth universally acknowledged, \ldots}} & \multicolumn{2}{l}{\texttt{in possession of a good fortune, must be\ldots}} & \multicolumn{2}{l}{\texttt{a a a a a}} \\
-\multicolumn{2}{l}{\texttt{The sky above the port was the color o}} & \multicolumn{2}{l}{\texttt{f television, tuned to a dead channel.}} & \multicolumn{2}{l}{\texttt{the the the the the}} \\
+\multicolumn{2}{l}{\texttt{To be, or not to be,}} & \multicolumn{2}{l}{\texttt{that is the question.}} & \multicolumn{2}{l}{\texttt{·\&···R· ·\&···R· ·\&···R· ·\&···R· ·\&···R·}} \\
+\multicolumn{2}{l}{\texttt{In a hole in the groun}} & \multicolumn{2}{l}{\texttt{d there lived a hobbit.}} & \multicolumn{2}{l}{\texttt{·\#···B·u·r··· ·\#···B·u·r··· ·\#···B·u·r··\ldots}} \\
+\multicolumn{2}{l}{\texttt{The sky above the port was the color o}} & \multicolumn{2}{l}{\texttt{f television, tuned to a dead channel.}} & \multicolumn{2}{l}{\texttt{·8·j·················U·R·u·\&···W· ·8·j··\ldots}} \\
+\multicolumn{2}{l}{\texttt{It was the best of times,}} & \multicolumn{2}{l}{\texttt{it was the worst of times.}} & \multicolumn{2}{l}{\texttt{·7····· ·7····· ·7····· ·7····· ·7·····}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
-\multicolumn{3}{l}{Mean score: 0.0173} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0524} \\
+\multicolumn{3}{l}{Mean score: 0.0048} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0176} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

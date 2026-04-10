@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"math/bits"
 	"strings"
 	"sync/atomic"
 
@@ -18,15 +19,21 @@ import (
 
 /*
 coactivationStat is one immutable sensory-action-reward reinforcement summary.
-RewardSum accumulates signed reinforcement; Count tracks how many observations
-contributed to that sum so expected reward can be recovered lazily.
+RewardSum accumulates signed reinforcement; ResidualSum accumulates reward
+affinity drift against the previous prediction for the same sensory-action
+pair. Count tracks how many observations contributed so expectation and
+residual confidence can be recovered lazily.
 */
 type coactivationStat struct {
-	RewardSum float64
-	Count     float64
-	SensoryID uint64
-	ActionID  uint64
-	RewardID  uint64
+	RewardSum       float64
+	ResidualSum     float64
+	Count           float64
+	SensoryID       uint64
+	ActionID        uint64
+	RewardID        uint64
+	SensoryAffinity [primitive.AffinityWords]uint64
+	ActionAffinity  [primitive.AffinityWords]uint64
+	RewardAffinity  [primitive.AffinityWords]uint64
 }
 
 /*
@@ -125,6 +132,30 @@ func (coordinator *MultimodalCoordinator) ObserveOutcome(
 	reinforcement float64,
 	rewardLabels ...string,
 ) error {
+	return coordinator.ObserveOutcomeInRegimes(
+		sensory,
+		action,
+		reward,
+		reinforcement,
+		nil,
+		rewardLabels...,
+	)
+}
+
+/*
+ObserveOutcomeInRegimes keeps reward labels in the reward store while causal
+regime labels describe the context where the transition should remain stable.
+If no regime is supplied, the edge is treated as single-regime evidence rather
+than overloading the reward label as a causal environment.
+*/
+func (coordinator *MultimodalCoordinator) ObserveOutcomeInRegimes(
+	sensory primitive.Value,
+	action primitive.Value,
+	reward primitive.Value,
+	reinforcement float64,
+	causalRegimes []string,
+	rewardLabels ...string,
+) error {
 	if coordinator == nil {
 		return nil
 	}
@@ -159,20 +190,38 @@ func (coordinator *MultimodalCoordinator) ObserveOutcome(
 		return observedErr
 	}
 
+	predictedRewardAffinity, hasPredictedReward := coordinator.predictedRewardAffinity(
+		sensory.String(),
+		action.String(),
+	)
+	residual := 0.0
+
+	if hasPredictedReward {
+		residual = coordinator.observeRewardResidual(predictedRewardAffinity, reward)
+	}
+
 	coordinator.updateCoactivation(
 		linkKey,
 		reinforcement,
+		residual,
 		sensory.ID(),
 		action.ID(),
 		reward.ID(),
+		sensory.AffinityVector(),
+		action.AffinityVector(),
+		reward.AffinityVector(),
 	)
 
-	targetLabel := coordinator.rewardTargetLabel(reinforcement, rewardLabels...)
+	regimeLabels := coordinator.causalRegimeLabels(causalRegimes)
 
-	if targetLabel != "" && coordinator.causal != nil {
+	for _, regimeLabel := range regimeLabels {
+		if regimeLabel == "" || coordinator.causal == nil {
+			continue
+		}
+
 		causalPrediction := algo.NewPrediction()
 		causalPrediction.AddTargets(algo.Label{
-			Label:      []byte(targetLabel),
+			Label:      []byte(regimeLabel),
 			Confidence: 1,
 		})
 		causalPrediction.AddContext(sensory, action, reward)
@@ -189,7 +238,8 @@ func (coordinator *MultimodalCoordinator) ObserveOutcome(
 ActionScores projects current sensory evidence upward into ranked action
 candidates. Exact sensory matches always contribute; trie-level sensory
 continuations contribute additional weight when prediction can generalize to
-neighboring states.
+neighboring states. Causal reliability is applied as a bottleneck over the
+sensory-action-reward path, while residual drift attenuates unstable outcomes.
 */
 func (coordinator *MultimodalCoordinator) ActionScores(
 	sensory primitive.Value,
@@ -229,8 +279,9 @@ func (coordinator *MultimodalCoordinator) ActionScores(
 			stat.ActionID,
 			stat.RewardID,
 		)
+		residualConfidence := coordinator.residualConfidence(stat)
 
-		actionValues[actionSequence] += weight * expectedReward * (1.0 + causalWeight)
+		actionValues[actionSequence] += weight * expectedReward * (1.0 + causalWeight) * residualConfidence
 		actionSupport[actionSequence] += weight * stat.Count
 	}
 
@@ -265,9 +316,13 @@ func (coordinator *MultimodalCoordinator) PredictAction(
 func (coordinator *MultimodalCoordinator) updateCoactivation(
 	linkKey string,
 	reinforcement float64,
+	residual float64,
 	sensoryID uint64,
 	actionID uint64,
 	rewardID uint64,
+	sensoryAffinity [primitive.AffinityWords]uint64,
+	actionAffinity [primitive.AffinityWords]uint64,
+	rewardAffinity [primitive.AffinityWords]uint64,
 ) {
 	if coordinator == nil || linkKey == "" {
 		return
@@ -285,6 +340,7 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 		firstObservation := stat.Count == 0
 
 		stat.RewardSum += reinforcement
+		stat.ResidualSum += residual
 		stat.Count++
 
 		/*
@@ -295,6 +351,9 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 			stat.SensoryID = sensoryID
 			stat.ActionID = actionID
 			stat.RewardID = rewardID
+			stat.SensoryAffinity = sensoryAffinity
+			stat.ActionAffinity = actionAffinity
+			stat.RewardAffinity = rewardAffinity
 		}
 
 		base[linkKey] = stat
@@ -307,27 +366,112 @@ func (coordinator *MultimodalCoordinator) updateCoactivation(
 	}
 }
 
-func (coordinator *MultimodalCoordinator) rewardTargetLabel(
-	reinforcement float64,
-	rewardLabels ...string,
-) string {
-	for _, label := range rewardLabels {
+func (coordinator *MultimodalCoordinator) causalRegimeLabels(
+	causalRegimes []string,
+) []string {
+	labels := make([]string, 0, len(causalRegimes))
+
+	for _, label := range causalRegimes {
 		label = strings.TrimSpace(label)
 
 		if label != "" {
-			return label
+			labels = append(labels, label)
 		}
 	}
 
-	if reinforcement > 0 {
-		return "positive"
+	if len(labels) > 0 {
+		return labels
 	}
 
-	if reinforcement < 0 {
-		return "negative"
+	return []string{"default"}
+}
+
+func (coordinator *MultimodalCoordinator) predictedRewardAffinity(
+	sensorySequence string,
+	actionSequence string,
+) ([primitive.AffinityWords]uint64, bool) {
+	var best [primitive.AffinityWords]uint64
+
+	if coordinator == nil || sensorySequence == "" || actionSequence == "" {
+		return best, false
 	}
 
-	return "neutral"
+	snapshot := coordinator.coactivation.Load()
+
+	if snapshot == nil || len(snapshot.m) == 0 {
+		return best, false
+	}
+
+	bestSupport := 0.0
+
+	for linkKey, stat := range snapshot.m {
+		sensoryCandidate, actionCandidate, _, ok := coordinator.parseLinkKey(linkKey)
+
+		if !ok || sensoryCandidate != sensorySequence || actionCandidate != actionSequence {
+			continue
+		}
+
+		if stat.Count <= bestSupport {
+			continue
+		}
+
+		best = stat.RewardAffinity
+		bestSupport = stat.Count
+	}
+
+	return best, bestSupport > 0
+}
+
+func (coordinator *MultimodalCoordinator) observeRewardResidual(
+	predictedAffinity [primitive.AffinityWords]uint64,
+	observed primitive.Value,
+) float64 {
+	if coordinator == nil || coordinator.causal == nil {
+		return 0
+	}
+
+	predicted := observed
+	predicted.SetAffinityVector(predictedAffinity)
+
+	observedCopy := observed
+	coordinator.causal.ObserveResidual(&predicted, &observedCopy)
+
+	return coordinator.affinityResidualDistance(
+		predictedAffinity,
+		observed.AffinityVector(),
+	)
+}
+
+func (coordinator *MultimodalCoordinator) affinityResidualDistance(
+	predicted [primitive.AffinityWords]uint64,
+	observed [primitive.AffinityWords]uint64,
+) float64 {
+	distance := 0
+
+	for wordIdx := range primitive.AffinityWords {
+		xor := predicted[wordIdx] ^ observed[wordIdx]
+
+		if wordIdx == primitive.AffinityWords-1 {
+			xor &= primitive.AffinityLastWordMask
+		}
+
+		distance += bits.OnesCount64(xor)
+	}
+
+	return float64(distance)
+}
+
+func (coordinator *MultimodalCoordinator) residualConfidence(
+	stat coactivationStat,
+) float64 {
+	if stat.Count <= 0 || stat.ResidualSum <= 0 {
+		return 1
+	}
+
+	meanResidual := stat.ResidualSum / stat.Count
+	normalized := meanResidual / float64(primitive.AffinityBits)
+
+	return 1 / (1 + normalized)
 }
 
 func (coordinator *MultimodalCoordinator) parseLinkKey(
@@ -410,30 +554,20 @@ func (coordinator *MultimodalCoordinator) causalPathWeight(
 		return 0
 	}
 
-	total := 0.0
-	count := 0.0
+	sensoryAction := 0.0
+	actionReward := 0.0
 
 	if sensoryID != 0 && actionID != 0 {
-		weight := coordinator.causal.EdgeInvariance(sensoryID, actionID)
-
-		if weight > 0 {
-			total += weight
-			count++
-		}
+		sensoryAction = coordinator.causal.EdgeReliability(sensoryID, actionID)
 	}
 
 	if actionID != 0 && rewardID != 0 {
-		weight := coordinator.causal.EdgeInvariance(actionID, rewardID)
-
-		if weight > 0 {
-			total += weight
-			count++
-		}
+		actionReward = coordinator.causal.EdgeReliability(actionID, rewardID)
 	}
 
-	if count == 0 {
+	if sensoryAction <= 0 || actionReward <= 0 {
 		return 0
 	}
 
-	return total / count
+	return math.Min(sensoryAction, actionReward)
 }

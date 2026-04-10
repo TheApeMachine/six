@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-250 & Java & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
-74 & Python & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
-401 & C++ & 0.0000 & 0.0800 & 0.0800 & 0.0364 \\
+579 & Rust & 0.0000 & 0.2800 & 0.2029 & 0.1133 \\
+586 & Rust & 0.0000 & 0.2600 & 0.1548 & 0.0990 \\
+387 & Go & 0.0000 & 0.2000 & 0.2000 & 0.0909 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-168 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-169 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-170 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+179 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+597 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{);·        \}·        return sb.toString(\ldots}} & \multicolumn{2}{l}{\texttt{···· ···· ···· ···· ····}} \\
-\multicolumn{2}{l}{\texttt{·def total\_match(lst1, lst2):·    '''·  \ldots}} & \multicolumn{2}{l}{\texttt{return lst1·    else:·        return lst\ldots}} & \multicolumn{2}{l}{\texttt{· · · · ·}} \\
-\multicolumn{2}{l}{\texttt{/*·  "Given an array representing a bran\ldots}} & \multicolumn{2}{l}{\texttt{n(...evens), arr.indexOf(Math.min(...eve\ldots}} & \multicolumn{2}{l}{\texttt{Q·G·d·"·····1·2·····|·*·M·[·)·:····· Q·G\ldots}} \\
-\multicolumn{2}{l}{\texttt{/*·  You are given a non-empty list of p\ldots}} & \multicolumn{2}{l}{\texttt{if (frq[i] >= i)·      ans = i;·  return\ldots}} & \multicolumn{2}{l}{\texttt{··V·\%·"·Q···q·\#·M·N·(·*···\_·,·*·········\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{g() + \&out + \&"db".to\_string();·    retu\ldots}} & \multicolumn{2}{l}{\texttt{"db".to\_strin "db".to\_strin "db".to\_stri\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{s = res.trim\_end().to\_string();·    retu\ldots}} & \multicolumn{2}{l}{\texttt{".to\_string())); ".to\_string())); ".to\_s\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{-> -> -> -> ->}} \\
+\multicolumn{2}{l}{\texttt{/*You will be given a number in decimal \ldots}} & \multicolumn{2}{l}{\texttt{\{·   return "db" + decimal.toString(2) +\ldots}} & \multicolumn{2}{l}{\texttt{(decimal) (decimal) (decimal) (decimal) \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0089} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0364} \\
+\multicolumn{3}{l}{Mean score: 0.0161} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1133} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}
