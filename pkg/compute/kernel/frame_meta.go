@@ -25,9 +25,9 @@ func FrameProgramOpcode(frame unsafe.Pointer) uint8 {
 		return 0
 	}
 
-	v := (*[128]uint64)(frame)
+	frameWords := (*[128]uint64)(frame)
 
-	return uint8(v[ProgramStartWord] & 0xF)
+	return uint8(frameWords[ProgramStartWord] & 0xF)
 }
 
 /*
@@ -38,9 +38,9 @@ func FrameCorrelationID(frame unsafe.Pointer) uint64 {
 		return 0
 	}
 
-	v := (*[128]uint64)(frame)
+	frameWords := (*[128]uint64)(frame)
 
-	return v[FrameMetaCorrelationWord]
+	return frameWords[FrameMetaCorrelationWord]
 }
 
 /*
@@ -52,13 +52,13 @@ func EnsureFrameCorrelationSeq(seq *atomic.Uint64, frame unsafe.Pointer) {
 		return
 	}
 
-	v := (*[128]uint64)(frame)
+	frameWords := (*[128]uint64)(frame)
 
-	if v[FrameMetaCorrelationWord] != 0 {
+	if frameWords[FrameMetaCorrelationWord] != 0 {
 		return
 	}
 
-	v[FrameMetaCorrelationWord] = seq.Add(1)
+	frameWords[FrameMetaCorrelationWord] = seq.Add(1)
 }
 
 /*
@@ -71,8 +71,9 @@ func StampFrameResidency(frame unsafe.Pointer, substrateIndex int) {
 		return
 	}
 
-	v := (*[128]uint64)(frame)
-	v[FrameMetaResidencyWord] = uint64(substrateIndex) + 1
+	frameWords := (*[128]uint64)(frame)
+
+	frameWords[FrameMetaResidencyWord] = uint64(substrateIndex) + 1
 }
 
 /*
@@ -84,7 +85,8 @@ func ResidencySubstrateIndex(frame unsafe.Pointer) int {
 		return -1
 	}
 
-	tag := (*[128]uint64)(frame)[FrameMetaResidencyWord] & 0xFF
+	frameWords := (*[128]uint64)(frame)
+	tag := frameWords[FrameMetaResidencyWord] & 0xFF
 
 	if tag == 0 {
 		return -1

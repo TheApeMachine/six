@@ -130,7 +130,17 @@ func runDemo(ctx context.Context) {
 		}
 
 		for _, value := range values {
-			_ = node.Publish(value, entry.label)
+			publishErr := node.Publish(value, entry.label)
+			if publishErr != nil {
+				errnie.Warn(
+					fmt.Sprintf(
+						"viz demo: Publish failed: %v (label=%q, value=%s)",
+						publishErr,
+						entry.label,
+						value.String(),
+					),
+				)
+			}
 		}
 
 		primitive.CloseAll(values)

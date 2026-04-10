@@ -61,20 +61,6 @@ func (context *Context) Update(prediction *algo.Prediction) {
 			context.coOccurrence[mapped][otherMapped]++
 		}
 	}
-
-	out := make([]semantic.Equivalent, 0, len(context.tokens))
-
-	for _, token := range context.tokens {
-		match := semantic.NewEquivalent(
-			token,
-			token,
-			context.coOccurrence[token][token],
-			context.vocabularyOrder,
-			context.coOccurrence,
-		)
-
-		out = append(out, *match)
-	}
 }
 
 func filterCoOccurrence(

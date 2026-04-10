@@ -97,7 +97,7 @@ func (experiment *TextOverlapExperiment) Outcome() (any, gc.Assertion, any) {
 }
 
 func (experiment *TextOverlapExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *TextOverlapExperiment) Score() float64 {
@@ -110,6 +110,10 @@ func (experiment *TextOverlapExperiment) TableData() any { return experiment.tab
 Answer returns the generated text continuation.
 */
 func (experiment *TextOverlapExperiment) Answer(prediction *algo.Prediction) string {
+	if prediction == nil {
+		return ""
+	}
+
 	return prediction.String()
 }
 

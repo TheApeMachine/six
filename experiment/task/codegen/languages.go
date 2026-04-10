@@ -164,9 +164,9 @@ func (experiment *LanguagesExperiment) OutcomeForPrompt(idx int) (any, Assertion
 		paint almost every step red. Expose the row’s exact score vs [0,1]; the
 		final Convey still enforces the mean exact gate via Outcome().
 	*/
-	s := experiment.tableData[idx].Scores.Exact
+	exactScore := experiment.tableData[idx].Scores.Exact
 
-	return s, ShouldBeGreaterThanOrEqualTo, 0.0
+	return exactScore, ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *LanguagesExperiment) Answer(prediction *algo.Prediction) string {

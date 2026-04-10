@@ -69,7 +69,7 @@ func (experiment *SubstrateQueryScalingExperiment) Outcome() (any, gc.Assertion,
 }
 
 func (experiment *SubstrateQueryScalingExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *SubstrateQueryScalingExperiment) Score() float64 {

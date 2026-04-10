@@ -2,6 +2,7 @@ package algo
 
 import (
 	"cmp"
+	"encoding/json"
 	"slices"
 
 	"github.com/theapemachine/six/pkg/core/numeric"
@@ -260,4 +261,57 @@ func (prediction *Prediction) AddContext(
 	)
 
 	return prediction
+}
+
+/*
+MarshalJSON drops signal map entries that are nil or uninitialized shells
+so exports are not littered with "{}" placeholders for unused SignalType keys.
+*/
+func (prediction *Prediction) MarshalJSON() ([]byte, error) {
+	if prediction == nil {
+		return []byte("null"), nil
+	}
+
+	type continuationWire struct {
+		Sequence []byte  `json:"Sequence"`
+		Score    float64 `json:"Score"`
+		Origin   uint64  `json:"Origin"`
+	}
+
+	continuations := make([]continuationWire, len(prediction.Continuations))
+	for idx, continuation := range prediction.Continuations {
+		continuations[idx] = continuationWire{
+			Sequence: continuation.Sequence,
+			Score:    continuation.Score,
+			Origin:   continuation.Origin,
+		}
+	}
+
+	signals := make(map[SignalType]*numeric.Derived)
+	for signalType, derived := range prediction.Signals {
+		if derived != nil && derived.Populated() {
+			signals[signalType] = derived
+		}
+	}
+
+	wire := struct {
+		Targets       []Label                         `json:"Targets"`
+		Labels        []Label                         `json:"Labels"`
+		Continuations []continuationWire              `json:"Continuations"`
+		Context       []primitive.Value               `json:"Context"`
+		Signals       map[SignalType]*numeric.Derived `json:"Signals,omitempty"`
+		Rejected      []uint64                        `json:"Rejected"`
+	}{
+		Targets:       prediction.Targets,
+		Labels:        prediction.Labels,
+		Continuations: continuations,
+		Context:       prediction.Context,
+		Rejected:      prediction.Rejected,
+	}
+
+	if len(signals) > 0 {
+		wire.Signals = signals
+	}
+
+	return json.Marshal(wire)
 }

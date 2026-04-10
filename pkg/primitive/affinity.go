@@ -141,58 +141,68 @@ func (affinity *Affinity) Popcount() int {
 }
 
 /*
-Blend updates the affinity using exponential moving average at the bit
-level. Instead of OR (which saturates to all-ones), each new vector
-shifts the centroid toward itself: bits that agree stay, bits that
-disagree get a chance to flip proportional to 1/count. This keeps
-the centroid representative of actual content rather than the union
-of everything it ever saw.
+Blended returns the EMA-blended affinity and the next observation count.
+It is the functional form of the blend: base is not mutated; incoming
+must be non-nil for count≥1 paths. Shannon headroom handling matches the
+previous in-place implementation (prune, then revert vector on failure).
 
-The shannonLimit parameter caps the maximum popcount; if blending
-would push past it the operation is reverted.
+Lock-free centroids (e.g. kadabra mesh load) compose this with CAS loops
+instead of holding a mutex around a mutating Blend.
 */
-func (affinity *Affinity) Blend(
+func (base Affinity) Blended(
 	incoming *Affinity, count uint64, shannonLimit int,
-) uint64 {
+) (Affinity, uint64) {
 	nextCount := count + 1
 
-	if nextCount <= 1 {
-		affinity.vector = incoming.vector
+	var work Affinity
 
-		return nextCount
+	work.vector = base.vector
+
+	if nextCount <= 1 {
+		if incoming != nil {
+			work.vector = incoming.vector
+		}
+
+		work.vector[AffinityWords-1] &= AffinityLastWordMask
+
+		return work, nextCount
 	}
 
-	prev := affinity.vector
+	if incoming == nil {
+		work.vector[AffinityWords-1] &= AffinityLastWordMask
+
+		return work, nextCount
+	}
+
+	prev := work.vector
 
 	for wordIdx := range AffinityWords {
-		agree := affinity.vector[wordIdx] & incoming.vector[wordIdx]
-		disagree := affinity.vector[wordIdx] ^ incoming.vector[wordIdx]
+		agree := work.vector[wordIdx] & incoming.vector[wordIdx]
+		disagree := work.vector[wordIdx] ^ incoming.vector[wordIdx]
 
 		selector := rotateSelector(nextCount, wordIdx)
 		flipToIncoming := disagree & selector & incoming.vector[wordIdx]
 		flipToZero := disagree & selector & ^incoming.vector[wordIdx]
 
-		affinity.vector[wordIdx] = agree | flipToIncoming | (affinity.vector[wordIdx] & ^flipToZero & ^(disagree & selector))
+		work.vector[wordIdx] = agree | flipToIncoming |
+			(work.vector[wordIdx] & ^flipToZero & ^(disagree & selector))
 	}
 
-	affinity.vector[AffinityWords-1] &= AffinityLastWordMask
+	work.vector[AffinityWords-1] &= AffinityLastWordMask
 
-	if affinity.Popcount() >= shannonLimit {
-		// Hard revert used to freeze the centroid forever once it brushed
-		// the Shannon headroom. Prune highest bits first so saturated
-		// clusters keep adapting instead of becoming routing dead-ends.
+	if work.Popcount() >= shannonLimit {
 		headroom := max(shannonLimit*9/10, 1)
 
-		affinity.pruneUntilPopcountAtMost(headroom)
+		work.pruneUntilPopcountAtMost(headroom)
 
-		if affinity.Popcount() >= shannonLimit {
-			affinity.vector = prev
+		if work.Popcount() >= shannonLimit {
+			work.vector = prev
 
-			return nextCount
+			return work, nextCount
 		}
 	}
 
-	return nextCount
+	return work, nextCount
 }
 
 /*

@@ -5,6 +5,8 @@ package cpu
 import (
 	"math/bits"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/compute/kernel"
 )
 
 /*
@@ -40,9 +42,10 @@ func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64) {
 
 /*
 universalBitwiseV2 reads directly from the Value's pre-compiled
-layout. A is at words 0-3, opcode at word 16 (program region),
-B rotations at words 32+, signals written to words 24-31 to match
-the AVX2 / NEON kernels.
+layout. A is at words 0-3, opcode at kernel.ProgramStartWord,
+B rotations at kernel.RotationsStartWord and up, signals written
+to the span beginning at kernel.SignalsStartWord to match the
+AVX2 / NEON / Metal layouts.
 
 The programmer package must have already expanded B rotations
 into the reserved region before calling this.
@@ -50,18 +53,18 @@ into the reserved region before calling this.
 func universalBitwiseV2(value *uint64, numRotations int) {
 	v := (*[128]uint64)(unsafe.Pointer(value))
 
-	opcode := uint8(v[16] & 0xF)
+	opcode := uint8(v[kernel.ProgramStartWord] & 0xF)
 	mask0 := -uint64(opcode & 1)
 	mask1 := -uint64((opcode >> 1) & 1)
 	mask2 := -uint64((opcode >> 2) & 1)
 	mask3 := -uint64((opcode >> 3) & 1)
 
 	for i := range 8 {
-		v[24+i] = 0
+		v[kernel.SignalsStartWord+i] = 0
 	}
 
 	for rot := range numRotations {
-		bOff := 32 + rot*4
+		bOff := kernel.RotationsStartWord + rot*4
 
 		for word := range 4 {
 			idx := rot*4 + word
@@ -75,7 +78,7 @@ func universalBitwiseV2(value *uint64, numRotations int) {
 
 			sigWord := idx / 8
 			sigShift := uint((idx % 8) * 8)
-			v[24+sigWord] |= (result & 0xFF) << sigShift
+			v[kernel.SignalsStartWord+sigWord] |= (result & 0xFF) << sigShift
 		}
 	}
 }

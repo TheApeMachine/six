@@ -74,13 +74,14 @@ func BenchmarkContextRun(b *testing.B) {
 
 	for b.Loop() {
 		prediction := algo.NewPrediction()
-		v, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha")))
+		segmentValue, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha")))
 
-		So(err, ShouldBeNil)
+		if err != nil {
+			b.Fatal(err)
+		}
 
-		defer v.Close()
-
-		prediction.Context = append(prediction.Context, *v)
+		prediction.Context = append(prediction.Context, *segmentValue)
 		context.Update(prediction)
+		segmentValue.Close()
 	}
 }

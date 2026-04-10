@@ -187,7 +187,8 @@ func TestPipeline(t *testing.T) {
 							})
 
 							Convey(fmt.Sprintf("It should meet the gate for prompt %d (sample score vs threshold)", idx), func() {
-								So(pipeline.experiment.OutcomeForPrompt(idx))
+								actualPrompt, assertionPrompt, expectedPrompt := pipeline.experiment.OutcomeForPrompt(idx)
+								So(actualPrompt, assertionPrompt, expectedPrompt)
 							})
 						})
 					}

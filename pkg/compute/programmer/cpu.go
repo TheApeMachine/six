@@ -16,7 +16,9 @@ leaves 28 registers for B rotations — 14 rotations simultaneously.
 
 Layout:
 
-	word   8:     opcode (low 4 bits)
+	Program region start (core.Cfg.Value.Region.Program.Start;
+	configurable via value.region.program.start; default 16):
+	opcode (low 4 bits)
 	word  124:    pass count (multi-asset)
 	words 32-95:  B rotations (16 rotations × 4 words)
 
@@ -43,8 +45,8 @@ func (compiler *Compiler) CPU(
 		passes = 1
 	}
 
-	// Pass count at word 124, not word 32 — word 32 is the
-	// start of rotation data and must not be clobbered.
+	// Pass count at word 124, not at the rotation arena start — word 32 is the
+	// first B-rotation block and must not be clobbered.
 	value.Set(124, uint64(passes))
 
 	cursor := 32

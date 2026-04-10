@@ -36,13 +36,26 @@ func expectedMortonPackedCodes(
 
 		for idx < len(p) {
 			datum := p[idx]
-			code := geometry.SlotCode(datum, positionOrdinal)
-			positionOrdinal++
+			probe := positionOrdinal
 
-			if _, seen := occupied[code]; seen {
-				idx++
+			var code uint16
 
-				continue
+			found := false
+
+			for step := 0; step < newValueMaxSlotProbeSteps; step++ {
+				code = geometry.SlotCode(datum, probe)
+
+				if _, taken := occupied[code]; !taken {
+					found = true
+
+					break
+				}
+
+				probe++
+			}
+
+			if !found {
+				break
 			}
 
 			if offset+2 > tokenBytes {
@@ -52,7 +65,7 @@ func expectedMortonPackedCodes(
 			occupied[code] = struct{}{}
 			out = append(out, code)
 			offset += 2
-
+			positionOrdinal = probe + 1
 			idx++
 		}
 
@@ -222,10 +235,10 @@ func TestNewValue(t *testing.T) {
 	})
 }
 
-func TestNewValueSkipsCollidingMortonSlots(t *testing.T) {
+func TestNewValueResolvesCollidingMortonSlots(t *testing.T) {
 	setupPrimitiveValueTest(t)
 
-	Convey("Given a small internal lattice that reuses position codes", t, func() {
+	Convey("Given a small internal lattice that reuses naive position codes", t, func() {
 		payload := []byte("abcda")
 		geometry := newGeometry(2, 2)
 
@@ -245,7 +258,7 @@ func TestNewValueSkipsCollidingMortonSlots(t *testing.T) {
 
 		codes := expectedMortonPackedCodes(payload, geometry)
 
-		So(len(codes), ShouldEqual, 4)
+		So(len(codes), ShouldEqual, 5)
 		So(len(value.TokenRegionBytes()), ShouldEqual, len(codes)*2)
 
 		distinct := make(map[uint16]struct{}, len(codes))
@@ -255,7 +268,7 @@ func TestNewValueSkipsCollidingMortonSlots(t *testing.T) {
 		}
 
 		So(len(distinct), ShouldEqual, len(codes))
-		So(value.String(), ShouldEqual, "abcd")
+		So(value.String(), ShouldEqual, "abcda")
 	})
 }
 
@@ -315,9 +328,9 @@ func TestPackUsesInternalGeometry(t *testing.T) {
 		value := values[0]
 
 		So(rawCodes[4], ShouldEqual, rawCodes[0])
-		So(len(codes), ShouldEqual, 4)
+		So(len(codes), ShouldEqual, 5)
 		So(len(value.TokenRegionBytes()), ShouldEqual, len(codes)*2)
-		So(value.String(), ShouldEqual, "abcd")
+		So(value.String(), ShouldEqual, "abcda")
 	})
 }
 

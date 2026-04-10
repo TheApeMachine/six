@@ -68,57 +68,57 @@ Prediction:
   - SelectedOrigins: total tries that contributed (selected - rejected)
 */
 func extractPredictionMetrics(rows []tools.ExperimentalData) predictionMetrics {
-	n := len(rows)
-	pm := predictionMetrics{
-		TopScore:        make([]float64, n),
-		ScoreSpread:     make([]float64, n),
-		RejectionRate:   make([]float64, n),
-		OriginDiversity: make([]float64, n),
-		SelectedOrigins: make([]float64, n),
+	rowCount := len(rows)
+	metrics := predictionMetrics{
+		TopScore:        make([]float64, rowCount),
+		ScoreSpread:     make([]float64, rowCount),
+		RejectionRate:   make([]float64, rowCount),
+		OriginDiversity: make([]float64, rowCount),
+		SelectedOrigins: make([]float64, rowCount),
 	}
 
-	for i, row := range rows {
-		pred := row.Prediction
-		if pred == nil {
+	for idx, row := range rows {
+		prediction := row.Prediction
+		if prediction == nil {
 			continue
 		}
 
-		if len(pred.Continuations) > 0 {
-			best := pred.Continuations[0].Score
-			worst := best
+		if len(prediction.Continuations) > 0 {
+			highestScore := prediction.Continuations[0].Score
+			lowestScore := highestScore
 
-			for _, c := range pred.Continuations[1:] {
-				if c.Score > best {
-					best = c.Score
+			for _, continuation := range prediction.Continuations[1:] {
+				if continuation.Score > highestScore {
+					highestScore = continuation.Score
 				}
 
-				if c.Score < worst {
-					worst = c.Score
+				if continuation.Score < lowestScore {
+					lowestScore = continuation.Score
 				}
 			}
 
-			pm.TopScore[i] = best
-			pm.ScoreSpread[i] = best - worst
+			metrics.TopScore[idx] = highestScore
+			metrics.ScoreSpread[idx] = highestScore - lowestScore
 		}
 
-		totalOrigins := countUniqueOrigins(pred)
-		rejected := float64(len(pred.Rejected))
+		totalOrigins := countUniqueOrigins(prediction)
+		rejectedCount := float64(len(prediction.Rejected))
 
 		if totalOrigins > 0 {
-			pm.RejectionRate[i] = rejected / float64(totalOrigins)
+			metrics.RejectionRate[idx] = rejectedCount / float64(totalOrigins)
 		}
 
-		surviving := make(map[uint64]struct{})
+		survivingOrigins := make(map[uint64]struct{})
 
-		for _, c := range pred.Continuations {
-			surviving[c.Origin] = struct{}{}
+		for _, continuation := range prediction.Continuations {
+			survivingOrigins[continuation.Origin] = struct{}{}
 		}
 
-		pm.OriginDiversity[i] = float64(len(surviving))
-		pm.SelectedOrigins[i] = float64(totalOrigins) - rejected
+		metrics.OriginDiversity[idx] = float64(len(survivingOrigins))
+		metrics.SelectedOrigins[idx] = float64(totalOrigins) - rejectedCount
 	}
 
-	return pm
+	return metrics
 }
 
 func countUniqueOrigins(pred *algo.Prediction) int {
@@ -388,8 +388,8 @@ rate (bottom-left), and effective mesh utilization (bottom-right).`,
 			Title: "Substrate Query Scaling — Prediction Machinery Under Corpus Growth",
 			Caption: fmt.Sprintf(
 				"Scaling analysis of prediction internals over N=%d queries in corpus-depth order. "+
-					"Top-left: beam confidence. Top-right: continuation count. "+
-					"Bottom-left: rejection rate. Bottom-right: adaptive signals.",
+					"Top-left: beam confidence. Top-right: score spread. "+
+					"Bottom-left: rejection rate. Bottom-right: Origin Diversity (effective mesh utilization).",
 				n),
 			Label: "fig:substrate_query_scaling",
 		},
@@ -523,9 +523,17 @@ func CompressionArtifacts(
 	entries := 0.0
 
 	if hasSummary {
-		rawBytes = summaryRow.Scores.Exact
-		entries = summaryRow.Scores.Partial
-		ratio = summaryRow.Scores.Fuzzy
+		if summaryRow.Scores.Exact > 0 {
+			rawBytes = summaryRow.Scores.Exact
+		}
+
+		if summaryRow.Scores.Partial > 0 {
+			entries = summaryRow.Scores.Partial
+		}
+
+		if summaryRow.Scores.Fuzzy > 0 {
+			ratio = summaryRow.Scores.Fuzzy
+		}
 	}
 
 	rawKB := rawBytes / 1024
@@ -755,7 +763,7 @@ confidence under load (bottom-left), and substrate pressure signals
 			Caption: fmt.Sprintf(
 				"Throughput scaling over N=%d sequential queries. "+
 					"Top-left: per-query latency. Top-right: cumulative throughput. "+
-					"Bottom-left: beam confidence. Bottom-right: rejection rate and continuation count.",
+					"Bottom-left: beam confidence. Bottom-right: rejection rate and origin diversity (scaled).",
 				n),
 			Label: "fig:pipeline_throughput_chart",
 		},
@@ -922,11 +930,9 @@ func SequencerArtifacts(tableData []tools.ExperimentalData) []tools.Artifact {
 	}
 
 	entries := 0.0
-	if n > 0 {
-		last := tableData[n-1]
-		if !strings.HasPrefix(last.Name, "prompt_") {
-			entries = last.Scores.Partial
-		}
+
+	if summaryRow, ok := lastNonPromptSummaryRow(tableData); ok {
+		entries = summaryRow.Scores.Partial
 	}
 
 	topScoreTrend := scalingTrendWord(cumTopScore)

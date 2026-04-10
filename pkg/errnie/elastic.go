@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -21,9 +22,8 @@ var (
 	esBulkIndexer esutil.BulkIndexer
 	esBulkMu      sync.Mutex
 
-	esErrLogMu      sync.Mutex
-	esErrLastEmit   time.Time
-	esErrSuppressed int64
+	esErrLastEmitNanos atomic.Int64
+	esErrSuppressed    atomic.Int64
 )
 
 // esErrEmitMinInterval avoids stderr floods when Elasticsearch is down; each
@@ -36,25 +36,38 @@ const esErrEmitMinInterval = 15 * time.Second
 const defaultBulkFlushBytes = 5 << 20
 
 func throttleElasticsearchStderr(format string, args ...any) {
-	esErrLogMu.Lock()
-	defer esErrLogMu.Unlock()
+	intervalNanos := esErrEmitMinInterval.Nanoseconds()
 
-	now := time.Now()
-	sinceLast := now.Sub(esErrLastEmit)
-	if sinceLast < esErrEmitMinInterval {
-		esErrSuppressed++
-		return
+	for {
+		nowNanos := time.Now().UnixNano()
+		lastNanos := esErrLastEmitNanos.Load()
+
+		if lastNanos != 0 && nowNanos-lastNanos < intervalNanos {
+			esErrSuppressed.Add(1)
+
+			return
+		}
+
+		if esErrLastEmitNanos.CompareAndSwap(lastNanos, nowNanos) {
+			suppressed := esErrSuppressed.Swap(0)
+
+			if suppressed > 0 {
+				sinceLast := time.Duration(nowNanos - lastNanos)
+
+				if lastNanos == 0 {
+					sinceLast = esErrEmitMinInterval
+				}
+
+				fmt.Fprintf(os.Stderr,
+					"errnie: elasticsearch: suppressed %d error messages in %v (cluster unreachable? set logging.elasticsearch.enabled: false or ELASTICSEARCH_ENABLED=0)\n",
+					suppressed, sinceLast.Round(time.Second))
+			}
+
+			fmt.Fprintf(os.Stderr, format, args...)
+
+			return
+		}
 	}
-
-	if esErrSuppressed > 0 {
-		fmt.Fprintf(os.Stderr,
-			"errnie: elasticsearch: suppressed %d error messages in %v (cluster unreachable? set logging.elasticsearch.enabled: false or ELASTICSEARCH_ENABLED=0)\n",
-			esErrSuppressed, sinceLast.Round(time.Second))
-		esErrSuppressed = 0
-	}
-
-	fmt.Fprintf(os.Stderr, format, args...)
-	esErrLastEmit = now
 }
 
 type esLogSink struct {

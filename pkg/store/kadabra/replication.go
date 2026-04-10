@@ -2,12 +2,17 @@ package kadabra
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/viz"
 )
+
+// meshSaturationRejections counts primary ingests dropped after the mesh-load
+// centroid path declines expansion (operators: correlate with routing pressure).
+var meshSaturationRejections atomic.Uint64
 
 /*
 Replication protocol — mesh v1 (in-process)
@@ -107,6 +112,17 @@ func (node *Node) applyRecordToTrie(record SequenceRecord, primaryIngest bool) b
 
 	if primaryIngest {
 		if !node.blendMeshLoadCentroid(&aff) {
+			rejects := meshSaturationRejections.Add(1)
+
+			errnie.Warn(
+				"kadabra: primary ingest dropped (mesh load centroid / expansion)",
+				"metric", "mesh_saturation_rejections_total",
+				"rejections", rejects,
+				"node_id", node.ID,
+				"record_key", record.Key,
+				"affinity_popcount", aff.Popcount(),
+			)
+
 			node.routing.releaseRecordKey(record.Key)
 
 			return false
@@ -139,37 +155,79 @@ func (node *Node) applyRecordToTrie(record SequenceRecord, primaryIngest bool) b
 }
 
 /*
-blendMeshLoadCentroid folds primary-ingest affinities toward meshLoadAffinity.
-While the centroid popcount stays below ShannonLimit it blends like a trie
-cluster; at saturation it invokes onMeshExpand and resets when expansion
+blendMeshLoadCentroid folds primary-ingest affinities toward meshLoad (CAS-
+updated). While the centroid popcount stays below ShannonLimit it blends like
+a trie cluster; at saturation it invokes onMeshExpand and resets when expansion
 succeeds, matching selectOrSpawnTrie’s spawnTrie decision at node scale.
 */
 func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
-	shannonLimit := core.Cfg.Kadabra.ShannonLimit
-
-	node.meshLoadMu.Lock()
-	defer node.meshLoadMu.Unlock()
-
-	if node.meshLoadCount == 0 {
-		node.meshLoadAffinity = *incoming
-		node.meshLoadCount = 1
-
-		return true
-	}
-
-	if node.meshLoadAffinity.Popcount() < shannonLimit {
-		count := node.meshLoadCount
-		node.meshLoadCount = node.meshLoadAffinity.Blend(incoming, count, shannonLimit)
-
-		return true
-	}
-
-	if node.onMeshExpand != nil && !node.onMeshExpand(incoming) {
+	if incoming == nil {
 		return false
 	}
 
-	node.meshLoadAffinity = *incoming
-	node.meshLoadCount = 1
+	shannonLimit := core.Cfg.Kadabra.ShannonLimit
 
-	return true
+	for {
+		curIface := node.meshLoad.Load()
+
+		var cur *meshLoadState
+
+		if curIface != nil {
+			var ok bool
+
+			cur, ok = curIface.(*meshLoadState)
+
+			if !ok {
+				return false
+			}
+		}
+
+		if cur == nil || cur.Count == 0 {
+			next := &meshLoadState{
+				Affinity: *incoming,
+				Count:    1,
+			}
+
+			if curIface == nil {
+				if node.meshLoad.CompareAndSwap(nil, next) {
+					return true
+				}
+
+				continue
+			}
+
+			if node.meshLoad.CompareAndSwap(curIface, next) {
+				return true
+			}
+
+			continue
+		}
+
+		if cur.Affinity.Popcount() < shannonLimit {
+			newAff, newCount := cur.Affinity.Blended(incoming, cur.Count, shannonLimit)
+			next := &meshLoadState{
+				Affinity: newAff,
+				Count:    newCount,
+			}
+
+			if node.meshLoad.CompareAndSwap(curIface, next) {
+				return true
+			}
+
+			continue
+		}
+
+		if node.onMeshExpand != nil && !node.onMeshExpand(incoming) {
+			return false
+		}
+
+		next := &meshLoadState{
+			Affinity: *incoming,
+			Count:    1,
+		}
+
+		if node.meshLoad.CompareAndSwap(curIface, next) {
+			return true
+		}
+	}
 }

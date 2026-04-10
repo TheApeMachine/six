@@ -70,7 +70,7 @@ func (experiment *SequencerExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (experiment *SequencerExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *SequencerExperiment) Score() float64 {

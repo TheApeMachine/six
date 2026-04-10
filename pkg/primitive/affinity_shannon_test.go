@@ -38,6 +38,18 @@ func setupAffinityTest(tb testing.TB) {
 	core.Cfg.Value.Region.ID.Start = 122
 }
 
+func firstSegmentBytes(tb testing.TB, buf []byte) *Value {
+	tb.Helper()
+
+	segmentValue, err := FirstSegment(NewValue(buf))
+
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	return segmentValue
+}
+
 // randomTokenBytes fills a 64-byte payload used with NewValue for high-entropy trials.
 func randomTokenBytes() [64]byte {
 	var buf [64]byte
@@ -79,13 +91,15 @@ func bloomSaturation64(n int) float64 {
 
 // lshCollisionRate computes the fraction of distinct random input pairs
 // whose LSH output (word 0 of affinity) is identical.
-func lshCollisionRate(n int) float64 {
+func lshCollisionRate(tb testing.TB, n int) float64 {
+	tb.Helper()
+
 	hashes := make([]uint64, n)
 	start := core.Cfg.Value.Region.Affinity.Start
 
 	for i := 0; i < n; i++ {
 		buf := randomTokenBytes()
-		v, _ := FirstSegment(NewValue(buf[:]))
+		v := firstSegmentBytes(tb, buf[:])
 		hashes[i] = v[start]
 		v.Close()
 	}
@@ -137,7 +151,7 @@ func TestLSHShannonEntropy(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		buf := randomTokenBytes()
-		v, _ := FirstSegment(NewValue(buf[:]))
+		v := firstSegmentBytes(t, buf[:])
 		word := v[start]
 		for b := 0; b < 64; b++ {
 			if (word>>uint(b))&1 == 1 {
@@ -172,7 +186,7 @@ func TestLSHCollisionRate(t *testing.T) {
 
 	t.Log("=== LSH collision rate (random 64-byte inputs) ===")
 	for _, n := range []int{100, 500, 1000} {
-		rate := lshCollisionRate(n)
+		rate := lshCollisionRate(t, n)
 		t.Logf("n=%d: collision rate=%.6f", n, rate)
 	}
 }
@@ -185,8 +199,7 @@ func TestHammingDistanceDistribution(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		buf := randomTokenBytes()
-		v, _ := FirstSegment(NewValue(buf[:]))
-		values[i] = v
+		values[i] = firstSegmentBytes(t, buf[:])
 	}
 
 	defer func() {
@@ -258,20 +271,20 @@ func TestAffinityCapacity(t *testing.T) {
 	for i := 0; i < nPairs; i++ {
 		// Similar: share first 48 bytes, differ in last 16.
 		base := randomTokenBytes()
-		a, _ := FirstSegment(NewValue(base[:]))
+		a := firstSegmentBytes(t, base[:])
 		a.ComputeAffinityLSH()
 
 		var modified [64]byte
 		copy(modified[:], base[:])
 		rand.Read(modified[48:]) // change last 16 bytes
-		b, _ := FirstSegment(NewValue(modified[:]))
+		b := firstSegmentBytes(t, modified[:])
 		b.ComputeAffinityLSH()
 
 		similarDist = append(similarDist, hammingWord(a[start], b[start]))
 
 		// Random: completely independent.
 		c := randomTokenBytes()
-		cv, _ := FirstSegment(NewValue(c[:]))
+		cv := firstSegmentBytes(t, c[:])
 		cv.ComputeAffinityLSH()
 
 		randomDist = append(randomDist, hammingWord(a[start], cv[start]))
@@ -327,21 +340,21 @@ func TestMultiProjectionLSH(t *testing.T) {
 
 	for i := 0; i < nPairs; i++ {
 		base := randomTokenBytes()
-		a, _ := FirstSegment(NewValue(base[:]))
+		a := firstSegmentBytes(t, base[:])
 		a.ComputeAffinityLSH()
 
 		// Similar: 75% shared.
 		var modified [64]byte
 		copy(modified[:], base[:])
 		rand.Read(modified[48:])
-		b, _ := FirstSegment(NewValue(modified[:]))
+		b := firstSegmentBytes(t, modified[:])
 		b.ComputeAffinityLSH()
 
 		similarDist = append(similarDist, affinityHammingDistance(a, b))
 
 		// Random.
 		c := randomTokenBytes()
-		cv, _ := FirstSegment(NewValue(c[:]))
+		cv := firstSegmentBytes(t, c[:])
 		cv.ComputeAffinityLSH()
 		randomDist = append(randomDist, affinityHammingDistance(a, cv))
 
@@ -393,7 +406,7 @@ func BenchmarkComputeAffinityLSH(b *testing.B) {
 	setupAffinityTest(b)
 
 	buf := randomTokenBytes()
-	v, _ := FirstSegment(NewValue(buf[:]))
+	v := firstSegmentBytes(b, buf[:])
 	defer v.Close()
 
 	b.ResetTimer()
@@ -418,8 +431,8 @@ func BenchmarkAffinityHammingDistance(b *testing.B) {
 
 	buf1 := randomTokenBytes()
 	buf2 := randomTokenBytes()
-	a, _ := FirstSegment(NewValue(buf1[:]))
-	bv, _ := FirstSegment(NewValue(buf2[:]))
+	a := firstSegmentBytes(b, buf1[:])
+	bv := firstSegmentBytes(b, buf2[:])
 	defer a.Close()
 	defer bv.Close()
 

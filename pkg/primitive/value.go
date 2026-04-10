@@ -102,14 +102,16 @@ trie storage.
 Morton slots are filled in input order until the token slab cannot hold
 another 16-bit code. The slab byte length comes from value.region.tokens.bits
 (default 1024 bits → 128 B, i.e. up to sixty-four 16-bit codes). Each slot
-pairs the payload byte with a geometry-derived Morton position code. When no
-geometry is provided, NewValue uses a balanced default lattice sized to the
-segment capacity.
+pairs the payload byte with a geometry-derived Morton position code (see
+geometry.SlotCode, geometry.PositionCode, and the per-segment positionOrdinal
+and idx scan in newValuesFromPayload). When no geometry is provided, NewValue
+uses a balanced default lattice sized to the segment capacity.
 
-If the next code already appears in the slab (same uint16 key), that symbol
-is skipped and scanning continues so later symbols can still occupy free
-space. First stored occurrence wins; unused trailing bytes usually mean
-the stream ended before the slab filled.
+If geometry.SlotCode(datum, positionOrdinal) collides with an occupied 16-bit
+key, newValuesFromPayload advances through higher ordinals until a free key
+appears so duplicate stream bytes are preserved in additional slot pairs
+rather than being dropped; tokenBytes and offset still govern how many pairs
+fit in buf before chaining another segment.
 
 To load an exact wire frame without re-stamping (same ID and affinity bits
 as Read produced), use Write on a pooled *Value — never a second NewValue on
@@ -167,6 +169,10 @@ func FirstSegment(values []*Value, err error) (*Value, error) {
 	return values[0], nil
 }
 
+// newValueMaxSlotProbeSteps caps ordinal scans when resolving duplicate
+// Morton slot codes while packing a segment.
+const newValueMaxSlotProbeSteps = 1 << 22
+
 func newValuesFromPayload(
 	p []byte,
 	geometry *geometry,
@@ -200,13 +206,26 @@ func newValuesFromPayload(
 
 		for idx < len(p) {
 			datum := p[idx]
-			code := geometry.SlotCode(datum, positionOrdinal)
-			positionOrdinal++
+			probe := positionOrdinal
 
-			if _, seen := occupied[code]; seen {
-				idx++
+			var code uint16
 
-				continue
+			found := false
+
+			for step := 0; step < newValueMaxSlotProbeSteps; step++ {
+				code = geometry.SlotCode(datum, probe)
+
+				if _, taken := occupied[code]; !taken {
+					found = true
+
+					break
+				}
+
+				probe++
+			}
+
+			if !found {
+				break
 			}
 
 			if offset+2 > tokenBytes {
@@ -218,7 +237,7 @@ func newValuesFromPayload(
 			buf[offset] = byte(code)
 			buf[offset+1] = byte(code >> 8)
 			offset += 2
-
+			positionOrdinal = probe + 1
 			idx++
 		}
 

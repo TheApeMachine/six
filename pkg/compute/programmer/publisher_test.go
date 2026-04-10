@@ -1,6 +1,7 @@
 package programmer
 
 import (
+	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -22,26 +23,34 @@ func (fake *fakeSubmitQueue) SubmitTracked(task func()) {
 }
 
 func (fake *fakeSubmitQueue) CompileAndExecute(program *Compiler) error {
-	fake.compiled.Add(1)
+	if program == nil {
+		return errors.New("fakeSubmitQueue: nil program")
+	}
 
-	_ = program
+	fake.compiled.Add(1)
 
 	return nil
 }
 
 func TestNewPublisher(t *testing.T) {
-	Convey("NewPublisher rejects nil arguments", t, func() {
+	Convey("Given nil arguments to NewPublisher", t, func() {
 		fake := &fakeSubmitQueue{}
 		sink := &countSink{}
 
-		_, err := NewPublisher(nil, stubFactory, sink)
-		So(err, ShouldNotBeNil)
+		Convey("It should reject nil queue", func() {
+			_, err := NewPublisher(nil, stubFactory, sink)
+			So(err, ShouldNotBeNil)
+		})
 
-		_, err = NewPublisher(fake, nil, sink)
-		So(err, ShouldNotBeNil)
+		Convey("It should reject nil factory", func() {
+			_, err := NewPublisher(fake, nil, sink)
+			So(err, ShouldNotBeNil)
+		})
 
-		_, err = NewPublisher(fake, stubFactory, nil)
-		So(err, ShouldNotBeNil)
+		Convey("It should reject nil sink", func() {
+			_, err := NewPublisher(fake, stubFactory, nil)
+			So(err, ShouldNotBeNil)
+		})
 	})
 
 	Convey("NewPublisher runs factory, compile path, and sink per chunk", t, func() {

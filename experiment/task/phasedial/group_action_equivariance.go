@@ -71,7 +71,7 @@ func (experiment *GroupActionEquivarianceExperiment) Outcome() (any, Assertion, 
 }
 
 func (experiment *GroupActionEquivarianceExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *GroupActionEquivarianceExperiment) Score() float64 {

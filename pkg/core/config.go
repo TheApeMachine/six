@@ -141,7 +141,7 @@ Layout (128 uint64 words = 1 KiB):
 	Context:  words  32–39  (512 bits)
 	Gradient: words  40–47  (512 bits)
 	Meta:     words  48–55  (512 bits)
-	Reserved: words 48–117
+	Reserved: words 56–117
 	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
 	Next:     word  121

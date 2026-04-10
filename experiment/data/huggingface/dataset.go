@@ -17,7 +17,6 @@ import (
 
 	"crypto/sha256"
 	"encoding/hex"
-	"sync/atomic"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/experiment/data"
@@ -62,7 +61,7 @@ type Dataset struct {
 	readPos       int
 	readErr       error
 	readDone      bool
-	readTotalSent atomic.Int64
+	readTotalSent int64
 }
 
 var _ data.Provider = (*Dataset)(nil)
@@ -242,7 +241,8 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 	n = copy(p, dataset.readBuf[dataset.readPos:])
 	dataset.readPos += n
 
-	total := dataset.readTotalSent.Add(int64(n))
+	dataset.readTotalSent += int64(n)
+	total := dataset.readTotalSent
 	viz.DefaultBus.Publish(viz.DatasetReadEvent(dataset.repo, int64(n), total, ""))
 
 	return n, nil

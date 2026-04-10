@@ -19,7 +19,7 @@ func TestNormalizeBarChartSeries(t *testing.T) {
 		}
 		output := NormalizeBarChartSeries(input)
 
-		Convey("It should round Partial to five decimal places", func() {
+		Convey("It should round Partial to six decimal places", func() {
 			So(len(output[0].Data), ShouldEqual, 2)
 			So(output[0].Data[0], ShouldAlmostEqual, 0.0196, 1e-12)
 			So(output[0].Data[1], ShouldAlmostEqual, 0.0072, 1e-12)
@@ -29,12 +29,12 @@ func TestNormalizeBarChartSeries(t *testing.T) {
 			So(output[1].Data[0], ShouldAlmostEqual, 0.006988, 1e-12)
 		})
 
-		Convey("It should round Fuzzy to three significant figures", func() {
-			So(output[2].Data[0], ShouldAlmostEqual, 0.00903, 1e-12)
+		Convey("It should round Fuzzy to six decimal places", func() {
+			So(output[2].Data[0], ShouldAlmostEqual, 0.009034, 1e-12)
 		})
 
-		Convey("It should round Exact like Partial precision policy", func() {
-			So(output[3].Data[1], ShouldAlmostEqual, 0.00123, 1e-12)
+		Convey("It should round Exact to six decimal places", func() {
+			So(output[3].Data[1], ShouldAlmostEqual, 0.001235, 1e-12)
 		})
 
 		Convey("It should default unknown series names to six decimals", func() {
@@ -57,13 +57,9 @@ func TestFormatBarChartDataForArtifactJSON(t *testing.T) {
 		encoded, err := json.Marshal(payload)
 		So(err, ShouldBeNil)
 
-		Convey("It should encode Fuzzy points as scientific JSON numbers", func() {
-			So(string(encoded), ShouldContainSubstring, "e-0")
-			So(string(encoded), ShouldContainSubstring, "9.03e-")
-		})
-
-		Convey("It should keep Partial and Weighted as plain JSON arrays", func() {
-			So(string(encoded), ShouldContainSubstring, "0.0196")
+		Convey("It should encode Partial, Fuzzy, and Weighted with six fixed decimal digits", func() {
+			So(string(encoded), ShouldContainSubstring, "0.019600")
+			So(string(encoded), ShouldContainSubstring, "0.009034")
 			So(string(encoded), ShouldContainSubstring, "0.000091")
 		})
 	})

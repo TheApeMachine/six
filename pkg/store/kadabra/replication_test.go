@@ -4,6 +4,7 @@ import (
 	"context"
 	"hash/fnv"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
+
+// kadabraShannonTestMu serializes tests that override core.Cfg.Kadabra.ShannonLimit.
+var kadabraShannonTestMu sync.Mutex
 
 func TestStoreMeshLoadCentroidCallsExpandHandler(t *testing.T) {
 	setupKadabraPrimitiveLayout(t)
@@ -27,12 +31,16 @@ func TestStoreMeshLoadCentroidCallsExpandHandler(t *testing.T) {
 			_ = queue.Close()
 		}()
 
+		kadabraShannonTestMu.Lock()
+
 		origLimit := core.Cfg.Kadabra.ShannonLimit
 
 		core.Cfg.Kadabra.ShannonLimit = 1
 
 		defer func() {
 			core.Cfg.Kadabra.ShannonLimit = origLimit
+
+			kadabraShannonTestMu.Unlock()
 		}()
 
 		node, nErr := NewNode(ctx, "kadabra-mesh-load-expand", queue)

@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -52,7 +53,20 @@ func ScanSignalRegion(value *Value) []Signal {
 	}
 
 	signalStart := core.Cfg.Value.Region.Signals.Start
-	signalWords := int((core.Cfg.Value.Region.Signals.Bits + 63) / 64)
+	tokenBits := int(core.Cfg.Value.Region.Signals.Bits)
+	signalWords := (tokenBits + 63) / 64
+
+	if signalStart < 0 || signalStart+signalWords > len(value) {
+		errnie.Warn(
+			"primitive.ScanSignalRegion: signals region out of bounds",
+			"signals_start", signalStart,
+			"signals_bits", tokenBits,
+			"signal_words", signalWords,
+			"value_len", len(value),
+		)
+
+		return nil
+	}
 
 	var signals []Signal
 

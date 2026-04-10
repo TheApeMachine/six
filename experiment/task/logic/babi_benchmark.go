@@ -108,7 +108,7 @@ func (experiment *BabiExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (experiment *BabiExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *BabiExperiment) Score() float64 {

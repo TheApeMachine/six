@@ -211,7 +211,7 @@ func (exp *RuleShiftExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (exp *RuleShiftExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(exp.evaluator, exp.tableData, idx)
+	return exp.evaluator.OutcomeForPromptConvey(exp.tableData, idx)
 }
 
 func (exp *RuleShiftExperiment) Score() float64 {
@@ -380,25 +380,25 @@ func (exp *RuleShiftExperiment) Artifacts() []tools.Artifact {
 		Label: "rule_shift",
 		TaskDescription: fmt.Sprintf(`This experiment injects a mid-stream rule change into the substrate without
 any explicit signal or re-training.  Two generative rules partition the
-$2N$ = %d-sample stream:
+$2N$ = %d-sample stream (indices are 0-based):
 
 \begin{itemize}[nosep]
-  \item \textbf{Rule A} (steps 0--%d, $N=%d$ samples):
+  \item \textbf{Rule A} (steps 0--%d inclusive, $N=%d$ samples):
         linear modular sequences, $b_k = (s_i + 3k) \bmod 251$.
-  \item \textbf{Rule B} (steps %d--%d, $N=%d$ samples):
+  \item \textbf{Rule B} (steps %d--%d inclusive, $N=%d$ samples):
         XOR-nonlinear sequences, $b_k = s_i \oplus (11k \bmod 256)$.
 \end{itemize}
 
 At every step the pipeline's retrieval output is scored against the
 expected continuation under \emph{both} rules simultaneously, yielding
 per-step alignment signals $K_A$ and $K_B$.  The winner at each step
-is $\arg\max(K_A, K_B)$.`, steps, shiftStep, n, shiftStep, steps, n),
+is $\arg\max(K_A, K_B)$.`, steps, shiftStep-1, n, shiftStep, steps-1, n),
 		Results: fmt.Sprintf(`Figure~\ref{fig:ruleshift_trajectory} shows the full adaptation
-trajectory.  The shift boundary is at step %d.  Rule B
+trajectory.  The shift boundary is at step %d (the first index governed by Rule B).  Rule B
 %s.  Phase A had $%d$ of
 $%d$ steps won by Rule A
-(%s\,%%%%); Phase B had $%d$ of
-$%d$ steps won by Rule B (%s\,%%%%).`,
+(%s\,\%%); Phase B had $%d$ of
+$%d$ steps won by Rule B (%s\,\%%).`,
 			shiftStep, recoveryDesc, phaseAWins, phaseASteps, projector.F0(phaseAPct),
 			phaseBWins, phaseBSteps, projector.F0(phaseBPct)),
 		Assessment: ruleShiftAssessment(phaseBPct),

@@ -4,7 +4,7 @@ package projector
 // standardised experiment subsection.  The template expects an
 // ExperimentSection struct (defined in the experiment package) as its
 // data context.
-const ExperimentSectionTmpl = `\subsection{ {{.Title}} }
+const ExperimentSectionTmpl = `\subsection{ {{- .Title -}} }
 \label{sec:{{.Label}}}
 
 \paragraph{Task Description.}
@@ -23,6 +23,6 @@ const ExperimentSectionTmpl = `\subsection{ {{.Title}} }
 {{- end}}
 {{- if .FigureRef}}
 
-Figure~\ref{ {{.FigureRef}} } shows the trial outcome map.
+Figure~\ref{ {{- .FigureRef -}}} shows the trial outcome map.
 {{- end}}
 `

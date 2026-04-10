@@ -279,7 +279,7 @@ func (exp *GemmaIntegrationExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (exp *GemmaIntegrationExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(exp.evaluator, exp.tableData, idx)
+	return exp.evaluator.OutcomeForPromptConvey(exp.tableData, idx)
 }
 
 func (exp *GemmaIntegrationExperiment) Score() float64 {
@@ -648,7 +648,7 @@ Mean latency: Gemma %s\,s, Hybrid %s\,s.`,
 				Height: 800,
 			},
 			Title:   "Gemma 2B-IT Integration",
-			Caption: fmt.Sprintf("Integration comparison. N_graft=%d, N_kv=%d.", nGraft, nKV),
+			Caption: fmt.Sprintf("Integration comparison. $N_{\\mathrm{graft}}=%d$, $N_{\\mathrm{kv}}=%d$.", nGraft, nKV),
 			Label:   "fig:gemma_integration",
 		},
 		{

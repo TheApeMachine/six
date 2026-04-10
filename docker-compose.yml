@@ -1,4 +1,18 @@
 services:
+  # viz_host: probe until the host-bound viz server (:6600) accepts HTTP; no backend service lives in this compose file.
+  viz_host:
+    image: curlimages/curl:8.5.0
+    container_name: six-viz-host-probe
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint: ["/bin/sh", "-c", "exec sleep infinity"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://host.docker.internal:6600/"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   visualizer:
     build:
       context: ./visualizer
@@ -10,6 +24,19 @@ services:
       - VITE_VIZ_PORT=6600
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      viz_host:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://host.docker.internal:6600/',(r)=>{r.resume();process.exit(r.statusCode>=200&&r.statusCode<400?0:1)}).on('error',()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   lakefs:
     image: treeverse/lakefs:latest

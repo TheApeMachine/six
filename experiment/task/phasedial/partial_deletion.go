@@ -71,7 +71,7 @@ func (experiment *PartialDeletionExperiment) Outcome() (any, gc.Assertion, any) 
 }
 
 func (experiment *PartialDeletionExperiment) OutcomeForPrompt(idx int) (any, gc.Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *PartialDeletionExperiment) Score() float64 {

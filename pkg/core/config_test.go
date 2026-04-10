@@ -79,19 +79,39 @@ func TestNewConfig(t *testing.T) {
 }
 
 func TestValueRegionConfigMaxTokenIngestBytes(t *testing.T) {
-	Convey("MaxTokenIngestBytes is half the Morton slab in bytes (minimum 1)", t, func() {
-		region := ValueRegionConfig{
-			Tokens: ValueOffsetConfig{Bits: 1024},
-		}
+	Convey("Given a ValueRegionConfig", t, func() {
+		Convey("It should compute MaxTokenIngestBytes as half the Morton slab in bytes (minimum 1)", func() {
+			region := ValueRegionConfig{
+				Tokens: ValueOffsetConfig{Bits: 1024},
+			}
 
-		So(region.MaxTokenIngestBytes(), ShouldEqual, 64)
+			So(region.MaxTokenIngestBytes(), ShouldEqual, 64)
 
-		small := ValueRegionConfig{
-			Tokens: ValueOffsetConfig{Bits: 8},
-		}
+			small := ValueRegionConfig{
+				Tokens: ValueOffsetConfig{Bits: 8},
+			}
 
-		So(small.MaxTokenIngestBytes(), ShouldEqual, 1)
+			So(small.MaxTokenIngestBytes(), ShouldEqual, 1)
+		})
 	})
+}
+
+func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
+	large := ValueRegionConfig{
+		Tokens: ValueOffsetConfig{Bits: 1024},
+	}
+
+	small := ValueRegionConfig{
+		Tokens: ValueOffsetConfig{Bits: 8},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = large.MaxTokenIngestBytes()
+		_ = small.MaxTokenIngestBytes()
+	}
 }
 
 func BenchmarkNewConfig(b *testing.B) {

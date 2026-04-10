@@ -16,8 +16,16 @@ kernel/cpu, which imports kernel, which would create an import cycle.
 Drift is guarded by package kernel_test (see affinity_words_external_test.go).
 */
 const (
-	ProgramStartWord                   = 16
-	SignalsStartWord                   = 24
+	ProgramStartWord = 16
+	SignalsStartWord = 24
+	// SignalBestIdxOffset and SignalBestDistOffset index uint64 words within the
+	// frame, relative to SignalsStartWord, where batch nearest-affinity reducers
+	// write the argmin candidate index and distance.
+	SignalBestIdxOffset  = 6
+	SignalBestDistOffset = 7
+	// RotationsStartWord is the first word of the expanded B-rotation arena for
+	// unified bitwise kernels (matches default core.Cfg.Value.Region.Context.Start).
+	RotationsStartWord                 = 32
 	NearestAffinityCandidatesStartWord = 56
 	NearestAffinityBatchWord           = 124
 	AffinityWordsPerCandidate          = 8

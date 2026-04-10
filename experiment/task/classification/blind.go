@@ -127,7 +127,7 @@ func (experiment *BlindClassificationExperiment) Outcome() (
 }
 
 func (experiment *BlindClassificationExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *BlindClassificationExperiment) Score() float64 {

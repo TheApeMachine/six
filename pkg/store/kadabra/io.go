@@ -28,8 +28,8 @@ the node's tries slice.
 The entire distance computation and argmin reduction happen in-band
 inside the Value frame. The programmer compiles a batch distance
 layout, the backend dispatches it to the best substrate, and the
-kernel writes the winning index and distance into the last two words
-of the signals region (SignalsStartWord+6, +7).
+kernel writes the winning index and distance at
+SignalsStartWord+SignalBestIdxOffset and SignalsStartWord+SignalBestDistOffset.
 Go never touches raw distance arrays.
 */
 func (node *Node) selectOrSpawnTrie(
@@ -82,7 +82,11 @@ func (node *Node) selectOrSpawnTrie(
 
 				if cluster.Affinity.Popcount() < shannonLimit {
 					count := cluster.AffinityCount.Load()
-					cluster.AffinityCount.Store(cluster.Affinity.Blend(affinity, count, shannonLimit))
+					nextAff, nextCount := cluster.Affinity.Blended(affinity, count, shannonLimit)
+
+					cluster.Affinity = nextAff
+					cluster.AffinityCount.Store(nextCount)
+
 					return []*primitive.Value{value}, nil
 				}
 			}
@@ -134,7 +138,10 @@ func (node *Node) selectOrSpawnTrieScalar(
 
 		if cluster.Affinity.Popcount() < shannonLimit {
 			count := cluster.AffinityCount.Load()
-			cluster.AffinityCount.Store(cluster.Affinity.Blend(affinity, count, shannonLimit))
+			nextAff, nextCount := cluster.Affinity.Blended(affinity, count, shannonLimit)
+
+			cluster.Affinity = nextAff
+			cluster.AffinityCount.Store(nextCount)
 
 			return cluster
 		}

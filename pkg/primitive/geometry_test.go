@@ -53,3 +53,43 @@ func TestNewBalancedGeometry(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkNewGeometry(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = newGeometry(32, 32, 4)
+	}
+}
+
+func BenchmarkNewBalancedGeometry(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = newBalancedGeometry(64, 2)
+	}
+}
+
+func BenchmarkGeometryCoordinates(b *testing.B) {
+	g := newBalancedGeometry(64, 2)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = g.Coordinates(uint32(iteration % 64))
+	}
+}
+
+func BenchmarkGeometryPositionCode(b *testing.B) {
+	g := newBalancedGeometry(64, 2)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = g.PositionCode(uint32(iteration % 64))
+	}
+}

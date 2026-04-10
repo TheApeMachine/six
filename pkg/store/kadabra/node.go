@@ -29,6 +29,14 @@ import (
 const predictTrieFanout = 8
 
 /*
+meshLoadState is the atomically-swapped primary-ingest centroid snapshot.
+*/
+type meshLoadState struct {
+	Affinity primitive.Affinity
+	Count    uint64
+}
+
+/*
 Node is a Kademlia-style DHT node. Its two public operations are
 Publish (insert data, routed by affinity to the right MarkovTrie)
 and Predict (run inference through the Field). Everything else is
@@ -52,13 +60,12 @@ type Node struct {
 	securityThreshold float64
 	queue             *pool.Queue
 
-	// meshLoad* is the primary-ingest centroid (Store with fanout). At
-	// ShannonLimit, onMeshExpand runs so vm.Machine can add a peer like
-	// selectOrSpawnTrie spawns another trie cluster.
-	meshLoadMu       sync.Mutex
-	meshLoadAffinity primitive.Affinity
-	meshLoadCount    uint64
-	onMeshExpand     func(*primitive.Affinity) bool
+	// meshLoad holds the primary-ingest centroid (Store with fanout) under
+	// lock-free CAS updates (see blendMeshLoadCentroid). At ShannonLimit,
+	// onMeshExpand runs so vm.Machine can add a peer like selectOrSpawnTrie
+	// spawns another trie cluster.
+	meshLoad     atomic.Value // *meshLoadState
+	onMeshExpand func(*primitive.Affinity) bool
 
 	// trieGraphVizLast throttles full trie topology snapshots to the viz bus.
 	trieGraphVizMu   sync.Mutex
@@ -138,8 +145,8 @@ func NewNode(
 }
 
 /*
-SetMeshExpandHandler registers the callback run when meshLoadAffinity is
-saturated during primary ingest. A false return aborts that record (Key
+SetMeshExpandHandler registers the callback run when the mesh-load centroid
+is saturated during primary ingest. A false return aborts that record (Key
 released); nil or a true return resets the local load centroid so ingest
 can continue. Standalone nodes leave the handler nil and only reset.
 */

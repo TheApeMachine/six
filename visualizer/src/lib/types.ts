@@ -3,6 +3,8 @@ types.ts — shared state types for the visualizer.
 Mirrors the actual systems in the Six project.
 */
 
+import type { VizEvent } from './wire';
+
 export interface NodeState {
   id: string;
   label: string;
@@ -120,7 +122,7 @@ export interface InspectorTarget {
 }
 
 export interface TimelineState {
-  events: import('./wire').VizEvent[];
+  events: VizEvent[];
   cursor: number;
   paused: boolean;
   totalFrames: number;

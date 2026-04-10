@@ -9,6 +9,18 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+func mustFirstSegment(tb testing.TB, data string) *primitive.Value {
+	tb.Helper()
+
+	segmentValue, err := primitive.FirstSegment(primitive.NewValue([]byte(data)))
+
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	return segmentValue
+}
+
 /*
 graphPrediction builds a two-node Prediction using pooled Values. Call
 release once the caller is done with the prediction (after Update or when
@@ -62,13 +74,11 @@ func TestGraphUpdate(t *testing.T) {
 		graph := NewGraph()
 		prediction := algo.NewPrediction()
 
-		v, err := primitive.FirstSegment(primitive.NewValue([]byte("solo")))
+		segmentValue := mustFirstSegment(t, "solo")
 
-		So(err, ShouldBeNil)
+		defer segmentValue.Close()
 
-		defer v.Close()
-
-		prediction.Context = append(prediction.Context, *v)
+		prediction.Context = append(prediction.Context, *segmentValue)
 
 		out, err := graph.Update(prediction)
 
@@ -138,15 +148,11 @@ func TestGraphIntervene(t *testing.T) {
 			So(err, ShouldBeNil)
 		}
 
-		working, err := primitive.FirstSegment(primitive.NewValue([]byte("worker")))
-
-		So(err, ShouldBeNil)
+		working := mustFirstSegment(t, "worker")
 
 		defer working.Close()
 
-		forced, err := primitive.FirstSegment(primitive.NewValue([]byte("forced")))
-
-		So(err, ShouldBeNil)
+		forced := mustFirstSegment(t, "forced")
 
 		defer forced.Close()
 
@@ -198,15 +204,11 @@ func TestGraphCounterfactual(t *testing.T) {
 
 		seedABEdge(graph, 6)
 
-		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("obs-cf")))
-
-		So(err, ShouldBeNil)
+		observed := mustFirstSegment(t, "obs-cf")
 
 		defer observed.Close()
 
-		forced, err := primitive.FirstSegment(primitive.NewValue([]byte("forced-cf")))
-
-		So(err, ShouldBeNil)
+		forced := mustFirstSegment(t, "forced-cf")
 
 		defer forced.Close()
 
@@ -226,15 +228,11 @@ func TestGraphObserveResidual(t *testing.T) {
 	Convey("ObserveResidual XORs affinity mismatch into the gradient tracker", t, func() {
 		graph := NewGraph()
 
-		predicted, err := primitive.FirstSegment(primitive.NewValue([]byte("pred-or")))
-
-		So(err, ShouldBeNil)
+		predicted := mustFirstSegment(t, "pred-or")
 
 		defer predicted.Close()
 
-		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("obs-or")))
-
-		So(err, ShouldBeNil)
+		observed := mustFirstSegment(t, "obs-or")
 
 		defer observed.Close()
 
@@ -270,15 +268,11 @@ func TestGraphCounterfactualChain(t *testing.T) {
 
 		seedABEdge(graph, 6)
 
-		observed, err := primitive.FirstSegment(primitive.NewValue([]byte("chain")))
-
-		So(err, ShouldBeNil)
+		observed := mustFirstSegment(t, "chain")
 
 		defer observed.Close()
 
-		forced, err := primitive.FirstSegment(primitive.NewValue([]byte("chain-forced")))
-
-		So(err, ShouldBeNil)
+		forced := mustFirstSegment(t, "chain-forced")
 
 		defer forced.Close()
 
@@ -349,21 +343,15 @@ func TestGraphMediate(t *testing.T) {
 
 		seedABEdge(graph, 6)
 
-		value, err := primitive.FirstSegment(primitive.NewValue([]byte("med-v")))
-
-		So(err, ShouldBeNil)
+		value := mustFirstSegment(t, "med-v")
 
 		defer value.Close()
 
-		xForced, err := primitive.FirstSegment(primitive.NewValue([]byte("med-x")))
-
-		So(err, ShouldBeNil)
+		xForced := mustFirstSegment(t, "med-x")
 
 		defer xForced.Close()
 
-		zObs, err := primitive.FirstSegment(primitive.NewValue([]byte("med-z")))
-
-		So(err, ShouldBeNil)
+		zObs := mustFirstSegment(t, "med-z")
 
 		defer zObs.Close()
 
@@ -390,27 +378,19 @@ func TestGraphModerate(t *testing.T) {
 
 		seedABEdge(graph, 4)
 
-		value, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-v")))
-
-		So(err, ShouldBeNil)
+		value := mustFirstSegment(t, "mod-v")
 
 		defer value.Close()
 
-		xForced, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-x")))
-
-		So(err, ShouldBeNil)
+		xForced := mustFirstSegment(t, "mod-x")
 
 		defer xForced.Close()
 
-		z1, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-z1")))
-
-		So(err, ShouldBeNil)
+		z1 := mustFirstSegment(t, "mod-z1")
 
 		defer z1.Close()
 
-		z2, err := primitive.FirstSegment(primitive.NewValue([]byte("mod-z2")))
-
-		So(err, ShouldBeNil)
+		z2 := mustFirstSegment(t, "mod-z2")
 
 		defer z2.Close()
 
@@ -433,19 +413,11 @@ func TestGraphModerate(t *testing.T) {
 func BenchmarkGraphObserveResidual(b *testing.B) {
 	graph := NewGraph()
 
-	predicted, err := primitive.FirstSegment(primitive.NewValue([]byte("bpr")))
-
-	if err != nil {
-		b.Fatal(err)
-	}
+	predicted := mustFirstSegment(b, "bpr")
 
 	defer predicted.Close()
 
-	observed, err := primitive.FirstSegment(primitive.NewValue([]byte("bor")))
-
-	if err != nil {
-		b.Fatal(err)
-	}
+	observed := mustFirstSegment(b, "bor")
 
 	defer observed.Close()
 

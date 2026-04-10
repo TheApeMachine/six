@@ -165,7 +165,7 @@ func (e *ReconstructionExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (e *ReconstructionExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(e.evaluator, e.tableData, idx)
+	return e.evaluator.OutcomeForPromptConvey(e.tableData, idx)
 }
 
 func (e *ReconstructionExperiment) Score() float64 {

@@ -1,13 +1,16 @@
 package experiment
 
 import (
+	"cmp"
 	"crypto/rand"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -95,6 +98,14 @@ func (evaluator *Evaluator) Outcome(score float64) (any, gc.Assertion, any) {
 }
 
 /*
+OutcomeForPromptConvey is the Convey-oriented entry for per-prompt assertions;
+it forwards to OutcomeForTableRow so pipeline tests share one implementation.
+*/
+func (evaluator *Evaluator) OutcomeForPromptConvey(table []ExperimentalData, idx int) (any, gc.Assertion, any) {
+	return evaluator.OutcomeForTableRow(table, idx)
+}
+
+/*
 OutcomeForTableRow is the per-prompt counterpart to Outcome: it uses the same
 threshold as Outcome() but scores only the row at idx.
 
@@ -108,7 +119,7 @@ Scores.Exact), matching the aggregate’s scorer scale.
 */
 func (evaluator *Evaluator) OutcomeForTableRow(table []ExperimentalData, idx int) (any, gc.Assertion, any) {
 	if evaluator == nil || idx < 0 || idx >= len(table) {
-		return 0.0, gc.ShouldBeNil, nil
+		return nil, gc.ShouldBeNil, nil
 	}
 
 	thresh := evaluator.expectation.threshold()
@@ -129,7 +140,7 @@ func (evaluator *Evaluator) OutcomeForTableRow(table []ExperimentalData, idx int
 	}
 
 	if evaluator.scorer == nil {
-		return 0.0, gc.ShouldBeNil, nil
+		return nil, gc.ShouldBeNil, nil
 	}
 
 	return evaluator.scorer.GateScore(table[idx]), gc.ShouldBeGreaterThanOrEqualTo, thresh
@@ -145,7 +156,8 @@ func (expectation Expectation) threshold() float64 {
 
 /*
 ComputePredictions assigns PredLabel by checking which label string
-co-occurs in the machine's generated output.
+co-occurs in the machine's generated output. When generation is ambiguous
+or empty, it inspects beam Continuations (highest score first) the same way.
 
 Scoring:
   - Exactly one label found → confident prediction.
@@ -164,22 +176,51 @@ func (evaluator *Evaluator) ComputePredictions(data []ExperimentalData) {
 
 		generated := string(data[idx].Generation)
 
-		if len(generated) == 0 {
+		if classIdx, ok := evaluator.unambiguousLabelInText(generated, numClasses); ok {
+			classVal := classIdx
+			data[idx].PredLabel = &classVal
 			continue
 		}
 
-		var found []int
+		prediction := data[idx].Prediction
+		if prediction == nil || len(prediction.Continuations) == 0 {
+			continue
+		}
 
-		for classIdx := range numClasses {
-			if strings.Contains(generated, evaluator.labels[classIdx]) {
-				found = append(found, classIdx)
+		continuations := slices.Clone(prediction.Continuations)
+		slices.SortStableFunc(continuations, func(a, b algo.Continuation) int {
+			return cmp.Compare(b.Score, a.Score)
+		})
+
+		for _, continuation := range continuations {
+			if classIdx, ok := evaluator.unambiguousLabelInText(string(continuation.Sequence), numClasses); ok {
+				classVal := classIdx
+				data[idx].PredLabel = &classVal
+
+				break
 			}
 		}
+	}
+}
 
-		if len(found) == 1 {
-			data[idx].PredLabel = new(found[0])
+func (evaluator *Evaluator) unambiguousLabelInText(observed string, numClasses int) (int, bool) {
+	if len(observed) == 0 {
+		return 0, false
+	}
+
+	var hits []int
+
+	for classIdx := range numClasses {
+		if strings.Contains(observed, evaluator.labels[classIdx]) {
+			hits = append(hits, classIdx)
 		}
 	}
+
+	if len(hits) != 1 {
+		return 0, false
+	}
+
+	return hits[0], true
 }
 
 /*

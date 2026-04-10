@@ -154,8 +154,8 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 				}
 			}
 
-			v[kernel.SignalsStartWord+6] = bestIdx
-			v[kernel.SignalsStartWord+7] = bestDist
+			v[kernel.SignalsStartWord+kernel.SignalBestIdxOffset] = bestIdx
+			v[kernel.SignalsStartWord+kernel.SignalBestDistOffset] = bestDist
 
 			continue
 		}

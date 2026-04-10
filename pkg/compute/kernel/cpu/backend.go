@@ -90,10 +90,10 @@ frame head, candidates contiguously from NearestAffinityCandidatesStartWord,
 count into word 124. Results are uint32 distances starting at
 SignalsStartWord.
 
-After the SIMD pass, an in-band argmin reduction writes the last two
-words of the signals region (SignalsStartWord+6, +7).
-
-so the caller never touches raw distance arrays.
+After the SIMD pass, an in-band argmin reduction writes the best index
+and distance at SignalsStartWord+SignalBestIdxOffset and
+SignalsStartWord+SignalBestDistOffset so the caller never touches raw
+distance arrays.
 */
 func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
 	if count > kernel.MaxNearestAffinityCandidates {
@@ -125,8 +125,8 @@ func (backend *Backend) executeBatchDistance(v *[128]uint64, count int) {
 		}
 	}
 
-	v[kernel.SignalsStartWord+6] = bestIdx
-	v[kernel.SignalsStartWord+7] = bestDist
+	v[kernel.SignalsStartWord+kernel.SignalBestIdxOffset] = bestIdx
+	v[kernel.SignalsStartWord+kernel.SignalBestDistOffset] = bestDist
 }
 
 /*

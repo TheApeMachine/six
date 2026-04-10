@@ -7,25 +7,27 @@ import (
 )
 
 func TestHoldoutExactMeanScorerEnrich(t *testing.T) {
-	Convey("HoldoutExactMeanScorer Enrich matches HoldoutScorer row fields", t, func() {
-		var exact HoldoutExactMeanScorer
-		var hold HoldoutScorer
+	Convey("Given HoldoutExactMeanScorer and HoldoutScorer", t, func() {
+		Convey("It enriches ExperimentalData producing matching Scores and WeightedTotal", func() {
+			var exact HoldoutExactMeanScorer
+			var hold HoldoutScorer
 
-		dataE := ExperimentalData{
-			Holdout:    []byte("abc"),
-			Generation: []byte("xabcy"),
-		}
+			dataE := ExperimentalData{
+				Holdout:    []byte("abc"),
+				Generation: []byte("xabcy"),
+			}
 
-		dataH := ExperimentalData{
-			Holdout:    []byte("abc"),
-			Generation: []byte("xabcy"),
-		}
+			dataH := ExperimentalData{
+				Holdout:    []byte("abc"),
+				Generation: []byte("xabcy"),
+			}
 
-		exact.Enrich(&dataE)
-		hold.Enrich(&dataH)
+			exact.Enrich(&dataE)
+			hold.Enrich(&dataH)
 
-		So(dataE.Scores, ShouldResemble, dataH.Scores)
-		So(dataE.WeightedTotal, ShouldEqual, dataH.WeightedTotal)
+			So(dataE.Scores, ShouldResemble, dataH.Scores)
+			So(dataE.WeightedTotal, ShouldEqual, dataH.WeightedTotal)
+		})
 	})
 }
 

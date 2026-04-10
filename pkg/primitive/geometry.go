@@ -1,5 +1,7 @@
 package primitive
 
+import "math"
+
 /*
 geometry projects ordinal payload positions into an N-dimensional lattice.
 The lattice shape is modality-agnostic and stays internal to Value packing.
@@ -51,7 +53,11 @@ func newBalancedGeometry(points int, dimensions int) *geometry {
 		dimensions = 1
 	}
 
-	axisLen := uint32(1)
+	axisLen := uint32(math.Ceil(math.Pow(float64(points), 1.0/float64(dimensions))))
+
+	if axisLen < 1 {
+		axisLen = 1
+	}
 
 	for geometryCapacity(axisLen, dimensions) < uint64(points) {
 		axisLen++

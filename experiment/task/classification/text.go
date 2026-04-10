@@ -1,7 +1,10 @@
 package classification
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
+	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
@@ -115,7 +118,15 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		}
 	}
 
-	experiment.evaluator.Enrich(&results)
+	experiment.resolveClassificationRow(&results)
+
+	if results.PredLabel != nil && len(results.Classification) > 0 {
+		experiment.evaluator.Enrich(&results)
+	} else {
+		results.Scores = tools.Scores{}
+		results.WeightedTotal = 0
+	}
+
 	experiment.predictionsComputed = false
 	experiment.tableData = append(experiment.tableData, results)
 }
@@ -124,15 +135,39 @@ func (experiment *TextClassificationExperiment) ensurePredictions() {
 	if experiment.predictionsComputed {
 		return
 	}
-	experiment.evaluator.ComputePredictions(experiment.tableData)
+
+	for idx := range experiment.tableData {
+		row := &experiment.tableData[idx]
+		experiment.resolveClassificationRow(row)
+
+		if row.PredLabel != nil && len(row.Classification) > 0 {
+			experiment.evaluator.Enrich(row)
+		} else {
+			row.Scores = tools.Scores{}
+			row.WeightedTotal = 0
+		}
+	}
+
 	experiment.predictionsComputed = true
 }
 
 /*
-ComputePredictions delegates to the Evaluator for label string matching.
+ComputePredictions re-materializes per-row class hypotheses from generation
+and beam continuations, matching ensurePredictions without the cached flag gate.
 */
 func (experiment *TextClassificationExperiment) ComputePredictions() {
-	experiment.evaluator.ComputePredictions(experiment.tableData)
+	for idx := range experiment.tableData {
+		row := &experiment.tableData[idx]
+		experiment.resolveClassificationRow(row)
+
+		if row.PredLabel != nil && len(row.Classification) > 0 {
+			experiment.evaluator.Enrich(row)
+		} else {
+			row.Scores = tools.Scores{}
+			row.WeightedTotal = 0
+		}
+	}
+
 	experiment.predictionsComputed = true
 }
 
@@ -148,7 +183,7 @@ func (experiment *TextClassificationExperiment) Outcome() (
 }
 
 func (experiment *TextClassificationExperiment) OutcomeForPrompt(idx int) (any, Assertion, any) {
-	return tools.EvaluatorOutcomeForPrompt(experiment.evaluator, experiment.tableData, idx)
+	return experiment.evaluator.OutcomeForPromptConvey(experiment.tableData, idx)
 }
 
 func (experiment *TextClassificationExperiment) Score() float64 {
@@ -171,6 +206,10 @@ func (experiment *TextClassificationExperiment) TableData() any {
 Answer returns the predicted class label for this classification task.
 */
 func (experiment *TextClassificationExperiment) Answer(prediction *algo.Prediction) string {
+	if prediction == nil {
+		return ""
+	}
+
 	return prediction.Label()
 }
 
@@ -236,6 +275,81 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 			},
 		},
 	}
+}
+
+func (experiment *TextClassificationExperiment) stripExportLabels(row *tools.ExperimentalData) {
+	if row.Prediction == nil {
+		return
+	}
+
+	row.Prediction.Targets = nil
+	row.Prediction.Labels = nil
+}
+
+func (experiment *TextClassificationExperiment) applyClassificationSchema(row *tools.ExperimentalData, classIdx int) {
+	labels := experiment.ClassLabels()
+	className := labels[classIdx]
+	predIdx := classIdx
+	row.PredLabel = &predIdx
+	row.Classification = []byte(fmt.Sprintf(`{"class":%q,"index":%d}`, className, classIdx))
+
+	if row.Prediction == nil {
+		row.Prediction = algo.NewPrediction()
+	}
+
+	confidence := 1.0
+	labelEntry := algo.Label{Label: []byte(className), Confidence: confidence}
+	row.Prediction.Targets = []algo.Label{labelEntry}
+	row.Prediction.Labels = []algo.Label{labelEntry}
+}
+
+func (experiment *TextClassificationExperiment) resolveClassificationRow(row *tools.ExperimentalData) {
+	labels := experiment.ClassLabels()
+
+	if classIdx, ok := unambiguousLabelSubstringIndex(string(row.Generation), labels); ok {
+		experiment.applyClassificationSchema(row, classIdx)
+		return
+	}
+
+	if row.Prediction == nil || len(row.Prediction.Continuations) == 0 {
+		row.PredLabel = nil
+		row.Classification = []byte{}
+		experiment.stripExportLabels(row)
+
+		return
+	}
+
+	continuations := slices.Clone(row.Prediction.Continuations)
+	slices.SortStableFunc(continuations, func(a, b algo.Continuation) int {
+		return cmp.Compare(b.Score, a.Score)
+	})
+
+	for _, continuation := range continuations {
+		if classIdx, ok := unambiguousLabelSubstringIndex(string(continuation.Sequence), labels); ok {
+			experiment.applyClassificationSchema(row, classIdx)
+			return
+		}
+	}
+
+	row.PredLabel = nil
+	row.Classification = []byte{}
+	experiment.stripExportLabels(row)
+}
+
+func unambiguousLabelSubstringIndex(observed string, labels []string) (int, bool) {
+	var hits []int
+
+	for classIdx, label := range labels {
+		if strings.Contains(observed, label) {
+			hits = append(hits, classIdx)
+		}
+	}
+
+	if len(hits) != 1 {
+		return 0, false
+	}
+
+	return hits[0], true
 }
 
 func textClassificationAssessment(macroF1 float64, n int) string {

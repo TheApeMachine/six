@@ -111,7 +111,11 @@ func TestClassifierValue(t *testing.T) {
 
 func BenchmarkClassifierUpdate(b *testing.B) {
 	classifier := NewClassifier()
-	payload, _ := primitive.FirstSegment(primitive.NewValue([]byte("feature token stream")))
+	payload, payloadErr := primitive.FirstSegment(primitive.NewValue([]byte("feature token stream")))
+
+	if payloadErr != nil {
+		b.Fatal(payloadErr)
+	}
 
 	defer payload.Close()
 

@@ -102,6 +102,23 @@ func (derived *Derived) Value() float64 {
 }
 
 /*
+Populated reports whether the chain has dynamics attached. Empty shells
+inserted into maps still marshal as noisy {}; JSON export uses this to
+omit unused signal slots.
+*/
+func (derived *Derived) Populated() bool {
+	if derived == nil {
+		return false
+	}
+
+	derived.mu.RLock()
+	n := len(derived.dynamics)
+	derived.mu.RUnlock()
+
+	return n > 0
+}
+
+/*
 Clone returns a deep copy of the dynamic chain and lastValue so mutations
 via Next on the clone do not affect the source. Supported concrete
 dynamics are cloned explicitly; unknown types are shared as a last resort.

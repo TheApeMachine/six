@@ -59,7 +59,9 @@ func TestAffinityBlendPrunesInsteadOfHardRevert(t *testing.T) {
 			headroom = 1
 		}
 
-		next := a.Blend(inc, 40, shannonLimit)
+		blended, next := (*a).Blended(inc, 40, shannonLimit)
+
+		*a = blended
 
 		convey.So(next, convey.ShouldBeGreaterThan, uint64(40))
 		convey.So(a.Popcount(), convey.ShouldBeLessThanOrEqualTo, headroom)
@@ -67,7 +69,8 @@ func TestAffinityBlendPrunesInsteadOfHardRevert(t *testing.T) {
 }
 
 func BenchmarkAffinityBlend(b *testing.B) {
-	a := NewAffinity()
+	var a Affinity
+
 	inc := NewAffinity()
 
 	var count uint64
@@ -76,7 +79,7 @@ func BenchmarkAffinityBlend(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		count = a.Blend(inc, count, 240)
+		a, count = a.Blended(inc, count, 240)
 	}
 }
 

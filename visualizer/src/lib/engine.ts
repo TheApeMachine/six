@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { decodeVizMessage, EK, KIND_NAMES, type VizEvent } from './wire';
+import { decodeVizMessage, EK, type VizEvent } from './wire';
 import type {
   NodeState, TrieState, EdgeState, BeamState, BeamHypothesis,
   ALUState, ALUOp, SubstrateState, PipelineStageState, ComputeState,
@@ -222,8 +222,18 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     marker.position.set(Math.cos(initPhase) * radius, 0, Math.sin(initPhase) * radius);
     group.add(marker);
 
+    const needleArr = new Float32Array(6);
+    needleArr[0] = 0;
+    needleArr[1] = 0;
+    needleArr[2] = 0;
+    needleArr[3] = marker.position.x;
+    needleArr[4] = marker.position.y;
+    needleArr[5] = marker.position.z;
+    const needleGeo = new THREE.BufferGeometry();
+    needleGeo.setAttribute('position', new THREE.BufferAttribute(needleArr, 3));
+    needleGeo.setDrawRange(0, 2);
     const needle = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), marker.position.clone()]),
+      needleGeo,
       new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 })
     );
     group.add(needle);
@@ -233,8 +243,10 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
 
   function updateGFMarker(gf: GFRing) {
     gf.marker.position.set(Math.cos(gf.phase) * gf.radius, 0, Math.sin(gf.phase) * gf.radius);
-    gf.needle.geometry.dispose();
-    gf.needle.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), gf.marker.position.clone()]);
+    const posAttr = gf.needle.geometry.attributes.position as THREE.BufferAttribute;
+    posAttr.setXYZ(1, gf.marker.position.x, gf.marker.position.y, gf.marker.position.z);
+    posAttr.needsUpdate = true;
+    gf.needle.geometry.computeBoundingSphere();
   }
 
   function curvedPipe(a: THREE.Vector3, b: THREE.Vector3, color: number, midY = 2, opacity = 0.18): THREE.Line {
@@ -508,7 +520,7 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     { name: 'Phase', x: 5, color: 0xffab40 },
     { name: 'Eigenmode', x: 9, color: 0x4fc3f7 },
   ];
-  const dials: { group: THREE.Group; needle: THREE.Line; tip: THREE.Mesh; radius: number; phase: number; speed: number }[] = [];
+  const dials: { group: THREE.Group; needle: THREE.Line; tip: THREE.Mesh; radius: number; phase: number; speed: number; needlePos: THREE.BufferAttribute }[] = [];
 
   dialDefs.forEach((d) => {
     const group = new THREE.Group();
@@ -530,9 +542,22 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     }
 
     const ph = Math.random() * Math.PI * 2;
-    const tipPos = new THREE.Vector3(Math.cos(ph) * dR * 0.85, 0.04, Math.sin(ph) * dR * 0.85);
+    const tipX = Math.cos(ph) * dR * 0.85;
+    const tipZ = Math.sin(ph) * dR * 0.85;
+    const tipPos = new THREE.Vector3(tipX, 0.04, tipZ);
+    const dialNeedleArr = new Float32Array(6);
+    dialNeedleArr[0] = 0;
+    dialNeedleArr[1] = 0.04;
+    dialNeedleArr[2] = 0;
+    dialNeedleArr[3] = tipX;
+    dialNeedleArr[4] = 0.04;
+    dialNeedleArr[5] = tipZ;
+    const needleGeo = new THREE.BufferGeometry();
+    const needlePos = new THREE.BufferAttribute(dialNeedleArr, 3);
+    needleGeo.setAttribute('position', needlePos);
+    needleGeo.setDrawRange(0, 2);
     const needle = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.04, 0), tipPos]),
+      needleGeo,
       new THREE.LineBasicMaterial({ color: d.color, transparent: true, opacity: 0.8 })
     );
     group.add(needle);
@@ -548,7 +573,7 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     ));
     scene.add(group);
     staticGroup.add(makeLabel(d.name, new THREE.Vector3(d.x, dialY + 1.5, 0), d.color, 0.12));
-    dials.push({ group, needle, tip, radius: dR, phase: ph, speed: 0.05 + Math.random() * 0.15 });
+    dials.push({ group, needle, tip, radius: dR, phase: ph, speed: 0.05 + Math.random() * 0.15, needlePos });
   });
 
   ['EMA', 'delta', 'shannon', '\u03C3-clamp'].forEach((n, i) => {
@@ -600,12 +625,30 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
   }
 
   /* Flow particles for compute pipeline */
-  const flowParticles: { mesh: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; speed: number; active: boolean }[] = [];
+  const flowParticles: {
+    mesh: THREE.Mesh;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    mid: THREE.Vector3;
+    tmpPos: THREE.Vector3;
+    t: number;
+    speed: number;
+    active: boolean;
+  }[] = [];
   const flowGeo = new THREE.SphereGeometry(0.08, 6, 6);
   for (let i = 0; i < 20; i++) {
     const fm = new THREE.Mesh(flowGeo, new THREE.MeshBasicMaterial({ color: C.compiler, transparent: true, opacity: 0 }));
     scene.add(fm);
-    flowParticles.push({ mesh: fm, from: new THREE.Vector3(), to: new THREE.Vector3(), t: 0, speed: 0, active: false });
+    flowParticles.push({
+      mesh: fm,
+      from: new THREE.Vector3(),
+      to: new THREE.Vector3(),
+      mid: new THREE.Vector3(),
+      tmpPos: new THREE.Vector3(),
+      t: 0,
+      speed: 0,
+      active: false,
+    });
   }
 
   /* ── node management ──────────────────────────────────────────── */
@@ -931,6 +974,8 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
       if (!fp.active) {
         fp.from.copy(from);
         fp.to.copy(to);
+        fp.mid.copy(from).add(to).multiplyScalar(0.5);
+        fp.mid.y += 1.5;
         fp.t = 0;
         fp.speed = 0.8 + Math.random() * 0.4;
         fp.active = true;
@@ -953,6 +998,117 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     }
   }
 
+  /*
+  disposeObjectTree releases GPU buffers for a subtree. Geometry and materials
+  shared across meshes are disposed at most once per call via local sets.
+  */
+  function disposeObjectTree(root: THREE.Object3D) {
+    const seenGeo = new Set<THREE.BufferGeometry>();
+    const seenMat = new Set<THREE.Material>();
+    const seenTex = new Set<THREE.Texture>();
+
+    root.traverse((child) => {
+      if (child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.LineSegments || child instanceof THREE.LineLoop) {
+        const geo = child.geometry as THREE.BufferGeometry | undefined;
+
+        if (geo && !seenGeo.has(geo)) {
+          seenGeo.add(geo);
+          geo.dispose();
+        }
+
+        const mat = child.material as THREE.Material | THREE.Material[];
+
+        if (Array.isArray(mat)) {
+          for (const m of mat) {
+            if (m && !seenMat.has(m)) {
+              seenMat.add(m);
+              m.dispose();
+            }
+          }
+
+          return;
+        }
+
+        if (mat && !seenMat.has(mat)) {
+          seenMat.add(mat);
+          mat.dispose();
+        }
+
+        return;
+      }
+
+      if (child instanceof THREE.Sprite) {
+        const sm = child.material as THREE.SpriteMaterial;
+
+        if (sm.map && !seenTex.has(sm.map)) {
+          seenTex.add(sm.map);
+          sm.map.dispose();
+        }
+
+        if (!seenMat.has(sm)) {
+          seenMat.add(sm);
+          sm.dispose();
+        }
+      }
+    });
+  }
+
+  function disposeSceneNode(node: SceneNode) {
+    scene.remove(node.group);
+    disposeObjectTree(node.group);
+  }
+
+  /*
+  Clears dynamic nodes/edges and simulation counters so timeline replay matches
+  a cold apply of events[0..index).
+  */
+  function resetDynamicVisualization() {
+    for (const node of nodes.values()) {
+      disposeSceneNode(node);
+    }
+
+    nodes.clear();
+
+    for (const edge of edges.values()) {
+      scene.remove(edge.line);
+      disposeObjectTree(edge.line);
+    }
+
+    edges.clear();
+
+    alu.totalDispatches = 0;
+    alu.recentOps.length = 0;
+
+    for (const key of Object.keys(alu.substrates) as (keyof typeof alu.substrates)[]) {
+      const substrate = alu.substrates[key];
+      substrate.inflight = 0;
+      substrate.totalDispatches = 0;
+      substrate.emaDurationNs = 0;
+      substrate.lastDurationNs = 0;
+    }
+
+    fieldState.globalPhase = 0;
+    fieldState.phaseConcentration = 0;
+    fieldState.eigenmodes = [];
+
+    for (const stage of pipelineStages.values()) {
+      stage.metrics.totalEvents = 0;
+      stage.metrics.bytesProcessed = 0;
+      stage.metrics.inflight = 0;
+      stage.metrics.emaDurationMs = 0;
+      stage.metrics.recentOps = [];
+    }
+
+    eventCount = 0;
+    selectedTarget = null;
+    deselectAll();
+
+    flowParticles.forEach((fp) => {
+      fp.active = false;
+      (fp.mesh.material as THREE.MeshBasicMaterial).opacity = 0;
+    });
+  }
+
   /* ── event application ────────────────────────────────────────── */
 
   function applyEvent(ev: VizEvent) {
@@ -964,8 +1120,7 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     } else if (k === EK.NodeRemoved) {
       const node = nodes.get(ev.src);
       if (node) {
-        scene.remove(node.group);
-        node.beamHypMeshes.forEach((m) => { m.geometry.dispose(); (m.material as THREE.Material).dispose(); });
+        disposeSceneNode(node);
         nodes.delete(ev.src);
         repositionNodes();
       }
@@ -1234,7 +1389,9 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
         applyEvent(frame.event);
         callbacks.onTimelineUpdate(timelineCursor, timeline.length);
       } else if (frame.frameType === 'bootstrap') {
-        frame.nodes.forEach((id) => ensureNode(id));
+        for (const id of frame.nodes) {
+          ensureNode(id);
+        }
       } else if (frame.frameType === 'stats') {
         droppedCount = frame.dropped;
       } else if (frame.frameType === 'scrub') {
@@ -1461,10 +1618,14 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
         (fp.mesh.material as THREE.MeshBasicMaterial).opacity = 0;
         return;
       }
-      const mid = fp.from.clone().add(fp.to).multiplyScalar(0.5);
-      mid.y += 1.5;
-      const pos = new THREE.QuadraticBezierCurve3(fp.from, mid, fp.to).getPoint(fp.t);
-      fp.mesh.position.copy(pos);
+      const t = fp.t;
+      const u = 1 - t;
+      const uu = u * u;
+      const tt = t * t;
+      fp.tmpPos.copy(fp.from).multiplyScalar(uu);
+      fp.tmpPos.addScaledVector(fp.mid, 2 * u * t);
+      fp.tmpPos.addScaledVector(fp.to, tt);
+      fp.mesh.position.copy(fp.tmpPos);
       (fp.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6 * Math.sin(fp.t * Math.PI);
     });
 
@@ -1534,10 +1695,12 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     /* Phase dials */
     dials.forEach((d) => {
       d.phase += d.speed * dt;
-      const tip = new THREE.Vector3(Math.cos(d.phase) * d.radius * 0.85, 0.04, Math.sin(d.phase) * d.radius * 0.85);
-      d.tip.position.copy(tip);
-      d.needle.geometry.dispose();
-      d.needle.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.04, 0), tip]);
+      const tipX = Math.cos(d.phase) * d.radius * 0.85;
+      const tipZ = Math.sin(d.phase) * d.radius * 0.85;
+      d.tip.position.set(tipX, 0.04, tipZ);
+      d.needlePos.setXYZ(1, tipX, 0.04, tipZ);
+      d.needlePos.needsUpdate = true;
+      d.needle.geometry.computeBoundingSphere();
     });
 
     /* Edge activity decay */
@@ -1571,10 +1734,50 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
       cancelAnimationFrame(animationId);
       window.removeEventListener('resize', onResize);
       renderer.domElement.removeEventListener('click', onClick);
+      controls.dispose();
+
       ws?.close();
-      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      ws = null;
+
+      if (wsReconnectTimer !== null) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+      }
+
+      for (const node of nodes.values()) {
+        scene.remove(node.group);
+        disposeObjectTree(node.group);
+      }
+
+      nodes.clear();
+
+      for (const edge of edges.values()) {
+        scene.remove(edge.line);
+        disposeObjectTree(edge.line);
+      }
+
+      edges.clear();
+
+      for (const particleMesh of datasetParticles) {
+        scene.remove(particleMesh);
+        disposeObjectTree(particleMesh);
+      }
+
+      for (const particleMesh of valueParticles) {
+        scene.remove(particleMesh);
+        disposeObjectTree(particleMesh);
+      }
+
+      for (const fp of flowParticles) {
+        scene.remove(fp.mesh);
+        disposeObjectTree(fp.mesh);
+      }
+
+      disposeObjectTree(scene);
+
       renderer.dispose();
       composer.dispose();
+      renderer.forceContextLoss();
       container.removeChild(renderer.domElement);
     },
 
@@ -1591,10 +1794,14 @@ export function initEngine(container: HTMLDivElement, callbacks: EngineCallbacks
     isPaused() { return paused; },
 
     scrubTo(index: number) {
-      /* Replay events up to index */
       if (index < 0 || index > timeline.length) return;
+      resetDynamicVisualization();
+      for (let idx = 0; idx < index; idx++) {
+        applyEvent(timeline[idx]);
+      }
       timelineCursor = index;
       callbacks.onTimelineUpdate(timelineCursor, timeline.length);
+      callbacks.onStats(getStats());
     },
 
     stepForward() {
