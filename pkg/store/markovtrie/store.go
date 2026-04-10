@@ -6,9 +6,11 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/algo/beam"
 	"github.com/theapemachine/six/pkg/core/algo/causal"
@@ -51,6 +53,8 @@ type Store struct {
 	seqPathMu sync.Mutex
 	seqPath   []primitive.Value
 }
+
+const directSurfaceCompletionScore = 64.0
 
 /*
 Option configures a Store.
@@ -236,9 +240,232 @@ func (store *Store) Predict(value primitive.Value) (*algo.Prediction, error) {
 		return algo.NewPrediction(), stackErr
 	}
 
+	merged.Continuations = append(
+		merged.Continuations,
+		store.partialSurfaceContinuations(token, value.String())...,
+	)
 	store.rescoreContinuations(merged)
 
 	return merged.SetContinuationOrigin(store.ID), stackErr
+}
+
+func (store *Store) partialSurfaceContinuations(
+	_ string,
+	querySurface string,
+) []algo.Continuation {
+	if store == nil || store.root == nil || querySurface == "" {
+		return nil
+	}
+
+	limit := store.beamLimit()
+	candidates := make([]algo.Continuation, 0, limit)
+
+	for _, rootChild := range store.root.Children() {
+		store.Walk(rootChild, func(node *Node) {
+			if node == nil {
+				return
+			}
+
+			surface := node.value.String()
+			overlap := directSurfaceOverlap(querySurface, surface)
+
+			if overlap == 0 {
+				return
+			}
+
+			suffix := surface[overlap:]
+			childSurface := store.bestChildSurface(node)
+			suffixes := make([]string, 0, 2)
+
+			if suffix != "" {
+				suffixes = append(suffixes, suffix)
+			}
+
+			if childSurface != "" {
+				suffixes = append(suffixes, suffix+childSurface)
+			}
+
+			if len(suffixes) == 0 {
+				return
+			}
+
+			for _, candidate := range suffixes {
+				candidate = store.trimSurfaceContinuation(candidate)
+
+				if candidate == "" {
+					continue
+				}
+
+				visits := float64(node.TotalVisits.Load())
+				score := directSurfaceCompletionScore + math.Log1p(visits)
+				score += float64(overlap) / float64(max(1, core.Cfg.Value.Region.MaxTokenIngestBytes()))
+				score += float64(len(candidate)) / float64(max(1, core.Cfg.Value.Region.MaxTokenIngestBytes()))
+
+				candidates = appendSurfaceContinuation(
+					candidates,
+					candidate,
+					score,
+					store.ID,
+					limit,
+				)
+			}
+		})
+	}
+
+	return candidates
+}
+
+/*
+directSurfaceOverlap returns the longest query suffix that is also a stored
+surface prefix. This catches prompts whose final Value segment straddles the
+ingest segment boundary.
+*/
+func directSurfaceOverlap(querySurface string, surface string) int {
+	limit := min(len(querySurface), len(surface))
+
+	if limit == 0 {
+		return 0
+	}
+
+	minOverlap := min(6, limit)
+
+	for overlap := limit; overlap >= minOverlap; overlap-- {
+		querySuffix := querySurface[len(querySurface)-overlap:]
+
+		if strings.TrimSpace(querySuffix) == "" {
+			continue
+		}
+
+		if querySuffix == surface[:overlap] {
+			return overlap
+		}
+	}
+
+	return 0
+}
+
+func appendSurfaceContinuation(
+	candidates []algo.Continuation,
+	candidate string,
+	score float64,
+	origin uint64,
+	limit int,
+) []algo.Continuation {
+	next := algo.Continuation{
+		Sequence: []byte(candidate),
+		Score:    score,
+		Origin:   origin,
+	}
+
+	for idx := range candidates {
+		if string(candidates[idx].Sequence) == candidate {
+			if next.Score > candidates[idx].Score {
+				candidates[idx] = next
+				sortSurfaceContinuations(candidates)
+			}
+
+			return candidates
+		}
+	}
+
+	if len(candidates) < limit {
+		candidates = append(candidates, next)
+		sortSurfaceContinuations(candidates)
+
+		return candidates
+	}
+
+	if compareSurfaceContinuation(next, candidates[len(candidates)-1]) >= 0 {
+		return candidates
+	}
+
+	candidates[len(candidates)-1] = next
+	sortSurfaceContinuations(candidates)
+
+	return candidates
+}
+
+func sortSurfaceContinuations(candidates []algo.Continuation) {
+	slices.SortStableFunc(candidates, compareSurfaceContinuation)
+}
+
+func compareSurfaceContinuation(
+	left algo.Continuation,
+	right algo.Continuation,
+) int {
+	if left.Score != right.Score {
+		return cmp.Compare(right.Score, left.Score)
+	}
+
+	return cmp.Compare(string(left.Sequence), string(right.Sequence))
+}
+
+func (store *Store) bestChildSurface(node *Node) string {
+	if node == nil {
+		return ""
+	}
+
+	children := node.Children()
+
+	if len(children) == 0 {
+		return ""
+	}
+
+	var best *Node
+	bestKey := ""
+
+	for key, child := range children {
+		if child == nil {
+			continue
+		}
+
+		if best == nil {
+			best = child
+			bestKey = key
+
+			continue
+		}
+
+		childVisits := child.TotalVisits.Load()
+		bestVisits := best.TotalVisits.Load()
+
+		if childVisits > bestVisits || (childVisits == bestVisits && key < bestKey) {
+			best = child
+			bestKey = key
+		}
+	}
+
+	if best == nil {
+		return ""
+	}
+
+	return best.value.String()
+}
+
+func (store *Store) beamLimit() int {
+	limit := core.Cfg.MarkovTrie.BeamWidth
+
+	if limit <= 0 {
+		return 3
+	}
+
+	return limit
+}
+
+/*
+trimSurfaceContinuation keeps direct surface readout bounded to one
+primitive.Value segment. It still bridges a short suffix into the next
+segment, but it will not spill into the next dataset sample when the
+target-sized span is already complete.
+*/
+func (store *Store) trimSurfaceContinuation(candidate string) string {
+	limit := core.Cfg.Value.Region.MaxTokenIngestBytes()
+
+	if limit > 0 && len(candidate) > limit {
+		return candidate[:limit]
+	}
+
+	return candidate
 }
 
 /*

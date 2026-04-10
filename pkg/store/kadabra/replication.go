@@ -143,6 +143,8 @@ func (node *Node) applyRecordToTrie(record SequenceRecord, primaryIngest bool) b
 		return false
 	}
 
+	node.rememberSequenceSurface(record)
+
 	trieIdx := node.trieIndex(trie)
 
 	viz.DefaultBus.Publish(viz.TrieInsertEvent(

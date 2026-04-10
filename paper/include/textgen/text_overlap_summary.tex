@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & prompt\_0 & 0.0000 & 0.0463 & 0.0463 & 0.0210 \\
-54 & prompt\_54 & 0.0000 & 0.0187 & 0.0187 & 0.0085 \\
-22 & prompt\_22 & 0.0000 & 0.0175 & 0.0175 & 0.0080 \\
+19 & prompt\_19 & 0.0000 & 0.4000 & 0.4000 & 0.1818 \\
+22 & prompt\_22 & 0.0000 & 0.3743 & 0.3743 & 0.1701 \\
+37 & prompt\_37 & 0.0000 & 0.3478 & 0.3478 & 0.1581 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-48 & prompt\_48 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-4 & prompt\_4 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-46 & prompt\_46 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+56 & prompt\_56 & 0.0000 & 0.0207 & 0.0207 & 0.0094 \\
+58 & prompt\_58 & 0.0000 & 0.1451 & 0.1451 & 0.0660 \\
+98 & prompt\_98 & 0.0000 & 0.1468 & 0.1468 & 0.0667 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{the needle and sewed the button on Lily'\ldots}} & \multicolumn{2}{l}{\texttt{her her her her her her her her her her \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once, there was a girl. She had a garage\ldots}} & \multicolumn{2}{l}{\texttt{.··Then she took some glue and fixed all\ldots}} & \multicolumn{2}{l}{\texttt{She She She She She}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a little inf\ldots}} & \multicolumn{2}{l}{\texttt{take his sad teddy bear outside to watch\ldots}} & \multicolumn{2}{l}{\texttt{Tim Tim Tim Tim Tim}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a little gir\ldots}} & \multicolumn{2}{l}{\texttt{the cat and the dog, to help her. They a\ldots}} & \multicolumn{2}{l}{\texttt{Lily Lily Lily Lily Lily}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a polite cra\ldots}} & \multicolumn{2}{l}{\texttt{the new friend how to play. They played \ldots}} & \multicolumn{2}{l}{\texttt{the new friend how to play. They played \ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a girl named\ldots}} & \multicolumn{2}{l}{\texttt{She named the snail Sam.··Sue and Sam pl\ldots}} & \multicolumn{2}{l}{\texttt{She named the snail Sam.··Sue and Sam pl\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once there was a little girl called Mia \ldots}} & \multicolumn{2}{l}{\texttt{a kept on jumping and interrupting.··Soo\ldots}} & \multicolumn{2}{l}{\texttt{al, so he went to a high mountain. It wa\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once, there was a small boy named Charli\ldots}} & \multicolumn{2}{l}{\texttt{rived home, Charlie couldn't believe his\ldots}} & \multicolumn{2}{l}{\texttt{rived home, Charlie couldn't believe his\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
-\multicolumn{3}{l}{Mean score: 0.0023} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0210} \\
+\multicolumn{3}{l}{Mean score: 0.0999} & \multicolumn{3}{l}{Min: 0.0094 \quad Max: 0.1818} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

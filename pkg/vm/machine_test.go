@@ -3,6 +3,7 @@ package vm
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"iter"
 	"testing"
@@ -63,7 +64,9 @@ func (provider *bytesProvider) Generate() iter.Seq[byte] {
 staticPromptProvider drives LoadPrompts tests without external datasets.
 */
 type staticPromptProvider struct {
-	seq iter.Seq[data.Prompt]
+	seq             iter.Seq[data.Prompt]
+	hasPromptLabels bool
+	readErr         error
 }
 
 var _ data.Provider = (*staticPromptProvider)(nil)
@@ -71,11 +74,25 @@ var _ data.PromptProvider = (*staticPromptProvider)(nil)
 var _ data.LabeledPromptProvider = (*staticPromptProvider)(nil)
 
 func newStaticPromptProvider(seq iter.Seq[data.Prompt]) *staticPromptProvider {
-	return &staticPromptProvider{seq: seq}
+	return newStaticPromptProviderWithLabels(seq, true)
+}
+
+func newStaticPromptProviderWithLabels(
+	seq iter.Seq[data.Prompt],
+	hasPromptLabels bool,
+) *staticPromptProvider {
+	return &staticPromptProvider{
+		seq:             seq,
+		hasPromptLabels: hasPromptLabels,
+	}
 }
 
 func (provider *staticPromptProvider) Read(destination []byte) (n int, err error) {
 	_ = destination
+
+	if provider.readErr != nil {
+		return 0, provider.readErr
+	}
 
 	return 0, io.EOF
 }
@@ -85,7 +102,7 @@ func (provider *staticPromptProvider) Close() error {
 }
 
 func (provider *staticPromptProvider) HasPromptLabels() bool {
-	return true
+	return provider.hasPromptLabels
 }
 
 func (provider *staticPromptProvider) Generate() iter.Seq[byte] {
@@ -188,6 +205,26 @@ func TestMachineLoad(t *testing.T) {
 		So(promptErr, ShouldBeNil)
 		So(prediction, ShouldNotBeNil)
 		So(prediction.Label(), ShouldEqual, "space")
+	})
+
+	Convey("Load uses PromptProvider boundaries without labels", t, func() {
+		ctx := context.Background()
+		machine, err := NewMachine(ctx)
+
+		So(err, ShouldBeNil)
+
+		defer func() {
+			So(machine.Close(), ShouldBeNil)
+		}()
+
+		provider := newStaticPromptProviderWithLabels(func(yield func(data.Prompt) bool) {
+			_ = yield(data.Prompt{
+				Text: "boundary-preserved prompt",
+			})
+		}, false)
+		provider.readErr = errors.New("raw Read should not be used for PromptProvider")
+
+		So(machine.Load(provider), ShouldBeNil)
 	})
 }
 

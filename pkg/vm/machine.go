@@ -208,7 +208,7 @@ insert has attempted to complete before the method returns (the shared queue
 also serves peers added dynamically when ingest reaches ShannonLimit).
 */
 func (machine *Machine) Load(dataset data.Provider) error {
-	if promptProvider, ok := dataset.(data.LabeledPromptProvider); ok && promptProvider.HasPromptLabels() {
+	if promptProvider, ok := dataset.(data.PromptProvider); ok {
 		return machine.LoadPrompts(promptProvider)
 	}
 
@@ -284,6 +284,8 @@ func (machine *Machine) LoadPrompts(provider data.PromptProvider) error {
 		if ingestErr != nil {
 			return errnie.Error(ingestErr)
 		}
+
+		machine.queue.Drain()
 	}
 
 	machine.queue.Drain()

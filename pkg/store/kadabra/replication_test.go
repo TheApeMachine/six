@@ -4,6 +4,7 @@ import (
 	"context"
 	"hash/fnv"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -362,6 +363,229 @@ func BenchmarkStoreReplicationPath(b *testing.B) {
 		queue.Drain()
 
 		_ = value.Close()
+	}
+}
+
+func TestNodePredictSequenceSurfaceContinuations(t *testing.T) {
+	setupKadabraPrimitiveLayout(t)
+
+	Convey("Given linked sequence Values routed through Kadabra", t, func() {
+		ctx := context.Background()
+
+		queue, qErr := pool.NewQueue(ctx)
+
+		So(qErr, ShouldBeNil)
+
+		defer func() {
+			_ = queue.Close()
+		}()
+
+		node, nErr := NewNode(ctx, "kadabra-sequence-surface", queue)
+
+		So(nErr, ShouldBeNil)
+
+		prefix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta ")))
+
+		So(vErr, ShouldBeNil)
+
+		defer prefix.Close()
+
+		suffix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("gamma")))
+
+		So(vErr, ShouldBeNil)
+
+		defer suffix.Close()
+
+		prefix.Set(core.Cfg.Value.Region.Next.Start, suffix.ID())
+		suffix.Set(core.Cfg.Value.Region.Prev.Start, prefix.ID())
+
+		prefixRecord := SequenceRecord{
+			Value:     *prefix,
+			Affinity:  prefix.AffinityVector(),
+			Publisher: node.ID,
+		}
+		prefixRecord.Key = prefixRecord.Hash()
+
+		suffixRecord := SequenceRecord{
+			Value:     *suffix,
+			Affinity:  suffix.AffinityVector(),
+			Publisher: node.ID,
+		}
+		suffixRecord.Key = suffixRecord.Hash()
+
+		So(node.Store(prefixRecord), ShouldBeNil)
+		So(node.Store(suffixRecord), ShouldBeNil)
+
+		queue.Drain()
+
+		Convey("When a prompt ends inside the prefix Value", func() {
+			query, qErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha ")))
+
+			So(qErr, ShouldBeNil)
+
+			defer query.Close()
+
+			prediction, predErr := node.Predict(query)
+
+			Convey("It should continue across the linked next Value", func() {
+				So(predErr, ShouldBeNil)
+				So(prediction.String(), ShouldEqual, "beta gamma")
+			})
+		})
+
+		Convey("When a prompt segment overlaps the stored prefix tail", func() {
+			query, qErr := primitive.FirstSegment(primitive.NewValue([]byte("xx alpha ")))
+
+			So(qErr, ShouldBeNil)
+
+			defer query.Close()
+
+			prediction, predErr := node.Predict(query)
+
+			Convey("It should continue from the suffix-aligned boundary", func() {
+				So(predErr, ShouldBeNil)
+				So(prediction.String(), ShouldEqual, "beta gamma")
+			})
+		})
+
+		Convey("When the linked next Value would overrun one segment", func() {
+			maxBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+			nextSurface := strings.Repeat("z", maxBytes)
+
+			prefix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("omega tail ")))
+
+			So(vErr, ShouldBeNil)
+
+			defer prefix.Close()
+
+			suffix, vErr := primitive.FirstSegment(primitive.NewValue([]byte(nextSurface)))
+
+			So(vErr, ShouldBeNil)
+
+			defer suffix.Close()
+
+			prefix.Set(core.Cfg.Value.Region.Next.Start, suffix.ID())
+			suffix.Set(core.Cfg.Value.Region.Prev.Start, prefix.ID())
+
+			prefixRecord := SequenceRecord{
+				Value:     *prefix,
+				Affinity:  prefix.AffinityVector(),
+				Publisher: node.ID,
+			}
+			prefixRecord.Key = prefixRecord.Hash()
+
+			suffixRecord := SequenceRecord{
+				Value:     *suffix,
+				Affinity:  suffix.AffinityVector(),
+				Publisher: node.ID,
+			}
+			suffixRecord.Key = suffixRecord.Hash()
+
+			So(node.Store(prefixRecord), ShouldBeNil)
+			So(node.Store(suffixRecord), ShouldBeNil)
+
+			queue.Drain()
+
+			query, qErr := primitive.FirstSegment(primitive.NewValue([]byte("omega ")))
+
+			So(qErr, ShouldBeNil)
+
+			defer query.Close()
+
+			prediction, predErr := node.Predict(query)
+			expected := "tail " + nextSurface
+
+			if len(expected) > maxBytes {
+				expected = expected[:maxBytes]
+			}
+
+			Convey("It should stop at the primitive segment budget", func() {
+				So(predErr, ShouldBeNil)
+				So(prediction.String(), ShouldEqual, expected)
+			})
+		})
+	})
+}
+
+func BenchmarkNodePredictSequenceSurfaceContinuations(b *testing.B) {
+	setupKadabraPrimitiveLayout(b)
+
+	ctx := context.Background()
+
+	queue, qErr := pool.NewQueue(ctx)
+
+	if qErr != nil {
+		b.Fatal(qErr)
+	}
+
+	defer func() {
+		_ = queue.Close()
+	}()
+
+	node, nErr := NewNode(ctx, "kadabra-sequence-surface-bench", queue)
+
+	if nErr != nil {
+		b.Fatal(nErr)
+	}
+
+	prefix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta ")))
+
+	if vErr != nil {
+		b.Fatal(vErr)
+	}
+
+	defer prefix.Close()
+
+	suffix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("gamma")))
+
+	if vErr != nil {
+		b.Fatal(vErr)
+	}
+
+	defer suffix.Close()
+
+	prefix.Set(core.Cfg.Value.Region.Next.Start, suffix.ID())
+	suffix.Set(core.Cfg.Value.Region.Prev.Start, prefix.ID())
+
+	prefixRecord := SequenceRecord{
+		Value:     *prefix,
+		Affinity:  prefix.AffinityVector(),
+		Publisher: node.ID,
+	}
+	prefixRecord.Key = prefixRecord.Hash()
+
+	suffixRecord := SequenceRecord{
+		Value:     *suffix,
+		Affinity:  suffix.AffinityVector(),
+		Publisher: node.ID,
+	}
+	suffixRecord.Key = suffixRecord.Hash()
+
+	if err := node.Store(prefixRecord); err != nil {
+		b.Fatal(err)
+	}
+
+	if err := node.Store(suffixRecord); err != nil {
+		b.Fatal(err)
+	}
+
+	queue.Drain()
+
+	query, qErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha ")))
+
+	if qErr != nil {
+		b.Fatal(qErr)
+	}
+
+	defer query.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		if _, err := node.Predict(query); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

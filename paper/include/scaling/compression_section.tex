@@ -11,8 +11,8 @@ spread (hypothesis diversity), and origin diversity (mesh utilization).
 
 \paragraph{Results.}
 Compression ratio: 512.0\,bytes/entry (25\,KB $\to$ 50 entries).
-Post-compression beam confidence rises across query depth
-(top-score $$\mu = -2.875$, $\sigma = 4.540$, median $= -3.466$, range $[-29.885,\,0.000]$, $N = 50$$). Rejection rate: $\mu = 0.018$. Origin diversity:
+Post-compression beam confidence remains stable across query depth
+(top-score $$\mu = -0.007$, $\sigma = 0.019$, median $= -0.014$, range $[-0.030,\,0.031]$, $N = 50$$). Rejection rate: $\mu = 0.875$. Origin diversity:
 $\mu = 1.0$ tries contributing.
 
 Figure~\ref{fig:compression_chart} shows whether de-duplication
@@ -21,7 +21,8 @@ reduces hypothesis diversity (bottom-left), or narrows mesh
 utilization (bottom-right).
 
 \paragraph{Assessment.}
-Aggressive de-duplication (ratio 512.0) without prediction degradation:
-rejection rate stays low ($0.018$) and beam confidence rises. The
-substrate's attractor collisions preserve routing fidelity—shared
-attractors still resolve to correct trie regions under query load.
+High compression (ratio 512.0) correlates with elevated rejection
+($0.875$). De-duplication merges enough attractors that affinity routing
+sends queries to tries with overlapping basins—the node-level beam
+must prune more aggressively. This is the measurable cost of
+compression on prediction quality.

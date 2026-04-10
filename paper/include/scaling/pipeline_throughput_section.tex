@@ -10,10 +10,10 @@ pipeline slows down, and whether prediction quality (beam confidence,
 rejection rate) degrades as the substrate processes more requests.
 
 \paragraph{Results.}
-Total time: 0\,ms. Ingestion rate: 0.0\,KB/s (50 entries).
-Per-query latency remains stable across the sequence (mean 0.1\,ms,
-range [0.0,\,1.0]\,ms). Beam confidence: $$\mu = -3.229$, $\sigma = 5.735$, median $= -3.466$, range $[-39.813,\,0.000]$, $N = 50$$.
-Rejection rate: $\mu = 0.018$.
+Total time: 20\,ms. Ingestion rate: 1250.0\,KB/s (50 entries).
+Per-query latency remains stable across the sequence (mean 0.0\,ms,
+range [0.0,\,0.0]\,ms). Beam confidence: $$\mu = 0.002$, $\sigma = 0.017$, median $= 0.004$, range $[-0.029,\,0.031]$, $N = 50$$.
+Rejection rate: $\mu = 0.875$.
 
 Figure~\ref{fig:pipeline_throughput_chart} shows the latency
 trajectory (top-left), sustained throughput curve (top-right), beam
@@ -21,8 +21,7 @@ confidence under load (bottom-left), and substrate pressure signals
 (bottom-right).
 
 \paragraph{Assessment.}
-Latency stays flat across the query sequence (mean 0.1\,ms,
-$\sigma = 0.3$\,ms) with low rejection ($0.018$). The pipeline
-scales linearly with query count at this corpus size—no evidence
-of substrate congestion, lock contention, or cache thrashing.
-Beam confidence remains coherent under sustained load.
+Per-query latency: mean 0.0\,ms ($\sigma = 0.0$\,ms). Beam
+confidence: $\mu = 0.002$. Rejection: $0.875$. The four-panel
+view shows whether throughput, prediction quality, and mesh noise
+are correlated or independent under load.

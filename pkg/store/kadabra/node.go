@@ -59,6 +59,7 @@ type Node struct {
 	epochQueries      int
 	securityThreshold float64
 	queue             *pool.Queue
+	sequenceSurfaces  sequenceSurfaceIndex
 
 	// meshLoad holds the primary-ingest centroid (Store with fanout) under
 	// lock-free CAS updates (see blendMeshLoadCentroid). At ShannonLimit,
@@ -265,6 +266,10 @@ func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
 
 	observation := algo.NewPrediction()
 	observation.AddContext(*pv)
+	observation.Continuations = append(
+		observation.Continuations,
+		node.partialSequenceContinuations(pv)...,
+	)
 
 	if fieldProjection != nil {
 		observation.Merge(fieldProjection)

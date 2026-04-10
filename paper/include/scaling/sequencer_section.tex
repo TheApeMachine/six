@@ -9,8 +9,8 @@ quality as queries target progressively deeper data? Metrics are
 beam confidence, rejection rate, and origin diversity.
 
 \paragraph{Results.}
-Beam confidence rises across 50 queries (top-score $$\mu = -2.983$, $\sigma = 3.407$, median $= -3.466$, range $[-21.438,\,0.000]$, $N = 50$$).
-Rejection rate: $\mu = 0.018$. Origin diversity: $\mu = 1.0$ tries.
+Beam confidence remains stable across 50 queries (top-score $$\mu = -0.003$, $\sigma = 0.020$, median $= -0.007$, range $[-0.033,\,0.032]$, $N = 50$$).
+Rejection rate: $\mu = 0.875$. Origin diversity: $\mu = 1.0$ tries.
 Substrate entries: 50.
 
 Figure~\ref{fig:sequencer_map} shows beam confidence trajectory
@@ -18,7 +18,9 @@ Figure~\ref{fig:sequencer_map} shows beam confidence trajectory
 noise (bottom-left), and mesh utilization (bottom-right).
 
 \paragraph{Assessment.}
-Beam confidence: $$\mu = -2.983$, $\sigma = 3.407$, median $= -3.466$, range $[-21.438,\,0.000]$, $N = 50$$ (trend: rises). Rejection: $0.018$.
-The four-panel view shows whether boundary detection quality,
-routing efficiency, and adaptive signals move together or
-independently across corpus depth.
+High rejection ($0.875$) despite boundary-aware splits suggests the
+sequencer's boundary detection is misaligned with the trie mesh's
+attractor structure. The boundary-chosen split points produce
+prefixes that don't match any trie's centroid well. The phase
+concentration signal indicates whether this is correctable by
+mesh re-balancing or fundamental to the byte distribution.

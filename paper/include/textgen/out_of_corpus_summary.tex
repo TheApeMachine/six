@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-8 & prompt\_8 & 0.0000 & 0.1250 & 0.0417 & 0.0417 \\
-4 & prompt\_4 & 0.0000 & 0.1000 & 0.0417 & 0.0348 \\
-1 & prompt\_1 & 0.0000 & 0.0055 & 0.0055 & 0.0025 \\
+4 & prompt\_4 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+8 & prompt\_8 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+0 & prompt\_0 & 0.0000 & 0.8000 & 0.1875 & 0.2523 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & prompt\_9 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-7 & prompt\_7 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-6 & prompt\_6 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+6 & prompt\_6 & 0.0000 & 0.0788 & 0.0788 & 0.0358 \\
+5 & prompt\_5 & 0.0000 & 0.1047 & 0.1047 & 0.0476 \\
+9 & prompt\_9 & 0.0000 & 0.1208 & 0.1208 & 0.0549 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= = Pl}} & \multicolumn{2}{l}{\texttt{ot = = ·}} & \multicolumn{2}{l}{\texttt{··S· ··S· ··S· ··S· ··S·}} \\
-\multicolumn{2}{l}{\texttt{= = Game}} & \multicolumn{2}{l}{\texttt{play = = ·}} & \multicolumn{2}{l}{\texttt{··S· ··S· ··S· ··S· ··S·}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{he three main characters are No.7 Kurt I\ldots}} & \multicolumn{2}{l}{\texttt{·,·*·· ·,·*·· ·,·*·· ·,·*·· ·,·*··}} \\
-\multicolumn{2}{l}{\texttt{Troops are divided into five classes : S\ldots}} & \multicolumn{2}{l}{\texttt{lass . With victory in battle , experien\ldots}} & \multicolumn{2}{l}{\texttt{·7·····!·2·X·K·(·+·····9·/··············\ldots}} \\
+\multicolumn{2}{l}{\texttt{= = Game}} & \multicolumn{2}{l}{\texttt{play = = ·}} & \multicolumn{2}{l}{\texttt{play = = ·}} \\
+\multicolumn{2}{l}{\texttt{= = Pl}} & \multicolumn{2}{l}{\texttt{ot = = ·}} & \multicolumn{2}{l}{\texttt{ot = = ·}} \\
+\multicolumn{2}{l}{\texttt{The game 's battle system , the BliTZ sy\ldots}} & \multicolumn{2}{l}{\texttt{ach character . They are divided into " \ldots}} & \multicolumn{2}{l}{\texttt{ach character . They are divided into " \ldots}} \\
+\multicolumn{2}{l}{\texttt{As with previous Valkyira Chronicles gam\ldots}} & \multicolumn{2}{l}{\texttt{on an individual player 's approach : wh\ldots}} & \multicolumn{2}{l}{\texttt{on an individual player 's approach : wh\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
-\multicolumn{3}{l}{Mean score: 0.0081} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0417} \\
+\multicolumn{3}{l}{Mean score: 0.2800} & \multicolumn{3}{l}{Min: 0.0358 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

@@ -108,6 +108,15 @@ type SummaryHoldoutDescriptor interface {
 	SummaryHoldoutDescription() string
 }
 
+/*
+PromptAnswerer lets an experiment project the raw substrate Prediction into
+the observation that its scorer expects. This keeps task-specific horizons,
+label extraction, and answer normalization out of the generic pipeline loop.
+*/
+type PromptAnswerer interface {
+	AnswerForPrompt(idx int, prediction *algo.Prediction) string
+}
+
 // countPrefixMatches returns the number of positions where expected[i] == retrieved[i]
 // up to min(len(expected), len(retrieved)).
 func countPrefixMatches(expected, retrieved []byte) int {

@@ -26,10 +26,10 @@ columns show the Exact, Partial, Fuzzy, and Weighted scores on a
 panel displays the weighted score per sample alongside the
 overall mean (orange dashed line).
 
-The system achieved an exact-match accuracy of 17.8\%
+The system achieved an exact-match accuracy of 16.8\%
 across all 500 samples, with a mean partial score of
-0.178 and an overall weighted score of
-0.178.
+0.168 and an overall weighted score of
+0.168.
 
 \paragraph{Assessment.}
 Exact-match accuracy was low.  The Transitive Resonance mechanism
@@ -40,8 +40,8 @@ may not separate location attractors reliably.
 \begin{table}[htbp]
   \centering
   \caption{bAbI Task~1 failure cases (showing first 20 of
-    411). $N = 500$, exact accuracy
-    17.8\%.}
+    416). $N = 500$, exact accuracy
+    16.8\%.}
   \label{tab:babi_failures}
   \begin{tabular}{rlll}
     \toprule
@@ -53,10 +53,12 @@ may not separate location attractors reliably.
     3 & Daniel & \texttt{office} & \texttt{bathroom} \\
     4 & Sandra & \texttt{bathroom} & \texttt{office} \\
     5 & Sandra & \texttt{bathroom} & \texttt{office} \\
+    6 & Sandra & \texttt{bathroom} & \texttt{office} \\
     7 & Sandra & \texttt{bathroom} & \texttt{office} \\
     8 & John & \texttt{office} & \texttt{bedroom} \\
-    9 & Daniel & \texttt{hallway} & \texttt{bedroom} \\
-    11 & Mary & \texttt{bedroom} & \texttt{bathroom} \\
+    9 & Daniel & \texttt{hallway} & \texttt{bathroom} \\
+    10 & John & \texttt{bathroom} & \texttt{bedroom} \\
+    11 & Mary & \texttt{bedroom} & \texttt{office} \\
     12 & John & \texttt{bathroom} & \texttt{bedroom} \\
     13 & John & \texttt{bathroom} & \texttt{bedroom} \\
     14 & Sandra & \texttt{bedroom} & \texttt{office} \\
@@ -65,8 +67,6 @@ may not separate location attractors reliably.
     17 & Sandra & \texttt{hallway} & \texttt{office} \\
     18 & Sandra & \texttt{hallway} & \texttt{office} \\
     19 & Daniel & \texttt{hallway} & \texttt{bathroom} \\
-    20 & John & \texttt{bathroom} & \texttt{bedroom} \\
-    21 & Mary & \texttt{garden} & \texttt{office} \\
     \bottomrule
   \end{tabular}
 \end{table}

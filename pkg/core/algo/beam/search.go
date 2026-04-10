@@ -194,6 +194,13 @@ func (search *Search) expand(
 	endToken := core.Cfg.MarkovTrie.EndToken
 	maxHops := search.maxHops
 
+	if len(prediction.Continuations) > 0 {
+		// Incoming continuations are already generated spans from child beams.
+		// Treating them like ordinary next-token distributions repeats whole
+		// phrases and destroys byte-level completion accuracy.
+		maxHops = 1
+	}
+
 	if maxHops <= 0 {
 		maxHops = 5
 	}

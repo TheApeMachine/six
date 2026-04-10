@@ -56,6 +56,21 @@ func TestSearchUpdate(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(len(out.Continuations), ShouldBeGreaterThan, 0)
 	})
+
+	Convey("Update emits incoming continuations once", t, func() {
+		search := NewSearch()
+		search.maxHops = 5
+		prediction := algo.NewPrediction()
+		prediction.Continuations = append(prediction.Continuations, algo.Continuation{
+			Sequence: []byte("resident suffix"),
+			Score:    64,
+		})
+
+		out, err := search.Update(prediction)
+
+		So(err, ShouldBeNil)
+		So(out.String(), ShouldEqual, "resident suffix")
+	})
 }
 
 func TestSearchValue(t *testing.T) {
@@ -163,6 +178,26 @@ func BenchmarkSearchUpdate(b *testing.B) {
 			*right,
 		)
 
+		_, err := search.Update(prediction)
+
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSearchUpdateContinuations(b *testing.B) {
+	search := NewSearch()
+	prediction := algo.NewPrediction()
+	prediction.Continuations = append(prediction.Continuations, algo.Continuation{
+		Sequence: []byte("bench suffix"),
+		Score:    64,
+	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
 		_, err := search.Update(prediction)
 
 		if err != nil {

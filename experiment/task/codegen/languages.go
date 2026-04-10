@@ -22,6 +22,8 @@ var _ tools.PipelineExperiment = (*LanguagesExperiment)(nil)
 
 var _ tools.SummaryHoldoutDescriptor = (*LanguagesExperiment)(nil)
 
+var _ tools.PromptAnswerer = (*LanguagesExperiment)(nil)
+
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
 // The subset name is the path component used to select the right parquet shard.
 var humanEvalLanguages = []struct {
@@ -172,6 +174,22 @@ func (experiment *LanguagesExperiment) OutcomeForPrompt(idx int) (any, Assertion
 
 func (experiment *LanguagesExperiment) Answer(prediction *algo.Prediction) string {
 	return prediction.String()
+}
+
+func (experiment *LanguagesExperiment) AnswerForPrompt(idx int, prediction *algo.Prediction) string {
+	answer := experiment.Answer(prediction)
+
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return answer
+	}
+
+	horizon := len(experiment.holdouts[idx])
+
+	if horizon > 0 && len(answer) > horizon {
+		return answer[:horizon]
+	}
+
+	return answer
 }
 
 func (experiment *LanguagesExperiment) Score() float64 {

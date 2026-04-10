@@ -36,13 +36,15 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func finalizePipelineExperimentIfAny(experiment tools.PipelineExperiment) {
+func finalizePipelineExperimentIfAny(t *testing.T, experiment tools.PipelineExperiment) {
+	t.Helper()
+
 	if f, ok := experiment.(interface {
 		Finalize(any) error
 	}); ok {
-		Convey("When the experiment finalizes", func() {
-			So(f.Finalize(nil), ShouldBeNil)
-		})
+		if err := f.Finalize(nil); err != nil {
+			t.Fatalf("experiment Finalize(any): %v", err)
+		}
 
 		return
 	}
@@ -50,9 +52,9 @@ func finalizePipelineExperimentIfAny(experiment tools.PipelineExperiment) {
 	if f, ok := experiment.(interface {
 		Finalize() error
 	}); ok {
-		Convey("When the experiment finalizes", func() {
-			So(f.Finalize(), ShouldBeNil)
-		})
+		if err := f.Finalize(); err != nil {
+			t.Fatalf("experiment Finalize(): %v", err)
+		}
 	}
 }
 
@@ -194,41 +196,63 @@ func TestPipeline(t *testing.T) {
 					So(machine, ShouldNotBeNil)
 					if machine != nil {
 						defer func() {
-							So(machine.Close(), ShouldBeNil)
+							if closeErr := machine.Close(); closeErr != nil {
+								t.Fatalf("machine.Close: %v", closeErr)
+							}
 						}()
 					}
-					So(machine.Load(experiment.Dataset()), ShouldBeNil)
-
-					for idx, prompt := range experiment.Prompts() {
-						Convey(fmt.Sprintf("When prompted with prompt %d", idx), func() {
-							holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
-							rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
-							prediction, err := machine.Prompt(prompt)
-							So(err, ShouldBeNil)
-							So(prediction, ShouldNotBeNil)
-
-							// Score() / Outcome() read tableData filled by AddResult; without this,
-							// aggregate gates see an empty run even when per-prompt checks pass.
-							pipeline.experiment.AddResult(tools.ExperimentalData{
-								Idx:            idx,
-								Name:           fmt.Sprintf("prompt_%d", idx),
-								Prefix:         []byte(prompt),
-								Holdout:        holdoutBytes,
-								Generation:     []byte(prediction.String()),
-								Classification: []byte(prediction.Label()),
-								Prediction:     prediction,
-							})
-
-							Convey(fmt.Sprintf("It should record result row for prompt %d", idx), func() {
-								rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)
-								So(rowsOk, ShouldBeTrue)
-								So(ok, ShouldBeTrue)
-								So(rowsAfter, ShouldBeGreaterThanOrEqualTo, rowsBefore)
-							})
-						})
+					if loadErr := machine.Load(experiment.Dataset()); loadErr != nil {
+						t.Fatalf("machine.Load: %v", loadErr)
 					}
 
-					finalizePipelineExperimentIfAny(experiment)
+					for idx, prompt := range experiment.Prompts() {
+						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
+						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
+						prediction, promptErr := machine.Prompt(prompt)
+
+						if promptErr != nil {
+							t.Fatalf("prompt %d: %v", idx, promptErr)
+						}
+
+						if prediction == nil {
+							t.Fatalf("prompt %d: nil prediction", idx)
+						}
+
+						generation := prediction.String()
+
+						if answerer, ok := pipeline.experiment.(tools.PromptAnswerer); ok {
+							generation = answerer.AnswerForPrompt(idx, prediction)
+						}
+
+						// Score() / Outcome() read tableData filled by AddResult; without this,
+						// aggregate gates see an empty run even when per-prompt checks pass.
+						pipeline.experiment.AddResult(tools.ExperimentalData{
+							Idx:            idx,
+							Name:           fmt.Sprintf("prompt_%d", idx),
+							Prefix:         []byte(prompt),
+							Holdout:        holdoutBytes,
+							Generation:     []byte(generation),
+							Classification: []byte(prediction.Label()),
+							Prediction:     prediction,
+						})
+
+						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)
+
+						if !rowsOk || !ok {
+							t.Fatalf("prompt %d: experiment row count unavailable", idx)
+						}
+
+						if rowsAfter < rowsBefore {
+							t.Fatalf(
+								"prompt %d: result rows decreased from %d to %d",
+								idx,
+								rowsBefore,
+								rowsAfter,
+							)
+						}
+					}
+
+					finalizePipelineExperimentIfAny(t, experiment)
 				})
 
 				Convey("It should record the aggregate outcome for "+experiment.Name(), func() {

@@ -2,9 +2,7 @@ package misc
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
@@ -301,145 +299,16 @@ func (exp *GemmaIntegrationExperiment) TableData() any {
 }
 
 /*
-Finalize loads Gemma 2B via gomlx/gemma and runs both integration benchmarks
-using the TranslationLayer to bridge the Machine substrate into Gemma's
-forward pass.
-
-Mode 1 (Manifold-grafted generation): Uses GemmaWithSubstrate to inject
-substrate cross-attention at layers 6, 12, 18 during decoding.
-
-Mode 2 (KV-cache replacement): Uses PopulateCache to fill the KV cache
-with substrate-derived embeddings, then decodes from a short prompt.
+Finalize keeps Gemma comparison slots from overwriting substrate results when
+the external GoMLX bridge is not linked into the current tree.
 */
 func (exp *GemmaIntegrationExperiment) Finalize() error {
-	hfToken := os.Getenv("HF_TOKEN")
-	if hfToken == "" {
-		hfToken = os.Getenv("HF_API_TOKEN")
-	}
-
-	if hfToken == "" {
-		return GemmaIntegrationError("HF_TOKEN not set — skipping Gemma benchmarks")
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		home = os.TempDir()
-	}
-
-	// dataDir := strings.ReplaceAll(giDataDir, "~", home)
-	// mlCtx := gomlxctx.New()
-
-	// vocab, err := hfd.Download(mlCtx, giModelID, hfToken, dataDir)
-	// if err != nil {
-	// 	return fmt.Errorf("gemma download: %w", err)
-	// }
-
-	// backend := backends.New()
-
-	// sampler, err := samplers.New(backend, mlCtx, vocab, giMaxTokens)
-	// if err != nil {
-	// 	return fmt.Errorf("gemma sampler: %w", err)
-	// }
-
-	// gemmaConfig, err := transformers.NewConfigFromContext(mlCtx.In("model"))
-	// if err != nil {
-	// 	return fmt.Errorf("gemma config: %w", err)
-	// }
-
-	// goCtx := context.Background()
-
-	// machine := vm.NewMachine(
-	// 	vm.MachineWithContext(goCtx),
-	// )
-	// defer machine.Close()
-
-	// translator := vm.NewTranslationLayer(
-	// 	machine,
-	// 	vm.TranslationLayerWithInjectionLayers([]int{6, 12, 18}),
-	// 	vm.TranslationLayerWithTopK(8),
-	// )
-
-	// Mode 1: manifold-grafted generation via TranslationLayer
-	exp.graftResults = make([]giResult, 0, len(giGraftCases))
-
-	for _, cas := range giGraftCases {
-		result := giResult{Name: cas.Name}
-
-		t0 := time.Now()
-		// plain, plainErr := sampler.Sample([]string{cas.Prompt})
-		result.PlainSec = time.Since(t0).Seconds()
-
-		// if plainErr == nil && len(plain) > 0 {
-		// 	result.PlainOK = strings.Contains(strings.ToLower(plain[0]), cas.Contains)
-		// }
-
-		// Hybrid: query substrate with the prompt, then use the readout
-		// to bias generation via the translation layer.
-		t1 := time.Now()
-		// substrateBytes, subErr := translator.QuerySubstrate([]byte(cas.Prompt))
-
-		// if subErr == nil && len(substrateBytes) > 0 {
-		// 	// Run Gemma with substrate context prepended as byte tokens.
-		// 	// The substrate readout is embedded using Gemma's byte fallback
-		// 	// tokens (IDs 3–258) and prepended to the prompt.
-		// 	substrateText := flattenSubstrateBytes(substrateBytes, 512)
-		// 	hybridPrompt := substrateText + cas.Prompt
-
-		// 	hybrid, hybridErr := sampler.Sample([]string{hybridPrompt})
-
-		// 	if hybridErr == nil && len(hybrid) > 0 {
-		// 		result.HybridOK = strings.Contains(strings.ToLower(hybrid[0]), cas.Contains)
-		// 	}
-		// }
-
-		result.HybridSec = time.Since(t1).Seconds()
-
-		exp.graftResults = append(exp.graftResults, result)
-	}
-
-	// Mode 2: KV-cache replacement via TranslationLayer
-	exp.kvResults = make([]giResult, 0, len(exp.kvCases))
-
-	for _, cas := range exp.kvCases {
-		result := giResult{Name: cas.Name}
-
-		// Plain: full document in context window
-		// fullPrompt := "<start_of_turn>user\n" + cas.Document[:min(len(cas.Document), 8000)] + "\n" + cas.Question
-		// t0 := time.Now()
-		// full, fullErr := sampler.Sample([]string{fullPrompt})
-		// result.PlainSec = time.Since(t0).Seconds()
-
-		// if fullErr == nil && len(full) > 0 {
-		// 	result.PlainOK = strings.Contains(strings.ToLower(full[0]), cas.Contains)
-		// }
-
-		// Hybrid: populate KV cache from substrate, decode from question-only
-		t1 := time.Now()
-		// substrateBytes, subErr := translator.QuerySubstrate([]byte(cas.Document))
-
-		// if subErr == nil && len(substrateBytes) > 0 {
-		// 	cache, cacheErr := transformers.NewCache(gemmaConfig, 1)
-
-		// 	if cacheErr == nil {
-		// 		popErr := translator.PopulateCache(
-		// 			backend, mlCtx, gemmaConfig, cache, substrateBytes,
-		// 		)
-
-		// 		if popErr == nil {
-		// 			hybrid, hybridErr := sampler.Sample([]string{cas.Question})
-
-		// 			if hybridErr == nil && len(hybrid) > 0 {
-		// 				result.HybridOK = strings.Contains(strings.ToLower(hybrid[0]), cas.Contains)
-		// 			}
-		// 		}
-		// 	}
-		// }
-
-		result.HybridSec = time.Since(t1).Seconds()
-		// result.HybridSteps = gemmaConfig.NumLayers
-
-		exp.kvResults = append(exp.kvResults, result)
-	}
+	// The GoMLX/Gemma bridge referenced by the original prototype is not linked
+	// in this tree. Do not synthesize zero-success comparison rows: Score()
+	// intentionally falls back to the substrate rows emitted by the pipeline
+	// when external Gemma results are absent.
+	exp.graftResults = exp.graftResults[:0]
+	exp.kvResults = exp.kvResults[:0]
 
 	return nil
 }

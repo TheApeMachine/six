@@ -2,9 +2,11 @@ package markovtrie
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/numeric/gf"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -172,6 +174,122 @@ func TestStorePredict(t *testing.T) {
 
 		So(err, ShouldBeNil)
 		So(pred, ShouldNotBeNil)
+	})
+
+	Convey("Predict completes a prefix inside a loaded Value", t, func() {
+		store, err := NewStore(context.Background(), primitive.Affinity{})
+
+		So(err, ShouldBeNil)
+
+		full, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta gamma")))
+
+		So(vErr, ShouldBeNil)
+
+		defer full.Close()
+
+		query, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta ")))
+
+		So(vErr, ShouldBeNil)
+
+		defer query.Close()
+
+		So(store.Load(*full), ShouldBeNil)
+
+		pred, err := store.Predict(*query)
+
+		So(err, ShouldBeNil)
+		So(pred.String(), ShouldEqual, "gamma")
+	})
+
+	Convey("Predict completes a suffix-aligned prompt segment", t, func() {
+		store, err := NewStore(context.Background(), primitive.Affinity{})
+
+		So(err, ShouldBeNil)
+
+		full, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta gamma")))
+
+		So(vErr, ShouldBeNil)
+
+		defer full.Close()
+
+		query, vErr := primitive.FirstSegment(primitive.NewValue([]byte("xx alpha beta ")))
+
+		So(vErr, ShouldBeNil)
+
+		defer query.Close()
+
+		So(store.Load(*full), ShouldBeNil)
+
+		pred, err := store.Predict(*query)
+
+		So(err, ShouldBeNil)
+		So(pred.String(), ShouldEqual, "gamma")
+	})
+
+	Convey("Predict extends exact segment matches through the best child", t, func() {
+		store, err := NewStore(context.Background(), primitive.Affinity{})
+
+		So(err, ShouldBeNil)
+
+		prefix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta ")))
+
+		So(vErr, ShouldBeNil)
+
+		defer prefix.Close()
+
+		suffix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("gamma")))
+
+		So(vErr, ShouldBeNil)
+
+		defer suffix.Close()
+
+		So(store.Load(*prefix), ShouldBeNil)
+		So(store.Load(*suffix), ShouldBeNil)
+
+		pred, err := store.Predict(*prefix)
+
+		So(err, ShouldBeNil)
+		So(pred.String(), ShouldEqual, "gamma")
+	})
+
+	Convey("Predict caps bridged segment matches at one Value span", t, func() {
+		store, err := NewStore(context.Background(), primitive.Affinity{})
+
+		So(err, ShouldBeNil)
+
+		maxBytes := core.Cfg.Value.Region.MaxTokenIngestBytes()
+		childSurface := strings.Repeat("z", maxBytes)
+
+		prefix, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta ")))
+
+		So(vErr, ShouldBeNil)
+
+		defer prefix.Close()
+
+		suffix, vErr := primitive.FirstSegment(primitive.NewValue([]byte(childSurface)))
+
+		So(vErr, ShouldBeNil)
+
+		defer suffix.Close()
+
+		query, vErr := primitive.FirstSegment(primitive.NewValue([]byte("alpha ")))
+
+		So(vErr, ShouldBeNil)
+
+		defer query.Close()
+
+		So(store.Load(*prefix), ShouldBeNil)
+		So(store.Load(*suffix), ShouldBeNil)
+
+		pred, err := store.Predict(*query)
+		expected := "beta " + childSurface
+
+		if len(expected) > maxBytes {
+			expected = expected[:maxBytes]
+		}
+
+		So(err, ShouldBeNil)
+		So(pred.String(), ShouldEqual, expected)
 	})
 }
 
@@ -392,6 +510,45 @@ func BenchmarkStorePredict(b *testing.B) {
 	}
 
 	stack := *tok
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		_, _ = store.Predict(stack)
+	}
+}
+
+func BenchmarkStorePredictPartialSurface(b *testing.B) {
+	setupMarkovTrieValueConfig(b)
+
+	store, err := NewStore(context.Background(), primitive.Affinity{})
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	full, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta gamma")))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer full.Close()
+
+	query, err := primitive.FirstSegment(primitive.NewValue([]byte("alpha beta ")))
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer query.Close()
+
+	if err := store.Load(*full); err != nil {
+		b.Fatal(err)
+	}
+
+	stack := *query
 
 	b.ReportAllocs()
 	b.ResetTimer()
