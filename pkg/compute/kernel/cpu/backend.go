@@ -35,7 +35,7 @@ func (backend *Backend) Name() string { return "cpu" }
 
 /*
 Execute walks each Value frame: geometric opcodes (wordblock assembly where
-available), batch nearest-affinity when opcode 0x6 and batchCount > 0, then
+available), batch nearest-affinity when opcode is OpcodeXOR and batchCount > 0, then
 universalBitwiseV2 — the same symbol implemented in wordblock_amd64.s /
 wordblock_arm64.s (SIMD) or as a stub in wordblock_generic.go on other GOARCHes.
 */
@@ -52,11 +52,11 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		value := (*uint64)(ptr)
-		v := (*[128]uint64)(ptr)
+		frameWords := (*[128]uint64)(ptr)
 
-		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
+		rawOpcode := frameWords[kernel.ProgramStartWord] & 0xFF
 		opcode := rawOpcode & kernel.OpcodeBooleanMask
-		batchCount := v[kernel.NearestAffinityBatchWord]
+		batchCount := frameWords[kernel.NearestAffinityBatchWord]
 
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
@@ -68,8 +68,8 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			}
 		}
 
-		if opcode == 0x6 && batchCount > 0 {
-			nearestBatchReduce(v, batchCount)
+		if opcode == kernel.OpcodeXOR && batchCount > 0 {
+			nearestBatchReduce(frameWords, batchCount)
 
 			continue
 		}

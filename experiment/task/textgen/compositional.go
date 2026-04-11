@@ -5,7 +5,6 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -97,13 +96,6 @@ func (experiment *CompositionalExperiment) Score() float64 {
 }
 
 func (experiment *CompositionalExperiment) TableData() any { return experiment.tableData }
-
-/*
-Answer returns the generated text continuation.
-*/
-func (experiment *CompositionalExperiment) Answer(prediction *algo.Prediction) string {
-	return prediction.String()
-}
 
 func (experiment *CompositionalExperiment) Artifacts() []tools.Artifact {
 	return CompositionalArtifacts(experiment.tableData, experiment.Score())

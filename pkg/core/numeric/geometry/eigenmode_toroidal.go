@@ -2,7 +2,9 @@ package geometry
 
 import (
 	"math"
+	"math/bits"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -18,6 +20,10 @@ affinity geometry. Analytical: no transition matrices; phase derives from
 set-bit indices as angles 2π·idx/257 and from total affinity popcount.
 
 Theta: circular mean of active lane angles. Phi: 2π·AffinityPopcount/257.
+
+Trained is false until BuildMultiScaleCooccurrence succeeds; that method is
+the single place the API marks a mode as trained (even though the analytical
+path does not learn parameters).
 */
 type EigenMode struct {
 	Trained bool
@@ -30,11 +36,11 @@ type eigenModeOpts func(*EigenMode)
 
 /*
 NewEigenMode creates a stateless, value-native phase evaluator.
+Trained starts false; call BuildMultiScaleCooccurrence to mark training
+complete for API consumers that gate on Trained.
 */
 func NewEigenMode(opts ...eigenModeOpts) *EigenMode {
-	eigen := &EigenMode{
-		Trained: true,
-	}
+	eigen := &EigenMode{}
 
 	for _, opt := range opts {
 		opt(eigen)
@@ -61,11 +67,9 @@ func (eigen *EigenMode) PhaseForValue(value *primitive.Value) (theta, phi float6
 		return 0, 0
 	}
 
-	indices := value.AffinityBitIndices()
+	indices := value[core.Cfg.Value.Region.Affinity.Start:]
 
-	var sinSum float64
-
-	var cosSum float64
+	var sinSum, cosSum float64
 
 	for _, idx := range indices {
 		angle := 2 * math.Pi * float64(idx) / 257.0
@@ -79,7 +83,7 @@ func (eigen *EigenMode) PhaseForValue(value *primitive.Value) (theta, phi float6
 		theta = math.Atan2(sinSum, cosSum)
 	}
 
-	phi = 2 * math.Pi * float64(value.AffinityPopcount()) / 257.0
+	phi = 2 * math.Pi * float64(bits.OnesCount64(indices[0])) / 257.0
 
 	return theta, phi
 }
@@ -130,7 +134,8 @@ func (eigen *EigenMode) WeightedCircularMean(values []primitive.Value) (phase fl
 
 	for i := range values {
 		theta, _ := eigen.PhaseForValue(&values[i])
-		weight := float64(values[i].AffinityPopcount())
+		aff := values[i][core.Cfg.Value.Region.Affinity.Start:]
+		weight := float64(affinity257Popcount(aff))
 
 		if weight <= 0 {
 			weight = 1
@@ -149,6 +154,27 @@ func (eigen *EigenMode) WeightedCircularMean(values []primitive.Value) (phase fl
 	concentration = math.Sqrt(sinSum*sinSum+cosSum*cosSum) / weightSum
 
 	return phase, concentration
+}
+
+/*
+affinity257Popcount is the Hamming weight of the 257-bit affinity slab
+(four full words plus a single valid bit in the fifth word).
+*/
+func affinity257Popcount(aff []uint64) int {
+	if len(aff) == 0 {
+		return 0
+	}
+
+	last := len(aff) - 1
+	total := 0
+
+	for wordIdx := 0; wordIdx < last; wordIdx++ {
+		total += bits.OnesCount64(aff[wordIdx])
+	}
+
+	total += bits.OnesCount64(aff[last] & 1)
+
+	return total
 }
 
 /*

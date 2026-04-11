@@ -10,7 +10,6 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 var _ data.PromptProvider = (*multiDataset)(nil)
@@ -21,8 +20,6 @@ var samples = 100
 var _ tools.PipelineExperiment = (*LanguagesExperiment)(nil)
 
 var _ tools.SummaryHoldoutDescriptor = (*LanguagesExperiment)(nil)
-
-var _ tools.PromptAnswerer = (*LanguagesExperiment)(nil)
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
 // The subset name is the path component used to select the right parquet shard.
@@ -170,26 +167,6 @@ func (experiment *LanguagesExperiment) OutcomeForPrompt(idx int) (any, Assertion
 	exactScore := experiment.tableData[idx].Scores.Exact
 
 	return exactScore, ShouldBeGreaterThanOrEqualTo, 0.0
-}
-
-func (experiment *LanguagesExperiment) Answer(prediction *algo.Prediction) string {
-	return prediction.String()
-}
-
-func (experiment *LanguagesExperiment) AnswerForPrompt(idx int, prediction *algo.Prediction) string {
-	answer := experiment.Answer(prediction)
-
-	if idx < 0 || idx >= len(experiment.holdouts) {
-		return answer
-	}
-
-	horizon := len(experiment.holdouts[idx])
-
-	if horizon > 0 && len(answer) > horizon {
-		return answer[:horizon]
-	}
-
-	return answer
 }
 
 func (experiment *LanguagesExperiment) Score() float64 {

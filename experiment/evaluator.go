@@ -1,16 +1,13 @@
 package experiment
 
 import (
-	"cmp"
 	"crypto/rand"
 	"math"
-	"slices"
 	"strings"
 	"sync"
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -124,21 +121,6 @@ func (evaluator *Evaluator) OutcomeForTableRow(table []ExperimentalData, idx int
 
 	thresh := evaluator.expectation.threshold()
 
-	if len(evaluator.labels) > 0 {
-		slice := table[idx : idx+1]
-		evaluator.ComputePredictions(slice)
-
-		row := &table[idx]
-
-		var score float64
-
-		if row.TrueLabel != nil && row.PredLabel != nil && *row.TrueLabel == *row.PredLabel {
-			score = 1.0
-		}
-
-		return score, gc.ShouldBeGreaterThanOrEqualTo, thresh
-	}
-
 	if evaluator.scorer == nil {
 		return nil, gc.ShouldBeNil, nil
 	}
@@ -152,55 +134,6 @@ func (expectation Expectation) threshold() float64 {
 	}
 
 	return expectation.Baseline
-}
-
-/*
-ComputePredictions assigns PredLabel by checking which label string
-co-occurs in the machine's generated output. When generation is ambiguous
-or empty, it inspects beam Continuations (highest score first) the same way.
-
-Scoring:
-  - Exactly one label found → confident prediction.
-  - Multiple labels found  → ambiguous, discard (PredLabel = nil).
-  - No labels found        → no prediction (PredLabel = nil).
-*/
-func (evaluator *Evaluator) ComputePredictions(data []ExperimentalData) {
-	if len(data) == 0 || len(evaluator.labels) == 0 {
-		return
-	}
-
-	numClasses := len(evaluator.labels)
-
-	for idx := range data {
-		data[idx].PredLabel = nil
-
-		generated := string(data[idx].Generation)
-
-		if classIdx, ok := evaluator.unambiguousLabelInText(generated, numClasses); ok {
-			classVal := classIdx
-			data[idx].PredLabel = &classVal
-			continue
-		}
-
-		prediction := data[idx].Prediction
-		if prediction == nil || len(prediction.Continuations) == 0 {
-			continue
-		}
-
-		continuations := slices.Clone(prediction.Continuations)
-		slices.SortStableFunc(continuations, func(a, b algo.Continuation) int {
-			return cmp.Compare(b.Score, a.Score)
-		})
-
-		for _, continuation := range continuations {
-			if classIdx, ok := evaluator.unambiguousLabelInText(string(continuation.Sequence), numClasses); ok {
-				classVal := classIdx
-				data[idx].PredLabel = &classVal
-
-				break
-			}
-		}
-	}
 }
 
 func (evaluator *Evaluator) unambiguousLabelInText(observed string, numClasses int) (int, bool) {
@@ -341,14 +274,6 @@ func EvalWithScorer(scorer Scorer) evalOpts {
 	return func(evaluator *Evaluator) {
 		evaluator.scorer = scorer
 	}
-}
-
-/*
-EvalWithScalingInstrumentScorer uses ScalingInstrumentScorer for experiments
-where the gate is instrumentation success, not holdout fidelity.
-*/
-func EvalWithScalingInstrumentScorer() evalOpts {
-	return EvalWithScorer(&ScalingInstrumentScorer{})
 }
 
 /*

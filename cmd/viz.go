@@ -147,7 +147,7 @@ func runDemo(ctx context.Context) {
 
 		// Let gossip and field dynamics propagate.
 		for _, node := range nodes {
-			digests := node.Gossip().Digests()
+			digests := node.conn.Digests()
 
 			for _, peer := range nodes {
 				if peer.ID == node.ID {
@@ -155,7 +155,7 @@ func runDemo(ctx context.Context) {
 				}
 
 				for _, digest := range digests {
-					peer.Field.Absorb(digest)
+					node.field.Absorb(digest)
 				}
 			}
 		}

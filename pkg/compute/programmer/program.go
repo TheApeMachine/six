@@ -67,6 +67,12 @@ func (program *Program) Load() [][]string {
 	rows := make([][]string, 0)
 
 	for line := range strings.SplitSeq(program.source, "\n") {
+		// Drop trailing `# ...` comments so authors can annotate lines
+		// inline without the tokenizer seeing the comment body.
+		if hash := strings.IndexByte(line, '#'); hash >= 0 {
+			line = line[:hash]
+		}
+
 		fields := strings.Fields(line)
 
 		if len(fields) == 0 {
@@ -79,4 +85,17 @@ func (program *Program) Load() [][]string {
 	program.lineFields = rows
 
 	return program.lineFields
+}
+
+/*
+ResetParseState clears the cached rows from Load so the next Load re-splits
+source. Use when benchmarks or callers need a cold tokenization pass without
+constructing a new Program.
+*/
+func (program *Program) ResetParseState() {
+	if program == nil {
+		return
+	}
+
+	program.lineFields = nil
 }

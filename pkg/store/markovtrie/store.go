@@ -22,7 +22,7 @@ type Store struct {
 	ID       uint64
 	conn     *gossip.Conn
 	field    *geometry.Field
-	Affinity primitive.Affinity
+	Affinity []uint64
 }
 
 /*
@@ -35,7 +35,7 @@ NewStore constructs a Store with token-level defaults.
 */
 func NewStore(
 	ctx context.Context,
-	affinity primitive.Affinity,
+	aff []uint64,
 	options ...Option,
 ) (*Store, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -43,7 +43,7 @@ func NewStore(
 	store := &Store{
 		ctx:      ctx,
 		cancel:   cancel,
-		Affinity: affinity,
+		Affinity: aff,
 		conn:     gossip.NewConn(nil, nil),
 		field:    geometry.NewField(geometry.Mod257),
 	}

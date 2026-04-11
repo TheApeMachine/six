@@ -185,11 +185,9 @@ func TestMachineLoad(t *testing.T) {
 
 		So(machine.Load(provider), ShouldBeNil)
 
-		prediction, promptErr := machine.Prompt("orbital launch telemetry")
+		promptErr := machine.Prompt("orbital launch telemetry")
 
 		So(promptErr, ShouldBeNil)
-		So(prediction, ShouldNotBeNil)
-		So(prediction.Label(), ShouldEqual, "space")
 	})
 
 	Convey("Load uses PromptProvider boundaries without labels", t, func() {
@@ -259,10 +257,9 @@ func TestMachinePrompt(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		prediction, promptErr := machine.Prompt("ping")
+		promptErr := machine.Prompt("prompt")
 
 		So(promptErr, ShouldBeNil)
-		So(prediction, ShouldNotBeNil)
 	})
 }
 

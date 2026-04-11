@@ -11,14 +11,24 @@ import (
 /*
 nearestBatchReduce runs batch Hamming distances from the query slab to
 contiguous candidates, then writes argmin into the signal words. Matches
-the Metal Execute path for opcode 0x6 with NearestAffinityBatchWord > 0.
+the Metal Execute path for OpcodeXOR with NearestAffinityBatchWord > 0.
 */
 func nearestBatchReduce(v *[128]uint64, batchCount uint64) {
-	n := int(batchCount)
-
-	if n <= 0 {
+	if batchCount == 0 {
 		return
 	}
+
+	const maxInt = int(^uint(0) >> 1)
+
+	if batchCount > uint64(len(v)) {
+		batchCount = uint64(len(v))
+	}
+
+	if batchCount > uint64(maxInt) {
+		batchCount = uint64(maxInt)
+	}
+
+	n := int(batchCount)
 
 	query := (*uint64)(unsafe.Pointer(&v[0]))
 	cands := (*uint64)(unsafe.Pointer(&v[kernel.NearestAffinityCandidatesStartWord]))
@@ -29,12 +39,12 @@ func nearestBatchReduce(v *[128]uint64, batchCount uint64) {
 	bestIdx := uint64(0)
 	bestDist := uint64(out[0])
 
-	for idx := 1; idx < n; idx++ {
-		d := uint64(out[idx])
+	for candidateIdx := 1; candidateIdx < n; candidateIdx++ {
+		distance := uint64(out[candidateIdx])
 
-		if d < bestDist {
-			bestDist = d
-			bestIdx = uint64(idx)
+		if distance < bestDist {
+			bestDist = distance
+			bestIdx = uint64(candidateIdx)
 		}
 	}
 

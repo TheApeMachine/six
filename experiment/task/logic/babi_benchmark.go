@@ -10,7 +10,6 @@ import (
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/experiment/trialmap"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -121,13 +120,6 @@ func (experiment *BabiExperiment) Score() float64 {
 
 func (experiment *BabiExperiment) TableData() any {
 	return experiment.tableData
-}
-
-/*
-Answer returns the predicted answer label for this QA task.
-*/
-func (experiment *BabiExperiment) Answer(prediction *algo.Prediction) string {
-	return prediction.Label()
 }
 
 func (experiment *BabiExperiment) Artifacts() []tools.Artifact {

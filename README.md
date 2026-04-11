@@ -334,6 +334,78 @@ This is attention without an attention mechanism. No query-key-value matrices, n
 
 ---
 
+## Reasoning as Gap Closure
+
+Six does not compute answers from inputs. It holds a **believed resolution** and acts to close the distance between that belief and the incoming state. This is the same principle Karl Friston formalised as the **free energy principle** — or equivalently, **active inference** and **predictive coding**. The system is a prediction machine, cognition is the minimisation of prediction error, perception updates the belief, action updates the world, and both directions use the same mechanism. Six implements active inference *in the substrate* rather than *on top of it*: there is no separate inference engine, no loss function, no gradient step, and no epoch. There is only the closure of a phase gap, and the closure itself is the learning.
+
+### The attractor is the local eigenmode
+
+When a prompt `Value` lands on a node, its affinity has already routed it into a neighbourhood of the DHT. That neighbourhood already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
+
+The gap between the prompt's affinity and the eigenmode is the drive. The explore program steps the prompt through Morton-space each pass, and every step closes a little more of that gap. Convergence does two things at once:
+
+1. **The prompt moves toward the mode** — the Value ends up resembling what the system already believed about that region.
+2. **The mode shifts toward the prompt** — a new Value has joined the cluster, so the next query arriving at this coordinate will find a slightly revised eigenmode.
+
+Both beliefs revise by the act of resolution. Perception and learning are the same operation, executed once.
+
+```text
+                      ┌──────────────────────┐
+                      │   Local eigenmode    │
+                      │  (current belief)    │
+                      └──────────▲───────────┘
+                                 │  mode drifts
+                                 │  toward prompt
+                                 │
+               field pressure    │
+           closes the phase gap  │
+                                 │
+                      ┌──────────┴───────────┐
+                      │   Prompt / Values    │
+                      │  drifting toward     │
+                      │  the attractor       │
+                      └──────────────────────┘
+```
+
+### Multiple perspectives via phase rotation
+
+Phase rotations in `GF(257)` / `GF(8191)` / `GF(65537)` are *literal angular views* on the same state — applying a rotor moves the observer to a different slice of the same information without changing what is encoded. This gives Six a native mechanism for parallel perspectives: emit *N* phase-rotated copies of the local eigenmode as *N* attractor Values. Each attractor creates a different pressure field; *N* populations race toward their own attractor simultaneously; the convergence profile across the *N* races is the answer to "how does this prompt look from each angle."
+
+Counterfactual reasoning lives inside this rotation space. A "what if the belief were angled this way instead" query is nothing more than an attractor placed at a non-dominant rotation of the current eigenmode.
+
+### Counterfactual, falsification, and causal structure
+
+Classical causal modelling treats the counterfactual as a structural equation and falsification as a separate statistical test. Six collapses both into the same mechanism.
+
+**Counterfactuals are perturbations.** A "what if *X* had happened" query is an **ephemeral Value** encoding *X*, published into the DHT under a low TTL. Its explore program runs, it emits descendants, the descendants inherit a decremented TTL through `PrevID`, and after a bounded number of hops the whole cascade self-terminates. The answer to the what-if is the population snapshot at the moment the cascade dies — "this is how the live state would have looked if *X* had landed here." Nothing is mutated; the ephemeral lineage leaves no permanent trace. The same substrate that runs real queries runs counterfactuals — only the initial TTL differs.
+
+**Falsification is cancellation with the sign flipped.** The normal cancel signal (`XOR` → longest **zero-run**) rewards agreement: a big shared substring produces a big zero-run and two Values are treated as related. Falsification uses the same `XOR` against a *predicted-absent* pattern. If the hypothesis claims "if *X*, then NOT *Y*," the explore program `XOR`s the downstream Value against the predicted-absent *Y* and looks for a long **one-run** rather than a zero-run. A long one-run confirms disagreement — the claim held. A long zero-run means *Y* appeared where it was predicted absent — the hypothesis is refuted, and the refuting Value is published as evidence.
+
+This gives Popperian falsification a natural substrate. A hypothesis is a Value whose program runs an `XOR` against a predicted-absent successor pattern. **Sharp hypotheses** — narrow, specific claims — produce clean, decisive `XOR` signals when tested. **Vague hypotheses** produce mushy signals and get field-suppressed. Falsifiability becomes a **survival trait in the population**. Popper is not imposed on top of the system; he drops out of the substrate.
+
+**Causal edges are not stored.** They are the `PrevID` / `NextID` residency pattern of the live population itself. When Value *A* reliably precedes Value *B* across many cancel/merge events, that *is* the causal edge from *A* to *B*. Edge weight is how frequently the pair co-occurs in emission lineages. Discovery is emission. Intervention is: drop a Value into the DHT and observe how the downstream population reshapes under the field. A causal graph query is a walk over `PrevID` / `NextID` links in the live state — the same operation used to chain segments of a long payload. **The graph and the data are the same structure.**
+
+| Concept                         | Substrate mechanism                                                |
+|---------------------------------|--------------------------------------------------------------------|
+| Believed resolution             | Local eigenmode of the landing neighbourhood                       |
+| Gap as drive                    | Affinity + phase distance between prompt and eigenmode             |
+| Perception update               | Prompt converges toward the mode                                   |
+| World update                    | Mode shifts as the new Value joins the cluster                     |
+| Multiple perspectives / what-if | Phase-rotated attractor Values, one population race per rotation   |
+| Counterfactual                  | Ephemeral Value with low TTL, cascade self-terminates after N hops |
+| Falsification                   | `XOR` against predicted-absent pattern, long one-run = claim held  |
+| Causal edge                     | `PrevID` → `NextID` residency in the live population               |
+| Causal discovery                | Emission lineage of cancel / merge signals                         |
+| Intervention                    | Publishing a Value and observing downstream drift                  |
+
+### Ephemerality and TTL
+
+Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the `meta` region. It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
+
+Because a hypothesis query and a real observation share the same substrate, Six can interleave the two freely. A stream of real observations updates the field. In-between, ephemeral queries probe the field without disturbing it. The field itself cannot tell a query from an observation until the query dies — which means the same dynamics that handle real-world inference handle hypothetical reasoning for free.
+
+---
+
 ## Compute Substrate
 
 Values execute their programs on a multi-substrate backend that automatically selects the best available hardware:

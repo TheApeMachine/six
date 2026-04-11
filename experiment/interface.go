@@ -7,7 +7,6 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 type Scores struct {
@@ -28,7 +27,6 @@ type ExperimentalData struct {
 	WeightedTotal  float64
 	TrueLabel      *int
 	PredLabel      *int
-	Prediction     *algo.Prediction
 }
 
 type ScoreWeights struct {
@@ -106,15 +104,6 @@ generic caption.
 */
 type SummaryHoldoutDescriptor interface {
 	SummaryHoldoutDescription() string
-}
-
-/*
-PromptAnswerer lets an experiment project the raw substrate Prediction into
-the observation that its scorer expects. This keeps task-specific horizons,
-label extraction, and answer normalization out of the generic pipeline loop.
-*/
-type PromptAnswerer interface {
-	AnswerForPrompt(idx int, prediction *algo.Prediction) string
 }
 
 // countPrefixMatches returns the number of positions where expected[i] == retrieved[i]

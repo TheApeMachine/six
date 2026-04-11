@@ -54,14 +54,14 @@ func TestBackend_Execute(t *testing.T) {
 
 		Convey("Execute with a truth-table xor frame should succeed", func() {
 			var frame [128]uint64
-			const xorNibble = uint64(0x6)
+			const xorNibble = kernel.OpcodeXOR
 			frame[kernel.ProgramStartWord] = xorNibble
 			// Second program word: sixteen nibbles for universalBitwiseV2 decode (same as programmer lowering).
 			var packed uint64
-			n := xorNibble
+			xorNibbleValue := xorNibble
 
 			for rotation := 0; rotation < 16; rotation++ {
-				packed |= n << (rotation * 4)
+				packed |= xorNibbleValue << (rotation * 4)
 			}
 
 			frame[kernel.ProgramStartWord+1] = packed
@@ -72,13 +72,13 @@ func TestBackend_Execute(t *testing.T) {
 		})
 
 		Convey("Execute with two xor frames should succeed", func() {
-			var a, b [128]uint64
-			a[kernel.ProgramStartWord] = 0x6
-			b[kernel.ProgramStartWord] = 0x1
+			var frameA, frameB [128]uint64
+			frameA[kernel.ProgramStartWord] = kernel.OpcodeXOR
+			frameB[kernel.ProgramStartWord] = 0x1
 
 			err := backend.Execute([]unsafe.Pointer{
-				unsafe.Pointer(&a[0]),
-				unsafe.Pointer(&b[0]),
+				unsafe.Pointer(&frameA[0]),
+				unsafe.Pointer(&frameB[0]),
 			})
 
 			So(err, ShouldBeNil)
@@ -86,8 +86,8 @@ func TestBackend_Execute(t *testing.T) {
 
 		Convey("Execute batch nearest-affinity path with one candidate", func() {
 			var frame [128]uint64
-			// Opcode low nibble 0x6 and positive batch count selects batchAffinityDistances.
-			frame[kernel.ProgramStartWord] = 0x06
+			// Opcode XOR nibble and positive batch count selects batchAffinityDistances.
+			frame[kernel.ProgramStartWord] = kernel.OpcodeXOR
 			frame[kernel.NearestAffinityBatchWord] = 1
 			// Query (words 0–4) matches single candidate slab at word 56.
 			for wordIdx := 0; wordIdx < 5; wordIdx++ {
@@ -123,14 +123,14 @@ func BenchmarkBackend_Execute_xorFrame(b *testing.B) {
 	backend := NewBackend(context.Background())
 
 	var frame [128]uint64
-	const xorNibble = uint64(0x6)
+	const xorNibble = kernel.OpcodeXOR
 	frame[kernel.ProgramStartWord] = xorNibble
 
 	var packed uint64
-	n := xorNibble
+	xorNibbleValue := xorNibble
 
 	for rotation := 0; rotation < 16; rotation++ {
-		packed |= n << (rotation * 4)
+		packed |= xorNibbleValue << (rotation * 4)
 	}
 
 	frame[kernel.ProgramStartWord+1] = packed

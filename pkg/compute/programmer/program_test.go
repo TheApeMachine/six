@@ -87,7 +87,7 @@ func BenchmarkLoad(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		program.lineFields = nil
+		program.ResetParseState()
 		_ = program.Load()
 	}
 }

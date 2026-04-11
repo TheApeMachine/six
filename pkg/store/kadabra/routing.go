@@ -26,7 +26,7 @@ Sharding into 256 slices caps clone work per mutation to a single
 shard while keeping lookup lock-free via atomic.Pointer swaps.
 */
 type recordSnapshot struct {
-	m map[uint64]*SequenceRecord
+	m map[uint64]*primitive.Value
 }
 
 type recordShard struct {
@@ -60,7 +60,7 @@ func NewRoutingTable(node *Node) *RoutingTable {
 	}
 
 	for idx := range rt.shards {
-		rt.shards[idx].ptr.Store(&recordSnapshot{m: make(map[uint64]*SequenceRecord)})
+		rt.shards[idx].ptr.Store(&recordSnapshot{m: make(map[uint64]*primitive.Value)})
 	}
 
 	for idx := range rt.buckets {
@@ -88,7 +88,7 @@ func (rt *RoutingTable) AddPeer(peer *Node, rtt float64) {
 	}
 
 	rt.buckets[idx].CAS(func(st *bucketState) {
-		centroid := primitive.AffinityForNodeID(peer.ID)
+		centroid := affinityCentroidWordsFromNodeID(peer.ID)
 
 		if existing := st.Candidates[peer.ID]; existing != nil {
 			existing.Node = peer
@@ -145,9 +145,9 @@ vectors. Bucket-sorted in O(N) using the bounded [0,512] distance
 range — no comparison sort needed.
 */
 func (rt *RoutingTable) Closest(
-	target *primitive.Affinity, limit int,
+	target []uint64, limit int,
 ) []*Node {
-	if limit <= 0 || target == nil {
+	if limit <= 0 || len(target) < 4 {
 		return nil
 	}
 
@@ -157,22 +157,17 @@ func (rt *RoutingTable) Closest(
 	}
 
 	candidates := make([]candidate, 0, 256)
-	targetVec := target.Vector()
+	targetVec := target
 
-	affinityDist := func(aff *primitive.Affinity) int {
+	affinityDist := func(aff []uint64) int {
 		if aff == nil {
-			return primitive.AffinityBits
+			return int(core.Cfg.Value.Region.Affinity.Bits)
 		}
 
-		vec := aff.Vector()
 		dist := 0
 
-		for wordIdx := range primitive.AffinityWords {
-			aWord := targetVec[wordIdx] ^ vec[wordIdx]
-
-			if wordIdx == primitive.AffinityWords-1 {
-				aWord &= primitive.AffinityLastWordMask
-			}
+		for wordIdx := range 4 {
+			aWord := targetVec[wordIdx] ^ aff[wordIdx]
 
 			dist += bits.OnesCount64(aWord)
 		}
@@ -182,7 +177,7 @@ func (rt *RoutingTable) Closest(
 
 	candidates = append(candidates, candidate{
 		node: rt.node,
-		dist: primitive.AffinityBits,
+		dist: int(core.Cfg.Value.Region.Affinity.Bits),
 	})
 
 	for _, bucket := range rt.buckets {
@@ -216,12 +211,24 @@ func (rt *RoutingTable) Closest(
 		limit = count
 	}
 
-	var bucketCounts [primitive.AffinityBits + 1]int
+	bucketSpan := int(core.Cfg.Value.Region.Affinity.Bits) + 1
+	bucketCounts := make([]int, bucketSpan)
+
 	for idx := range candidates {
-		bucketCounts[candidates[idx].dist]++
+		dist := candidates[idx].dist
+
+		if dist < 0 {
+			dist = 0
+		}
+
+		if dist >= bucketSpan {
+			dist = bucketSpan - 1
+		}
+
+		bucketCounts[dist]++
 	}
 
-	var bucketOffsets [primitive.AffinityBits + 1]int
+	bucketOffsets := make([]int, bucketSpan)
 	offset := 0
 
 	for dist := range bucketOffsets {
@@ -233,6 +240,15 @@ func (rt *RoutingTable) Closest(
 
 	for idx := range candidates {
 		dist := candidates[idx].dist
+
+		if dist < 0 {
+			dist = 0
+		}
+
+		if dist >= bucketSpan {
+			dist = bucketSpan - 1
+		}
+
 		sorted[bucketOffsets[dist]] = candidates[idx].node
 		bucketOffsets[dist]++
 	}
@@ -249,30 +265,28 @@ The trie insert path must gate on this so at-least-once delivery does not
 double-count MarkovTrie statistics or re-fire trie visualization for the
 same logical record.
 */
-func (rt *RoutingTable) claimRecordIfNew(record SequenceRecord) bool {
+func (rt *RoutingTable) claimRecordIfNew(record primitive.Value) bool {
 	if rt == nil {
 		return false
 	}
 
-	shardIdx := int(record.Key) & (recordShardCount - 1)
+	shardIdx := int(record.ID()) & (recordShardCount - 1)
 
 	for {
 		old := rt.shards[shardIdx].ptr.Load()
-		var base map[uint64]*SequenceRecord
+		var base map[uint64]*primitive.Value
 
 		if old != nil && old.m != nil {
-			if _, exists := old.m[record.Key]; exists {
+			if _, exists := old.m[record.ID()]; exists {
 				return false
 			}
 
 			base = maps.Clone(old.m)
 		} else {
-			base = make(map[uint64]*SequenceRecord)
+			base = make(map[uint64]*primitive.Value)
 		}
 
-		recordClone := new(SequenceRecord)
-		*recordClone = record
-		base[record.Key] = recordClone
+		base[record.ID()] = &record
 		next := &recordSnapshot{m: base}
 
 		if rt.shards[shardIdx].ptr.CompareAndSwap(old, next) {
@@ -312,4 +326,17 @@ func (rt *RoutingTable) releaseRecordKey(key uint64) {
 			return
 		}
 	}
+}
+
+/*
+affinityCentroidWordsFromNodeID builds the 4-word slice used in Closest
+Hamming distance. A Kadabra Node does not embed a Value affinity slab; the
+routing layer folds the stable mesh identity into the low word so peers stay
+comparable to record affinity queries without storing a separate field on Node.
+*/
+func affinityCentroidWordsFromNodeID(nodeID uint64) []uint64 {
+	words := make([]uint64, 4)
+	words[0] = nodeID
+
+	return words
 }

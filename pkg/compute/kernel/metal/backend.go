@@ -132,8 +132,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 					"Execute",
 				)
 
-				kv := kernel.CorrelationKeyvals(ptr)
-				backend.observer.Error("metal.Backend.Execute", err, kv...)
+				backend.observer.Error("metal.Backend.Execute", err, kernel.CorrelationKeyvalsFlat(ptr)...)
 
 				return err
 			}
@@ -141,7 +140,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		if opcode == 0x6 && batchCount > 0 {
+		if opcode == kernel.OpcodeXOR && batchCount > 0 {
 			distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 
 			if C.nearest_affinity_metal(
@@ -154,8 +153,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 					kernel.KernelErrDispatchFailed, nil, "Execute",
 				)
 
-				kv := kernel.CorrelationKeyvals(ptr)
-				backend.observer.Error("metal.Backend.Execute", err, kv...)
+				backend.observer.Error("metal.Backend.Execute", err, kernel.CorrelationKeyvalsFlat(ptr)...)
 
 				return err
 			}
@@ -183,8 +181,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 				kernel.KernelErrDispatchFailed, nil, "Execute",
 			)
 
-			kv := kernel.CorrelationKeyvals(ptr)
-			backend.observer.Error("metal.Backend.Execute", err, kv...)
+			backend.observer.Error("metal.Backend.Execute", err, kernel.CorrelationKeyvalsFlat(ptr)...)
 
 			return err
 		}

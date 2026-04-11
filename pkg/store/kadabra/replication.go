@@ -2,6 +2,7 @@ package kadabra
 
 import (
 	"fmt"
+	"math/bits"
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -44,7 +45,7 @@ not set fanout without an explicit signed hop TTL.
 /*
 Store applies the record locally then fans out StoreReplica to routing peers.
 */
-func (node *Node) Store(record SequenceRecord) error {
+func (node *Node) Store(record *primitive.Value) error {
 	return node.enqueueRecord(record, true)
 }
 
@@ -52,17 +53,21 @@ func (node *Node) Store(record SequenceRecord) error {
 StoreReplica applies a record originating from another mesh member.
 It must not trigger another fanout round (fanout=false).
 */
-func (node *Node) StoreReplica(record SequenceRecord) error {
+func (node *Node) StoreReplica(record *primitive.Value) error {
 	return node.enqueueRecord(record, false)
 }
 
-func (node *Node) enqueueRecord(record SequenceRecord, fanout bool) error {
+func (node *Node) enqueueRecord(record *primitive.Value, fanout bool) error {
 	if node == nil {
 		return errnie.Error(fmt.Errorf("kadabra: nil node"))
 	}
 
 	if node.queue == nil {
 		return errnie.Error(fmt.Errorf("kadabra: nil queue"))
+	}
+
+	if record == nil {
+		return errnie.Error(fmt.Errorf("kadabra: nil record"))
 	}
 
 	node.queue.SubmitTracked(func() {
@@ -78,8 +83,8 @@ func (node *Node) enqueueRecord(record SequenceRecord, fanout bool) error {
 			return
 		}
 
-		aff := primitive.AffinityWithVector(record.Affinity)
-		candidates := node.routing.Closest(&aff, node.replicationFactor)
+		affWords := (*record)[core.Cfg.Value.Region.Affinity.Start:]
+		candidates := node.routing.Closest(affWords, node.replicationFactor)
 		scheduled := 0
 
 		for _, remote := range candidates {
@@ -99,19 +104,19 @@ func (node *Node) enqueueRecord(record SequenceRecord, fanout bool) error {
 	return nil
 }
 
-func (node *Node) applyRecordToTrie(record SequenceRecord, primaryIngest bool) bool {
-	if node == nil || node.routing == nil {
+func (node *Node) applyRecordToTrie(record *primitive.Value, primaryIngest bool) bool {
+	if node == nil || node.routing == nil || record == nil {
 		return false
 	}
 
-	if !node.routing.claimRecordIfNew(record) {
+	if primaryIngest && !node.routing.claimRecordIfNew(*record) {
 		return false
 	}
 
-	aff := primitive.AffinityWithVector(record.Affinity)
+	aff := (*record)[core.Cfg.Value.Region.Affinity.Start:]
 
 	if primaryIngest {
-		if !node.blendMeshLoadCentroid(&aff) {
+		if !node.blendMeshLoadCentroid(aff) {
 			rejects := meshSaturationRejections.Add(1)
 
 			errnie.Warn(
@@ -119,36 +124,34 @@ func (node *Node) applyRecordToTrie(record SequenceRecord, primaryIngest bool) b
 				"metric", "mesh_saturation_rejections_total",
 				"rejections", rejects,
 				"node_id", node.ID,
-				"record_key", record.Key,
-				"affinity_popcount", aff.Popcount(),
+				"record_key", record.ID(),
+				"affinity_popcount", affinityWordsPopcount(aff),
 			)
 
-			node.routing.releaseRecordKey(record.Key)
+			node.routing.releaseRecordKey(record.ID())
 
 			return false
 		}
 	}
 
-	trie := node.selectOrSpawnTrie(&aff)
+	trie := node.selectOrSpawnTrie(record)
 
 	if trie == nil {
-		node.routing.releaseRecordKey(record.Key)
+		node.routing.releaseRecordKey(record.ID())
 
 		return false
 	}
 
-	if err := trie.Load(record.Value, record.Label); err != nil {
-		node.routing.releaseRecordKey(record.Key)
+	if err := trie.Load(*record); err != nil {
+		node.routing.releaseRecordKey(record.ID())
 
 		return false
 	}
-
-	node.rememberSequenceSurface(record)
 
 	trieIdx := node.trieIndex(trie)
 
 	viz.DefaultBus.Publish(viz.TrieInsertEvent(
-		node.ID, trieIdx, record.Value.String(), record.Label,
+		node.ID, trieIdx, record.String(), "",
 	))
 
 	node.publishTrieGraphViz(trie)
@@ -162,7 +165,7 @@ updated). While the centroid popcount stays below ShannonLimit it blends like
 a trie cluster; at saturation it invokes onMeshExpand and resets when expansion
 succeeds, matching selectOrSpawnTrie’s spawnTrie decision at node scale.
 */
-func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
+func (node *Node) blendMeshLoadCentroid(incoming []uint64) bool {
 	if incoming == nil {
 		return false
 	}
@@ -186,7 +189,7 @@ func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
 
 		if cur == nil || cur.Count == 0 {
 			next := &meshLoadState{
-				Affinity: *incoming,
+				Affinity: cloneUint64Slice(incoming),
 				Count:    1,
 			}
 
@@ -205,8 +208,8 @@ func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
 			continue
 		}
 
-		if cur.Affinity.Popcount() < shannonLimit {
-			newAff, newCount := cur.Affinity.Blended(incoming, cur.Count, shannonLimit)
+		if affinityWordsPopcount(cur.Affinity) < shannonLimit {
+			newAff, newCount := blendAffinityWords(cur.Affinity, incoming, cur.Count)
 			next := &meshLoadState{
 				Affinity: newAff,
 				Count:    newCount,
@@ -224,7 +227,7 @@ func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
 		}
 
 		next := &meshLoadState{
-			Affinity: *incoming,
+			Affinity: cloneUint64Slice(incoming),
 			Count:    1,
 		}
 
@@ -232,4 +235,40 @@ func (node *Node) blendMeshLoadCentroid(incoming *primitive.Affinity) bool {
 			return true
 		}
 	}
+}
+
+func cloneUint64Slice(src []uint64) []uint64 {
+	if src == nil {
+		return nil
+	}
+
+	return append([]uint64(nil), src...)
+}
+
+func affinityWordsPopcount(words []uint64) int {
+	total := 0
+
+	for _, word := range words {
+		total += bits.OnesCount64(word)
+	}
+
+	return total
+}
+
+/*
+blendAffinityWords merges centroid and incoming by bitwise OR (set union in
+bit space), matching trie centroid growth under Shannon pressure.
+*/
+func blendAffinityWords(current []uint64, incoming []uint64, count uint64) ([]uint64, uint64) {
+	if len(current) != len(incoming) {
+		return cloneUint64Slice(incoming), 1
+	}
+
+	out := make([]uint64, len(current))
+
+	for idx := range current {
+		out[idx] = current[idx] | incoming[idx]
+	}
+
+	return out, count + 1
 }

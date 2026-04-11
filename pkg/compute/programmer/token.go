@@ -3,8 +3,8 @@ package programmer
 /*
 RegionType names coarse Value regions for later lowering from region refs.
 
-Source text uses string refs (e.g. tokens[0,2]); lowering maps those into the
-packed Value layout.
+Source text uses string refs (e.g. tokens[0,16]); lowering maps those into
+the packed Value layout via RegionRef.
 */
 type RegionType uint8
 
@@ -50,18 +50,37 @@ const (
 )
 
 /*
-Token is one source line after parse: region refs for operands and destination,
-a mnemonic op, and execution mode (accumulate vs reduce).
+ExecutionMode controls how the ALU signal output is folded back into the
+dst region after a frame runs. Accumulate XORs signals into dst so a chain
+of lines builds up state; Reduce collapses signals to a popcount written
+into dst[start] and leaves the rest of the span untouched.
+*/
+type ExecutionMode uint8
+
+const (
+	ModeAccumulate ExecutionMode = iota
+	ModeReduce
+)
+
+/*
+Token is one source line after parse: parsed region refs for operands and
+destination, a mnemonic op, and an execution mode. SrcA/SrcB/Dst keep the
+original source strings for diagnostics; SrcARef/SrcBRef/DstRef are the
+resolved slices Staging/Writeback consume.
 
 Syntax matches cmd/cfg/config.yml programs: blocks, e.g.:
 
 	srcA srcB dst op mode
-	tokens[0,2] tokens[1,3] signals[0] xor accumulate
+	tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
 */
 type Token struct {
-	SrcA string
-	SrcB string
-	Dst  string
-	Op   string
-	Mode string
+	SrcA    string
+	SrcB    string
+	Dst     string
+	Op      string
+	Mode    string
+	SrcARef RegionRef
+	SrcBRef RegionRef
+	DstRef  RegionRef
+	ModeBit ExecutionMode
 }

@@ -16,7 +16,6 @@ func ExecuteGeometricFrame(frame unsafe.Pointer, opcode uint64) bool {
 		return false
 	}
 
-	_ = (*[128]uint64)(frame)
-
+	// Generic builds: PGA geometric lane not wired; frame is unused until a scalar reference lands.
 	return false
 }

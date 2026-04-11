@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric"
@@ -24,7 +26,7 @@ const predictTrieFanout = 8
 meshLoadState is the atomically-swapped primary-ingest centroid snapshot.
 */
 type meshLoadState struct {
-	Affinity primitive.Affinity
+	Affinity []uint64
 	Count    uint64
 }
 
@@ -47,6 +49,10 @@ type Node struct {
 	replicationFactor int
 	securityThreshold float64
 	queue             *pool.Queue
+	meshLoad          atomic.Value
+	onMeshExpand      func([]uint64) bool
+	trieGraphVizMu    sync.Mutex
+	trieGraphVizLast  map[int]time.Time
 }
 
 type nodeOption func(*Node)

@@ -9,7 +9,6 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/algo"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/network"
@@ -73,10 +72,6 @@ func NewMachine(
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
-
-	machine.kadabra.SetMeshExpandHandler(func(incoming *primitive.Affinity) bool {
-		return machine.meshExpandDuringLoad(incoming)
-	})
 
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx, machine.queue,
@@ -300,26 +295,26 @@ The prompt is converted into a Value via NewValue, which derives the
 affinity vector Kadabra uses to route the query to the closest trie
 cluster(s).
 */
-func (machine *Machine) Prompt(prompt string) (prediction *algo.Prediction, err error) {
+func (machine *Machine) Prompt(prompt string) (err error) {
 	if err := validate.Require(map[string]any{
 		"kadabra": machine.kadabra,
 	}); err != nil {
-		return nil, errnie.Error(err)
+		return errnie.Error(err)
 	}
 
 	values, err := primitive.NewValue([]byte(prompt))
 
 	if err != nil {
-		return nil, errnie.Error(err)
+		return errnie.Error(err)
 	}
 
 	defer primitive.CloseAll(values)
 
 	value := values[len(values)-1]
 
-	if prediction, err = machine.kadabra.Predict(value); err != nil {
-		return nil, errnie.Error(err)
+	if err = machine.kadabra.Publish(value, "prompt"); err != nil {
+		return errnie.Error(err)
 	}
 
-	return prediction, nil
+	return nil
 }

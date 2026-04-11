@@ -31,17 +31,19 @@ implements — so this policy stays aligned with the ALU rather than a
 one-off compiler API.
 */
 func (node *Node) selectOrSpawnTrie(
-	affinity *primitive.Affinity,
+	value *primitive.Value,
 ) *markovtrie.Store {
 	threshold := core.Cfg.Kadabra.ClusterThreshold
 	shannonLimit := core.Cfg.Kadabra.ShannonLimit
 	tries := node.triesSnapshot()
 
+	aff := value[core.Cfg.Value.Region.Affinity.Start:]
+
 	if len(tries) == 0 {
-		return node.spawnTrie(affinity)
+		return node.spawnTrie(aff)
 	}
 
-	return node.selectOrSpawnTrieScalar(affinity, tries, threshold, shannonLimit)
+	return node.selectOrSpawnTrieScalar(aff, tries, threshold, shannonLimit)
 }
 
 /*
@@ -49,25 +51,20 @@ selectOrSpawnTrieScalar performs the same argmin-and-threshold policy as the
 batch Value path when too many tries exist to pack below word 124.
 */
 func (node *Node) selectOrSpawnTrieScalar(
-	affinity *primitive.Affinity,
+	aff []uint64,
 	tries []*markovtrie.Store,
 	threshold int,
 	shannonLimit int,
 ) *markovtrie.Store {
-	query := affinity.Vector()
 	bestIdx := -1
 	bestDist := int(^uint(0) >> 1)
 
 	for idx, cluster := range tries {
-		cand := cluster.Affinity.Vector()
+		cand := cluster.Affinity
 		dist := 0
 
-		for wordIdx := range primitive.AffinityWords {
-			xor := query[wordIdx] ^ cand[wordIdx]
-
-			if wordIdx == primitive.AffinityWords-1 {
-				xor &= primitive.AffinityLastWordMask
-			}
+		for wordIdx := range 4 {
+			xor := aff[wordIdx] ^ cand[wordIdx]
 
 			dist += bits.OnesCount64(xor)
 		}
@@ -81,22 +78,16 @@ func (node *Node) selectOrSpawnTrieScalar(
 	if bestIdx >= 0 && bestIdx < len(tries) && bestDist <= threshold {
 		cluster := tries[bestIdx]
 
-		if cluster.Affinity.Popcount() < shannonLimit {
-			count := cluster.AffinityCount.Load()
-			nextAff, nextCount := cluster.Affinity.Blended(affinity, count, shannonLimit)
-
-			cluster.Affinity = nextAff
-			cluster.AffinityCount.Store(nextCount)
-
+		if affinitySlicePopcount(cluster.Affinity) < shannonLimit {
 			return cluster
 		}
 	}
 
-	return node.spawnTrie(affinity)
+	return node.spawnTrie(aff)
 }
 
-func (node *Node) spawnTrie(affinity *primitive.Affinity) *markovtrie.Store {
-	store, err := markovtrie.NewStore(node.ctx, *affinity)
+func (node *Node) spawnTrie(aff []uint64) *markovtrie.Store {
+	store, err := markovtrie.NewStore(node.ctx, aff)
 
 	if err != nil {
 		tries := node.triesSnapshot()
@@ -129,4 +120,14 @@ func (node *Node) spawnTrie(affinity *primitive.Affinity) *markovtrie.Store {
 	}
 
 	return store
+}
+
+func affinitySlicePopcount(words []uint64) int {
+	total := 0
+
+	for _, word := range words {
+		total += bits.OnesCount64(word)
+	}
+
+	return total
 }

@@ -94,10 +94,40 @@ func TestNewPhaseRotor(t *testing.T) {
 	Convey("Given NewPhaseRotor", t, func() {
 		r := NewPhaseRotor()
 		So(len(r), ShouldEqual, PhaseDialDimensions)
+
+		for _, mv := range r {
+			for _, component := range mv {
+				So(component, ShouldEqual, 0)
+			}
+		}
+
+		values, err := primitive.NewValue([]byte("rotor"))
+		So(err, ShouldBeNil)
+		So(len(values), ShouldBeGreaterThan, 0)
+
+		encoded := NewPhaseRotor().EncodeFromValues([]primitive.Value{*values[0]})
+		So(len(encoded), ShouldEqual, PhaseDialDimensions)
+
+		selfSim := encoded.Similarity(encoded)
+		So(selfSim, ShouldAlmostEqual, 1.0, 0.0001)
+
+		dial := encoded.ToDialCompat()
+		So(len(dial), ShouldEqual, PhaseDialDimensions)
+
+		var mag float64
+
+		for _, val := range dial {
+			re, im := real(val), imag(val)
+			mag += re*re + im*im
+		}
+
+		So(math.Sqrt(mag), ShouldAlmostEqual, 1.0, 0.0001)
 	})
 }
 
 func BenchmarkNewPhaseDial(b *testing.B) {
+	b.ReportAllocs()
+
 	for i := 0; i < b.N; i++ {
 		_ = NewPhaseDial()
 	}

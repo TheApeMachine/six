@@ -12,7 +12,7 @@ func TestStoreSnapshotVizGraph(t *testing.T) {
 	setupMarkovTrieValueConfig(t)
 
 	Convey("SnapshotVizGraph empty store yields nothing", t, func() {
-		store, err := NewStore(context.Background(), primitive.Affinity{})
+		store, err := NewStore(context.Background(), []uint64{})
 
 		So(err, ShouldBeNil)
 
@@ -24,7 +24,7 @@ func TestStoreSnapshotVizGraph(t *testing.T) {
 	})
 
 	Convey("SnapshotVizGraph matches Load branch structure", t, func() {
-		store, err := NewStore(context.Background(), primitive.Affinity{})
+		store, err := NewStore(context.Background(), []uint64{})
 
 		So(err, ShouldBeNil)
 
@@ -59,7 +59,7 @@ func TestStoreSnapshotVizGraph(t *testing.T) {
 	})
 
 	Convey("SnapshotVizGraph sets truncated when cap cuts frontier", t, func() {
-		store, err := NewStore(context.Background(), primitive.Affinity{})
+		store, err := NewStore(context.Background(), []uint64{})
 
 		So(err, ShouldBeNil)
 

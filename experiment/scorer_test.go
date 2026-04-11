@@ -56,47 +56,6 @@ func BenchmarkHoldoutExactMeanScorerEnrich(b *testing.B) {
 	}
 }
 
-func TestScalingInstrumentScorerEnrich(t *testing.T) {
-	Convey("ScalingInstrumentScorer enriches prompt rows on readout, not holdout match", t, func() {
-		var s ScalingInstrumentScorer
-
-		row := ExperimentalData{
-			Name:       "prompt_0",
-			Holdout:    []byte("want"),
-			Generation: []byte("unrelated"),
-		}
-
-		s.Enrich(&row)
-
-		So(row.WeightedTotal, ShouldEqual, 1.0)
-	})
-
-	Convey("ScalingInstrumentScorer leaves Finalize metric rows unchanged", t, func() {
-		var s ScalingInstrumentScorer
-
-		row := ExperimentalData{
-			Name:          "1 entries from 6 KB",
-			WeightedTotal: 0.97,
-			Scores:        Scores{Exact: 100, Partial: 1, Fuzzy: 50},
-		}
-
-		s.Enrich(&row)
-
-		So(row.WeightedTotal, ShouldEqual, 0.97)
-		So(row.Scores.Exact, ShouldEqual, 100)
-	})
-
-	Convey("ScalingInstrumentScorer scores empty prompt output at zero", t, func() {
-		var s ScalingInstrumentScorer
-
-		row := ExperimentalData{Name: "prompt_1", Holdout: []byte("x")}
-
-		s.Enrich(&row)
-
-		So(row.WeightedTotal, ShouldEqual, 0.0)
-	})
-}
-
 func TestScalingInstrumentScorerAggregate(t *testing.T) {
 	Convey("ScalingInstrumentScorer Aggregate means WeightedTotal", t, func() {
 		var s ScalingInstrumentScorer
@@ -108,17 +67,4 @@ func TestScalingInstrumentScorerAggregate(t *testing.T) {
 
 		So(s.Aggregate(rows), ShouldAlmostEqual, 0.75, 1e-12)
 	})
-}
-
-func BenchmarkScalingInstrumentScorerEnrich(b *testing.B) {
-	var s ScalingInstrumentScorer
-	data := ExperimentalData{
-		Name:       "prompt_0",
-		Holdout:    make([]byte, 32),
-		Generation: make([]byte, 16),
-	}
-
-	for b.Loop() {
-		s.Enrich(&data)
-	}
 }

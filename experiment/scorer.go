@@ -152,21 +152,6 @@ untouched so throughput and compression summaries stay intact.
 */
 type ScalingInstrumentScorer struct{}
 
-func (ScalingInstrumentScorer) Enrich(data *ExperimentalData) {
-	if len(data.Holdout) == 0 && len(data.Generation) == 0 && !strings.HasPrefix(data.Name, "prompt_") {
-		return
-	}
-
-	score := 0.0
-
-	if len(data.Generation) > 0 || data.Prediction != nil {
-		score = 1.0
-	}
-
-	data.Scores = Scores{Exact: score, Partial: score, Fuzzy: score}
-	data.WeightedTotal = score
-}
-
 func (ScalingInstrumentScorer) Aggregate(data []ExperimentalData) float64 {
 	if len(data) == 0 {
 		return 0

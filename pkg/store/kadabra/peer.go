@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/theapemachine/six/pkg/core/numeric"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -25,7 +24,7 @@ Peer represents a routing candidate inside a Kadabra bucket.
 */
 type Peer struct {
 	ID           uint64
-	Affinity     *primitive.Affinity
+	Affinity     []uint64
 	Node         *Node
 	RTT          float64
 	Bucket       int
@@ -35,7 +34,7 @@ type Peer struct {
 
 func NewPeer(
 	id uint64,
-	affinity *primitive.Affinity,
+	aff []uint64,
 	node *Node,
 	rtt float64,
 	bucket int,
@@ -44,7 +43,7 @@ func NewPeer(
 ) *Peer {
 	return &Peer{
 		ID:       id,
-		Affinity: affinity,
+		Affinity: aff,
 		Node:     node,
 		RTT:      rtt,
 		Bucket:   bucket,

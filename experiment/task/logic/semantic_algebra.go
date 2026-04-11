@@ -9,7 +9,6 @@ import (
 	"github.com/theapemachine/six/experiment/data/local"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/experiment/trialmap"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 type SemanticAlgebraExperiment struct {
@@ -102,13 +101,6 @@ func (experiment *SemanticAlgebraExperiment) Score() float64 {
 
 func (experiment *SemanticAlgebraExperiment) TableData() any {
 	return experiment.tableData
-}
-
-/*
-Answer returns the predicted label for this semantic algebra task.
-*/
-func (experiment *SemanticAlgebraExperiment) Answer(prediction *algo.Prediction) string {
-	return prediction.Label()
 }
 
 func (experiment *SemanticAlgebraExperiment) Artifacts() []tools.Artifact {

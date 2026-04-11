@@ -8,7 +8,6 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -109,13 +108,6 @@ func (experiment *BlindClassificationExperiment) AddResult(results tools.Experim
 }
 
 /*
-ComputePredictions delegates to the Evaluator for label string matching.
-*/
-func (experiment *BlindClassificationExperiment) ComputePredictions() {
-	experiment.evaluator.ComputePredictions(experiment.tableData)
-}
-
-/*
 Outcome delegates to the Evaluator which holds the real expectation
 thresholds. Baseline = 0.05 (barely above noise for blind task),
 Target = 0.50 (strong unsupervised clustering).
@@ -131,7 +123,6 @@ func (experiment *BlindClassificationExperiment) OutcomeForPrompt(idx int) (any,
 }
 
 func (experiment *BlindClassificationExperiment) Score() float64 {
-	experiment.ComputePredictions()
 	n := len(experiment.tableData)
 	if n == 0 {
 		return 0
@@ -143,18 +134,10 @@ func (experiment *BlindClassificationExperiment) TableData() any {
 	return experiment.tableData
 }
 
-/*
-Answer returns the predicted class label for this classification task.
-*/
-func (experiment *BlindClassificationExperiment) Answer(prediction *algo.Prediction) string {
-	return prediction.Label()
-}
-
 func (experiment *BlindClassificationExperiment) Artifacts() []tools.Artifact {
 	numSamples := len(experiment.tableData)
 	score := experiment.Score()
 
-	experiment.ComputePredictions()
 	metrics := experiment.evaluator.Metrics(experiment.tableData, numSamples)
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"

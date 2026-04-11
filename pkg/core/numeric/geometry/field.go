@@ -222,9 +222,9 @@ func (field *Field) reduceU32(value uint32) uint32 {
 func (field *Field) reduceU64(value uint64) uint32 {
 	switch field.modulus {
 	case Mod257:
-		return uint32(reduce257Uint32(uint32(value)))
+		return reduce257Uint64(value)
 	case Mod8191:
-		return uint32(reduce8191Uint32(uint32(value)))
+		return reduce8191Uint64(value)
 	case Mod65537:
 		return reduce65537Uint64(value)
 	default:
@@ -233,53 +233,85 @@ func (field *Field) reduceU64(value uint64) uint32 {
 }
 
 /*
-reduce257Uint32 exploits 2^8 ≡ −1 (mod 257).
+reduce257Uint32 maps a uint32 into GF(257) via reduce257Uint64.
 */
 func reduce257Uint32(value uint32) uint16 {
-	reduced := int32(value&0xff) - int32(value>>8)
-
-	for reduced < 0 {
-		reduced += int32(Mod257)
-	}
-
-	for reduced >= int32(Mod257) {
-		reduced -= int32(Mod257)
-	}
-
-	return uint16(reduced)
+	return uint16(reduce257Uint64(uint64(value)))
 }
 
 /*
-reduce8191Uint32 exploits 2^13 ≡ 1 (mod 8191).
+reduce257Uint64 exploits 256 ≡ −1 (mod 257): fold all eight bytes with
+alternating sign so bits 0–63 participate in the residue.
+*/
+func reduce257Uint64(value uint64) uint32 {
+	var acc int64
+
+	for byteIdx := 0; byteIdx < 8; byteIdx++ {
+		b := int64((value >> (8 * byteIdx)) & 0xff)
+
+		if byteIdx%2 == 0 {
+			acc += b
+		} else {
+			acc -= b
+		}
+	}
+
+	for acc < 0 {
+		acc += int64(Mod257)
+	}
+
+	for acc >= int64(Mod257) {
+		acc -= int64(Mod257)
+	}
+
+	return uint32(acc)
+}
+
+/*
+reduce8191Uint32 maps a uint32 into GF(8191) via reduce8191Uint64.
 */
 func reduce8191Uint32(value uint32) uint16 {
-	reduced := value
-
-	for reduced >= Mod8191 {
-		if reduced == Mod8191 {
-			return 0
-		}
-
-		reduced = (reduced & Mod8191) + (reduced >> 13)
-	}
-
-	return uint16(reduced)
+	return uint16(reduce8191Uint64(uint64(value)))
 }
 
 /*
-reduce65537Uint64 exploits 2^16 ≡ −1 (mod 65537).
+reduce8191Uint64 exploits 2^13 ≡ 1 (mod 8191): fold the full uint64 with
+the same low/high 13-bit split until the residue fits.
+*/
+func reduce8191Uint64(value uint64) uint32 {
+	const mask13 = uint64(0x1FFF)
+
+	reduced := value
+
+	for reduced >= uint64(Mod8191) {
+		reduced = (reduced & mask13) + (reduced >> 13)
+	}
+
+	if reduced == uint64(Mod8191) {
+		return 0
+	}
+
+	return uint32(reduced)
+}
+
+/*
+reduce65537Uint64 exploits 2^16 ≡ −1 (mod 65537): combine four 16-bit limbs
+so bits 0–63 all contribute (x0 − x1 + x2 − x3).
 */
 func reduce65537Uint64(value uint64) uint32 {
-	reduced := int64(value&0xffff) - int64(value>>16)
+	x0 := int64(value & 0xffff)
+	x1 := int64((value >> 16) & 0xffff)
+	x2 := int64((value >> 32) & 0xffff)
+	x3 := int64((value >> 48) & 0xffff)
 
-	for reduced < 0 || reduced >= int64(Mod65537) {
-		if reduced < 0 {
-			reduced += int64(Mod65537)
+	reduced := x0 - x1 + x2 - x3
 
-			continue
-		}
+	for reduced < 0 {
+		reduced += int64(Mod65537)
+	}
 
-		reduced = int64(uint64(reduced)&0xffff) - int64(uint64(reduced)>>16)
+	for reduced >= int64(Mod65537) {
+		reduced -= int64(Mod65537)
 	}
 
 	return uint32(reduced)
@@ -415,9 +447,9 @@ ReduceScalar maps an integer into GF(modulus) using the same reductions as Field
 func ReduceScalar(modulus uint32, value uint64) uint32 {
 	switch modulus {
 	case Mod257:
-		return uint32(reduce257Uint32(uint32(value)))
+		return reduce257Uint64(value)
 	case Mod8191:
-		return uint32(reduce8191Uint32(uint32(value)))
+		return reduce8191Uint64(value)
 	case Mod65537:
 		return reduce65537Uint64(value)
 	default:

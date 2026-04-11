@@ -12,7 +12,7 @@ func TestNewEigenMode(t *testing.T) {
 	Convey("Given NewEigenMode", t, func() {
 		ei := NewEigenMode()
 		So(ei, ShouldNotBeNil)
-		So(ei.Trained, ShouldBeTrue)
+		So(ei.Trained, ShouldBeFalse)
 	})
 }
 
@@ -45,4 +45,41 @@ func TestEigenModeWeightedCircularMean(t *testing.T) {
 		So(p, ShouldEqual, 0)
 		So(c, ShouldEqual, 0)
 	})
+}
+
+func BenchmarkNewEigenMode(b *testing.B) {
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_ = NewEigenMode()
+	}
+}
+
+func BenchmarkEigenModePhaseForValue(b *testing.B) {
+	ei := NewEigenMode()
+	values, err := primitive.NewValue([]byte("benchmark phase payload"))
+	if err != nil || len(values) < 1 {
+		b.Fatal(err)
+	}
+
+	value := values[0]
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = ei.PhaseForValue(value)
+	}
+}
+
+func BenchmarkBuildMultiScaleCooccurrence(b *testing.B) {
+	ei := NewEigenMode()
+	payload := []primitive.Value{}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_ = ei.BuildMultiScaleCooccurrence(payload)
+	}
 }

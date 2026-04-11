@@ -167,64 +167,52 @@ value:
 
 
 programs:
-  # Fold the 1024-bit Token region (words 0..15, addressable as four 4-word
-  # blocks tokens0..tokens3) into the 257-bit Affinity region (block
-  # affinity0 = words 120..123, with bit 0 of word 127 held as the Fermat
-  # tail). Pure XOR keeps the fold linear so merging two values' affinities
-  # commutes with merging their tokens — required for Kadabra node/trie
-  # merging toward the Shannon limit. Each op line is:
+  # Region refs are region[start,span] where span is the number of 64-bit
+  # words. A bare region[index] means span=1. Every DSL line is:
   #   srcA  srcB  dst  op  mode
-  # modes: accumulate (XOR-merge into dst), reduce (popcount to scalar lane),
-  # shr=N (right-shift srcB by N before op) — when implemented in lowering.
+  # mode is one of:
+  #   accumulate  XOR the 8 signal words the substrate writes into the dst
+  #               slice (up to the dst span). Successive lines layer on top
+  #               of the same dst, so multi-line programs build up state.
+  #   reduce      popcount the whole signals region and write the total to
+  #               dst[start]; dst[start+1..] is untouched.
   # Optional last line: next <value_id> | next self  (scheduler: word 117).
+
+  # Affinity generation: fold every token word against every other token
+  # word through the substrate's 16-rotation sweep, then accumulate the
+  # resulting 64-byte LSH signature across the five affinity words. Pure
+  # XOR keeps the fold linear so merging two Values' affinities commutes
+  # with merging their tokens — required for Kadabra node/trie merging as
+  # clusters approach the Shannon saturation limit.
   affinity: |
-    tokens[0,2] tokens[1,3] signals[0]  xor      accumulate
-    affinity[0] signals[0]  affinity[0] xor      accumulate
-    affinity[0] signals[0]  signals[0]  popcount reduce
+    tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
 
-  # Popcount of the Affinity block into scalar lane 0 of signals.
+  # Popcount of the whole Affinity region into its Fermat tail word. This
+  # is the saturation witness: when the XOR fold leaves affinity near 47%
+  # set bits, the tail word's value crosses the Shannon limit and routing
+  # can refuse the cluster.
   popcount: |
-    affinity[0] signals[0] signals[0] popcount reduce
+    affinity[0,5] affinity[0,5] affinity[4,1] xor reduce
 
-  # Jaccard coupling numerator/denominator. Runs AND then OR on the same
-  # operand pair; reduce writes popcount scalars to signals0 (intersection)
-  # and signals1 (union). Go side divides; there is no scalar fallback on
-  # the bit path.
+  # Jaccard coupling numerator/denominator. AND then OR over the same
+  # operand pair; reduce writes popcount scalars to signals[0] and
+  # signals[1] for the Go side to divide. The affinity-vs-tokens shape
+  # makes this the routing-distance primitive.
   coupling: |
-    tokens[0] affinity[0] signals[0] and reduce
-    tokens[0] affinity[0] signals[1] or  reduce
+    tokens[0,16] affinity[0,5] signals[0,1] and reduce
+    tokens[0,16] affinity[0,5] signals[1,1] or  reduce
 
-  # Staged hypothesis lives in context0; query slab is tokens0. Intersection and
-  # union popcounts → signals0 / signals1 (Jaccard inputs). No affinity, no
-  # string layer — this is the beam-step shape before lowering fills real words.
+  # Beam-swarm step — emergent exploration run by every Value on a trie
+  # node when a prompt Value lands. The Value advances its own state
+  # through the local gradient, scores interference against the context
+  # attractor, collapses that into a scalar error, OR-s in the field
+  # pressure signal, morphs its affinity so high-error Values physically
+  # drift away in DHT space, and loops via `next self` so the scheduler
+  # keeps spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
-    # 1. EXPANSION (Motion)
-    # Apply the local environment's transition motor (Gradient) to the particle's 
-    # state (Tokens). The 'sandwich' opcode applies the SE(3) motor to advance the state.
-    tokens[0,7] gradient[0,7] tokens[0,7] sandwich accumulate
-
-    # 2. SCORING (Interference)
-    # Measure how far the new state is from the target attractor (Context).
-    # A perfect resonance yields all zeros.
-    tokens[0,7] context[0,7] signals[0,7] xor accumulate
-
-    # 3. COLLAPSE (Loss Calculation)
-    # Reduce the geometric interference pattern into a scalar error score.
-    # We reduce the popcount into the first lane of Meta.
-    signals[0,7] signals[0,7] meta[0] popcount reduce
-
-    # 4. FIELD PRESSURE (Attention via Gossip)
-    # meta[1] contains the local field pressure projected from the GF(65537) field.
-    # If the network's consensus is out of phase with this particle, this adds massive error.
-    meta[0] meta[1] meta[0] or accumulate
-
-    # 5. TOPOLOGICAL PRUNING (Garbage Collection)
-    # Morph the particle's Affinity using the error.
-    # High error physically pushes the Value into the void of the Kadabra DHT space.
-    # Low error leaves the Affinity intact, keeping it in the "Beam".
-    meta[0] affinity[0] affinity[0] xor accumulate
-
-    # 6. RECURSION (Erlang-style loop)
-    # Dump this Value back into the routing queue to hop to its new DHT location
-    # and run the next step.
+    tokens[0,8]   gradient[0,8]  context[0,8]  xor      accumulate
+    tokens[0,8]   context[0,8]   signals[0,8]  xor      accumulate
+    signals[0,8]  signals[0,8]   meta[0,1]     xor      reduce
+    meta[0,1]     meta[1,1]      meta[0,1]     or       accumulate
+    meta[0,1]     affinity[0,5]  affinity[0,5] xor      accumulate
     next self

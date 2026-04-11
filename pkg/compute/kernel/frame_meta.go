@@ -59,14 +59,49 @@ func FormatCorrelationDecimal(id uint64) string {
 	return strconv.FormatUint(id, 10)
 }
 
-func CorrelationKeyvals(frame unsafe.Pointer) []any {
+/*
+CorrelationKV is one key/value pair for observer and logging hooks.
+*/
+type CorrelationKV struct {
+	Key   string
+	Value string
+}
+
+/*
+CorrelationKeyvals returns correlation fields when the frame carries a
+non-zero correlation word; otherwise nil.
+*/
+func CorrelationKeyvals(frame unsafe.Pointer) []CorrelationKV {
 	id := FrameCorrelationID(frame)
 
 	if id == 0 {
 		return nil
 	}
 
-	return []any{"correlation_id", FormatCorrelationDecimal(id)}
+	return []CorrelationKV{{
+		Key:   "correlation_id",
+		Value: FormatCorrelationDecimal(id),
+	}}
+}
+
+/*
+CorrelationKeyvalsFlat expands CorrelationKeyvals into alternating key/value
+any slices for variadic observer APIs.
+*/
+func CorrelationKeyvalsFlat(frame unsafe.Pointer) []any {
+	pairs := CorrelationKeyvals(frame)
+
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	out := make([]any, 0, len(pairs)*2)
+
+	for _, pair := range pairs {
+		out = append(out, pair.Key, pair.Value)
+	}
+
+	return out
 }
 
 /*

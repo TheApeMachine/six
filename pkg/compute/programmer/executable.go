@@ -1,26 +1,23 @@
 package programmer
 
 import (
-	"encoding/binary"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
+	"math/bits"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
 Executable binds compilation to execution: a Compiler plus optional ingress
-Values and an optional finalizer that can emit follow-on Values (routing,
-control flow, derived payloads).
+Values and an optional finalizer that can emit follow-on Values.
 
-Inputs carry token/signal/affinity (or any full wire) into the run: each
-emitted Value starts as a copy of inputs[0] when present, then the compiled
-program words for that frame overwrite the program region. Additional inputs
-are reserved for multi-operand staging later.
+Inputs carry the starting Value wire into the run: every emitted Value starts
+as a copy of inputs[0] when present, then operand bands, the program region,
+and the writeback results overwrite specific word ranges. Additional inputs
+are reserved for multi-operand staging.
 */
 type Executable struct {
 	compiler  *Compiler
@@ -43,12 +40,15 @@ func (executable *Executable) Inputs() []*primitive.Value {
 }
 
 /*
-Execute compiles and materializes one unsafe.Pointer per compiled frame: each
-pointer is the base of a full primitive.Value suitable for cpu/metal/cuda
-Substrate.Execute. When inputs[0] is non-nil, its full wire frame is copied
-into each output before operand bands and the program region are filled from
-the token and Frame. Scheduling from the optional continuation is written on
-the last emitted Value (word 117).
+Execute compiles and materializes one unsafe.Pointer per compiled frame:
+each pointer is the base of a full primitive.Value. When inputs[0] is
+non-nil, its full wire frame is copied into each output before operand
+bands and the program region are filled. Scheduling from the optional
+continuation is written on the last emitted Value (word 117).
+
+This path is the low-level materialization used by callers that manage
+their own substrate dispatch; use Run to drive stage/execute/writeback
+for a full program on a single Value.
 */
 func (executable *Executable) Execute(target CompilerTarget) ([]unsafe.Pointer, error) {
 	frames, err := executable.compiler.Compile(target)
@@ -71,10 +71,10 @@ func (executable *Executable) Execute(target CompilerTarget) ([]unsafe.Pointer, 
 	for idx := range frames {
 		value := executable.valueForFrame()
 
-		bands.fill(value, tokens[idx])
+		bands.stage(value, tokens[idx])
 		frames[idx].writeIntoProgramRegion(value)
 
-		if idx == len(frames)-1 {
+		if idx == len(frames)-1 && cont != nil {
 			cont.ApplyScheduling(value)
 		}
 
@@ -85,8 +85,66 @@ func (executable *Executable) Execute(target CompilerTarget) ([]unsafe.Pointer, 
 }
 
 /*
-Finalize runs the finalizer on one post-execution Value. When finalizer is nil,
-returns a single-element slice containing that Value.
+Run is the full stage-execute-writeback pipeline: one Value is cloned from
+inputs[0] (or minted empty), every frame stages its operand bands, the
+substrate runs one pass, and the writeback unpacks signals back into the
+frame's dst slice. Successive frames chain because they all mutate the
+same Value in place — that is what makes accumulate across lines mean
+anything.
+
+The caller supplies a kernel.Substrate; this keeps programmer free of a
+compile-time cpu/metal/cuda dependency and matches the interface every
+backend already implements.
+*/
+func (executable *Executable) Run(
+	target CompilerTarget,
+	substrate kernel.Substrate,
+) (*primitive.Value, error) {
+	if substrate == nil {
+		return nil, fmt.Errorf("programmer: Run requires a substrate")
+	}
+
+	frames, err := executable.compiler.Compile(target)
+
+	if err != nil {
+		return nil, err
+	}
+
+	tokens := executable.compiler.Tokens()
+
+	if len(tokens) != len(frames) {
+		return nil, fmt.Errorf("programmer: token/frame count mismatch: %d tokens, %d frames",
+			len(tokens), len(frames))
+	}
+
+	value := executable.valueForFrame()
+	cont := executable.compiler.Continuation()
+	bands := newOperandBands()
+
+	ptr := []unsafe.Pointer{unsafe.Pointer(&(*value)[0])}
+
+	for idx := range frames {
+		bands.stage(value, tokens[idx])
+		frames[idx].writeIntoProgramRegion(value)
+		bands.clearSignals(value)
+
+		if err := substrate.Execute(ptr); err != nil {
+			return nil, err
+		}
+
+		bands.writeback(value, tokens[idx])
+	}
+
+	if cont != nil {
+		cont.ApplyScheduling(value)
+	}
+
+	return value, nil
+}
+
+/*
+Finalize runs the finalizer on one post-execution Value. When finalizer is
+nil, returns a single-element slice containing that Value.
 */
 func (executable *Executable) Finalize(out *primitive.Value) ([]*primitive.Value, error) {
 	if executable.finalizer == nil {
@@ -107,8 +165,8 @@ func (executable *Executable) WithInputs(inputs []*primitive.Value) *Executable 
 }
 
 /*
-valueForFrame mints a Value wire for one frame: a copy of inputs[0] when set,
-otherwise a zero wire.
+valueForFrame mints a Value wire for one frame: a copy of inputs[0] when
+set, otherwise a zero wire.
 */
 func (executable *Executable) valueForFrame() *primitive.Value {
 	if len(executable.inputs) > 0 && executable.inputs[0] != nil {
@@ -123,133 +181,182 @@ func (executable *Executable) valueForFrame() *primitive.Value {
 }
 
 /*
-operandBands maps region refs into the operand lanes universalBitwiseV2 reads.
+operandBands maps a Token's RegionRefs into the operand lanes
+universalBitwiseV2 reads, and unpacks the signals it writes back into the
+dst region. The substrate has fixed operand positions (A at words 0..3, B
+rotations at words 32..95, signals at words 24..31) so the DSL's arbitrary
+region slices are bridged by a stage/writeback memcpy wrapper rather than
+by teaching the assembly new offsets.
 */
-type operandBands struct {
-	refRE *regexp.Regexp
-}
+type operandBands struct{}
 
 func newOperandBands() *operandBands {
-	return &operandBands{refRE: regexp.MustCompile(`^([a-z]+)\[([0-9,]+)\]$`)}
+	return &operandBands{}
 }
 
-func (bands *operandBands) fill(value *primitive.Value, tok Token) {
+/*
+aWordBase is the first word of the substrate's pinned A operand (query).
+*/
+const aWordBase = 0
+
+/*
+aWordCount is the number of words the substrate reads as A.
+*/
+const aWordCount = 4
+
+/*
+bWordBase is the first word of the substrate's 16-rotation B operand.
+*/
+const bWordBase = 32
+
+/*
+bRotationWords is the width of one B rotation; the substrate reads 16 of
+these back-to-back starting at bWordBase.
+*/
+const bRotationWords = 4
+
+/*
+stage copies srcA and srcB region slices out of value into the substrate's
+pinned A and B operand lanes. Both source slices are snapshotted first so
+that writing the A lanes (which always live at words 0..3) cannot clobber
+any srcB word that happens to land in the same region (e.g. tokens[2,2]
+while srcA is tokens[0,2]). srcA folds via XOR when the slice is wider
+than aWordCount; srcB tiles cyclically across the 16 rotations so every
+rotation sees a different window into the slice.
+*/
+func (bands *operandBands) stage(value *primitive.Value, token Token) {
 	if value == nil {
 		return
 	}
 
-	refA, errA := bands.parseRef(tok.SrcA)
-	refB, errB := bands.parseRef(tok.SrcB)
+	aLanes := bands.readA(value, token.SrcARef)
+	bWords := bands.readB(value, token.SrcBRef)
 
-	if errA == nil && refA.name == "tokens" && len(refA.indices) > 0 {
-		bands.packQueryWords(value, refA.indices)
+	bands.writeA(value, aLanes)
+	bands.writeB(value, bWords, token.SrcBRef.Span)
+}
+
+/*
+readA reads srcA.Span words from the referenced region and folds them into
+the 4 A-lane values. When Span > 4 the overflow words XOR back into the
+first 4, so a 16-word fold covers every input bit. When Span < 4 the
+unused A lanes stay zero.
+*/
+func (bands *operandBands) readA(value *primitive.Value, ref RegionRef) [aWordCount]uint64 {
+	var lanes [aWordCount]uint64
+
+	base := ref.AbsStart()
+
+	for idx := 0; idx < ref.Span; idx++ {
+		lanes[idx%aWordCount] ^= (*value)[base+idx]
 	}
 
-	if errB == nil && refB.name == "tokens" && len(refB.indices) > 0 {
-		bands.packBRotations(value, refB.indices)
+	return lanes
+}
+
+/*
+readB snapshots srcB.Span words into a local slice so downstream writes to
+the A lanes or the B rotation band cannot clobber the source data before
+the rotations are materialized.
+*/
+func (bands *operandBands) readB(value *primitive.Value, ref RegionRef) []uint64 {
+	span := ref.Span
+
+	if span <= 0 {
+		return nil
+	}
+
+	base := ref.AbsStart()
+	snapshot := make([]uint64, span)
+
+	for idx := 0; idx < span; idx++ {
+		snapshot[idx] = (*value)[base+idx]
+	}
+
+	return snapshot
+}
+
+/*
+writeA pins the folded A-lane words into the substrate's query operand
+(words 0..3).
+*/
+func (bands *operandBands) writeA(value *primitive.Value, lanes [aWordCount]uint64) {
+	for idx := 0; idx < aWordCount; idx++ {
+		value.Set(aWordBase+idx, lanes[idx])
 	}
 }
 
-type regionRef struct {
-	name    string
-	indices []int
-}
-
-func (bands *operandBands) parseRef(label string) (regionRef, error) {
-	m := bands.refRE.FindStringSubmatch(strings.TrimSpace(label))
-
-	if len(m) != 3 {
-		return regionRef{}, fmt.Errorf("programmer: invalid region ref %q", label)
-	}
-
-	parts := strings.Split(m[2], ",")
-	indices := make([]int, 0, len(parts))
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-
-		if part == "" {
-			continue
-		}
-
-		idx, err := strconv.Atoi(part)
-
-		if err != nil {
-			return regionRef{}, fmt.Errorf("programmer: invalid region ref %q", label)
-		}
-
-		indices = append(indices, idx)
-	}
-
-	if len(indices) == 0 {
-		return regionRef{}, fmt.Errorf("programmer: invalid region ref %q", label)
-	}
-
-	return regionRef{name: m[1], indices: indices}, nil
-}
-
-func (*operandBands) tokenCodeAt(value *primitive.Value, slot int) uint16 {
-	if value == nil || slot < 0 {
-		return 0
-	}
-
-	startWord := core.Cfg.Value.Region.Tokens.Start
-	off := startWord*8 + slot*2
-	buf := value.Bytes()
-
-	if off+2 > len(buf) {
-		return 0
-	}
-
-	return binary.LittleEndian.Uint16(buf[off:])
-}
-
-func (bands *operandBands) packQueryWords(value *primitive.Value, indices []int) {
-	var words [4]uint64
-
-	for slotIdx, tokIdx := range indices {
-		if slotIdx >= 16 {
-			break
-		}
-
-		code := uint64(bands.tokenCodeAt(value, tokIdx))
-		word := slotIdx / 4
-		shift := uint((slotIdx % 4) * 16)
-		words[word] |= code << shift
-	}
-
-	for wordIdx := 0; wordIdx < 4; wordIdx++ {
-		value.Set(wordIdx, words[wordIdx])
-	}
-}
-
-func (bands *operandBands) packBRotations(value *primitive.Value, indices []int) {
-	if len(indices) == 0 {
+/*
+writeB fills the 16-rotation B lane (64 words starting at bWordBase) from
+the srcB snapshot. Each rotation uses a cyclic 4-word window into the
+srcB span so the substrate sweeps genuinely distinct rotations even when
+srcB is short. A single-word span is broadcast across all rotations.
+*/
+func (bands *operandBands) writeB(value *primitive.Value, words []uint64, span int) {
+	if span <= 0 || len(words) == 0 {
 		return
 	}
 
-	var b0, b1, b2, b3 uint64
+	numRotations := core.Cfg.Value.NumRotations
 
-	for i := 0; i < 4 && i < len(indices); i++ {
-		code := uint64(bands.tokenCodeAt(value, indices[i%len(indices)]))
-
-		switch i {
-		case 0:
-			b0 = code
-		case 1:
-			b1 = code
-		case 2:
-			b2 = code
-		case 3:
-			b3 = code
+	for rotation := 0; rotation < numRotations; rotation++ {
+		for lane := 0; lane < bRotationWords; lane++ {
+			src := (rotation*bRotationWords + lane) % span
+			value.Set(bWordBase+rotation*bRotationWords+lane, words[src])
 		}
 	}
+}
 
-	for rotation := 0; rotation < 16; rotation++ {
-		base := 32 + rotation*4
-		value.Set(base+0, b0)
-		value.Set(base+1, b1)
-		value.Set(base+2, b2)
-		value.Set(base+3, b3)
+/*
+clearSignals zeroes the 8 signal words so each frame's substrate pass
+starts from a blank rotation-signature accumulator. The assembly OR-s new
+bytes into existing signal words within a single pass; leaving stale bits
+between frames would let earlier projections leak into later ones.
+*/
+func (bands *operandBands) clearSignals(value *primitive.Value) {
+	start := core.Cfg.Value.Region.Signals.Start
+	words := int((core.Cfg.Value.Region.Signals.Bits + 63) / 64)
+
+	for idx := 0; idx < words; idx++ {
+		value.Set(start+idx, 0)
+	}
+}
+
+/*
+writeback unpacks the signals region produced by one substrate pass into
+the token's dst region slice. Mode controls the fold: Accumulate XORs
+each signal word into the corresponding dst word; Reduce popcounts the
+whole signals region (respecting the affinity Fermat tail when dst is
+affinity) and writes the total into dst[0]. Reduce leaves the rest of
+the dst span untouched so callers can layer reductions without clobbering
+previously-accumulated state.
+*/
+func (bands *operandBands) writeback(value *primitive.Value, token Token) {
+	if value == nil {
+		return
+	}
+
+	dst := token.DstRef
+	sigStart := core.Cfg.Value.Region.Signals.Start
+	sigWords := int((core.Cfg.Value.Region.Signals.Bits + 63) / 64)
+
+	if token.ModeBit == ModeReduce {
+		total := uint64(0)
+
+		for idx := 0; idx < sigWords; idx++ {
+			total += uint64(bits.OnesCount64((*value)[sigStart+idx]))
+		}
+
+		value.Set(dst.AbsStart(), total)
+
+		return
+	}
+
+	base := dst.AbsStart()
+	span := dst.Span
+
+	for idx := 0; idx < span && idx < sigWords; idx++ {
+		current := (*value)[base+idx]
+		value.Set(base+idx, current^(*value)[sigStart+idx])
 	}
 }

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theapemachine/six/pkg/core/algo"
-
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 )
@@ -56,83 +54,6 @@ type predictionMetrics struct {
 	RejectionRate   []float64
 	OriginDiversity []float64
 	SelectedOrigins []float64
-}
-
-/*
-extractPredictionMetrics pulls system-level scaling signals from each
-Prediction:
-  - TopScore: best continuation log-probability (beam confidence)
-  - ScoreSpread: gap between best and worst continuation (hypothesis diversity)
-  - RejectionRate: fraction of trie origins that didn't survive node-level beam
-  - OriginDiversity: unique trie origins on surviving continuations (effective mesh utilization)
-  - SelectedOrigins: total tries that contributed (selected - rejected)
-*/
-func extractPredictionMetrics(rows []tools.ExperimentalData) predictionMetrics {
-	rowCount := len(rows)
-	metrics := predictionMetrics{
-		TopScore:        make([]float64, rowCount),
-		ScoreSpread:     make([]float64, rowCount),
-		RejectionRate:   make([]float64, rowCount),
-		OriginDiversity: make([]float64, rowCount),
-		SelectedOrigins: make([]float64, rowCount),
-	}
-
-	for idx, row := range rows {
-		prediction := row.Prediction
-		if prediction == nil {
-			continue
-		}
-
-		if len(prediction.Continuations) > 0 {
-			highestScore := prediction.Continuations[0].Score
-			lowestScore := highestScore
-
-			for _, continuation := range prediction.Continuations[1:] {
-				if continuation.Score > highestScore {
-					highestScore = continuation.Score
-				}
-
-				if continuation.Score < lowestScore {
-					lowestScore = continuation.Score
-				}
-			}
-
-			metrics.TopScore[idx] = highestScore
-			metrics.ScoreSpread[idx] = highestScore - lowestScore
-		}
-
-		totalOrigins := countUniqueOrigins(prediction)
-		rejectedCount := float64(len(prediction.Rejected))
-
-		if totalOrigins > 0 {
-			metrics.RejectionRate[idx] = rejectedCount / float64(totalOrigins)
-		}
-
-		survivingOrigins := make(map[uint64]struct{})
-
-		for _, continuation := range prediction.Continuations {
-			survivingOrigins[continuation.Origin] = struct{}{}
-		}
-
-		metrics.OriginDiversity[idx] = float64(len(survivingOrigins))
-		metrics.SelectedOrigins[idx] = float64(totalOrigins) - rejectedCount
-	}
-
-	return metrics
-}
-
-func countUniqueOrigins(pred *algo.Prediction) int {
-	seen := make(map[uint64]struct{})
-
-	for _, c := range pred.Continuations {
-		seen[c.Origin] = struct{}{}
-	}
-
-	for _, r := range pred.Rejected {
-		seen[r] = struct{}{}
-	}
-
-	return len(seen)
 }
 
 type statSummary struct {
@@ -292,7 +213,7 @@ func SubstrateQueryScalingArtifacts(tableData []tools.ExperimentalData) []tools.
 
 	n := len(rows)
 	labels := queryLabels(n)
-	pm := extractPredictionMetrics(rows)
+	pm := extractScalingMetrics(rows)
 
 	topScoreStats := computeStats(pm.TopScore)
 	rejStats := computeStats(pm.RejectionRate)

@@ -63,18 +63,18 @@ func (dial PhaseDial) EncodeFromValues(values []primitive.Value) PhaseDial {
 		dial = NewPhaseDial()
 	}
 
-	for k := 0; k < PhaseDialDimensions; k++ {
+	for dimIndex := 0; dimIndex < PhaseDialDimensions; dimIndex++ {
 		var sum complex128
 
-		omega := float64(numeric.PhaseDialPrimes[k])
+		omega := float64(numeric.PhaseDialPrimes[dimIndex])
 
-		for t := range values {
-			structuralPhase := structuralPhaseMix(&values[t])
-			phase := (omega * float64(t+1) * 0.1) + (structuralPhase * math.Pi * 2)
+		for valueIndex := range values {
+			structuralPhase := structuralPhaseMix(&values[valueIndex])
+			phase := (omega * float64(valueIndex+1) * 0.1) + (structuralPhase * math.Pi * 2)
 			sum += cmplx.Rect(1.0, phase)
 		}
 
-		dial[k] = sum
+		dial[dimIndex] = sum
 	}
 
 	return dial.normalize()
@@ -90,10 +90,10 @@ func (dial PhaseDial) AddValuePhase(value primitive.Value, position int) {
 
 	structuralPhase := structuralPhaseMix(&value)
 
-	for k := 0; k < PhaseDialDimensions; k++ {
-		omega := float64(numeric.PhaseDialPrimes[k])
+	for dimIndex := 0; dimIndex < PhaseDialDimensions; dimIndex++ {
+		omega := float64(numeric.PhaseDialPrimes[dimIndex])
 		phase := (omega * float64(position+1) * 0.1) + (structuralPhase * math.Pi * 2)
-		dial[k] += cmplx.Rect(1.0, phase)
+		dial[dimIndex] += cmplx.Rect(1.0, phase)
 	}
 }
 
@@ -141,10 +141,10 @@ func (dial PhaseDial) Similarity(other PhaseDial) float64 {
 
 	var normB float64
 
-	for i := range dial {
-		dot += cmplx.Conj(dial[i]) * other[i]
-		reA, imA := real(dial[i]), imag(dial[i])
-		reB, imB := real(other[i]), imag(other[i])
+	for dimIndex := range dial {
+		dot += cmplx.Conj(dial[dimIndex]) * other[dimIndex]
+		reA, imA := real(dial[dimIndex]), imag(dial[dimIndex])
+		reB, imB := real(other[dimIndex]), imag(other[dimIndex])
 		normA += reA*reA + imA*imA
 		normB += reB*reB + imB*imB
 	}
@@ -326,7 +326,24 @@ func (rotor PhaseRotor) ToDialCompat() PhaseDial {
 
 		angle := 2 * math.Atan2(eucNorm, mv[MvScalar])
 
-		if mv[MvE12]+mv[MvE31]+mv[MvE23] < 0 {
+		e12 := mv[MvE12]
+		e31 := mv[MvE31]
+		e23 := mv[MvE23]
+		abs12 := math.Abs(e12)
+		abs31 := math.Abs(e31)
+		abs23 := math.Abs(e23)
+
+		var dominant float64
+
+		if abs12 >= abs31 && abs12 >= abs23 {
+			dominant = e12
+		} else if abs31 >= abs23 {
+			dominant = e31
+		} else {
+			dominant = e23
+		}
+
+		if dominant < 0 {
 			angle = -angle
 		}
 

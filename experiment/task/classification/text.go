@@ -1,9 +1,7 @@
 package classification
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -11,7 +9,6 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 var _ tools.HoldoutProvider = (*TextClassificationExperiment)(nil)
@@ -118,8 +115,6 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		}
 	}
 
-	experiment.resolveClassificationRow(&results)
-
 	if results.PredLabel != nil && len(results.Classification) > 0 {
 		experiment.evaluator.Enrich(&results)
 	} else {
@@ -138,7 +133,6 @@ func (experiment *TextClassificationExperiment) ensurePredictions() {
 
 	for idx := range experiment.tableData {
 		row := &experiment.tableData[idx]
-		experiment.resolveClassificationRow(row)
 
 		if row.PredLabel != nil && len(row.Classification) > 0 {
 			experiment.evaluator.Enrich(row)
@@ -158,7 +152,6 @@ and beam continuations, matching ensurePredictions without the cached flag gate.
 func (experiment *TextClassificationExperiment) ComputePredictions() {
 	for idx := range experiment.tableData {
 		row := &experiment.tableData[idx]
-		experiment.resolveClassificationRow(row)
 
 		if row.PredLabel != nil && len(row.Classification) > 0 {
 			experiment.evaluator.Enrich(row)
@@ -200,17 +193,6 @@ func (experiment *TextClassificationExperiment) Score() float64 {
 
 func (experiment *TextClassificationExperiment) TableData() any {
 	return experiment.tableData
-}
-
-/*
-Answer returns the predicted class label for this classification task.
-*/
-func (experiment *TextClassificationExperiment) Answer(prediction *algo.Prediction) string {
-	if prediction == nil {
-		return ""
-	}
-
-	return prediction.Label()
 }
 
 func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
@@ -275,70 +257,6 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 			},
 		},
 	}
-}
-
-func (experiment *TextClassificationExperiment) stripExportLabels(row *tools.ExperimentalData) {
-	if row.Prediction == nil {
-		return
-	}
-
-	row.Prediction.Targets = nil
-	row.Prediction.Labels = nil
-}
-
-func (experiment *TextClassificationExperiment) applyClassificationSchema(row *tools.ExperimentalData, classIdx int) {
-	labels := experiment.ClassLabels()
-	className := labels[classIdx]
-	predIdx := classIdx
-	row.PredLabel = &predIdx
-	row.Classification = []byte(fmt.Sprintf(`{"class":%q,"index":%d}`, className, classIdx))
-
-	if row.Prediction == nil {
-		row.Prediction = algo.NewPrediction()
-	}
-
-	confidence := 1.0
-	labelEntry := algo.Label{Label: []byte(className), Confidence: confidence}
-	row.Prediction.Targets = []algo.Label{labelEntry}
-	row.Prediction.Labels = []algo.Label{labelEntry}
-}
-
-func (experiment *TextClassificationExperiment) resolveClassificationRow(row *tools.ExperimentalData) {
-	labels := experiment.ClassLabels()
-
-	if classIdx, ok := unambiguousLabelSubstringIndex(string(row.Classification), labels); ok {
-		experiment.applyClassificationSchema(row, classIdx)
-		return
-	}
-
-	if classIdx, ok := unambiguousLabelSubstringIndex(string(row.Generation), labels); ok {
-		experiment.applyClassificationSchema(row, classIdx)
-		return
-	}
-
-	if row.Prediction == nil || len(row.Prediction.Continuations) == 0 {
-		row.PredLabel = nil
-		row.Classification = []byte{}
-		experiment.stripExportLabels(row)
-
-		return
-	}
-
-	continuations := slices.Clone(row.Prediction.Continuations)
-	slices.SortStableFunc(continuations, func(a, b algo.Continuation) int {
-		return cmp.Compare(b.Score, a.Score)
-	})
-
-	for _, continuation := range continuations {
-		if classIdx, ok := unambiguousLabelSubstringIndex(string(continuation.Sequence), labels); ok {
-			experiment.applyClassificationSchema(row, classIdx)
-			return
-		}
-	}
-
-	row.PredLabel = nil
-	row.Classification = []byte{}
-	experiment.stripExportLabels(row)
 }
 
 func unambiguousLabelSubstringIndex(observed string, labels []string) (int, bool) {

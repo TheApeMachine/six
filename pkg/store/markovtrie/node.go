@@ -3,7 +3,9 @@ package markovtrie
 import (
 	"fmt"
 	"maps"
+	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -105,6 +107,8 @@ func (node *Node) AddLabel(label string) {
 		return
 	}
 
+	backoff := time.Nanosecond
+
 	for {
 		old := node.labels.Load()
 
@@ -122,6 +126,16 @@ func (node *Node) AddLabel(label string) {
 
 		if node.labels.CompareAndSwap(old, next) {
 			return
+		}
+
+		runtime.Gosched()
+
+		time.Sleep(backoff)
+
+		backoff *= 2
+
+		if backoff > time.Millisecond {
+			backoff = time.Millisecond
 		}
 	}
 }

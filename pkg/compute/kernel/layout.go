@@ -25,6 +25,9 @@ const (
 	OpcodeGeometricReverse  uint64 = 0x30
 	OpcodeRegionProgram     uint64 = 0x40
 
+	// OpcodeXOR is the universal-bitwise low nibble for XOR (truth table 0x6).
+	OpcodeXOR uint64 = 0x06
+
 	NearestAffinityBatchWord = 124
 
 	NearestAffinityCandidatesStartWord = 56

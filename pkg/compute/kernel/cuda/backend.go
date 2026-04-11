@@ -144,7 +144,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 				kv := append(
 					[]any{"device_idx", backend.deviceIdx},
-					kernel.CorrelationKeyvals(ptr)...,
+					kernel.CorrelationKeyvalsFlat(ptr)...,
 				)
 
 				backend.observer.Error("cuda.Backend.Execute", err, kv...)
@@ -155,7 +155,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		if opcode == 0x6 && batchCount > 0 {
+		if opcode == kernel.OpcodeXOR && batchCount > 0 {
 			distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 
 			if C.nearest_affinity_cuda(
@@ -174,7 +174,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 				kv := append(
 					[]any{"device_idx", backend.deviceIdx},
-					kernel.CorrelationKeyvals(ptr)...,
+					kernel.CorrelationKeyvalsFlat(ptr)...,
 				)
 
 				backend.observer.Error("cuda.Backend.Execute", err, kv...)
@@ -214,7 +214,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 			kv := append(
 				[]any{"device_idx", backend.deviceIdx},
-				kernel.CorrelationKeyvals(ptr)...,
+				kernel.CorrelationKeyvalsFlat(ptr)...,
 			)
 
 			backend.observer.Error("cuda.Backend.Execute", err, kv...)

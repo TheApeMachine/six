@@ -14,7 +14,7 @@ func TestStoreWalk(t *testing.T) {
 	t.Parallel()
 
 	Convey("Walk visits every reachable node", t, func() {
-		store, err := NewStore(context.Background(), primitive.Affinity{})
+		store, err := NewStore(context.Background(), []uint64{})
 
 		So(err, ShouldBeNil)
 
@@ -49,7 +49,7 @@ func TestStoreWalkPath(t *testing.T) {
 	t.Parallel()
 
 	Convey("WalkPath stops at deepest existing prefix", t, func() {
-		store, err := NewStore(context.Background(), primitive.Affinity{})
+		store, err := NewStore(context.Background(), []uint64{})
 
 		So(err, ShouldBeNil)
 
@@ -77,7 +77,7 @@ func TestStoreWalkPath(t *testing.T) {
 func BenchmarkStoreWalk(b *testing.B) {
 	setupMarkovTrieValueConfig(b)
 
-	store, err := NewStore(context.Background(), primitive.Affinity{})
+	store, err := NewStore(context.Background(), []uint64{})
 
 	if err != nil {
 		b.Fatal(err)
@@ -113,7 +113,7 @@ func BenchmarkStoreWalk(b *testing.B) {
 func BenchmarkStoreWalkPath(b *testing.B) {
 	setupMarkovTrieValueConfig(b)
 
-	store, err := NewStore(context.Background(), primitive.Affinity{})
+	store, err := NewStore(context.Background(), []uint64{})
 
 	if err != nil {
 		b.Fatal(err)
