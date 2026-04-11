@@ -53,6 +53,10 @@ func setupTokenizerValueConfig(tb testing.TB) {
 
 	core.Cfg.Value.Words = 128
 	core.Cfg.Value.Bytes = 1024
+	if core.Cfg.Programs == nil {
+		core.Cfg.Programs = make(map[string]string)
+	}
+	core.Cfg.Programs["affinity"] = "tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate"
 }
 
 func TestNewTokenizer(t *testing.T) {

@@ -12,7 +12,6 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/store/kadabra"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -63,7 +62,7 @@ func init() {
 }
 
 /*
-runDemo spins up a small Kadabra mesh and continuously publishes
+runDemo spins up a small mesh and continuously publishes
 data through it so the visualizer has real events to display.
 */
 func runDemo(ctx context.Context) {
@@ -74,26 +73,6 @@ func runDemo(ctx context.Context) {
 	}
 
 	defer queue.Close()
-
-	names := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
-	nodes := make([]*kadabra.Node, len(names))
-
-	for idx, name := range names {
-		node, err := kadabra.NewNode(ctx, name, queue)
-		if err != nil {
-			errnie.Warn(fmt.Sprintf("viz demo: node %s failed: %v", name, err))
-			return
-		}
-
-		nodes[idx] = node
-	}
-
-	// Wire a full mesh.
-	for idx := range nodes {
-		for jdx := idx + 1; jdx < len(nodes); jdx++ {
-			kadabra.Connect(nodes[idx], nodes[jdx], 1.0)
-		}
-	}
 
 	corpus := []struct {
 		text  string
@@ -121,7 +100,6 @@ func runDemo(ctx context.Context) {
 		}
 
 		entry := corpus[idx%len(corpus)]
-		node := nodes[idx%len(nodes)]
 
 		values, err := primitive.NewValue([]byte(entry.text))
 		if err != nil {
@@ -130,7 +108,7 @@ func runDemo(ctx context.Context) {
 		}
 
 		for _, value := range values {
-			publishErr := node.Publish(value, entry.label)
+			publishErr := queue.Publish(value, entry.label)
 			if publishErr != nil {
 				errnie.Warn(
 					fmt.Sprintf(
@@ -144,21 +122,6 @@ func runDemo(ctx context.Context) {
 		}
 
 		primitive.CloseAll(values)
-
-		// Let gossip and field dynamics propagate.
-		for _, node := range nodes {
-			digests := node.conn.Digests()
-
-			for _, peer := range nodes {
-				if peer.ID == node.ID {
-					continue
-				}
-
-				for _, digest := range digests {
-					node.field.Absorb(digest)
-				}
-			}
-		}
 
 		idx++
 

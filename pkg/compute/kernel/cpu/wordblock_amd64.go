@@ -34,9 +34,6 @@ func hammingMatch(frame *uint64, n int, target uint64, maxDist uint64) bool
 func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64)
 
 //go:noescape
-func universalBitwiseV2(value *uint64, numRotations int)
-
-//go:noescape
 func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
 
 //go:noescape

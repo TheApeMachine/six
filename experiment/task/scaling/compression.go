@@ -32,7 +32,6 @@ func NewCompressionExperiment() *CompressionExperiment {
 		nSamples:  200,
 		sampleLen: 128,
 		evaluator: tools.NewEvaluator(
-			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.80),
 		),
 	}

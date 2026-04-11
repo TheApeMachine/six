@@ -11,6 +11,8 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -127,7 +129,6 @@ func TestNewMachine(t *testing.T) {
 		}()
 
 		So(machine.tokenizer, ShouldNotBeNil)
-		So(machine.kadabra, ShouldNotBeNil)
 		So(machine.queue, ShouldNotBeNil)
 		So(machine.backend, ShouldNotBeNil)
 		So(machine.host, ShouldNotBeNil)
@@ -143,6 +144,38 @@ func TestMachineClose(t *testing.T) {
 
 		So(machine.Close(), ShouldBeNil)
 	})
+}
+
+/*
+capturingQueue delegates to pool.Queue and records the last Value passed to
+Publish so tests can assert post-dispatch state after Drain.
+*/
+type capturingQueue struct {
+	*pool.Queue
+	last *primitive.Value
+}
+
+func (capture *capturingQueue) Publish(value *primitive.Value, label string) error {
+	capture.last = value
+
+	return capture.Queue.Publish(value, label)
+}
+
+func affinityRegionHasBits(value *primitive.Value) bool {
+	if value == nil {
+		return false
+	}
+
+	start := core.Cfg.Value.Region.Affinity.Start
+	words := int((core.Cfg.Value.Region.Affinity.Bits + 63) / 64)
+
+	for idx := 0; idx < words; idx++ {
+		if (*value)[start+idx] != 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestMachineLoad(t *testing.T) {

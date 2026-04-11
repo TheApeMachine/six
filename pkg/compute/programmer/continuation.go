@@ -1,6 +1,9 @@
 package programmer
 
-import "github.com/theapemachine/six/pkg/primitive"
+import (
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
+)
 
 /*
 ContinuationKind classifies a trailing next-program directive after the last
@@ -13,12 +16,6 @@ const (
 	ContinuationValueID
 	ContinuationSelf
 )
-
-/*
-schedulingNextProgramWord is the last word of the reserved band (56–117) where
-Executable records the next program ValueID after Values exist.
-*/
-const schedulingNextProgramWord = 117
 
 /*
 Continuation records scheduling intent applied by Executable after Values exist
@@ -39,9 +36,9 @@ func (continuation *Continuation) ApplyScheduling(value *primitive.Value) {
 
 	switch continuation.Kind {
 	case ContinuationValueID:
-		value.Set(schedulingNextProgramWord, continuation.ValueID)
+		value.Set(kernel.SchedulingNextProgramWord, continuation.ValueID)
 	case ContinuationSelf:
-		value.Set(schedulingNextProgramWord, value.ID())
+		value.Set(kernel.SchedulingNextProgramWord, value.ID())
 	default:
 	}
 }

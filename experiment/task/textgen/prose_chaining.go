@@ -5,7 +5,6 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
-	"github.com/theapemachine/six/pkg/core/algo"
 )
 
 /*
@@ -97,13 +96,6 @@ func (experiment *ProseChainingExperiment) Score() float64 {
 }
 
 func (experiment *ProseChainingExperiment) TableData() any { return experiment.tableData }
-
-/*
-Answer returns the generated text continuation.
-*/
-func (experiment *ProseChainingExperiment) Answer(prediction *algo.Prediction) string {
-	return prediction.String()
-}
 
 func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
 	return ProseChainingArtifacts(experiment.tableData, experiment.Score())

@@ -216,3 +216,28 @@ programs:
     meta[0,1]     meta[1,1]      meta[0,1]     or       accumulate
     meta[0,1]     affinity[0,5]  affinity[0,5] xor      accumulate
     next self
+
+  # Free Energy / Prediction Error: Computes the gap between the incoming
+  # tokens and the context (the local eigenmode/attractor).
+  surprisal: |
+    tokens[0,8] context[0,8] signals[0,8] xor accumulate
+    signals[0,8] signals[0,8] meta[0,1] xor reduce
+
+  # Popperian Test: XORs tokens against a predicted-absent pattern in context.
+  # A high popcount in meta[1] means the claim held (they differ); a low
+  # popcount refutes it. If refuted, we zero the TTL word (meta[3]).
+  falsification: |
+    tokens[0,8] context[0,8] signals[0,8] xor accumulate
+    signals[0,8] signals[0,8] meta[1,1] xor reduce
+    meta[1,1] meta[3,1] meta[3,1] and accumulate
+
+  # Temperature: Physical noise injected into the Affinity vector during
+  # exploration to widen the search space.
+  temperature: |
+    meta[4,1] affinity[0,5] affinity[0,5] xor accumulate
+
+  # Phase-Rotated Attractors: Compares the value against multiple phase-rotated
+  # attractors to determine the best fit.
+  classification: |
+    tokens[0,8] context[0,8] signals[0,8] xnor accumulate
+    signals[0,8] signals[0,8] meta[2,1] xor reduce

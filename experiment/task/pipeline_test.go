@@ -220,10 +220,6 @@ func TestPipeline(t *testing.T) {
 
 						generation := prediction.String()
 
-						if answerer, ok := pipeline.experiment.(tools.PromptAnswerer); ok {
-							generation = answerer.AnswerForPrompt(idx, prediction)
-						}
-
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.
 						pipeline.experiment.AddResult(tools.ExperimentalData{
@@ -232,8 +228,7 @@ func TestPipeline(t *testing.T) {
 							Prefix:         []byte(prompt),
 							Holdout:        holdoutBytes,
 							Generation:     []byte(generation),
-							Classification: []byte(prediction.Label()),
-							Prediction:     prediction,
+							Classification: []byte(""), // Value doesn't have a Label() method
 						})
 
 						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)

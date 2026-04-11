@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -21,7 +22,7 @@ func TestContinuation_ApplyScheduling(t *testing.T) {
 		Convey("ApplyScheduling should not write", func() {
 			cont.ApplyScheduling(&value)
 
-			So(value[schedulingNextProgramWord], ShouldEqual, uint64(0))
+			So(value[kernel.SchedulingNextProgramWord], ShouldEqual, uint64(0))
 		})
 	})
 
@@ -32,7 +33,7 @@ func TestContinuation_ApplyScheduling(t *testing.T) {
 		Convey("ApplyScheduling should not write", func() {
 			cont.ApplyScheduling(&value)
 
-			So(value[schedulingNextProgramWord], ShouldEqual, uint64(0))
+			So(value[kernel.SchedulingNextProgramWord], ShouldEqual, uint64(0))
 		})
 	})
 
@@ -43,7 +44,7 @@ func TestContinuation_ApplyScheduling(t *testing.T) {
 		Convey("ApplyScheduling should stamp word 117 with the value id", func() {
 			cont.ApplyScheduling(&value)
 
-			So(value[schedulingNextProgramWord], ShouldEqual, uint64(4242))
+			So(value[kernel.SchedulingNextProgramWord], ShouldEqual, uint64(4242))
 		})
 	})
 
@@ -56,7 +57,7 @@ func TestContinuation_ApplyScheduling(t *testing.T) {
 		Convey("ApplyScheduling should stamp word 117 with the frame id", func() {
 			cont.ApplyScheduling(&value)
 
-			So(value[schedulingNextProgramWord], ShouldEqual, uint64(9001))
+			So(value[kernel.SchedulingNextProgramWord], ShouldEqual, uint64(9001))
 		})
 	})
 

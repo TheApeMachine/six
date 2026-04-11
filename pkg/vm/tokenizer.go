@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -236,6 +237,10 @@ func (tokenizer *Tokenizer) DrainPublishedValues(
 
 			for _, seg := range minted {
 				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), label))
+
+				if installErr := programmer.InstallProgram(seg, "affinity"); installErr != nil {
+					return errnie.Error(installErr)
+				}
 
 				for _, publisher := range publishers {
 					if pubErr := publisher.Publish(seg, label); pubErr != nil {

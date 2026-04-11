@@ -17,9 +17,9 @@
   ],
   "name": "Out of Corpus",
   "outcome": {
-    "actual": 0.2800217629671141,
+    "actual": 0.02660022092535109,
     "passed": true,
-    "threshold": 0.004638515570677402
+    "threshold": 0.003968812328731844
   },
   "results": [
     {
@@ -27,532 +27,172 @@
       "Name": "prompt_0",
       "Prefix": "ID0gVmFsa3lyaWEgQ2hy",
       "Holdout": "b25pY2xlcyBJSUkgPSAK",
-      "Generation": "b25pY2xlcyBJSUkgd2FzIG5vdCBsb2NhbGl6ZWQgLCBidXQgYSBmYW4gdHJhbnNsYXRpb24gY29tcGF0aWJsZQ==",
+      "Generation": "ID0gVmFsa3lyaWEgQ2hy",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.8,
-        "Fuzzy": 0.1875
+        "Partial": 0.06666666666666667,
+        "Fuzzy": 0.06666666666666667
       },
-      "WeightedTotal": 0.2522727272727273,
+      "WeightedTotal": 0.030303030303030304,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "b25pY2xlcyBJSUkgd2FzIG5vdCBsb2NhbGl6ZWQgLCBidXQgYSBmYW4gdHJhbnNsYXRpb24gY29tcGF0aWJsZQ==",
-            "Score": 0.0014357320869247678,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b25pY2xlcyBJSSBkaXJlY3RvciBUYWtlc2hpIE96YXdhIC4gQSBsYXJnZSB0ZWFtIG9mIHdyaXRlcnMgaGFuZA==",
-            "Score": -0.016103577362308164,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b25pY2xlcyBJSSBkaXJlY3RvciBUYWtlc2hpIE96YXdhIC4gQSBsYXJnZSB0ZWFtIG9mIHc=",
-            "Score": -0.18797857736230822,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231562,
-          15463171881070231561,
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231559
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 1,
       "Name": "prompt_1",
       "Prefix": "IFNlbmrFjSBubyBWYWxreXJpYSAzIDogVW5yZWNvcmRlZCBDaHJvbmljbGVzICggSmFwYW5lc2UgOiDmiKbloLTjga7jg7TjgqHjg6vjgq3jg6Xjg6rjgqIzICwgbGl0IC4gVmFsa3lyaWEgb2YgdGhlIEJhdHRsZWZpZWxkIDMgKSAsIGNvbW1vbmx5IHJlZmVycmVkIHRvIGFzIFZhbGt5cmlhIENocm9uaWNsZXMgSUlJIG91dHNpZGUgSmFwYW4gLCBpcyBhIHRhY3RpY2FsIHJvbGUgQC1AIHBsYXlpbmcgdmlkZW8gZ2FtZSBkZXZlbG9wZWQgYnkgU2VnYSBhbmQgTWVkaWEuVmlzaW9uIGZvciB0aGUgUGxheVN0YXRpb24gUG9ydGFibGUgLiBSZWxlYXNlZCBpbiBKYW51YXJ5IDIwMTEgaW4gSmFwYW4gLCBpdCBpcyB0aGUgdGhpcmQgZ2FtZSBp",
       "Holdout": "biB0aGUgVmFsa3lyaWEgc2VyaWVzIC4gRW1wbG95aW5nIHRoZSBzYW1lIGZ1c2lvbiBvZiB0YWN0aWNhbCBhbmQgcmVhbCBALUAgdGltZSBnYW1lcGxheSBhcyBpdHMgcHJlZGVjZXNzb3JzICwgdGhlIHN0b3J5IHJ1bnMgcGFyYWxsZWwgdG8gdGhlIGZpcnN0IGdhbWUgYW5kIGZvbGxvd3MgdGhlICIgTmFtZWxlc3MgIiAsIGEgcGVuYWwgbWlsaXRhcnkgdW5pdCBzZXJ2aW5nIHRoZSBuYXRpb24gb2YgR2FsbGlhIGR1cmluZyB0aGUgU2Vjb25kIEV1cm9wYW4gV2FyIHdobyBwZXJmb3JtIHNlY3JldCBibGFjayBvcGVyYXRpb25zIGFuZCBhcmUgcGl0dGVkIGFnYWluc3QgdGhlIEltcGVyaWFsIHVuaXQgIiBDYWxhbWF0eSBSYXZlbiAiIC4gCg==",
-      "Generation": "biB0aGUgVmFsa3lyaWEgc2VyaWVzIC4gRW1wbG95aW5nIHRoZSBzYW1lIGZ1c2lvbiBvZiB0YWN0aWNhbCBhbg==",
+      "Generation": "dWFyeSAyMDExIGluIEphcGFuICwgaXQgaXMgdGhlIHRoaXJkIGdhbWUgaQ==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.17582417582417584,
-        "Fuzzy": 0.17582417582417584
+        "Partial": 0.0027472527472527475,
+        "Fuzzy": 0.0027472527472527475
       },
-      "WeightedTotal": 0.07992007992007993,
+      "WeightedTotal": 0.001248751248751249,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "biB0aGUgVmFsa3lyaWEgc2VyaWVzIC4gRW1wbG95aW5nIHRoZSBzYW1lIGZ1c2lvbiBvZiB0YWN0aWNhbCBhbg==",
-            "Score": -0.014066756275024525,
-            "Origin": 0
-          },
-          {
-            "Sequence": "biB0aGUgVmFsa3lyaWEgc2VyaWVz",
-            "Score": -0.6739589638925961,
-            "Origin": 0
-          },
-          {
-            "Sequence": "biB0aGUgVmFsa3lyaWEgc2VyaWVz",
-            "Score": -66.6163417763926,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231562,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231559,
-          15463171881070231561,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 2,
       "Name": "prompt_2",
       "Prefix": "IFRoZSBnYW1lIGJlZ2FuIGRldmVsb3BtZW50IGluIDIwMTAgLCBjYXJyeWluZyBvdmVyIGEgbGFyZ2UgcG9ydGlvbiBvZiB0aGUgd29yayBkb25lIG9uIFZhbGt5cmlhIENocm9uaWNsZXMgSUkgLiBXaGlsZSBpdCByZXRhaW5lZCB0aGUgc3RhbmRhcmQgZmVhdHVyZXMgb2YgdGhlIHNlcmllcyAsIGl0IGFsc28gdW5kZXJ3ZW50IG11bHRpcGxlIGFkanVzdG1lbnRzICwgc3VjaCBhcyBtYWtpbmcgdGhlIGdhbWUgbW9yZSBmb3JnaXZpbmcgZm9yIHNlcmllcyBuZQ==",
       "Holdout": "d2NvbWVycyAuIENoYXJhY3RlciBkZXNpZ25lciBSYWl0YSBIb25qb3UgYW5kIGNvbXBvc2VyIEhpdG9zaGkgU2FraW1vdG8gYm90aCByZXR1cm5lZCBmcm9tIHByZXZpb3VzIGVudHJpZXMgLCBhbG9uZyB3aXRoIFZhbGt5cmlhIENocm9uaWNsZXMgSUkgZGlyZWN0b3IgVGFrZXNoaSBPemF3YSAuIEEgbGFyZ2UgdGVhbSBvZiB3cml0ZXJzIGhhbmRsZWQgdGhlIHNjcmlwdCAuIFRoZSBnYW1lICdzIG9wZW5pbmcgdGhlbWUgd2FzIHN1bmcgYnkgTWF5ICduIC4gCg==",
-      "Generation": "d2NvbWVycyAuIENoYXJhY3RlciBkZXNpZ25lciBSYWl0YSBIb25qb3UgYW5kIGNvbXBvc2VyIEhpdG9zaGkgUw==",
+      "Generation": "aWVzIG5l",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.24427480916030533,
-        "Fuzzy": 0.24427480916030533
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.11103400416377515,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "d2NvbWVycyAuIENoYXJhY3RlciBkZXNpZ25lciBSYWl0YSBIb25qb3UgYW5kIGNvbXBvc2VyIEhpdG9zaGkgUw==",
-            "Score": -0.0075635089498823395,
-            "Origin": 0
-          },
-          {
-            "Sequence": "d2NvbWVycyAuIENoYXJhY3RlciBkZXNpZ25lciBSYWl0YSBIb25qb3UgYW5kIGNvbXBvc2VyIEhpdA==",
-            "Score": -0.10131350894988235,
-            "Origin": 0
-          },
-          {
-            "Sequence": "d2NvbWVycyAuIENoYXJhY3RlciBkZXNpZ25lciBSYWl0YSBIb25qb3UgYW5kIGNvbXBvc2VyIEhpdA==",
-            "Score": -61.79418460269988,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231556,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231562
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 3,
       "Name": "prompt_3",
       "Prefix": "IEl0IG1ldCB3aXRoIHBvc2l0aXZlIHNhbGVzIGluIEphcGFuICwgYW5kIHdhcyBwcmFpc2VkIGJ5IGJvdGggSmFwYW5lc2UgYW5kIHdlc3Rlcm4gY3JpdGljcyAuIEFmdGVyIHJlbGVhc2UgLCBpdCByZWNlaXZlZCBkb3dubG9hZGFibGUgY29udGVudCAsIGFsb25nIHdpdGggYW4gZXhwYW5kZWQgZWRpdGlvbiBpbiBOb3ZlbWJlciBvZiB0aGF0IHllYXIgLiBJdCB3YXMgYWxzbyBhZGFwdGVkIGludG8gbWFuZ2EgYW5kIGFuIG9yaWdpbmFsIHZpZGVvIGFuaW1hdGlvbiBzZXJpZXMgLiBEdWUgdG8gbG93IHM=",
       "Holdout": "YWxlcyBvZiBWYWxreXJpYSBDaHJvbmljbGVzIElJICwgVmFsa3lyaWEgQ2hyb25pY2xlcyBJSUkgd2FzIG5vdCBsb2NhbGl6ZWQgLCBidXQgYSBmYW4gdHJhbnNsYXRpb24gY29tcGF0aWJsZSB3aXRoIHRoZSBnYW1lICdzIGV4cGFuZGVkIGVkaXRpb24gd2FzIHJlbGVhc2VkIGluIDIwMTQgLiBNZWRpYS5WaXNpb24gd291bGQgcmV0dXJuIHRvIHRoZSBmcmFuY2hpc2Ugd2l0aCB0aGUgZGV2ZWxvcG1lbnQgb2YgVmFsa3lyaWEgOiBBenVyZSBSZXZvbHV0aW9uIGZvciB0aGUgUGxheVN0YXRpb24gNCAuIAo=",
-      "Generation": "YWxlcyBvZiBWYWxreXJpYSBDaHJvbmljbGVzIElJICwgVmFsa3lyaWEgQ2hyb25pY2xlcyBJSUkgd2FzIG5vdA==",
+      "Generation": "YW5pbWF0aW9uIHNlcmllcyAuIER1ZSB0byBsb3cgcw==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.2229965156794425,
-        "Fuzzy": 0.2229965156794425
+        "Partial": 0.006968641114982578,
+        "Fuzzy": 0.006968641114982578
       },
-      "WeightedTotal": 0.10136205258156478,
+      "WeightedTotal": 0.0031675641431738993,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "YWxlcyBvZiBWYWxreXJpYSBDaHJvbmljbGVzIElJICwgVmFsa3lyaWEgQ2hyb25pY2xlcyBJSUkgd2FzIG5vdA==",
-            "Score": 0.007646495232519896,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YWxlcyBvZiBWYWxreXJpYSBDaHJvbmljbGVzIElJICwg",
-            "Score": -0.4695318033721674,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YWxlcyBvZiBWYWxreXJpYSBDaHJvbmljbGVzIElJICwg",
-            "Score": -64.65019586587216,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231556,
-          15463171881070231561,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231559,
-          15463171881070231553,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 4,
       "Name": "prompt_4",
       "Prefix": "ID0gPSBHYW1l",
       "Holdout": "cGxheSA9ID0gCg==",
-      "Generation": "cGxheSA9ID0gCg==",
+      "Generation": "ID0gPSBHYW1l",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.1,
+        "Fuzzy": 0.1
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.04545454545454546,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "cGxheSA9ID0gCg==",
-            "Score": 0.024575237123823583,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cGxheSA9ID0gCg==",
-            "Score": -63.80696773162617,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PSA9ID0gPSBWYWxreXJpYQ==",
-            "Score": -131.06100303435818,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231554,
-          15463171881070231562,
-          15463171881070231559,
-          15463171881070231556,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 5,
       "Name": "prompt_5",
       "Prefix": "IEFzIHdpdGggcHJldmlvdXMgVmFsa3lpcmEgQ2hyb25pY2xlcyBnYW1lcyAsIFZhbGt5cmlhIENocm9uaWNsZXMgSUlJIGlzIGEgdGFjdGljYWwgcm9sZSBALUAgcGxheWluZyBnYW1lIHdoZXJlIHBsYXllcnMgdGFrZSBjb250cm9sIG9mIGEgbWlsaXRhcnkgdW5pdCBhbmQgdGFrZSBwYXJ0IGluIG1pc3Npb25zIGFnYWluc3QgZW5lbXkgZm9yY2VzIC4gU3RvcmllcyBhcmUgdG9sZCB0aHJvdWdoIGNvbWljIGJvb2sgQC1AIGxpa2UgcGFuZWxzIHdpdGggYW5pbWF0ZWQgY2hhcmFjdGVyIHBvcnRyYWl0cyAsIHdpdGggY2hhcmFjdGVycyBzcGVha2luZyBwYXJ0aWFsbHkgdGhyb3VnaCB2b2ljZWQgc3BlZWNoIGJ1YmJsZXMgYW5kIHBhcnRpYWxseSB0aHJvdWdoIHVudm9pY2VkIHRleHQgLiBUaGUgcGxheWVyIHByb2dyZXNzZXMgdGhyb3VnaCBhIHNlcmllcyBvZiBsaW5lYXIgbWlzc2lvbnMgLCBncmFkdWFsbHkgdW5sb2NrZWQgYXMgbWFwcyB0aGF0IGNhbiBiZSBmcmVlbHkgc2Nhbm5lZCB0aHJvdWdoIGFuZCByZXBsYXllZCBhcyB0aGV5IGFyZSB1bmxvY2tlZCAuIFRoZSByb3V0ZSB0byBlYWNoIHN0b3J5IGxvY2F0aW9uIG9uIHRoZSBtYXAgdmFyaWVzIGRlcGVuZGluZw==",
       "Holdout": "IG9uIGFuIGluZGl2aWR1YWwgcGxheWVyICdzIGFwcHJvYWNoIDogd2hlbiBvbmUgb3B0aW9uIGlzIHNlbGVjdGVkICwgdGhlIG90aGVyIGlzIHNlYWxlZCBvZmYgdG8gdGhlIHBsYXllciAuIE91dHNpZGUgbWlzc2lvbnMgLCB0aGUgcGxheWVyIGNoYXJhY3RlcnMgcmVzdCBpbiBhIGNhbXAgLCB3aGVyZSB1bml0cyBjYW4gYmUgY3VzdG9taXplZCBhbmQgY2hhcmFjdGVyIGdyb3d0aCBvY2N1cnMgLiBBbG9uZ3NpZGUgdGhlIG1haW4gc3RvcnkgbWlzc2lvbnMgYXJlIGNoYXJhY3RlciBALUAgc3BlY2lmaWMgc3ViIG1pc3Npb25zIHJlbGF0aW5nIHRvIGRpZmZlcmVudCBzcXVhZCBtZW1iZXJzIC4gQWZ0ZXIgdGhlIGdhbWUgJ3MgY29tcGxldGlvbiAsIGFkZGl0aW9uYWwgZXBpc29kZXMgYXJlIHVubG9ja2VkICwgc29tZSBvZiB0aGVtIGhhdmluZyBhIGhpZ2hlciBkaWZmaWN1bHR5IHRoYW4gdGhvc2UgZm91bmQgaW4gdGhlIHJlc3Qgb2YgdGhlIGdhbWUgLiBUaGVyZSBhcmUgYWxzbyBsb3ZlIHNpbXVsYXRpb24gZWxlbWVudHMgcmVsYXRlZCB0byB0aGUgZ2FtZSAncyB0d28gbWFpbiBoZXJvaW5lcyAsIGFsdGhvdWdoIHRoZXkgdGFrZSBhIHZlcnkgbWlub3Igcm9sZSAuIAo=",
-      "Generation": "IG9uIGFuIGluZGl2aWR1YWwgcGxheWVyICdzIGFwcHJvYWNoIDogd2hlbiBvbmUgb3B0aW9uIGlzIHNlbGVjdA==",
+      "Generation": "Y2F0aW9uIG9uIHRoZSBtYXAgdmFyaWVzIGRlcGVuZGluZw==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.10474631751227496,
-        "Fuzzy": 0.10474631751227496
+        "Partial": 0.011456628477905073,
+        "Fuzzy": 0.011456628477905073
       },
-      "WeightedTotal": 0.04761196250557953,
+      "WeightedTotal": 0.00520755839904776,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "IG9uIGFuIGluZGl2aWR1YWwgcGxheWVyICdzIGFwcHJvYWNoIDogd2hlbiBvbmUgb3B0aW9uIGlzIHNlbGVjdA==",
-            "Score": 0.009625317817243581,
-            "Origin": 0
-          },
-          {
-            "Sequence": "IG9uIGFuIGluZGl2aWR1YWwgcGxheWVyICdzIGFw",
-            "Score": -0.517571916786022,
-            "Origin": 0
-          },
-          {
-            "Sequence": "IG9uIGFuIGluZGl2aWR1YWwgcGxheWVyICdzIGFw",
-            "Score": -62.911370744911025,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231553,
-          15463171881070231556,
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231559,
-          15463171881070231561,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 6,
       "Name": "prompt_6",
       "Prefix": "IFRoZSBnYW1lICdzIGJhdHRsZSBzeXN0ZW0gLCB0aGUgQmxpVFogc3lzdGVtICwgaXMgY2FycmllZCBvdmVyIGRpcmVjdGx5IGZyb20gVmFsa3lpcmEgQ2hyb25pY2xlcyAuIER1cmluZyBtaXNzaW9ucyAsIHBsYXllcnMgc2VsZWN0IGVhY2ggdW5pdCB1c2luZyBhIHRvcCBALUAgZG93biBwZXJzcGVjdGl2ZSBvZiB0aGUgYmF0dGxlZmllbGQgbWFwIDogb25jZSBhIGNoYXJhY3RlciBpcyBzZWxlY3RlZCAsIHRoZSBwbGF5ZXIgbW92ZXMgdGhlIGNoYXJhY3RlciBhcm91bmQgdGhlIGJhdHRsZWZpZWxkIGluIHRoaXJkIEAtQCBwZXJzb24gLiBBIGNoYXJhY3RlciBjYW4gb25seSBhY3Qgb25jZSBwZXIgQC1AIHR1cm4gLCBidXQgY2hhcmFjdGVycyBjYW4gYmUgZ3JhbnRlZCBtdWx0aXBsZSB0dXJucyBhdCB0aGUgZXhwZW5zZSBvZiBvdGhlciBjaGFyYWN0ZXJzICcgdHVybnMgLiBFYWNoIGNoYXJhY3RlciBoYXMgYSBmaWVsZCBhbmQgZGlzdGFuY2Ugb2YgbW92ZW1lbnQgbGltaXRlZCBieSB0aGVpciBBY3Rpb24gR2F1Z2UgLiBVcCB0byBuaW5lIGNoYXJhY3RlcnMgY2FuIGJlIGFzc2lnbmVkIHRvIGEgc2luZ2xlIG1pc3Npb24gLiBEdXJpbmcgZ2FtZXBsYXkgLCBjaGFyYWN0ZXJzIHdpbGwgY2FsbCBvdXQgaWYgc29tZXRoaW5nIGhhcHBlbnMgdG8gdGhlbSAsIHN1Y2ggYXMgdGhlaXIgaGVhbHRoIHBvaW50cyAoIEhQICkgZ2V0dGluZyBsb3cgb3IgYmVpbmcga25vY2tlZCBvdXQgYnkgZW5lbXkgYXR0YWNrcyAuIEVhY2ggY2hhcmFjdGVyIGhhcyBzcGVjaWZpYyAiIFBvdGVudGlhbHMgIiAsIHNraWxscyB1bmlxdWUgdG8gZQ==",
       "Holdout": "YWNoIGNoYXJhY3RlciAuIFRoZXkgYXJlIGRpdmlkZWQgaW50byAiIFBlcnNvbmFsIFBvdGVudGlhbCAiICwgd2hpY2ggYXJlIGlubmF0ZSBza2lsbHMgdGhhdCByZW1haW4gdW5hbHRlcmVkIHVubGVzcyBvdGhlcndpc2UgZGljdGF0ZWQgYnkgdGhlIHN0b3J5IGFuZCBjYW4gZWl0aGVyIGhlbHAgb3IgaW1wZWRlIGEgY2hhcmFjdGVyICwgYW5kICIgQmF0dGxlIFBvdGVudGlhbHMgIiAsIHdoaWNoIGFyZSBncm93biB0aHJvdWdob3V0IHRoZSBnYW1lIGFuZCBhbHdheXMgZ3JhbnQgYm9vbnMgdG8gYSBjaGFyYWN0ZXIgLiBUbyBsZWFybiBCYXR0bGUgUG90ZW50aWFscyAsIGVhY2ggY2hhcmFjdGVyIGhhcyBhIHVuaXF1ZSAiIE1hc3RlcnMgVGFibGUgIiAsIGEgZ3JpZCBALUAgYmFzZWQgc2tpbGwgdGFibGUgdGhhdCBjYW4gYmUgdXNlZCB0byBhY3F1aXJlIGFuZCBsaW5rIGRpZmZlcmVudCBza2lsbHMgLiBDaGFyYWN0ZXJzIGFsc28gaGF2ZSBTcGVjaWFsIEFiaWxpdGllcyB0aGF0IGdyYW50IHRoZW0gdGVtcG9yYXJ5IGJvb3N0cyBvbiB0aGUgYmF0dGxlZmllbGQgOiBLdXJ0IGNhbiBhY3RpdmF0ZSAiIERpcmVjdCBDb21tYW5kICIgYW5kIG1vdmUgYXJvdW5kIHRoZSBiYXR0bGVmaWVsZCB3aXRob3V0IGRlcGxldGluZyBoaXMgQWN0aW9uIFBvaW50IGdhdWdlICwgdGhlIGNoYXJhY3RlciBSZWlsYSBjYW4gc2hpZnQgaW50byBoZXIgIiBWYWxreXJpYSBGb3JtICIgYW5kIGJlY29tZSBpbnZpbmNpYmxlICwgd2hpbGUgSW1jYSBjYW4gdGFyZ2V0IG11bHRpcGxlIGVuZW15IHVuaXRzIHdpdGggaGVyIGhlYXZ5IHdlYXBvbiAuIAo=",
-      "Generation": "YWNoIGNoYXJhY3RlciAuIFRoZXkgYXJlIGRpdmlkZWQgaW50byAiIFBlcnNvbmFsIFBvdGVudGlhbCAiICwgdw==",
+      "Generation": "cGVjaWZpYyAiIFBvdGVudGlhbHMgIiAsIHNraWxscyB1bmlxdWUgdG8gZQ==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.07881773399014778,
-        "Fuzzy": 0.07881773399014778
+        "Partial": 0.0024630541871921183,
+        "Fuzzy": 0.0024630541871921183
       },
-      "WeightedTotal": 0.03582624272279445,
+      "WeightedTotal": 0.0011195700850873266,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "YWNoIGNoYXJhY3RlciAuIFRoZXkgYXJlIGRpdmlkZWQgaW50byAiIFBlcnNvbmFsIFBvdGVudGlhbCAiICwgdw==",
-            "Score": 0.01522226984524049,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YWNoIGNoYXJhY3RlciAuIFRoZXkg",
-            "Score": -0.6446594266403275,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YWNoIGNoYXJhY3RlciAuIFRoZXkg",
-            "Score": -65.21838989539033,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231561,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 7,
       "Name": "prompt_7",
       "Prefix": "IFRyb29wcyBhcmUgZGl2aWRlZCBpbnRvIGZpdmUgY2xhc3NlcyA6IFNjb3V0cyAsIFNob2NrdHJvb3BlcnMgLCBFbmdpbmVlcnMgLCBMYW5jZXJzIGFuZCBBcm1vcmVkIFNvbGRpZXIgLiBUcm9vcGVycyBjYW4gc3dpdGNoIGNsYXNzZXMgYnkgY2hhbmdpbmcgdGhlaXIgYXNzaWduZWQgd2VhcG9uIC4gQ2hhbmdpbmcgY2xhc3MgZG9lcyBub3QgZ3JlYXRseSBhZmZlY3QgdGhlIHN0YXRzIGdhaW5lZCB3aGlsZSBpbiBhIHByZXZpb3VzIGM=",
       "Holdout": "bGFzcyAuIFdpdGggdmljdG9yeSBpbiBiYXR0bGUgLCBleHBlcmllbmNlIHBvaW50cyBhcmUgYXdhcmRlZCB0byB0aGUgc3F1YWQgLCB3aGljaCBhcmUgZGlzdHJpYnV0ZWQgaW50byBmaXZlIGRpZmZlcmVudCBhdHRyaWJ1dGVzIHNoYXJlZCBieSB0aGUgZW50aXJlIHNxdWFkICwgYSBmZWF0dXJlIGRpZmZlcmluZyBmcm9tIGVhcmx5IGdhbWVzICcgbWV0aG9kIG9mIGRpc3RyaWJ1dGluZyB0byBkaWZmZXJlbnQgdW5pdCB0eXBlcyAuIAo=",
-      "Generation": "bGFzcyAuIFdpdGggdmljdG9yeSBpbiBiYXR0bGUgLCBleHBlcmllbmNlIHBvaW50cyBhcmUgYXdhcmRlZCB0bw==",
+      "Generation": "b3QgZ3JlYXRseSBhZmZlY3QgdGhlIHN0YXRzIGdhaW5lZCB3aGlsZSBpbiBhIHByZXZpb3VzIGM=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.25806451612903225,
-        "Fuzzy": 0.25806451612903225
+        "Partial": 0.016129032258064516,
+        "Fuzzy": 0.016129032258064516
       },
-      "WeightedTotal": 0.11730205278592375,
+      "WeightedTotal": 0.007331378299120234,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "bGFzcyAuIFdpdGggdmljdG9yeSBpbiBiYXR0bGUgLCBleHBlcmllbmNlIHBvaW50cyBhcmUgYXdhcmRlZCB0bw==",
-            "Score": 0.021970984078111423,
-            "Origin": 0
-          },
-          {
-            "Sequence": "bGFzcyAuIFc=",
-            "Score": -0.8535172600125133,
-            "Origin": 0
-          },
-          {
-            "Sequence": "bGFzcyAuIFc=",
-            "Score": -64.98242351001251,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231554,
-          15463171881070231560,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231562,
-          15463171881070231555,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 8,
       "Name": "prompt_8",
       "Prefix": "ID0gPSBQbA==",
       "Holdout": "b3QgPSA9IAo=",
-      "Generation": "b3QgPSA9IAo=",
+      "Generation": "ID0gPSBQbA==",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.375,
+        "Fuzzy": 0.375
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.17045454545454547,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "b3QgPSA9IAo=",
-            "Score": 0.0043245277061238225,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b3QgPSA9IAo=",
-            "Score": -62.792550472293875,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PSA9ID0gPSA9",
-            "Score": -130.31061487260874,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231562,
-          15463171881070231559,
-          15463171881070231556,
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 9,
       "Name": "prompt_9",
       "Prefix": "IFRoZSBnYW1lIHRha2VzIHBsYWNlIGR1cmluZyB0aGUgU2Vjb25kIEV1cm9wYW4gV2FyIC4gR2FsbGlhbiBBcm15IFNxdWFkIDQyMiAsIGFsc28ga25vd24gYXMgIiBUaGUgTmFtZWxlc3MgIiAsIGFyZSBhIHBlbmFsIG1pbGl0YXJ5IHVuaXQgY29tcG9zZWQgb2YgY3JpbWluYWxzICwgZm9yZWlnbiBkZXNlcnRlcnMgLCBhbmQgbWlsaXRhcnkgb2ZmZW5kZXJzIHdob3NlIHJlYWwgbmFtZXMgYXJlIGVyYXNlZCBmcm9tIHRoZSByZWNvcmRzIGFuZCB0aGVyZW9uIG9mZmljaWFsbHkgcmVmZXJyZWQgdG8gYnkgbnVtYmVycyAuIE9yZGVyZWQgYnkgdGhlIEdhbGxpYW4gbWlsaXRhcnkgdG8gcGVyZm9ybSB0aGUgbW9zdCBkYW5nZXJvdXMgbWlzc2lvbnMgdGhhdCB0aGUgUmVndWxhciBBcm15IGFuZCBNaWxpdGlhIHdpbGwgbm90IGRvICwgdGhleSBhcmUgbmV2ZXJ0aGVsZXNzIHVwIHRvIHRoZSB0YXNrICwgZXhlbXBsaWZpZWQgYnkgdGhlaXIgbW90dG8gLCBBbHRhaGEgQWJpbGlhICwgbWVhbmluZyAiIEFsd2F5cyBSZWFkeSAuICIgVA==",
       "Holdout": "aGUgdGhyZWUgbWFpbiBjaGFyYWN0ZXJzIGFyZSBOby43IEt1cnQgSXJ2aW5nICwgYW4gYXJteSBvZmZpY2VyIGZhbHNlbHkgYWNjdXNlZCBvZiB0cmVhc29uIHdobyB3aXNoZXMgdG8gcmVkZWVtIGhpbXNlbGYgOyBBY2UgTm8uMSBJbWNhICwgYSBmZW1hbGUgRGFyY3NlbiBoZWF2eSB3ZWFwb25zIHNwZWNpYWxpc3Qgd2hvIHNlZWtzIHJldmVuZ2UgYWdhaW5zdCB0aGUgVmFsa3lyaWEgd2hvIGRlc3Ryb3llZCBoZXIgaG9tZSA7IGFuZCBOby4xMyBSaWVsYSBNYXJjZWxsaXMgLCBhIHNlZW1pbmdseSBqaW54ZWQgeW91bmcgd29tYW4gd2hvIGlzIHVua25vd2luZ2x5IGEgZGVzY2VuZGFudCBvZiB0aGUgVmFsa3lyaWEgLiBUb2dldGhlciB3aXRoIHRoZWlyIGZlbGxvdyBzcXVhZCBtZW1iZXJzICwgdGhlc2UgdGhyZWUgYXJlIHRhc2tlZCB0byBmaWdodCBhZ2FpbnN0IGEgbXlzdGVyaW91cyBJbXBlcmlhbCB1bml0IGtub3duIGFzIENhbGFtaXR5IFJhdmVuICwgY29uc2lzdGluZyBvZiBtb3N0bHkgRGFyY3NlbiBzb2xkaWVycyAuIAo=",
-      "Generation": "aGUgdGhyZWUgbWFpbiBjaGFyYWN0ZXJzIGFyZSBOby43IEt1cnQgSXJ2aW5nICwgYW4gYXJteSBvZmZpY2VyIA==",
+      "Generation": "bHdheXMgUmVhZHkgLiAiIFQ=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.12075471698113208,
-        "Fuzzy": 0.12075471698113208
+        "Partial": 0.0037735849056603774,
+        "Fuzzy": 0.0037735849056603774
       },
-      "WeightedTotal": 0.054888507718696404,
+      "WeightedTotal": 0.0017152658662092626,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "aGUgdGhyZWUgbWFpbiBjaGFyYWN0ZXJzIGFyZSBOby43IEt1cnQgSXJ2aW5nICwgYW4gYXJteSBvZmZpY2VyIA==",
-            "Score": 0.029041920373326594,
-            "Origin": 0
-          },
-          {
-            "Sequence": "aGUgdGhyZWUgbWFpbiBjaGFyYWN0ZXJzIGFyZSBOby43IEt1cnQgSXJ2aW5nICw=",
-            "Score": -0.23658307962667346,
-            "Origin": 0
-          },
-          {
-            "Sequence": "aGUgdGhyZWUgbWFpbiBjaGFyYWN0ZXJzIGFyZSBOby43IEt1cnQgSXJ2aW5nICw=",
-            "Score": -64.45630964212667,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231561,
-          15463171881070231556,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231559
-        ]
-      }
+      "PredLabel": null
     }
   ],
-  "score": 0.2800217629671141,
+  "score": 0.02660022092535109,
   "section": "textgen"
 }

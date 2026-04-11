@@ -3,6 +3,8 @@ package programmer
 import (
 	"fmt"
 	"strings"
+
+	"github.com/theapemachine/six/pkg/compute/kernel"
 )
 
 type CompilerTarget uint8
@@ -105,7 +107,7 @@ func (builder *frameBuilder) frames(target CompilerTarget) ([]Frame, error) {
 
 		var frame Frame
 
-		builder.packTruth(&frame, op, target)
+		builder.packTruth(&frame, op, tok, target)
 		out = append(out, frame)
 	}
 
@@ -173,21 +175,41 @@ func (*frameBuilder) truthTableFromMnemonic(mnemonic string) (OperationType, err
 }
 
 /*
-packTruth fills program words for universalBitwiseV2: opcode at program word 0,
-sixteen nibbles at program word 1 (value word 17).
+packTruth fills the program region words universalBitwiseV2 reads at run
+time. The wire layout matches kernel/layout.go's Program*Word constants:
+
+	[0] legacy opcode byte in the low 8 bits (geometric / xor dispatch gate)
+	[1] 16-nibble rotation opcode table
+	[2] ExecutionMode (0 accumulate, 1 reduce)
+	[3] srcA absolute start / span
+	[4] srcB absolute start / span
+	[5] dst  absolute start / span
+
+packTruth does not touch operand region data — those words stay whatever
+the input Value held when the frame is stamped onto it. The substrate
+walks the packed refs on its own and reads / writes the Value in place.
 */
-func (*frameBuilder) packTruth(frame *Frame, op OperationType, target CompilerTarget) {
-	n := uint64(op) & 0xF
+func (*frameBuilder) packTruth(
+	frame *Frame,
+	op OperationType,
+	tok Token,
+	target CompilerTarget,
+) {
+	nibble := uint64(op) & 0xF
 
-	frame.Program[0] = n
+	frame.Program[0] = nibble
 
-	var packed uint64
+	var table uint64
 
 	for rotation := 0; rotation < 16; rotation++ {
-		packed |= n << (rotation * 4)
+		table |= nibble << (rotation * 4)
 	}
 
-	frame.Program[1] = packed
+	frame.Program[1] = table
+	frame.Program[2] = uint64(tok.ModeBit)
+	frame.Program[3] = kernel.PackRegionRef(tok.SrcARef.AbsStart(), tok.SrcARef.Span)
+	frame.Program[4] = kernel.PackRegionRef(tok.SrcBRef.AbsStart(), tok.SrcBRef.Span)
+	frame.Program[5] = kernel.PackRegionRef(tok.DstRef.AbsStart(), tok.DstRef.Span)
 
 	_ = target
 }

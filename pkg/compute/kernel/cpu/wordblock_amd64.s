@@ -214,14 +214,28 @@ hmatch_done:
 // =========================================================================
 // universalBitwise: AVX2 SIMD truth table across 64-word A×B surface.
 //
+// Staged companion to universalBitwiseV2 in wordblock_universal.go. The wire
+// format for each 4-bit opcode is value.opcodes in cmd/cfg/config.yml (same
+// nibbles as pkg/compute/programmer.OperationType): interpret the four
+// characters as binary with the rightmost digit = LSB. Bit k of the nibble
+// selects whether minterm k contributes (caller broadcasts 0 or ~0 per lane):
+//   op&1 → m0 / (a ∧ b)
+//   op&2 → m1 / (a ∧ ¬b)
+//   op&4 → m2 / (¬a ∧ b)
+//   op&8 → m3 / (¬a ∧ ¬b)
+// Result is (a∧b∧m0)|(a∧¬b∧m1)|(¬a∧b∧m2)|(¬a∧¬b∧m3). Signature bytes are
+// packed into dst the same way as the Go reference (64 bytes → 8× little-endian
+// uint64). value.num_rotations is 16; CX counts rotation groups 0..15 (four
+// lanes each).
+//
 // Signature: func(dst, a, b, m0, m1, m2, m3 *uint64)
 //   dst+0(FP)  — pointer to 8 uint64s (output signals)
 //   a+8(FP)    — pointer to 64 uint64s (A surface)
 //   b+16(FP)   — pointer to 64 uint64s (B surface)
-//   m0+24(FP)  — pointer to 64 uint64s (mask for truth table bit 0)
-//   m1+32(FP)  — pointer to 64 uint64s (mask for truth table bit 1)
-//   m2+40(FP)  — pointer to 64 uint64s (mask for truth table bit 2)
-//   m3+48(FP)  — pointer to 64 uint64s (mask for truth table bit 3)
+//   m0+24(FP)  — pointer to 64 uint64s (all-zero or all-ones lanes for m0)
+//   m1+32(FP)  — pointer to 64 uint64s (m1)
+//   m2+40(FP)  — pointer to 64 uint64s (m2)
+//   m3+48(FP)  — pointer to 64 uint64s (m3)
 //
 // Processes 4 uint64s per YMM register, 16 iterations for 64 elements.
 // =========================================================================
@@ -343,232 +357,6 @@ ub_avx_loop:
 	INCQ	CX
 	CMPQ	CX, $16
 	JB	ub_avx_loop
-
-	VZEROUPPER
-	RET
-
-
-// =========================================================================
-// universalBitwiseV2: reads directly from Value's pre-compiled layout.
-//
-// func universalBitwiseV2(value *uint64, numRotations int)
-//   value+0(FP)         — pointer to 128 uint64s (the full Value)
-//   numRotations+8(FP)  — number of rotations (always 16)
-//
-// Layout (word offsets, each word = 8 bytes):
-//   [0-3]    A (query, 4 words = 32 bytes)
-//   [16]     opcode (low 4 bits); program region word 0
-//   [24-31]  signals output (8 words = 64 bytes)
-//   [32-95]  B rotations (16 rotations × 4 words, pre-compiled)
-//
-// Register allocation (YMM):
-//   Y10      A pinned (4 words = 32 bytes = 1 YMM)
-//   Y11-Y14  opcode masks m0-m3 (broadcast)
-//   Y15      all-ones for NOT
-//   Y0-Y9    B loads + truth table computation (2 rotations/iter)
-//
-// Processes 2 rotations per iteration, 8 iterations total.
-// =========================================================================
-TEXT ·universalBitwiseV2(SB), NOSPLIT, $0-16
-	MOVQ	value+0(FP), DI
-
-	// Pin A in Y10 (words 0-3, bytes 0-31).
-	VMOVDQU	(DI), Y10
-
-	// R13 holds the 16-nibble rotation opcode table from word 17 (byte 136).
-	// Per rotation we shift right by (rot_global * 4) and mask with 0xF to
-	// recover that rotation's opcode, then rebuild Y11-Y14 masks before the
-	// truth-table AND/OR tree. Legacy single-opcode callers broadcast the
-	// same nibble 16 times so the decode path is byte-identical to the
-	// old broadcast-once kernel. R13 as a GPR is disjoint from Y13 (the m2
-	// mask YMM) — they live in different register files.
-	MOVQ	136(DI), R13
-
-	// Y15 = all ones for NOT.
-	VPCMPEQD	Y15, Y15, Y15
-
-	// Zero signal output (words 24-31, bytes 192-255).
-	VPXOR	Y0, Y0, Y0
-	VMOVDQU	Y0, 192(DI)
-	VMOVDQU	Y0, 224(DI)
-
-	// SI = pointer to B rotations (word 32 = byte 256).
-	LEAQ	256(DI), SI
-
-	// R8 = signal base (word 24 = byte 192).
-	LEAQ	192(DI), R8
-
-	// BX = outer loop counter (0..7). Using BX instead of CX leaves CL
-	// free for the variable-count SHRQ needed to decode per-rotation
-	// opcode nibbles. Each iter handles rotations BX*2 and BX*2+1,
-	// whose nibble bit offsets in R13 are BX*8 and BX*8+4.
-	XORQ	BX, BX
-
-ubv2_avx_loop:
-	// Load 2 rotations × 4 words = 8 words = 64 bytes.
-	VMOVDQU	(SI), Y0		// B rotation 0
-	VMOVDQU	32(SI), Y1		// B rotation 1
-
-	VPXOR	Y15, Y10, Y2		// ~a (shared across both rotations)
-
-	// --- Decode rotation 0 opcode: (R13 >> (BX*8)) & 0xF ---
-	MOVQ	BX, CX
-	SHLQ	$3, CX			// CL = BX*8 = bit shift for rot 0
-	MOVQ	R13, AX
-	SHRQ	CL, AX
-	ANDQ	$0xF, AX
-
-	MOVQ	AX, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X11
-	VPBROADCASTQ	X11, Y11	// m0
-
-	MOVQ	AX, R9
-	SHRQ	$1, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X12
-	VPBROADCASTQ	X12, Y12	// m1
-
-	MOVQ	AX, R9
-	SHRQ	$2, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X13
-	VPBROADCASTQ	X13, Y13	// m2
-
-	MOVQ	AX, R9
-	SHRQ	$3, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X14
-	VPBROADCASTQ	X14, Y14	// m3
-
-	// === Rotation 0: Y0 against Y10 ===
-	VPXOR	Y15, Y0, Y3		// ~b
-
-	VPAND	Y10, Y0, Y4
-	VPAND	Y11, Y4, Y4		// a & b & m0
-
-	VPAND	Y10, Y3, Y5
-	VPAND	Y12, Y5, Y5		// a & ~b & m1
-
-	VPAND	Y2, Y0, Y6
-	VPAND	Y13, Y6, Y6		// ~a & b & m2
-
-	VPAND	Y2, Y3, Y7
-	VPAND	Y14, Y7, Y7		// ~a & ~b & m3
-
-	VPOR	Y4, Y5, Y4
-	VPOR	Y6, Y7, Y6
-	VPOR	Y4, Y6, Y4		// Y4 = result rotation 0
-
-	// --- Decode rotation 1 opcode: (R13 >> (BX*8 + 4)) & 0xF ---
-	MOVQ	BX, CX
-	SHLQ	$3, CX
-	ADDQ	$4, CX
-	MOVQ	R13, AX
-	SHRQ	CL, AX
-	ANDQ	$0xF, AX
-
-	MOVQ	AX, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X11
-	VPBROADCASTQ	X11, Y11	// m0
-
-	MOVQ	AX, R9
-	SHRQ	$1, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X12
-	VPBROADCASTQ	X12, Y12	// m1
-
-	MOVQ	AX, R9
-	SHRQ	$2, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X13
-	VPBROADCASTQ	X13, Y13	// m2
-
-	MOVQ	AX, R9
-	SHRQ	$3, R9
-	ANDQ	$1, R9
-	NEGQ	R9
-	VMOVQ	R9, X14
-	VPBROADCASTQ	X14, Y14	// m3
-
-	// === Rotation 1: Y1 against Y10 ===
-	VPXOR	Y15, Y1, Y3		// ~b
-
-	VPAND	Y10, Y1, Y5
-	VPAND	Y11, Y5, Y5		// a & b & m0
-
-	VPAND	Y10, Y3, Y6
-	VPAND	Y12, Y6, Y6		// a & ~b & m1
-
-	VPAND	Y2, Y1, Y7
-	VPAND	Y13, Y7, Y7		// ~a & b & m2
-
-	VPAND	Y2, Y3, Y8
-	VPAND	Y14, Y8, Y8		// ~a & ~b & m3
-
-	VPOR	Y5, Y6, Y5
-	VPOR	Y7, Y8, Y7
-	VPOR	Y5, Y7, Y5		// Y5 = result rotation 1
-
-	// Scatter: each outer iteration handles 2 rotations × 4 words
-	// = 8 elements. Element indices are BX*8+{0..7}.
-	// sig_word = element/8 = BX. All 8 bytes pack into one uint64.
-	// Rotation 0 bytes at shifts {0,8,16,24}, rotation 1 at {32,40,48,56}.
-
-	// Extract 4 low bytes from Y4 (rotation 0 result).
-	VEXTRACTI128	$1, Y4, X6
-	MOVQ	X4, AX
-	ANDQ	$0xFF, AX
-	VPEXTRQ	$1, X4, DX
-	ANDQ	$0xFF, DX
-	MOVQ	X6, R10
-	ANDQ	$0xFF, R10
-	VPEXTRQ	$1, X6, R11
-	ANDQ	$0xFF, R11
-
-	// Pack rotation 0 bytes.
-	SHLQ	$8, DX			// byte 1 at shift 8
-	ORQ	DX, AX
-	SHLQ	$16, R10		// byte 2 at shift 16
-	ORQ	R10, AX
-	SHLQ	$24, R11		// byte 3 at shift 24
-	ORQ	R11, AX
-
-	// Extract 4 bytes from Y5 (rotation 1)
-	VEXTRACTI128	$1, Y5, X6
-	MOVQ	X5, DX
-	ANDQ	$0xFF, DX
-	VPEXTRQ	$1, X5, R10
-	ANDQ	$0xFF, R10
-	MOVQ	X6, R11
-	ANDQ	$0xFF, R11
-	VPEXTRQ	$1, X6, R12
-	ANDQ	$0xFF, R12
-
-	SHLQ	$32, DX			// byte 4 at shift 32
-	ORQ	DX, AX
-	SHLQ	$40, R10		// byte 5 at shift 40
-	ORQ	R10, AX
-	SHLQ	$48, R11		// byte 6 at shift 48
-	ORQ	R11, AX
-	SHLQ	$56, R12		// byte 7 at shift 56
-	ORQ	R12, AX
-
-	// Store signal word BX.
-	MOVQ	AX, (R8)(BX*8)
-
-	ADDQ	$64, SI
-	INCQ	BX
-	CMPQ	BX, $8
-	JB	ubv2_avx_loop
 
 	VZEROUPPER
 	RET

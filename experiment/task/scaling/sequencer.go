@@ -28,7 +28,6 @@ func NewSequencerExperiment() *SequencerExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset:   NewSyntheticDataset(128, 200, 77),
 		evaluator: tools.NewEvaluator(
-			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
 	}

@@ -25,7 +25,6 @@ func NewSubstrateQueryScalingExperiment() *SubstrateQueryScalingExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset:   NewSyntheticDataset(128, 400, 42),
 		evaluator: tools.NewEvaluator(
-			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
 	}

@@ -9,9 +9,9 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-85 & prompt\_85 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-494 & prompt\_494 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-488 & prompt\_488 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & prompt\_2 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
@@ -25,15 +25,15 @@
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Where is Mary?}} & \multicolumn{2}{l}{\texttt{office}} & \multicolumn{2}{l}{\texttt{office}} \\
-\multicolumn{2}{l}{\texttt{Where is Daniel?}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{bathroom}} \\
-\multicolumn{2}{l}{\texttt{Where is Mary?}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{bathroom}} \\
-\multicolumn{2}{l}{\texttt{Where is John?}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{bedroom}} \\
+\multicolumn{2}{l}{\texttt{Where is Mary?}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{Where is Mary?}} \\
+\multicolumn{2}{l}{\texttt{Where is Daniel?}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{Where is Daniel?}} \\
+\multicolumn{2}{l}{\texttt{Where is Mary?}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{Where is Mary?}} \\
+\multicolumn{2}{l}{\texttt{Where is John?}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{Where is John?}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 500} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
-\multicolumn{3}{l}{Mean score: 0.1680} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

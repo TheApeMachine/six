@@ -1,7 +1,7 @@
 {
   "artifacts": [
     {
-      "caption": "Prediction-internal metrics after compression (ratio 512.0). N=50 queries. Top-left: beam confidence. Top-right: rejection rate. Bottom-left: continuation count. Bottom-right: quality and phase signals.",
+      "caption": "Prediction-internal metrics after compression (ratio 0.0). N=50 queries. Top-left: beam confidence. Top-right: rejection rate. Bottom-left: continuation count. Bottom-right: quality and phase signals.",
       "file_name": "compression_chart",
       "label": "fig:compression_chart",
       "title": "Compression Scaling — De-duplication Impact on Prediction Machinery",
@@ -17,9 +17,10 @@
   ],
   "name": "Compression",
   "outcome": {
-    "actual": 0.9999617780835531,
-    "passed": true,
-    "threshold": 0.004638515570677402
+    "actual": 0.0036207664884135467,
+    "message": "Expected '0.0036207664884135467' to be greater than or equal to '0.003968812328731844' (but it wasn't)!",
+    "passed": false,
+    "threshold": 0.003968812328731844
   },
   "results": [
     {
@@ -27,2650 +28,850 @@
       "Name": "prompt_0",
       "Prefix": "fCN1fGhzIVZCLFwuJWBDa3pfPXhlXSwqfidaLWhjbl5oMkRTNTB4dTpsfXF8KXN9WFlCRys0WX16NEpDfmZOSCNhOXFJJ3A9PUFOTnddbF9VcmQvKlxZKyhUXnojZC5J",
       "Holdout": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUI=",
-      "Generation": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUJUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSA==",
+      "Generation": "I2E5cUkncD09QU5Od11sX1VyZC8qXFkrKFReeiNkLkk=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUJUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSA==",
-            "Score": -0.03049128845337349,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUI=",
-            "Score": -0.4937983820094832,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUI=",
-            "Score": -65.61391556950949,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231558,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 1,
       "Name": "prompt_1",
       "Prefix": "VHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNVYjTENwc1hFL1chOGFsJV53W15DfihDQFZIOThCXkAu",
       "Holdout": "PnFMS21JMVRZXDE/Q3o/dUtCYjlPOEgha103VigwaU0=",
-      "Generation": "PnFMS21JMVRZXDE/Q3o/dUtCYjlPOEgha103VigwaU0/bCZ6fHFgSy4gcGJOVnhoUkIzWlFxK2wpMHQ8cTw9LQ==",
+      "Generation": "ViNMQ3BzWEUvVyE4YWwlXndbXkN+KENAVkg5OEJeQC4=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "PnFMS21JMVRZXDE/Q3o/dUtCYjlPOEgha103VigwaU0/bCZ6fHFgSy4gcGJOVnhoUkIzWlFxK2wpMHQ8cTw9LQ==",
-            "Score": -0.019699526074717755,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PnFMS21JMVRZXDE/Q3o/dUtCYjlPOEgha103VigwaU0=",
-            "Score": -0.5196995260747178,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PnFMS21JMVRZXDE/Q3o/dUtCYjlPOEgha103VigwaU0=",
-            "Score": -66.86344952607472,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 2,
       "Name": "prompt_2",
       "Prefix": "P2wmenxxYEsuIHBiTlZ4aFJCM1pRcStsKTB0PHE8PS1gWUJxeU9pLyFgPSFpbXxxYEFYSD95aHBQSFgqXzApWUNfMS1CTmMnJiMpJEhqd3V7PilUby1zSisyeHpjTCBx",
       "Holdout": "b2o3VUo4ZThXO24pSlRTZTc5IlhZei5naHtJal9kKTQ=",
-      "Generation": "b2o3VUo4ZThXO24pSlRTZTc5IlhZei5naHtJal9kKTRWJCgtMlNdTnZlYmxJaGJSZnFQO2N+V1V+WV52ZGkjZw==",
+      "Generation": "Q18xLUJOYycmIykkSGp3dXs+KVRvLXNKKzJ4emNMIHE=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "b2o3VUo4ZThXO24pSlRTZTc5IlhZei5naHtJal9kKTRWJCgtMlNdTnZlYmxJaGJSZnFQO2N+V1V+WV52ZGkjZw==",
-            "Score": -0.02597027065440164,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b2o3VUo4ZThXO24pSlRTZTc5IlhZei5naHtJal9kKTQ=",
-            "Score": -0.5236921767373489,
-            "Origin": 0
-          },
-          {
-            "Sequence": "b2o3VUo4ZThXO24pSlRTZTc5IlhZei5naHtJal9kKTQ=",
-            "Score": -67.18970780173736,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231561,
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231559
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 3,
       "Name": "prompt_3",
       "Prefix": "ViQoLTJTXU52ZWJsSWhiUmZxUDtjfldVflledmRpI2dpWVV7V35TIF11bVM4Xjx6ajgnKGo8Mj1gczlKR3FQbCRJI2RQKExtLjZKJiAwQjIhaDQ2eE9HeSh4SUhzLlNX",
       "Holdout": "fW9xcXoxL2sxdUtMY0p7PVNuLXBKLTJAOVh9IyFJfHI=",
-      "Generation": "fW9xcXoxL2sxdUtMY0p7PVNuLXBKLTJAOVh9IyFJfHJnQDcgW31QJGFVYkk5QltoLS08PSdQJmAvXSlHUkBybQ==",
+      "Generation": "JEkjZFAoTG0uNkomIDBCMiFoNDZ4T0d5KHhJSHMuU1c=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "fW9xcXoxL2sxdUtMY0p7PVNuLXBKLTJAOVh9IyFJfHJnQDcgW31QJGFVYkk5QltoLS08PSdQJmAvXSlHUkBybQ==",
-            "Score": 0.004387394527392776,
-            "Origin": 0
-          },
-          {
-            "Sequence": "fW9xcXoxL2sxdUtMY0p7PVNuLXBKLTJAOVh9IyFJfHI=",
-            "Score": -0.4956126054726072,
-            "Origin": 0
-          },
-          {
-            "Sequence": "fW9xcXoxL2sxdUtMY0p7PVNuLXBKLTJAOVh9IyFJfHI=",
-            "Score": -66.1840891679726,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 4,
       "Name": "prompt_4",
       "Prefix": "Z0A3IFt9UCRhVWJJOUJbaC0tPD0nUCZgL10pR1JAcm1aS0wmRT9zbz9wLmIsQHtzUnZNYXdFZ0sodTIxOkI7USw9MnRZc3tXXzsoZWgwPV0xbDE+NFxuI1xTeD5cLG50",
       "Holdout": "eG85bkVxZDdXZ0B7WCc5eE4rZHwwU0NlPzNFVGw3MTo=",
-      "Generation": "eG85bkVxZDdXZ0B7WCc5eE4rZHwwU0NlPzNFVGw3MTp0WGo4aE9xSVRjakRxUWJebnZJM0FsT1ViQSZiUHUxYw==",
+      "Generation": "LD0ydFlze1dfOyhlaDA9XTFsMT40XG4jXFN4PlwsbnQ=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "eG85bkVxZDdXZ0B7WCc5eE4rZHwwU0NlPzNFVGw3MTp0WGo4aE9xSVRjakRxUWJebnZJM0FsT1ViQSZiUHUxYw==",
-            "Score": -0.015378612412470216,
-            "Origin": 0
-          },
-          {
-            "Sequence": "eG85bkVxZDdXZ0B7WCc5eE4rZHwwU0NlPzNFVGw3MTo=",
-            "Score": -0.5253002978398704,
-            "Origin": 0
-          },
-          {
-            "Sequence": "eG85bkVxZDdXZ0B7WCc5eE4rZHwwU0NlPzNFVGw3MTo=",
-            "Score": -61.58682373533987,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 5,
       "Name": "prompt_5",
       "Prefix": "dFhqOGhPcUlUY2pEcVFiXm52STNBbE9VYkEmYlB1MWMyfGB5QlQ6cXNNJlRSTkdVW09mYFkuKlhUPG1uOEcmLGI6V1Y2N2xFWE9gJDV0fExUNE1XSDBwe0kqNGFPN093",
       "Holdout": "JXo9Ql45Tm5ALlJ8eiJjcEVIYyxON1g6cGx3MyYmc2Y=",
-      "Generation": "JXo9Ql45Tm5ALlJ8eiJjcEVIYyxON1g6cGx3MyYmc2ZPVV1eUCc7eWs1Q28wc3hGdWEsTH0/LT8uJDlhLHtYMg==",
+      "Generation": "YjpXVjY3bEVYT2AkNXR8TFQ0TVdIMHB7SSo0YU83T3c=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "JXo9Ql45Tm5ALlJ8eiJjcEVIYyxON1g6cGx3MyYmc2ZPVV1eUCc7eWs1Q28wc3hGdWEsTH0/LT8uJDlhLHtYMg==",
-            "Score": -0.024966447539852235,
-            "Origin": 0
-          },
-          {
-            "Sequence": "JXo9Ql45Tm5ALlJ8eiJjcEVIYyxON1g6cGx3MyYmc2Y=",
-            "Score": -0.504321115920359,
-            "Origin": 0
-          },
-          {
-            "Sequence": "JXo9Ql45Tm5ALlJ8eiJjcEVIYyxON1g6cGx3MyYmc2Y=",
-            "Score": -65.38322736592036,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231558,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 6,
       "Name": "prompt_6",
       "Prefix": "T1VdXlAnO3lrNUNvMHN4RnVhLEx9Py0/LiQ5YSx7WDJpVlEtL2B2NTUwdmg0VHtnSTprSy9pXUc5VipOPkxMOGN8QjgsKXlBKDY1UylaNWZwa1NeKiN0ZDNzbzB2T11a",
       "Holdout": "RzhnLjFyJn0gTTdHdFN0PzUtS2dhTV5rRUklLzhyMnY=",
-      "Generation": "RzhnLjFyJn0gTTdHdFN0PzUtS2dhTV5rRUklLzhyMnZPbnxeSndgQkNZMS1CZilyXE4iKy9PPUJxK25HVHgrIw==",
+      "Generation": "Y3xCOCwpeUEoNjVTKVo1ZnBrU14qI3RkM3NvMHZPXVo=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "RzhnLjFyJn0gTTdHdFN0PzUtS2dhTV5rRUklLzhyMnZPbnxeSndgQkNZMS1CZilyXE4iKy9PPUJxK25HVHgrIw==",
-            "Score": -0.025237367434017992,
-            "Origin": 0
-          },
-          {
-            "Sequence": "RzhnLjFyJn0gTTdHdFN0PzUtS2dhTV5rRUklLzhyMnY=",
-            "Score": -0.501979401367374,
-            "Origin": 0
-          },
-          {
-            "Sequence": "RzhnLjFyJn0gTTdHdFN0PzUtS2dhTV5rRUklLzhyMnY=",
-            "Score": -64.05129580761738,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231558,
-          15463171881070231559,
-          15463171881070231561,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 7,
       "Name": "prompt_7",
       "Prefix": "T258Xkp3YEJDWTEtQmYpclxOIisvTz1CcStuR1R4KyM/fCFoXyNxVVlpQkxKSWwrIDtOUCg3fkYibUZmIU8+NEFyIjF2PUdicUFCNkRpKjpDYXMxUUV+Uj8gOD5lPCZR",
       "Holdout": "TV0+XSknX2dhLHNbSzBmN2lSN31CNG9LRiAjOGN9ak4=",
-      "Generation": "TV0+XSknX2dhLHNbSzBmN2lSN31CNG9LRiAjOGN9ak5Le0I4KyA4Ny1fQS1uQ35efFddSHpgRHhuI11qYV1gfQ==",
+      "Generation": "QXIiMXY9R2JxQUI2RGkqOkNhczFRRX5SPyA4PmU8JlE=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "TV0+XSknX2dhLHNbSzBmN2lSN31CNG9LRiAjOGN9ak5Le0I4KyA4Ny1fQS1uQ35efFddSHpgRHhuI11qYV1gfQ==",
-            "Score": 0.0004531995694296716,
-            "Origin": 0
-          },
-          {
-            "Sequence": "TV0+XSknX2dhLHNbSzBmN2lSN31CNG9LRiAjOGN9ak4=",
-            "Score": -0.5208471801937611,
-            "Origin": 0
-          },
-          {
-            "Sequence": "TV0+XSknX2dhLHNbSzBmN2lSN31CNG9LRiAjOGN9ak4=",
-            "Score": -62.16244874269376,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231554,
-          15463171881070231555,
-          15463171881070231553,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231558
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 8,
       "Name": "prompt_8",
       "Prefix": "S3tCOCsgODctX0EtbkN+XnxXXUh6YER4biNdamFdYH1teUZdVUorOVZZKDZxTixZen1tSFpXVyArXlZrdmQselg8KWRaO1JsO2Eka3k6Z30ncGpsRT5KMXonOTR5J019",
       "Holdout": "JCZrLV1bJ1Q6dT0nUFI5Z2VkU29fNFA1XCd0ZmRkPlA=",
-      "Generation": "JCZrLV1bJ1Q6dT0nUFI5Z2VkU29fNFA1XCd0ZmRkPlBnYTBtKFI+el1TLTFQMmdlbXxQdCEyRGg4U2tMT1s1Mg==",
+      "Generation": "WDwpZFo7Umw7YSRreTpnfSdwamxFPkoxeic5NHknTX0=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "JCZrLV1bJ1Q6dT0nUFI5Z2VkU29fNFA1XCd0ZmRkPlBnYTBtKFI+el1TLTFQMmdlbXxQdCEyRGg4U2tMT1s1Mg==",
-            "Score": 0.01689238106348889,
-            "Origin": 0
-          },
-          {
-            "Sequence": "JCZrLV1bJ1Q6dT0nUFI5Z2VkU29fNFA1XCd0ZmRkPlA=",
-            "Score": -0.5154444626866183,
-            "Origin": 0
-          },
-          {
-            "Sequence": "JCZrLV1bJ1Q6dT0nUFI5Z2VkU29fNFA1XCd0ZmRkPlA=",
-            "Score": -63.90655774393662,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231560,
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 9,
       "Name": "prompt_9",
       "Prefix": "Z2EwbShSPnpdUy0xUDJnZW18UHQhMkRoOFNrTE9bNTIta0BceygofFt2cVRVb1M8b048M0JMI04mUil8WDo/Yns5K3RDakxXLz9mfm47SG0/Jm0zYjogY3I1dS1KVSQg",
       "Holdout": "cCt2WV5AblQ3K0Qqb0Z7cUh2blxIWFw/JmhsRU5ZcXk=",
-      "Generation": "cCt2WV5AblQ3K0Qqb0Z7cUh2blxIWFw/JmhsRU5ZcXk0SkxZUlokY3lJVFVkKFFDfTJceUc2WGlQeEtXUnRMYQ==",
+      "Generation": "ezkrdENqTFcvP2Z+bjtIbT8mbTNiOiBjcjV1LUpVJCA=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "cCt2WV5AblQ3K0Qqb0Z7cUh2blxIWFw/JmhsRU5ZcXk0SkxZUlokY3lJVFVkKFFDfTJceUc2WGlQeEtXUnRMYQ==",
-            "Score": 0.020459429981404702,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cCt2WV5AblQ3K0Qqb0Z7cUh2blxIWFw/JmhsRU5ZcXk=",
-            "Score": -0.4873346385829399,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cCt2WV5AblQ3K0Qqb0Z7cUh2blxIWFw/JmhsRU5ZcXk=",
-            "Score": -64.45461979483294,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231561,
-          15463171881070231553,
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231557
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 10,
       "Name": "prompt_10",
       "Prefix": "NEpMWVJaJGN5SVRVZChRQ30yXHlHNlhpUHhLV1J0TGF5VS5zXWcmeUlNJHJdXys2LzhObm5DRFRAZzxYTUJEMlU2QUphKUd3Ll1ZUWpYVk9APEhYezBWRFozdCdybSI3",
       "Holdout": "U2FPOXFeNjNDPnZGKG9KQV8xU2dMaHs2VVFYSiMpYiQ=",
-      "Generation": "U2FPOXFeNjNDPnZGKG9KQV8xU2dMaHs2VVFYSiMpYiQ/NG5iTVdGZUJRbyY8Xk1oaFQrQFdjeVRSZyBLW3lKSw==",
+      "Generation": "VTZBSmEpR3cuXVlRalhWT0A8SFh7MFZEWjN0J3JtIjc=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "U2FPOXFeNjNDPnZGKG9KQV8xU2dMaHs2VVFYSiMpYiQ/NG5iTVdGZUJRbyY8Xk1oaFQrQFdjeVRSZyBLW3lKSw==",
-            "Score": -0.0004771868230085974,
-            "Origin": 0
-          },
-          {
-            "Sequence": "U2FPOXFeNjNDPnZGKG9KQV8xU2dMaHs2VVFYSiMpYiQ=",
-            "Score": -0.5004771868230087,
-            "Origin": 0
-          },
-          {
-            "Sequence": "U2FPOXFeNjNDPnZGKG9KQV8xU2dMaHs2VVFYSiMpYiQ=",
-            "Score": -63.621570936823005,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231558
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 11,
       "Name": "prompt_11",
       "Prefix": "PzRuYk1XRmVCUW8mPF5NaGhUK0BXY3lUUmcgS1t5SktfMDZZe3tUSn5LJ3UkZT8nfl5KS2BtbThwSCVoJTFKe1FVXE0jSEskeDp3e01LVlJtRCFtP35WcSIxTnxyfjJ4",
       "Holdout": "XDpiOCxDXUQ+IkI2dFFGYEtzMycqe2NeXyZPdSB3Sjk=",
-      "Generation": "XDpiOCxDXUQ+IkI2dFFGYEtzMycqe2NeXyZPdSB3SjlvR11PXzcuNypGNjhuO2VxNmN7Um5PISNPPTFTJiM9cg==",
+      "Generation": "UVVcTSNISyR4Ond7TUtWUm1EIW0/flZxIjFOfHJ+Mng=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "XDpiOCxDXUQ+IkI2dFFGYEtzMycqe2NeXyZPdSB3SjlvR11PXzcuNypGNjhuO2VxNmN7Um5PISNPPTFTJiM9cg==",
-            "Score": -0.003451978936141442,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XDpiOCxDXUQ+IkI2dFFGYEtzMycqe2NeXyZPdSB3Sjk=",
-            "Score": -0.5123284962005049,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XDpiOCxDXUQ+IkI2dFFGYEtzMycqe2NeXyZPdSB3Sjk=",
-            "Score": -63.5435784962005,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 12,
       "Name": "prompt_12",
       "Prefix": "b0ddT183LjcqRjY4bjtlcTZje1JuTyEjTz0xUyYjPXIzIUFQN2t2SClzL2w+XSxtQ2pkXTZcO0Z2XmhqLWQxVXBNclh2SyskYTVAZ2Y1VitkbDVgW09VanUvcz1NUicg",
       "Holdout": "S2NVUVUxR2MheEFkSG5NfmwxJ0h5M1ciNCEmViVmbjY=",
-      "Generation": "S2NVUVUxR2MheEFkSG5NfmwxJ0h5M1ciNCEmViVmbjY7JmwmMlgiUnBeaEh2MGJeIC1dSTsmVFFCeTpkaEZWJA==",
+      "Generation": "cE1yWHZLKyRhNUBnZjVWK2RsNWBbT1VqdS9zPU1SJyA=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "S2NVUVUxR2MheEFkSG5NfmwxJ0h5M1ciNCEmViVmbjY7JmwmMlgiUnBeaEh2MGJeIC1dSTsmVFFCeTpkaEZWJA==",
-            "Score": 0.008709258931805307,
-            "Origin": 0
-          },
-          {
-            "Sequence": "S2NVUVUxR2MheEFkSG5NfmwxJ0h5M1ciNCEmViVmbjY=",
-            "Score": -0.5304824062613188,
-            "Origin": 0
-          },
-          {
-            "Sequence": "S2NVUVUxR2MheEFkSG5NfmwxJ0h5M1ciNCEmViVmbjY=",
-            "Score": -63.57442771876132,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231559
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 13,
       "Name": "prompt_13",
       "Prefix": "OyZsJjJYIlJwXmhIdjBiXiAtXUk7JlRRQnk6ZGhGViQjcTZiWChNNjdWVHljQ3hOOUp6WHVDKk9RNl19eU9kRC1naykkZD8lLyxPVTk8eDBdI0I6YVRaJShqIlpgbHs/",
       "Holdout": "NX4zJz1beTRDLD97L1dlIXUtLWRKTSxydydOb24nYVA=",
-      "Generation": "NX4zJz1beTRDLD97L1dlIXUtLWRKTSxydydOb24nYVBMaE0vLC92PFJOWCZlVDI4Zy1XIHxgZTJmMUBrTyx7YQ==",
+      "Generation": "LWdrKSRkPyUvLE9VOTx4MF0jQjphVFolKGoiWmBsez8=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "NX4zJz1beTRDLD97L1dlIXUtLWRKTSxydydOb24nYVBMaE0vLC92PFJOWCZlVDI4Zy1XIHxgZTJmMUBrTyx7YQ==",
-            "Score": -0.013765104140186802,
-            "Origin": 0
-          },
-          {
-            "Sequence": "NX4zJz1beTRDLD97L1dlIXUtLWRKTSxydydOb24nYVA=",
-            "Score": -0.5165181249682241,
-            "Origin": 0
-          },
-          {
-            "Sequence": "NX4zJz1beTRDLD97L1dlIXUtLWRKTSxydydOb24nYVA=",
-            "Score": -64.41983843746823,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231558,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231554,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 14,
       "Name": "prompt_14",
       "Prefix": "TGhNLywvdjxSTlgmZVQyOGctVyB8YGUyZjFAa08se2EsPlU8OjglLUIzPH1uS3BZeSEyJGs4T2ddfiJXQ0NafXg7QkN9Ii9TTjhmVTInV1dNYCg4MVBoLmlLWm9CWTBo",
       "Holdout": "Vi9EZTlcMUw1R2RYQ35yIzAlWnloK3h4XExNc1Z1TUQ=",
-      "Generation": "Vi9EZTlcMUw1R2RYQ35yIzAlWnloK3h4XExNc1Z1TURRdyJkLSEtfkw4dGQ2LXl6TmpyWElULUM7KzU0ajs/Ng==",
+      "Generation": "eDtCQ30iL1NOOGZVMidXV01gKDgxUGguaUtab0JZMGg=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Vi9EZTlcMUw1R2RYQ35yIzAlWnloK3h4XExNc1Z1TURRdyJkLSEtfkw4dGQ2LXl6TmpyWElULUM7KzU0ajs/Ng==",
-            "Score": -0.020676453560443467,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Vi9EZTlcMUw1R2RYQ35yIzAlWnloK3h4XExNc1Z1TUQ=",
-            "Score": -0.5146248086159235,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Vi9EZTlcMUw1R2RYQ35yIzAlWnloK3h4XExNc1Z1TUQ=",
-            "Score": -63.94187090236592,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231560,
-          15463171881070231554,
-          15463171881070231558
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 15,
       "Name": "prompt_15",
       "Prefix": "UXciZC0hLX5MOHRkNi15ek5qclhJVC1DOys1NGo7PzZxQVQ9U19+YC17TCU9QHV2PklHM3IvTCZJLV5EaGJYSTFoZGk1LVROa0ZdZW5FcURTYFA5cSB4dVRkU1BefD05",
       "Holdout": "Qk1lcG8mN31WeG47NixVYXFAPGtnODBNeUNVe3ZXJEI=",
-      "Generation": "Qk1lcG8mN31WeG47NixVYXFAPGtnODBNeUNVe3ZXJEIvKWcpXXx3KTx8eVBVLC9dL3QxK3p2R2ViWDhaNy1NZA==",
+      "Generation": "MWhkaTUtVE5rRl1lbkVxRFNgUDlxIHh1VGRTUF58PTk=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Qk1lcG8mN31WeG47NixVYXFAPGtnODBNeUNVe3ZXJEIvKWcpXXx3KTx8eVBVLC9dL3QxK3p2R2ViWDhaNy1NZA==",
-            "Score": -0.025665621054471285,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Qk1lcG8mN31WeG47NixVYXFAPGtnODBNeUNVe3ZXJEI=",
-            "Score": -0.5143135194342245,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Qk1lcG8mN31WeG47NixVYXFAPGtnODBNeUNVe3ZXJEI=",
-            "Score": -62.456696331934225,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231558,
-          15463171881070231561,
-          15463171881070231560,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 16,
       "Name": "prompt_16",
       "Prefix": "LylnKV18dyk8fHlQVSwvXS90MSt6dkdlYlg4WjctTWRqQldbSUViXE1cLW04J15nJispcjxtJyg7cTEtfX5ESnNcOjxIRlpqaSAzcylmIiZuLT9MPF5dbld+L2ZOWUFE",
       "Holdout": "figtaFA8ZXBSfGNHKSVMQ0lQYTA1OmBgaUR6aFxhcic=",
-      "Generation": "figtaFA8ZXBSfGNHKSVMQ0lQYTA1OmBgaUR6aFxhcichTlZxZVxTI2lpOWxOYGBuLDZVNkJJRCVdNiEgRkVjaw==",
+      "Generation": "c1w6PEhGWmppIDNzKWYiJm4tP0w8Xl1uV34vZk5ZQUQ=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "figtaFA8ZXBSfGNHKSVMQ0lQYTA1OmBgaUR6aFxhcichTlZxZVxTI2lpOWxOYGBuLDZVNkJJRCVdNiEgRkVjaw==",
-            "Score": -0.03032329428082274,
-            "Origin": 0
-          },
-          {
-            "Sequence": "figtaFA8ZXBSfGNHKSVMQ0lQYTA1OmBgaUR6aFxhcic=",
-            "Score": -0.5313175006506858,
-            "Origin": 0
-          },
-          {
-            "Sequence": "figtaFA8ZXBSfGNHKSVMQ0lQYTA1OmBgaUR6aFxhcic=",
-            "Score": -63.88556554752569,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231556,
-          15463171881070231557
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 17,
       "Name": "prompt_17",
       "Prefix": "IU5WcWVcUyNpaTlsTmBgbiw2VTZCSUQlXTYhIEZFY2tGP0NmJFJYa1hZcntKP0ciICQgMGwmS3Fvfjd2VEQ9Pldwe3xCOHBNfmduJzMzX0VYOS9bfGwwaFByfWJMXVsq",
       "Holdout": "SEBkX3FzUGZSPS1LXj9YPUMgdH13RFdadW1aWF5sMFU=",
-      "Generation": "SEBkX3FzUGZSPS1LXj9YPUMgdH13RFdadW1aWF5sMFVRKCN1cDZORSFLOzk8bSQ9bSdfW0xoTUc/eXd0ITdOPA==",
+      "Generation": "V3B7fEI4cE1+Z24nMzNfRVg5L1t8bDBoUHJ9YkxdWyo=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "SEBkX3FzUGZSPS1LXj9YPUMgdH13RFdadW1aWF5sMFVRKCN1cDZORSFLOzk8bSQ9bSdfW0xoTUc/eXd0ITdOPA==",
-            "Score": -0.028206430726683603,
-            "Origin": 0
-          },
-          {
-            "Sequence": "SEBkX3FzUGZSPS1LXj9YPUMgdH13RFdadW1aWF5sMFU=",
-            "Score": -0.5296406560178709,
-            "Origin": 0
-          },
-          {
-            "Sequence": "SEBkX3FzUGZSPS1LXj9YPUMgdH13RFdadW1aWF5sMFU=",
-            "Score": -64.64170120289288,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 18,
       "Name": "prompt_18",
       "Prefix": "USgjdXA2TkUhSzs5PG0kPW0nX1tMaE1HP3l3dCE3TjxGen02cDt5V3IvLk92LjsoZC5aNzAlR2tITzRqVzFGc2M5L0dLMyBKMVtrQWVgfDhVIT5iZlE3T3I5cCJ6azRM",
       "Holdout": "bz06SVs0eDE+LSVxOGBuJlFUKSdHNE9JInJpNFMlZ1U=",
-      "Generation": "bz06SVs0eDE+LSVxOGBuJlFUKSdHNE9JInJpNFMlZ1VefGp5STtFI3EkQ2c0SjhtKTRTPygzRDIjbEFZLilfWQ==",
+      "Generation": "YzkvR0szIEoxW2tBZWB8OFUhPmJmUTdPcjlwInprNEw=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "bz06SVs0eDE+LSVxOGBuJlFUKSdHNE9JInJpNFMlZ1VefGp5STtFI3EkQ2c0SjhtKTRTPygzRDIjbEFZLilfWQ==",
-            "Score": 0.01172714351132562,
-            "Origin": 0
-          },
-          {
-            "Sequence": "bz06SVs0eDE+LSVxOGBuJlFUKSdHNE9JInJpNFMlZ1U=",
-            "Score": -0.48011484361123047,
-            "Origin": 0
-          },
-          {
-            "Sequence": "I2E5cUkncD09QU5Od11sX1VyZC8qXFkrKFReeiNkLklvaU5CTjFPTzY7cWxqak0ufmovJ1RmYmpOXXp8N0w5QiAjYTlxSSdwPT1BTk53XWxfVXJkLypcWSsoVF56I2QuSW9pTkJOMU9PNjtxbGpqTS5+ai8nVGZiak5denw3TDlCICNhOXFJJ3A9PUFOTnddbF9VcmQvKlxZKyhUXnojZC5Jb2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUIgI2E5cUkncD09QU5Od11sX1VyZC8qXFkrKFReeiNkLklvaU5CTjFPTzY7cWxqak0ufmovJ1RmYmpOXXp8N0w5QiAjYTlxSSdwPT1BTk53XWxfVXJkLypcWSsoVF56I2QuSW9pTkJOMU9PNjtxbGpqTS5+ai8nVGZiak5denw3TDlC",
-            "Score": -129.37877309669182,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231561,
-          15463171881070231555,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 19,
       "Name": "prompt_19",
       "Prefix": "XnxqeUk7RSNxJENnNEo4bSk0Uz8oM0QyI2xBWS4pX1krTlZROFF5cztEazAnenwvTE5YUThqXkI4MEkzUlcoezJEaTptelNdOVJXW3ZIRE1EMmpkJjwuTXZKW0N5Xlcy",
       "Holdout": "Plh+PFwrbFx+Q1cybURVJ3Q5eC40ezRocmRRdWN7VUo=",
-      "Generation": "Plh+PFwrbFx+Q1cybURVJ3Q5eC40ezRocmRRdWN7VUpceDpFXnMjZVQ/cnd1UmBLIHY8dSM9PHRSXG8keXU1Mg==",
+      "Generation": "MkRpOm16U105UldbdkhETUQyamQmPC5NdkpbQ3leVzI=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Plh+PFwrbFx+Q1cybURVJ3Q5eC40ezRocmRRdWN7VUpceDpFXnMjZVQ/cnd1UmBLIHY8dSM9PHRSXG8keXU1Mg==",
-            "Score": 0.025055808719687062,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Plh+PFwrbFx+Q1cybURVJ3Q5eC40ezRocmRRdWN7VUo=",
-            "Score": -0.4981089955683256,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Plh+PFwrbFx+Q1cybURVJ3Q5eC40ezRocmRRdWN7VUo=",
-            "Score": -63.94732774556832,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231560,
-          15463171881070231558,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 20,
       "Name": "prompt_20",
       "Prefix": "XHg6RV5zI2VUP3J3dVJgSyB2PHUjPTx0UlxvJHl1NTIkT3FxaCI1Nmt8XWY3clkienM1bTNmL089RGBtTDREXVVLfEo+RyF+YTVnSncuczkxICJ2XFxhemtnWF91ZiMt",
       "Holdout": "PzsrfF9cW1NJampDLytKREF+RTVBIXpbalRnOnxmQlk=",
-      "Generation": "PzsrfF9cW1NJampDLytKREF+RTVBIXpbalRnOnxmQllGKjBTSipwfCMvXiI7MmxrXWhvJGhQQF1yIzE+Zll1LQ==",
+      "Generation": "VUt8Sj5HIX5hNWdKdy5zOTEgInZcXGF6a2dYX3VmIy0=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "PzsrfF9cW1NJampDLytKREF+RTVBIXpbalRnOnxmQllGKjBTSipwfCMvXiI7MmxrXWhvJGhQQF1yIzE+Zll1LQ==",
-            "Score": 0.0042926909936364015,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PzsrfF9cW1NJampDLytKREF+RTVBIXpbalRnOnxmQlk=",
-            "Score": -0.48807585835100986,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PzsrfF9cW1NJampDLytKREF+RTVBIXpbalRnOnxmQlk=",
-            "Score": -61.97123015522601,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231554,
-          15463171881070231558,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 21,
       "Name": "prompt_21",
       "Prefix": "RiowU0oqcHwjL14iOzJsa11obyRoUEBdciMxPmZZdS1HQE14ZWJ+LzAzXUs9MDBLZEd4czF2Pk5ySiw3ZkZAeThWNSZufVsxQHhXUjl+d09JcVJ8UUtbOiMyODE6ak9G",
       "Holdout": "fHciTj9aP3g1LjgrIVpNZEV0bj5jfi1HcHxAeldSMHw=",
-      "Generation": "fHciTj9aP3g1LjgrIVpNZEV0bj5jfi1HcHxAeldSMHxHNSF6XW1lakJjXXg1KH1TTF0nJEwnYnJhazdFOjRtNg==",
+      "Generation": "OFY1Jm59WzFAeFdSOX53T0lxUnxRS1s6IzI4MTpqT0Y=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "fHciTj9aP3g1LjgrIVpNZEV0bj5jfi1HcHxAeldSMHxHNSF6XW1lakJjXXg1KH1TTF0nJEwnYnJhazdFOjRtNg==",
-            "Score": -0.018984310596540183,
-            "Origin": 0
-          },
-          {
-            "Sequence": "fHciTj9aP3g1LjgrIVpNZEV0bj5jfi1HcHxAeldSMHw=",
-            "Score": -0.5189843105965402,
-            "Origin": 0
-          },
-          {
-            "Sequence": "fHciTj9aP3g1LjgrIVpNZEV0bj5jfi1HcHxAeldSMHw=",
-            "Score": -64.86151360747154,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231553,
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231554,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 22,
       "Name": "prompt_22",
       "Prefix": "RzUhel1tZWpCY114NSh9U0xdJyRMJ2JyYWs3RTo0bTY9e3NbL3NoOVo/YSE0WTttSTArb1x1Z2IpZl0oQnJ9Iz9fVCRfY05ebEdsPCslT2daS0ZxbHYgdm09bUQ0JmFD",
       "Holdout": "PjRycyspIl9HJH1xTnoicTV8dlRmKiV6S0JcaFtdRW4=",
-      "Generation": "PjRycyspIl9HJH1xTnoicTV8dlRmKiV6S0JcaFtdRW5APTU0TTxZamt4JFtFOGsnZX1CPVZxdTZJOHc2NF8jTQ==",
+      "Generation": "P19UJF9jTl5sR2w8KyVPZ1pLRnFsdiB2bT1tRDQmYUM=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "PjRycyspIl9HJH1xTnoicTV8dlRmKiV6S0JcaFtdRW5APTU0TTxZamt4JFtFOGsnZX1CPVZxdTZJOHc2NF8jTQ==",
-            "Score": -0.029226368211266077,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PjRycyspIl9HJH1xTnoicTV8dlRmKiV6S0JcaFtdRW4=",
-            "Score": -0.4886066700193369,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PjRycyspIl9HJH1xTnoicTV8dlRmKiV6S0JcaFtdRW4=",
-            "Score": -64.93513987314434,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231559
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 23,
       "Name": "prompt_23",
       "Prefix": "QD01NE08WWpreCRbRThrJ2V9Qj1WcXU2STh3NjRfI00jbC47OGh4UjpeQXMgZG9JL2YjNUh5M25FfTZZNVJcfGZ+blIpJylaWHU6RXhWTHFOQltcOj5IXSErKixVflJX",
       "Holdout": "TDVrezZzT0s/RnlNWVNVVVtNNyteY2k/YlZnQzJdMlY=",
-      "Generation": "TDVrezZzT0s/RnlNWVNVVVtNNyteY2k/YlZnQzJdMlYxfEMocFpySGxcLkh2UmFZSHxkOmI8Ln16a3YxTTskLQ==",
+      "Generation": "Zn5uUiknKVpYdTpFeFZMcU5CW1w6PkhdISsqLFV+Ulc=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "TDVrezZzT0s/RnlNWVNVVVtNNyteY2k/YlZnQzJdMlYxfEMocFpySGxcLkh2UmFZSHxkOmI8Ln16a3YxTTskLQ==",
-            "Score": 0.0195405788912514,
-            "Origin": 0
-          },
-          {
-            "Sequence": "TDVrezZzT0s/RnlNWVNVVVtNNyteY2k/YlZnQzJdMlY=",
-            "Score": -0.49285100772271284,
-            "Origin": 0
-          },
-          {
-            "Sequence": "VHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1IFRxfFQxSEMiR0goWVJVLVdAcElyPF8/SSooWyRpWEFIbTIkcFRiWzFnSn1scyx0Ukkie244IWUvcS1EZiFkYjUgVHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1",
-            "Score": -129.94858801730138,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 24,
       "Name": "prompt_24",
       "Prefix": "MXxDKHBackhsXC5IdlJhWUh8ZDpiPC59emt2MU07JC11N3RxfnxlfEM6RS9qX14wRiZdeng9P2BjNl9bXGxoWkdFTWV6R1BmJl14S0x3d289OWtmfXRKQkQ8PlA5Xk0t",
       "Holdout": "XXRtJmVvWVQ3XjZkdnVPYTpYKHIvRH5RPTQod2hgKyM=",
-      "Generation": "XXRtJmVvWVQ3XjZkdnVPYTpYKHIvRH5RPTQod2hgKyM+J29gVnhAbXUpKnRZNl09YlIsSHtda3MvSmROcGlyQg==",
+      "Generation": "R0VNZXpHUGYmXXhLTHd3bz05a2Z9dEpCRDw+UDleTS0=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "XXRtJmVvWVQ3XjZkdnVPYTpYKHIvRH5RPTQod2hgKyM+J29gVnhAbXUpKnRZNl09YlIsSHtda3MvSmROcGlyQg==",
-            "Score": 0.010549337375301242,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XXRtJmVvWVQ3XjZkdnVPYTpYKHIvRH5RPTQod2hgKyM=",
-            "Score": -0.48997812949346375,
-            "Origin": 0
-          },
-          {
-            "Sequence": "VHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1IFRxfFQxSEMiR0goWVJVLVdAcElyPF8/SSooWyRpWEFIbTIkcFRiWzFnSn1scyx0Ukkie244IWUvcS1EZiFkYjUgVHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1",
-            "Score": -128.54747551014793,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231554,
-          15463171881070231553,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 25,
       "Name": "prompt_25",
       "Prefix": "PidvYFZ4QG11KSp0WTZdPWJSLEh7XWtzL0pkTnBpckJQYkZdYlRxV0syX2xBJnU1TiZha3V2YWE3bz84WCRxL2U3Y2BxJEtdVzBBQmFfdn57LDQwUyFgcy9BLTcpODFw",
       "Holdout": "eV5yJmYoOExqXytGO0BqMD08OVFNV1I/Tk5iYSVNXno=",
-      "Generation": "eV5yJmYoOExqXytGO0BqMD08OVFNV1I/Tk5iYSVNXnp1KUR6altzeVNAICZTQip2fSpuUXwvKmJweHF1bjdMdw==",
+      "Generation": "ZTdjYHEkS11XMEFCYV92fnssNDBTIWBzL0EtNyk4MXA=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "eV5yJmYoOExqXytGO0BqMD08OVFNV1I/Tk5iYSVNXnp1KUR6altzeVNAICZTQip2fSpuUXwvKmJweHF1bjdMdw==",
-            "Score": 0.02901159666633186,
-            "Origin": 0
-          },
-          {
-            "Sequence": "eV5yJmYoOExqXytGO0BqMD08OVFNV1I/Tk5iYSVNXno=",
-            "Score": -0.48473073859666743,
-            "Origin": 0
-          },
-          {
-            "Sequence": "eV5yJmYoOExqXytGO0BqMD08OVFNV1I/Tk5iYSVNXno=",
-            "Score": -65.38438894172167,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231554,
-          15463171881070231558,
-          15463171881070231557,
-          15463171881070231553,
-          15463171881070231561,
-          15463171881070231555,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 26,
       "Name": "prompt_26",
       "Prefix": "dSlEempbc3lTQCAmU0Iqdn0qblF8LypicHhxdW43THcwXSNTNj5NT3RQPC4uQmpOIEgyRz5YOGUwXEldeTsnWShJUXxSNjRUbng/YTQrTi9MNmQyZCZuQWRHWU5+XHI/",
       "Holdout": "IzsxSVRjXGwmIDJRWTQyemhkdjsqRmA8Pk4hTXVlKmw=",
-      "Generation": "IzsxSVRjXGwmIDJRWTQyemhkdjsqRmA8Pk4hTXVlKmxdLzQ0ZnhdWW4gMjpPJE9UNEp0TVM/W0pUUzFMZFc2fA==",
+      "Generation": "KElRfFI2NFRueD9hNCtOL0w2ZDJkJm5BZEdZTn5ccj8=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "IzsxSVRjXGwmIDJRWTQyemhkdjsqRmA8Pk4hTXVlKmxdLzQ0ZnhdWW4gMjpPJE9UNEp0TVM/W0pUUzFMZFc2fA==",
-            "Score": 0.008392252757318584,
-            "Origin": 0
-          },
-          {
-            "Sequence": "IzsxSVRjXGwmIDJRWTQyemhkdjsqRmA8Pk4hTXVlKmw=",
-            "Score": -0.5241894344181539,
-            "Origin": 0
-          },
-          {
-            "Sequence": "VHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1IFRxfFQxSEMiR0goWVJVLVdAcElyPF8/SSooWyRpWEFIbTIkcFRiWzFnSn1scyx0Ukkie244IWUvcS1EZiFkYjUgVHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1",
-            "Score": -129.07199795150294,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231553,
-          15463171881070231559,
-          15463171881070231560,
-          15463171881070231554,
-          15463171881070231558,
-          15463171881070231561,
-          15463171881070231557
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 27,
       "Name": "prompt_27",
       "Prefix": "XS80NGZ4XVluIDI6TyRPVDRKdE1TP1tKVFMxTGRXNnx6NVZoKks6VTl8Z2xUPk9LandUM1RiSVx0N1Z0cCRJNUY+dm10dFcmZjNiajBXciQtXWxHa3N7diA1dnp9J0s0",
       "Holdout": "Oi9BYkkqbEpqMXxSTXVAdm85eEZ4WTxhYmJzPCQ/bmo=",
-      "Generation": "Oi9BYkkqbEpqMXxSTXVAdm85eEZ4WTxhYmJzPCQ/bmp6TFVPO0MnbXpwQGJGdHdrYXY/bHR7SDl1ZncyVS49cA==",
+      "Generation": "Rj52bXR0VyZmM2JqMFdyJC1dbEdrc3t2IDV2en0nSzQ=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Oi9BYkkqbEpqMXxSTXVAdm85eEZ4WTxhYmJzPCQ/bmp6TFVPO0MnbXpwQGJGdHdrYXY/bHR7SDl1ZncyVS49cA==",
-            "Score": -0.025328609756199376,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Oi9BYkkqbEpqMXxSTXVAdm85eEZ4WTxhYmJzPCQ/bmo=",
-            "Score": -0.5227440577402607,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Oi9BYkkqbEpqMXxSTXVAdm85eEZ4WTxhYmJzPCQ/bmo=",
-            "Score": -62.54520499524026,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231553,
-          15463171881070231556,
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 28,
       "Name": "prompt_28",
       "Prefix": "ekxVTztDJ216cEBiRnR3a2F2P2x0e0g5dWZ3MlUuPXB1alx1WSZqY1grO2pMOSd6Omk7Pm5ceU9XIFxxKmB6N2BoRUg8aiRXKisoIC5NbWAnPVExYT1VdylUPFFAR2Fc",
       "Holdout": "Km87UmlVTFt7b2xRIV03Oz1nVnRjY19XVnkxYGxbQig=",
-      "Generation": "Km87UmlVTFt7b2xRIV03Oz1nVnRjY19XVnkxYGxbQigvXlR2OGxEIlNgWmwrVXVQbzgnLk8nVj9tTlxvJzlbcw==",
+      "Generation": "YGhFSDxqJFcqKyggLk1tYCc9UTFhPVV3KVQ8UUBHYVw=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Km87UmlVTFt7b2xRIV03Oz1nVnRjY19XVnkxYGxbQigvXlR2OGxEIlNgWmwrVXVQbzgnLk8nVj9tTlxvJzlbcw==",
-            "Score": -0.016574021054996266,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Km87UmlVTFt7b2xRIV03Oz1nVnRjY19XVnkxYGxbQig=",
-            "Score": -0.5165740210549963,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Km87UmlVTFt7b2xRIV03Oz1nVnRjY19XVnkxYGxbQig=",
-            "Score": -64.44040214605499,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231557
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 29,
       "Name": "prompt_29",
       "Prefix": "L15UdjhsRCJTYFpsK1V1UG84Jy5PJ1Y/bU5cbyc5W3N5YjBvdCUjYihLIF5FXUVQNGN8VFpUbV5uV0t9S35ILj5ZejchLDRgOCh7SmdAZWRtTzEkMnFEdDtsLEtLO1sy",
       "Holdout": "KXk7QUEqYm8gJypRLltCL2ZDWD09Mn18dExcazw9Nm0=",
-      "Generation": "KXk7QUEqYm8gJypRLltCL2ZDWD09Mn18dExcazw9Nm1aNndbe2cyaHNCTTZAeVE6bVw4SUZ8JjxbNyZ4YzYiXg==",
+      "Generation": "Pll6NyEsNGA4KHtKZ0BlZG1PMSQycUR0O2wsS0s7WzI=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "KXk7QUEqYm8gJypRLltCL2ZDWD09Mn18dExcazw9Nm1aNndbe2cyaHNCTTZAeVE6bVw4SUZ8JjxbNyZ4YzYiXg==",
-            "Score": -0.011449622422831825,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KXk7QUEqYm8gJypRLltCL2ZDWD09Mn18dExcazw9Nm0=",
-            "Score": -0.4928439859857301,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KXk7QUEqYm8gJypRLltCL2ZDWD09Mn18dExcazw9Nm0=",
-            "Score": -62.11393773598573,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 30,
       "Name": "prompt_30",
       "Prefix": "WjZ3W3tnMmhzQk02QHlROm1cOElGfCY8WzcmeGM2Il4kQ1UvbT5WIEc0KlluTSo6fSh3Lnc7d3YiZkBBIVoqflYrb35DJSdkLV9DdTJxbThRdztvIGwrUyNsaS1ObUhh",
       "Holdout": "Zks4OWxVNSk2KVhtcUo7XGd5PzhidDk9Um1iWWVLVUQ=",
-      "Generation": "Zks4OWxVNSk2KVhtcUo7XGd5PzhidDk9Um1iWWVLVUR5PThpMTIwVCZyJkAkVShAUEEmc09RU1FeeTtSJTAveg==",
+      "Generation": "VitvfkMlJ2QtX0N1MnFtOFF3O28gbCtTI2xpLU5tSGE=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Zks4OWxVNSk2KVhtcUo7XGd5PzhidDk9Um1iWWVLVUR5PThpMTIwVCZyJkAkVShAUEEmc09RU1FeeTtSJTAveg==",
-            "Score": 0.012755429030673055,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Zks4OWxVNSk2KVhtcUo7XGd5PzhidDk9Um1iWWVLVUQ=",
-            "Score": -0.48724457096932694,
-            "Origin": 0
-          },
-          {
-            "Sequence": "VHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1IFRxfFQxSEMiR0goWVJVLVdAcElyPF8/SSooWyRpWEFIbTIkcFRiWzFnSn1scyx0Ukkie244IWUvcS1EZiFkYjUgVHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNSBUcXxUMUhDIkdIKFlSVS1XQHBJcjxfP0kqKFskaVhBSG0yJHBUYlsxZ0p9bHMsdFJJIntuOCFlL3EtRGYhZGI1",
-            "Score": -129.32086498476482,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 31,
       "Name": "prompt_31",
       "Prefix": "eT04aTEyMFQmciZAJFUoQFBBJnNPUVNRXnk7UiUwL3p5QjZXQWRYQjkqLW16U0UmKl9xdXNjQ2UoX3Z7OzV6RWxGLk82OEJwXiIqIjNeejJwNXElXl5FTyw6U28wcS1A",
       "Holdout": "cCNgdXxtSDN1SydZTXdtcFl9RW9efFQ0QzJUbidFWT0=",
-      "Generation": "cCNgdXxtSDN1SydZTXdtcFl9RW9efFQ0QzJUbidFWT1EOixiaVhlNXZZOi4qa2l+ZSxHSTxCQiQhSDQ+N2oweA==",
+      "Generation": "bEYuTzY4QnBeIioiM156MnA1cSVeXkVPLDpTbzBxLUA=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "cCNgdXxtSDN1SydZTXdtcFl9RW9efFQ0QzJUbidFWT1EOixiaVhlNXZZOi4qa2l+ZSxHSTxCQiQhSDQ+N2oweA==",
-            "Score": -0.0035359602084126026,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cCNgdXxtSDN1SydZTXdtcFl9RW9efFQ0QzJUbidFWT0=",
-            "Score": -0.4964640397915874,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cCNgdXxtSDN1SydZTXdtcFl9RW9efFQ0QzJUbidFWT0=",
-            "Score": -63.70788982104159,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231558,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 32,
       "Name": "prompt_32",
       "Prefix": "RDosYmlYZTV2WTouKmtpfmUsR0k8QkIkIUg0PjdqMHhYZEcrPn4gbFA+IzRNUzgtOW5nPiRqNVQ1PzAoXTteREdAZ0I5YWVfJSA5ajVCUnc5UFJoWGBnaUUifEcyIlxp",
       "Holdout": "YiVHUzQlWidBRE8uIEZZK1YkNis1MmwobS45LnstOS8=",
-      "Generation": "YiVHUzQlWidBRE8uIEZZK1YkNis1MmwobS45LnstOS9IQWx5PEpWbkZtVixyakNtLjNYJUcsX2dSYmUtfXttZg==",
+      "Generation": "R0BnQjlhZV8lIDlqNUJSdzlQUmhYYGdpRSJ8RzIiXGk=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "YiVHUzQlWidBRE8uIEZZK1YkNis1MmwobS45LnstOS9IQWx5PEpWbkZtVixyakNtLjNYJUcsX2dSYmUtfXttZg==",
-            "Score": -0.028134450520386448,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YiVHUzQlWidBRE8uIEZZK1YkNis1MmwobS45LnstOS8=",
-            "Score": -0.5281344505203864,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YiVHUzQlWidBRE8uIEZZK1YkNis1MmwobS45LnstOS8=",
-            "Score": -64.73907195052038,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 33,
       "Name": "prompt_33",
       "Prefix": "SEFseTxKVm5GbVYscmpDbS4zWCVHLF9nUmJlLX17bWYpc2pAX1QmWllmekogc200OUlTdXF3WWJ0UllNM1kxTXNDL1xIQD0/UnExdVpPUTgqQThyM3VtdWttY3ReU2Yo",
       "Holdout": "cEUsKG8gYHkxZCRfQiRDfVl1LzF5UC4zX084LG8nbGg=",
-      "Generation": "cEUsKG8gYHkxZCRfQiRDfVl1LzF5UC4zX084LG8nbGhQams6cV9dWlxBbXZKTHNtIj9sZzVUNFVsP1dmLlJ3KA==",
+      "Generation": "c0MvXEhAPT9ScTF1Wk9ROCpBOHIzdW11a21jdF5TZig=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "cEUsKG8gYHkxZCRfQiRDfVl1LzF5UC4zX084LG8nbGhQams6cV9dWlxBbXZKTHNtIj9sZzVUNFVsP1dmLlJ3KA==",
-            "Score": -0.01877178809247072,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cEUsKG8gYHkxZCRfQiRDfVl1LzF5UC4zX084LG8nbGg=",
-            "Score": -0.5065954931135708,
-            "Origin": 0
-          },
-          {
-            "Sequence": "cEUsKG8gYHkxZCRfQiRDfVl1LzF5UC4zX084LG8nbGg=",
-            "Score": -64.53955447748856,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231554,
-          15463171881070231553,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231560
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 34,
       "Name": "prompt_34",
       "Prefix": "UGprOnFfXVpcQW12SkxzbSI/bGc1VDRVbD9XZi5SdyhVYURIU1AgWip5c3xeekx6SGdlV3xjdDxWWWdMTSpiQShVMClJZlo2XDxwP2AhSkNoIFomUjVfVyphaFMpSy4r",
       "Holdout": "KzEqS05oSVgpcjU9P2Q8S0N4TmtOOkE0P0U6MEQjIlo=",
-      "Generation": "KzEqS05oSVgpcjU9P2Q8S0N4TmtOOkE0P0U6MEQjIlpLLDMlSWwzNT13ZClZJkU4N0BPZDIxP1VWZi1YZ3ppeg==",
+      "Generation": "KFUwKUlmWjZcPHA/YCFKQ2ggWiZSNV9XKmFoUylLLis=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "KzEqS05oSVgpcjU9P2Q8S0N4TmtOOkE0P0U6MEQjIlpLLDMlSWwzNT13ZClZJkU4N0BPZDIxP1VWZi1YZ3ppeg==",
-            "Score": -0.002390845957998598,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KzEqS05oSVgpcjU9P2Q8S0N4TmtOOkE0P0U6MEQjIlo=",
-            "Score": -0.4803950631444116,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KzEqS05oSVgpcjU9P2Q8S0N4TmtOOkE0P0U6MEQjIlo=",
-            "Score": -65.94963334439441,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231558,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231557
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 35,
       "Name": "prompt_35",
       "Prefix": "SywzJUlsMzU9d2QpWSZFODdAT2QyMT9VVmYtWGd6aXp4ezJ8KkttaUh1VnV+bDI9XkFjZy1qJipHQXFGNUlVVVxOYz1JJ35saU1BSHVON3VHM1lyT2Febys1THRBMXFJ",
       "Holdout": "Vj8sSiJAS3NpbitlSmNzNUp0OVlZQE89cUw3Km9Sfjs=",
-      "Generation": "Vj8sSiJAS3NpbitlSmNzNUp0OVlZQE89cUw3Km9Sfjs9bU1QclNzRDtsPTBgNSp0RUBdX3s1RWI6VD0nLEVuXQ==",
+      "Generation": "XE5jPUknfmxpTUFIdU43dUczWXJPYV5vKzVMdEExcUk=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Vj8sSiJAS3NpbitlSmNzNUp0OVlZQE89cUw3Km9Sfjs9bU1QclNzRDtsPTBgNSp0RUBdX3s1RWI6VD0nLEVuXQ==",
-            "Score": -0.001929187310171295,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Vj8sSiJAS3NpbitlSmNzNUp0OVlZQE89cUw3Km9Sfjs=",
-            "Score": -0.512057420688571,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Vj8sSiJAS3NpbitlSmNzNUp0OVlZQE89cUw3Km9Sfjs=",
-            "Score": -65.07065117068858,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231554,
-          15463171881070231553,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 36,
       "Name": "prompt_36",
       "Prefix": "PW1NUHJTc0Q7bD0wYDUqdEVAXV97NUViOlQ9JyxFbl0xLm4gfFRDcFhzQmdCJmJoPUhjICV4IS1yXmohbGk4O3snXWNGRXRnZF4zNkU7dz1ASkJsJH13e0UxKXhhNz9s",
       "Holdout": "W3VfQls4SlQyRHByPXJHdDdTWEZucGlIIjsyTCVMXXE=",
-      "Generation": "W3VfQls4SlQyRHByPXJHdDdTWEZucGlIIjsyTCVMXXEuayRtak4kcVM/WWhkXC08STRLN29fPkhRTXxDRDVLbA==",
+      "Generation": "eyddY0ZFdGdkXjM2RTt3PUBKQmwkfXd7RTEpeGE3P2w=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "W3VfQls4SlQyRHByPXJHdDdTWEZucGlIIjsyTCVMXXEuayRtak4kcVM/WWhkXC08STRLN29fPkhRTXxDRDVLbA==",
-            "Score": 0.025908617768804435,
-            "Origin": 0
-          },
-          {
-            "Sequence": "W3VfQls4SlQyRHByPXJHdDdTWEZucGlIIjsyTCVMXXE=",
-            "Score": -0.5019553673787778,
-            "Origin": 0
-          },
-          {
-            "Sequence": "W3VfQls4SlQyRHByPXJHdDdTWEZucGlIIjsyTCVMXXE=",
-            "Score": -65.41235575800378,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231561,
-          15463171881070231557,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 37,
       "Name": "prompt_37",
       "Prefix": "LmskbWpOJHFTP1loZFwtPEk0SzdvXz5IUU18Q0Q1S2xVIF9pR3VtQVZsUkJ3OHIgSEtha15uMzRoQjtodFlTdUIkdXRsZW5ETnRPcmprUS1Zc1p2UDcsbHojWT1WLFtf",
       "Holdout": "NzErcjsjUSNbYUI/XGR8fVwtRVBTXiV6U017KWI2Snk=",
-      "Generation": "NzErcjsjUSNbYUI/XGR8fVwtRVBTXiV6U017KWI2SnkmMjJ1L117JyVsdDd9XWM4ZG1kPEVNNmh3dDdNanFifg==",
+      "Generation": "QiR1dGxlbkROdE9yamtRLVlzWnZQNyxseiNZPVYsW18=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "NzErcjsjUSNbYUI/XGR8fVwtRVBTXiV6U017KWI2SnkmMjJ1L117JyVsdDd9XWM4ZG1kPEVNNmh3dDdNanFifg==",
-            "Score": -0.02955102110176926,
-            "Origin": 0
-          },
-          {
-            "Sequence": "NzErcjsjUSNbYUI/XGR8fVwtRVBTXiV6U017KWI2Snk=",
-            "Score": -0.5014071914810367,
-            "Origin": 0
-          },
-          {
-            "Sequence": "NzErcjsjUSNbYUI/XGR8fVwtRVBTXiV6U017KWI2Snk=",
-            "Score": -63.097598597731036,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 38,
       "Name": "prompt_38",
       "Prefix": "JjIydS9deyclbHQ3fV1jOGRtZDxFTTZod3Q3TWpxYn44VXknITlVd1VJSnVUXVt5IEd9IHVqSyxeOmV9PCcuUCtKUVEhZXAvbnY7LiUxZHIxKDlVMVVZVDd8aiM7LyRG",
       "Holdout": "KCxkNUxiVVU9NCVUQlUjPilFWnVzcGs3cGYpe0Myen0=",
-      "Generation": "KCxkNUxiVVU9NCVUQlUjPilFWnVzcGs3cGYpe0Myen1TWXksc29JdEByNm1FTkUkV3REIk5caFtMO2sob0h7Mg==",
+      "Generation": "K0pRUSFlcC9udjsuJTFkcjEoOVUxVVlUN3xqIzsvJEY=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "KCxkNUxiVVU9NCVUQlUjPilFWnVzcGs3cGYpe0Myen1TWXksc29JdEByNm1FTkUkV3REIk5caFtMO2sob0h7Mg==",
-            "Score": -0.014479496735296976,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KCxkNUxiVVU9NCVUQlUjPilFWnVzcGs3cGYpe0Myen0=",
-            "Score": -0.47104100652940617,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KCxkNUxiVVU9NCVUQlUjPilFWnVzcGs3cGYpe0Myen0=",
-            "Score": -63.577486319029404,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231557,
-          15463171881070231554,
-          15463171881070231559,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 39,
       "Name": "prompt_39",
       "Prefix": "U1l5LHNvSXRAcjZtRU5FJFd0RCJOXGhbTDtrKG9IezJuVztxekhyemVDaV5EbFk0bDEkMn4kSnghPT1YaydDey9TdDFRJkg5JH5cWE4uInducXBBLSx6LGpmJnRybUd5",
       "Holdout": "Nml4ImBgSUlhXS0wQHtBcyFkdjolV1klZmg4KzhHXXU=",
-      "Generation": "Nml4ImBgSUlhXS0wQHtBcyFkdjolV1klZmg4KzhHXXV6aytMfEJJS24rQXhzclMpOWd5PWEyZUFIczEoXlExQQ==",
+      "Generation": "L1N0MVEmSDkkflxYTi4id25xcEEtLHosamYmdHJtR3k=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Nml4ImBgSUlhXS0wQHtBcyFkdjolV1klZmg4KzhHXXV6aytMfEJJS24rQXhzclMpOWd5PWEyZUFIczEoXlExQQ==",
-            "Score": -0.022725223034661787,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Nml4ImBgSUlhXS0wQHtBcyFkdjolV1klZmg4KzhHXXU=",
-            "Score": -0.5272702676415941,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Nml4ImBgSUlhXS0wQHtBcyFkdjolV1klZmg4KzhHXXU=",
-            "Score": -62.3683347207666,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231561
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 40,
       "Name": "prompt_40",
       "Prefix": "emsrTHxCSUtuK0F4c3JTKTlneT1hMmVBSHMxKF5RMUFnRiwuREQ7ITM2Oyt5ImQoL3JFSWZdJ10rfjtoJUclMDopbnxAP1wye2d8MWItPFVFRSUpclAkYlkmIihdJUki",
       "Holdout": "XltVLSoleXQ+UStJNkYkR2NjaV5LbkNwJ1g8MnYvNDQ=",
-      "Generation": "XltVLSoleXQ+UStJNkYkR2NjaV5LbkNwJ1g8MnYvNDRMeEZYSjdeQSk0TEsiJ3o2RDVafiZ1eTxQKHQjWF1pQg==",
+      "Generation": "OilufEA/XDJ7Z3wxYi08VUVFJSlyUCRiWSYiKF0lSSI=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "XltVLSoleXQ+UStJNkYkR2NjaV5LbkNwJ1g8MnYvNDRMeEZYSjdeQSk0TEsiJ3o2RDVafiZ1eTxQKHQjWF1pQg==",
-            "Score": 0.014257743844762038,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XltVLSoleXQ+UStJNkYkR2NjaV5LbkNwJ1g8MnYvNDQ=",
-            "Score": -0.48180908543944134,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XltVLSoleXQ+UStJNkYkR2NjaV5LbkNwJ1g8MnYvNDQ=",
-            "Score": -63.504270022939444,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231553,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231554,
-          15463171881070231556,
-          15463171881070231559,
-          15463171881070231555
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 41,
       "Name": "prompt_41",
       "Prefix": "THhGWEo3XkEpNExLIid6NkQ1Wn4mdXk8UCh0I1hdaUIrM1VrRURETTdcTy5AZWI5XDJBQHBwRTkpbDpMc2BWNSdKUGBIRlVdOnEwV0wzeFhQZ3ZhIjxLR1U0SWImKiEt",
       "Holdout": "YHJcWHAxfUtLQk9nT30nbS9ffmZeICd7dF8hUUZsaHc=",
-      "Generation": "YHJcWHAxfUtLQk9nT30nbS9ffmZeICd7dF8hUUZsaHdwXk48MXB5LW82KTFAKEUkP1xVZjwtUzNtKnA3UERocw==",
+      "Generation": "J0pQYEhGVV06cTBXTDN4WFBndmEiPEtHVTRJYiYqIS0=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "YHJcWHAxfUtLQk9nT30nbS9ffmZeICd7dF8hUUZsaHdwXk48MXB5LW82KTFAKEUkP1xVZjwtUzNtKnA3UERocw==",
-            "Score": -0.022063939551488273,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YHJcWHAxfUtLQk9nT30nbS9ffmZeICd7dF8hUUZsaHc=",
-            "Score": -0.5220639395514882,
-            "Origin": 0
-          },
-          {
-            "Sequence": "YHJcWHAxfUtLQk9nT30nbS9ffmZeICd7dF8hUUZsaHc=",
-            "Score": -64.62460300205149,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 42,
       "Name": "prompt_42",
       "Prefix": "cF5OPDFweS1vNikxQChFJD9cVWY8LVMzbSpwN1BEaHMrL11kJE5XMjZ4ZHt0LV5nNUA9WkJOLjMhbVNxN1ZffDo6Yl1KOV1iPU48eE4iRmE9XFZCXEY6MVx0bV9ELSVA",
       "Holdout": "Z1U8MWRrVSZNSzt8Yz87L3BAeHtXQWtuZ1MgdTh2RT0=",
-      "Generation": "Z1U8MWRrVSZNSzt8Yz87L3BAeHtXQWtuZ1MgdTh2RT18XmhndX5kdjpST3BsUCoxWEd4PUFyRDtbbzBlUy5UJw==",
+      "Generation": "OjpiXUo5XWI9Tjx4TiJGYT1cVkJcRjoxXHRtX0QtJUA=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "Z1U8MWRrVSZNSzt8Yz87L3BAeHtXQWtuZ1MgdTh2RT18XmhndX5kdjpST3BsUCoxWEd4PUFyRDtbbzBlUy5UJw==",
-            "Score": -0.023388069341167505,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Z1U8MWRrVSZNSzt8Yz87L3BAeHtXQWtuZ1MgdTh2RT0=",
-            "Score": -0.5279639959513959,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Z1U8MWRrVSZNSzt8Yz87L3BAeHtXQWtuZ1MgdTh2RT0=",
-            "Score": -65.2318214178264,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231560,
-          15463171881070231557,
-          15463171881070231554,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231558,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 43,
       "Name": "prompt_43",
       "Prefix": "fF5oZ3V+ZHY6Uk9wbFAqMVhHeD1BckQ7W28wZVMuVCdecmZbZXYiaTRoM3oxOk54SkRoZj57dVxIIl1qPUUtaEM/SGshR0ZgSi9BWX52IGBbX0BFTjRbR0FEbVFpRC5N",
       "Holdout": "L0pxa1FLLms6ayJuMksuVSAmcik2VmxHZDVHPS1IMHY=",
-      "Generation": "L0pxa1FLLms6ayJuMksuVSAmcik2VmxHZDVHPS1IMHZDSlF2MFF6aT1cO0M7IH1SJnRwSz5caXpKLm90NWElVA==",
+      "Generation": "Qz9IayFHRmBKL0FZfnYgYFtfQEVONFtHQURtUWlELk0=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.0625,
+        "Fuzzy": 0.0625
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.028409090909090908,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "L0pxa1FLLms6ayJuMksuVSAmcik2VmxHZDVHPS1IMHZDSlF2MFF6aT1cO0M7IH1SJnRwSz5caXpKLm90NWElVA==",
-            "Score": -0.029547146584917545,
-            "Origin": 0
-          },
-          {
-            "Sequence": "L0pxa1FLLms6ayJuMksuVSAmcik2VmxHZDVHPS1IMHY=",
-            "Score": -0.5270431511116195,
-            "Origin": 0
-          },
-          {
-            "Sequence": "L0pxa1FLLms6ayJuMksuVSAmcik2VmxHZDVHPS1IMHY=",
-            "Score": -62.37909393236162,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231556,
-          15463171881070231554,
-          15463171881070231553,
-          15463171881070231558,
-          15463171881070231559
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 44,
       "Name": "prompt_44",
       "Prefix": "Q0pRdjBRemk9XDtDOyB9UiZ0cEs+XGl6Si5vdDVhJVRUNW4naWFHWC9LYz1FUzlUYntNanB7WkJ4OWpUZzkoclIrQn07bHhwcS99dGpZR11iL1JoNiE8RElVVlU+LHg+",
       "Holdout": "SkYnUWQkcSk5fm5fT3Q0Pihfc3pBSi1+el5TeU50YSE=",
-      "Generation": "SkYnUWQkcSk5fm5fT3Q0Pihfc3pBSi1+el5TeU50YSFVekw6PnI/ICYgW3d1fXtSLUMmT0J5XHB1VjxRNXFgQQ==",
+      "Generation": "UitCfTtseHBxL310allHXWIvUmg2ITxESVVWVT4seD4=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "SkYnUWQkcSk5fm5fT3Q0Pihfc3pBSi1+el5TeU50YSFVekw6PnI/ICYgW3d1fXtSLUMmT0J5XHB1VjxRNXFgQQ==",
-            "Score": 0.030700492054441444,
-            "Origin": 0
-          },
-          {
-            "Sequence": "SkYnUWQkcSk5fm5fT3Q0Pihfc3pBSi1+el5TeU50YSE=",
-            "Score": -0.5004951692266845,
-            "Origin": 0
-          },
-          {
-            "Sequence": "SkYnUWQkcSk5fm5fT3Q0Pihfc3pBSi1+el5TeU50YSE=",
-            "Score": -61.92603227860168,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231556,
-          15463171881070231558
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 45,
       "Name": "prompt_45",
       "Prefix": "VXpMOj5yPyAmIFt3dX17Ui1DJk9CeVxwdVY8UTVxYEE3SEU2XHomPSNZfW9zbGN3SWB7VipmV1tsM3FufFs9LlR9TnNpNW40K1BMczJCbHFNLXpzW0Q1SzZjQTlmMSlK",
       "Holdout": "WSI2Z10uVmVZbm1tVWVYU2JpSXdeSGVcczBvV0p7azc=",
-      "Generation": "WSI2Z10uVmVZbm1tVWVYU2JpSXdeSGVcczBvV0p7azdoUm44TVshJCU0QGgjcGJqJmRoQGdSZyVWVCkvJXIzIg==",
+      "Generation": "VH1Oc2k1bjQrUExzMkJscU0tenNbRDVLNmNBOWYxKUo=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "WSI2Z10uVmVZbm1tVWVYU2JpSXdeSGVcczBvV0p7azdoUm44TVshJCU0QGgjcGJqJmRoQGdSZyVWVCkvJXIzIg==",
-            "Score": 0.020305761830670833,
-            "Origin": 0
-          },
-          {
-            "Sequence": "WSI2Z10uVmVZbm1tVWVYU2JpSXdeSGVcczBvV0p7azc=",
-            "Score": -0.4724421803726611,
-            "Origin": 0
-          },
-          {
-            "Sequence": "WSI2Z10uVmVZbm1tVWVYU2JpSXdeSGVcczBvV0p7azc=",
-            "Score": -65.06570389912267,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231558,
-          15463171881070231556,
-          15463171881070231557,
-          15463171881070231553,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 46,
       "Name": "prompt_46",
       "Prefix": "aFJuOE1bISQlNEBoI3BiaiZkaEBnUmclVlQpLyVyMyJ8V1U3bnA3IWpYZTwmLzpVPEtzbUE1Kn1pWStmR0RgekU8Ujt8bEcjYkYiO1JuKDRSTnJ+fj9lbU1vXUJeU044",
       "Holdout": "PC9IY1YtLyxbU2N3XWMwOHggLUBeNjRdMSgzPyQ5aD8=",
-      "Generation": "PC9IY1YtLyxbU2N3XWMwOHggLUBeNjRdMSgzPyQ5aD9LZUV1R3hdRHdfW0UlLl10QnNTbmhKJEFqV3FzTlJ7NA==",
+      "Generation": "RTxSO3xsRyNiRiI7Um4oNFJOcn5+P2VtTW9dQl5TTjg=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "PC9IY1YtLyxbU2N3XWMwOHggLUBeNjRdMSgzPyQ5aD9LZUV1R3hdRHdfW0UlLl10QnNTbmhKJEFqV3FzTlJ7NA==",
-            "Score": -0.017289683260987107,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PC9IY1YtLyxbU2N3XWMwOHggLUBeNjRdMSgzPyQ5aD8=",
-            "Score": -0.5040949249828655,
-            "Origin": 0
-          },
-          {
-            "Sequence": "PC9IY1YtLyxbU2N3XWMwOHggLUBeNjRdMSgzPyQ5aD8=",
-            "Score": -63.642766799982866,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231561,
-          15463171881070231559,
-          15463171881070231558,
-          15463171881070231554,
-          15463171881070231553
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 47,
       "Name": "prompt_47",
       "Prefix": "S2VFdUd4XUR3X1tFJS5ddEJzU25oSiRBaldxc05SezRqcCJRZiBddzwzT2dTWFF7e25nI1pzKmAzcTdDfHgtSU5jbmFCX2wlJCkxVS82aixLSncnMlIlVmgpR2RoVFxn",
       "Holdout": "TTNycG89O1B6Y1IsZm1CYnJPPFdYfkkwUmZVQXgraTc=",
-      "Generation": "TTNycG89O1B6Y1IsZm1CYnJPPFdYfkkwUmZVQXgraTdGSUMtbGAvd0YlKCFveHIzWU85KzVANUkkYiBbLC5aJg==",
+      "Generation": "TmNuYUJfbCUkKTFVLzZqLEtKdycyUiVWaClHZGhUXGc=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "TTNycG89O1B6Y1IsZm1CYnJPPFdYfkkwUmZVQXgraTdGSUMtbGAvd0YlKCFveHIzWU85KzVANUkkYiBbLC5aJg==",
-            "Score": 0.0015360854562398712,
-            "Origin": 0
-          },
-          {
-            "Sequence": "TTNycG89O1B6Y1IsZm1CYnJPPFdYfkkwUmZVQXgraTc=",
-            "Score": -0.4984639145437601,
-            "Origin": 0
-          },
-          {
-            "Sequence": "Q18xLUJOYycmIykkSGp3dXs+KVRvLXNKKzJ4emNMIENfMS1CTmMnJiMpJEhqd3V7PilUby1zSisyeHpjTCBDXzEtQk5jJyYjKSRIand1ez4pVG8tc0orMnh6Y0wgcW9qN1VKOGU4VztuKUpUU2U3OSJYWXouZ2h7SWpfZCk0IENfMS1CTmMnJiMpJEhqd3V7PilUby1zSisyeHpjTA==",
-            "Score": -130.69002778619517,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231555,
-          15463171881070231556,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231554
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 48,
       "Name": "prompt_48",
       "Prefix": "RklDLWxgL3dGJSghb3hyM1lPOSs1QDVJJGIgWywuWiYrT1BpZCwwMDV4LCUnI1NrYjt5JUlLOVVGVihQXjJcR3wuOEI3T35CaWlFOjBSd11+OEZpcWYxLTkqYy9kYGJL",
       "Holdout": "XCVGI053KiNHZTR5P1okUi4rV2Y9PSZWN0tFdllgOGU=",
-      "Generation": "XCVGI053KiNHZTR5P1okUi4rV2Y9PSZWN0tFdllgOGVLZCh3fiZuRClxRVZvPmpMOXlQM3F+OVddYzRAXyp9Lg==",
+      "Generation": "fC44QjdPfkJpaUU6MFJ3XX44RmlxZjEtOSpjL2RgYks=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03125,
+        "Fuzzy": 0.03125
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.014204545454545454,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "XCVGI053KiNHZTR5P1okUi4rV2Y9PSZWN0tFdllgOGVLZCh3fiZuRClxRVZvPmpMOXlQM3F+OVddYzRAXyp9Lg==",
-            "Score": -0.020304923544280755,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XCVGI053KiNHZTR5P1okUi4rV2Y9PSZWN0tFdllgOGU=",
-            "Score": -0.5106359123327185,
-            "Origin": 0
-          },
-          {
-            "Sequence": "XCVGI053KiNHZTR5P1okUi4rV2Y9PSZWN0tFdllgOGU=",
-            "Score": -64.51551872483272,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231555,
-          15463171881070231560,
-          15463171881070231553,
-          15463171881070231558,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 49,
       "Name": "prompt_49",
       "Prefix": "S2Qod34mbkQpcUVWbz5qTDl5UDNxfjlXXWM0QF8qfS4hYm5sWF87ck1mSVlLdTFbQD1WNU8jRSVKc2VqcUl2fEIgQEokTHxAX35RZzkuNzYqQlwwKlBfZ2FYIWBIcDg+",
       "Holdout": "KHdiNndOUilWRSI6YGEnZihUYzVrSi8vJDQ1Z35IMFo=",
-      "Generation": "KHdiNndOUilWRSI6YGEnZihUYzVrSi8vJDQ1Z35IMFooOGN1UF49SmZRVkYrXSMwd0AhS3NEOnwsNXQjWiskRw==",
+      "Generation": "QiBASiRMfEBfflFnOS43NipCXDAqUF9nYVghYEhwOD4=",
       "Classification": "",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": {
-        "Targets": [],
-        "Labels": [],
-        "Continuations": [
-          {
-            "Sequence": "KHdiNndOUilWRSI6YGEnZihUYzVrSi8vJDQ1Z35IMFooOGN1UF49SmZRVkYrXSMwd0AhS3NEOnwsNXQjWiskRw==",
-            "Score": -0.01417511493125409,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KHdiNndOUilWRSI6YGEnZihUYzVrSi8vJDQ1Z35IMFo=",
-            "Score": -0.5245701992141737,
-            "Origin": 0
-          },
-          {
-            "Sequence": "KHdiNndOUilWRSI6YGEnZihUYzVrSi8vJDQ1Z35IMFo=",
-            "Score": -64.13858387108917,
-            "Origin": 0
-          }
-        ],
-        "Context": [],
-        "Signals": {
-          "1": {},
-          "3": {},
-          "4": {}
-        },
-        "Rejected": [
-          15463171881070231559,
-          15463171881070231557,
-          15463171881070231560,
-          15463171881070231558,
-          15463171881070231553,
-          15463171881070231554,
-          15463171881070231556
-        ]
-      }
+      "PredLabel": null
     },
     {
       "Idx": 50,
@@ -2681,16 +882,15 @@
       "Classification": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 25600,
-        "Partial": 50,
-        "Fuzzy": 512
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.9980506822612085,
+      "WeightedTotal": 0,
       "TrueLabel": null,
-      "PredLabel": null,
-      "Prediction": null
+      "PredLabel": null
     }
   ],
-  "score": 0.9999617780835531,
+  "score": 0.0036207664884135467,
   "section": "scaling"
 }

@@ -10,10 +10,10 @@ by prediction-internal metrics—beam confidence, rejection rate, score
 spread (hypothesis diversity), and origin diversity (mesh utilization).
 
 \paragraph{Results.}
-Compression ratio: 512.0\,bytes/entry (25\,KB $\to$ 50 entries).
-Post-compression beam confidence remains stable across query depth
-(top-score $$\mu = -0.007$, $\sigma = 0.019$, median $= -0.014$, range $[-0.030,\,0.031]$, $N = 50$$). Rejection rate: $\mu = 0.875$. Origin diversity:
-$\mu = 1.0$ tries contributing.
+Compression ratio: 0.0\,bytes/entry (25\,KB $\to$ 0 entries).
+Post-compression beam confidence is too short to assess across query depth
+(top-score $$\mu = 0.000$, $\sigma = 0.000$, median $= 0.000$, range $[0.000,\,0.000]$, $N = 0$$). Rejection rate: $\mu = 0.000$. Origin diversity:
+$\mu = 0.0$ tries contributing.
 
 Figure~\ref{fig:compression_chart} shows whether de-duplication
 degrades beam confidence (top-left), increases mesh noise (top-right),
@@ -21,8 +21,7 @@ reduces hypothesis diversity (bottom-left), or narrows mesh
 utilization (bottom-right).
 
 \paragraph{Assessment.}
-High compression (ratio 512.0) correlates with elevated rejection
-($0.875$). De-duplication merges enough attractors that affinity routing
-sends queries to tries with overlapping basins—the node-level beam
-must prune more aggressively. This is the measurable cost of
-compression on prediction quality.
+Compression ratio 0.0. Beam confidence: $$\mu = 0.000$, $\sigma = 0.000$, median $= 0.000$, range $[0.000,\,0.000]$, $N = 0$$ (trend: is too short to assess).
+Rejection rate: $0.000$. The quality and phase concentration
+panel shows whether adaptive signals remain coherent after
+de-duplication or diffuse as attractor basins overlap.

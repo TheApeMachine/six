@@ -4,17 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/network"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/store/kadabra"
 	"github.com/theapemachine/six/pkg/transport"
 )
 
@@ -31,8 +33,10 @@ type Machine struct {
 	queue     *pool.Queue
 	backend   *compute.Backend
 	tokenizer *Tokenizer
-	kadabra   *kadabra.Node
-	peers     []*kadabra.Node
+	conn      *gossip.Conn
+	field     *geometry.Field
+	remSleep  *time.Ticker
+	remDone   chan struct{}
 }
 
 type machineOpts func(*Machine)
@@ -43,8 +47,9 @@ func NewMachine(
 	ctx, cancel := context.WithCancel(ctx)
 
 	machine := &Machine{
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:     ctx,
+		cancel:  cancel,
+		remDone: make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -65,13 +70,8 @@ func NewMachine(
 		compute.WithExploreEvery(128),
 	)
 
-	if machine.kadabra, machine.err = kadabra.NewNode(
-		ctx,
-		machine.host.Name,
-		machine.queue,
-	); machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
+	machine.conn = gossip.NewConn(nil, nil)
+	machine.field = geometry.NewField(geometry.Mod8191)
 
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx, machine.queue,
@@ -79,11 +79,13 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
+	machine.remSleep = time.NewTicker(10 * time.Second)
+	go machine.runREMSleep()
+
 	return machine, validate.Require(map[string]any{
 		"ctx":       machine.ctx,
 		"cancel":    machine.cancel,
 		"host":      machine.host,
-		"kadabra":   machine.kadabra,
 		"queue":     machine.queue,
 		"backend":   machine.backend,
 		"tokenizer": machine.tokenizer,
@@ -104,6 +106,11 @@ func (machine *Machine) Close() error {
 		machine.queue.Drain()
 	}
 
+	if machine.remSleep != nil {
+		machine.remSleep.Stop()
+		close(machine.remDone)
+	}
+
 	machine.cancel()
 
 	if machine.host != nil {
@@ -118,18 +125,6 @@ func (machine *Machine) Close() error {
 		}
 	}
 
-	for _, peer := range machine.peers {
-		if err := peer.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if machine.kadabra != nil {
-		if err := machine.kadabra.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
 	if machine.queue != nil {
 		if err := machine.queue.Close(); err != nil {
 			errs = append(errs, err)
@@ -137,48 +132,6 @@ func (machine *Machine) Close() error {
 	}
 
 	return errors.Join(errs...)
-}
-
-/*
-meshExpandDuringLoad materializes another Kadabra node and rewires a full
-mesh among the primary, existing peers, and the newcomer when the primary’s
-ingest centroid saturates at ShannonLimit. Affinity is passed through for
-future shard-aware placement; peer count obeys MaxMeshPeers.
-*/
-func (machine *Machine) meshExpandDuringLoad(incoming *primitive.Affinity) bool {
-	_ = incoming
-
-	if len(machine.peers) >= core.Cfg.Kadabra.MaxMeshPeers {
-		errnie.Warn(
-			"machine: dynamic mesh peer cap reached",
-			"peer_count", len(machine.peers),
-			"cap", core.Cfg.Kadabra.MaxMeshPeers,
-		)
-
-		return true
-	}
-
-	peer, peerErr := kadabra.NewNode(
-		machine.ctx,
-		fmt.Sprintf("peer-%d", len(machine.peers)+1),
-		machine.queue,
-	)
-
-	if peerErr != nil {
-		errnie.Warn("machine: dynamic mesh peer failed", "err", peerErr)
-
-		return true
-	}
-
-	backbone := append([]*kadabra.Node{machine.kadabra}, machine.peers...)
-
-	for _, existing := range backbone {
-		kadabra.Connect(peer, existing, 1.0)
-	}
-
-	machine.peers = append(machine.peers, peer)
-
-	return true
 }
 
 /*
@@ -208,7 +161,6 @@ func (machine *Machine) Load(dataset data.Provider) error {
 	}
 
 	if err := validate.Require(map[string]any{
-		"kadabra":   machine.kadabra,
 		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
 	}); err != nil {
@@ -219,7 +171,6 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		machine.ctx,
 		false,
 		machine.tokenizer,
-		machine.kadabra,
 		machine.queue,
 	)
 
@@ -245,7 +196,6 @@ use the shared Tokenizer.
 */
 func (machine *Machine) LoadPrompts(provider data.PromptProvider) error {
 	if err := validate.Require(map[string]any{
-		"kadabra":   machine.kadabra,
 		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
 	}); err != nil {
@@ -257,7 +207,6 @@ func (machine *Machine) LoadPrompts(provider data.PromptProvider) error {
 	}
 
 	publishers := []transport.Publishable{
-		machine.kadabra,
 		machine.queue,
 	}
 
@@ -295,26 +244,71 @@ The prompt is converted into a Value via NewValue, which derives the
 affinity vector Kadabra uses to route the query to the closest trie
 cluster(s).
 */
-func (machine *Machine) Prompt(prompt string) (err error) {
+func (machine *Machine) runREMSleep() {
+	for {
+		select {
+		case <-machine.remDone:
+			return
+		case <-machine.remSleep.C:
+			// Inject random noise values for consolidation
+			machine.injectREMNoise()
+		}
+	}
+}
+
+func (machine *Machine) injectREMNoise() {
+	if machine.queue == nil {
+		return
+	}
+
+	// Generate a random noise payload
+	noise := make([]byte, 32)
+
+	values, err := primitive.NewValue(noise)
+	if err != nil {
+		return
+	}
+
+	for _, v := range values {
+		// Set a low TTL for ephemeral exploration
+		v.Set(51, 0xFF) // meta[3] / MetaTTLWord
+
+		// Seed temperature noise into meta[4] (word 52)
+		noiseMask := rand.Uint64()
+		v.Set(52, noiseMask)
+
+		_ = machine.queue.Publish(v, "rem_sleep")
+	}
+}
+
+/*
+Prompt the machine and retrieve both a prediction and a classification.
+
+The prompt is converted into a Value via NewValue, which derives the
+affinity vector Kadabra uses to route the query to the closest trie
+cluster(s).
+*/
+func (machine *Machine) Prompt(prompt string) (*primitive.Value, error) {
 	if err := validate.Require(map[string]any{
-		"kadabra": machine.kadabra,
+		"queue": machine.queue,
 	}); err != nil {
-		return errnie.Error(err)
+		return nil, errnie.Error(err)
 	}
 
 	values, err := primitive.NewValue([]byte(prompt))
 
 	if err != nil {
-		return errnie.Error(err)
+		return nil, errnie.Error(err)
 	}
-
-	defer primitive.CloseAll(values)
 
 	value := values[len(values)-1]
 
-	if err = machine.kadabra.Publish(value, "prompt"); err != nil {
-		return errnie.Error(err)
+	if err = machine.queue.Publish(value, "prompt"); err != nil {
+		primitive.CloseAll(values)
+		return nil, errnie.Error(err)
 	}
 
-	return nil
+	// We return the value so the caller can inspect it,
+	// but we don't close it here because it's now in the queue.
+	return value, nil
 }

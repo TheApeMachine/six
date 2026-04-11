@@ -35,7 +35,6 @@ func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 		sampleLen: 128,
 		nSamples:  200,
 		evaluator: tools.NewEvaluator(
-			tools.EvalWithScalingInstrumentScorer(),
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
 	}

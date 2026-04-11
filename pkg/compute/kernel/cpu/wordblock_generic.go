@@ -69,11 +69,3 @@ func affinityCoupling(a *uint64, b *uint64, out *uint32) {
 	results[1] = uint32(union)
 }
 
-/*
-universalBitwiseV2 is not implemented on this GOARCH; the frame is left
-unchanged. amd64/arm64 provide the real ALU. This exists so Substrate
-implements Execute on every architecture the toolchain can target.
-*/
-func universalBitwiseV2(value *uint64, numRotations int) {
-	_, _ = value, numRotations
-}

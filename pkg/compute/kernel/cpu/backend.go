@@ -34,17 +34,21 @@ func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
 /*
-Execute walks each Value frame: geometric opcodes (wordblock assembly where
-available), batch nearest-affinity when opcode is OpcodeXOR and batchCount > 0, then
-universalBitwiseV2 — the same symbol implemented in wordblock_amd64.s /
-wordblock_arm64.s (SIMD) or as a stub in wordblock_generic.go on other GOARCHes.
+Execute walks each Value frame and routes it through the right substrate
+path: geometric opcodes go to the PGA wordblock, OpcodeXOR with a positive
+batch count goes to the batched nearest-affinity reducer, and everything
+else is treated as a universal bitwise program whose operand lanes are
+described by the packed region words at program[3..5].
+
+The caller does not stage or write back anything. universalBitwiseV2 reads
+srcA / srcB and writes dst directly out of the Value under the mode bit
+the compiler packed into program[2], so regions the program does not name
+survive every pass bit-for-bit.
 */
 func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	if len(frames) == 0 {
 		return nil
 	}
-
-	const numRotations = 16
 
 	for _, ptr := range frames {
 		if ptr == nil {
@@ -54,7 +58,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		value := (*uint64)(ptr)
 		frameWords := (*[128]uint64)(ptr)
 
-		rawOpcode := frameWords[kernel.ProgramStartWord] & 0xFF
+		rawOpcode := frameWords[kernel.ProgramOpcodeWord] & 0xFF
 		opcode := rawOpcode & kernel.OpcodeBooleanMask
 		batchCount := frameWords[kernel.NearestAffinityBatchWord]
 
@@ -74,7 +78,28 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		universalBitwiseV2(value, numRotations)
+		rotationTable := frameWords[kernel.ProgramRotTabWord]
+
+		// An all-zero rotation table means the frame has no work for the
+		// universal bitwise lane. Skip it instead of running a sweep that
+		// would XOR zero bytes into dst[0..min(8,span)) for nothing.
+		if rotationTable == 0 {
+			continue
+		}
+
+		mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
+		aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
+		bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
+		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
+
+		universalBitwiseV2(
+			value,
+			aStart, aSpan,
+			bStart, bSpan,
+			dstStart, dstSpan,
+			mode,
+			rotationTable,
+		)
 	}
 
 	return nil

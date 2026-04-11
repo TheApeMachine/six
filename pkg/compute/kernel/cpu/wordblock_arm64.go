@@ -26,10 +26,10 @@ func (backend *Backend) HammingMatch(
 func hammingMatch(frame *uint64, n int, target uint64, maxDist uint64) bool
 
 //go:noescape
-func universalBitwiseV2(value *uint64, numRotations int)
+func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
 
 //go:noescape
-func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
+func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64)
 
 //go:noescape
 func geometricFrame(value *uint64, opcode uint64) bool

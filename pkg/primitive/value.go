@@ -4,6 +4,7 @@ package primitive
 import (
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -146,7 +147,9 @@ func CloseAll(values []*Value) {
 			continue
 		}
 
-		_ = value.Close()
+		if err := value.Close(); err != nil {
+			log.Println("error closing value", err)
+		}
 	}
 }
 
@@ -219,8 +222,22 @@ func newValuesFromPayload(
 
 			found := false
 
-			for step := 0; step < newValueMaxSlotProbeSteps; step++ {
-				code = geometry.SlotCode(datum, probe)
+			for range newValueMaxSlotProbeSteps {
+				slotCode, slotErr := geometry.SlotCode(datum, probe)
+
+				if slotErr != nil {
+					// SlotCode only errors when the geometry is
+					// unusable. Wipe any segments we already minted so
+					// the pool stays clean and bubble the error up.
+					for _, minted := range out {
+						*minted = Value{}
+						valuePool.Put(minted)
+					}
+
+					return nil, slotErr
+				}
+
+				code = slotCode
 
 				if _, taken := occupied[code]; !taken {
 					found = true

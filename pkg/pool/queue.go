@@ -8,7 +8,9 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core/data"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -46,6 +48,7 @@ type Queue struct {
 	err       error
 	pool      *Pool
 	backend   QueueBackend
+	field     *geometry.Field
 	normal    *data.Ring
 	priority  *data.Ring
 	spill     *data.Ring
@@ -76,6 +79,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 		ctx:    ctx,
 		cancel: cancel,
 		pool:   NewPool(uint64(queueWorkerCount())),
+		field:  geometry.NewField(geometry.Mod8191),
 	}
 
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
@@ -139,19 +143,58 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 	viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight))
 
 	queue.pool.Submit(func() {
-		defer func() {
-			*frame = primitive.Value{}
-			publishFramePool.Put(frame)
-
-			if queue.inflight.Add(-1) == 0 {
-				queue.drainMu.Lock()
-				queue.drainWait.Broadcast()
-				queue.drainMu.Unlock()
+		var run func()
+		run = func() {
+			_ = label
+			
+			// 1. SENSE: Read the local eigenmode from the field based on affinity
+			if queue.field != nil {
+				// We need to sample the field and write it to context/gradient
+				// For now, we'll just impress the tokens into the field to build up the eigenmodes
+				queue.field.ObserveBytes(frame.TokenRegionBytes())
 			}
-		}()
 
-		_ = label
-		_ = queue.backend.Execute([]unsafe.Pointer{unsafe.Pointer(frame)})
+			_ = queue.backend.Execute([]unsafe.Pointer{unsafe.Pointer(frame)})
+
+			nextID := (*frame)[kernel.SchedulingNextProgramWord]
+			if nextID == 0 {
+				*frame = primitive.Value{}
+				publishFramePool.Put(frame)
+
+				if queue.inflight.Add(-1) == 0 {
+					queue.drainMu.Lock()
+					queue.drainWait.Broadcast()
+					queue.drainMu.Unlock()
+				}
+				return
+			}
+
+			// Decrement TTL (unary bitmask in MetaTTLWord)
+			ttlWord := (*frame)[kernel.MetaTTLWord]
+			if ttlWord != ^uint64(0) && ttlWord != 0 {
+				// Clear the lowest set bit
+				(*frame)[kernel.MetaTTLWord] = ttlWord & (ttlWord - 1)
+				if (*frame)[kernel.MetaTTLWord] == 0 {
+					// Cascade self-terminates
+					(*frame)[kernel.SchedulingNextProgramWord] = 0
+				}
+			}
+
+			if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
+				queue.pool.Submit(run)
+			} else {
+				*frame = primitive.Value{}
+				publishFramePool.Put(frame)
+
+				if queue.inflight.Add(-1) == 0 {
+					queue.drainMu.Lock()
+					queue.drainWait.Broadcast()
+					queue.drainMu.Unlock()
+				}
+			}
+		}
+
+		run()
 	})
 
 	return nil

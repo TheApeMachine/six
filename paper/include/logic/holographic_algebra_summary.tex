@@ -9,9 +9,9 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & prompt\_0 & 0.0000 & 1.0000 & 0.1803 & 0.3055 \\
-2 & prompt\_2 & 0.0000 & 0.2500 & 0.0833 & 0.0833 \\
-1 & prompt\_1 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & prompt\_1 & 0.0000 & 0.1000 & 0.1000 & 0.0455 \\
+0 & prompt\_0 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & prompt\_2 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 1 results (lowest weighted score)}} \\
 \midrule
@@ -23,15 +23,15 @@
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Sandra i}} & \multicolumn{2}{l}{\texttt{s\_in Garden}} & \multicolumn{2}{l}{\texttt{s\_in GardenRoy is\_in KitchenCat sat\_on M\ldots}} \\
-\multicolumn{2}{l}{\texttt{Cat sa}} & \multicolumn{2}{l}{\texttt{t\_on Mat}} & \multicolumn{2}{l}{\texttt{Wall Wall Wall Wall Wall}} \\
-\multicolumn{2}{l}{\texttt{Bird fle}} & \multicolumn{2}{l}{\texttt{w\_over Wall}} & \multicolumn{2}{l}{\texttt{Wall Wall Wall Wall Wall}} \\
-\multicolumn{2}{l}{\texttt{Roy is\_}} & \multicolumn{2}{l}{\texttt{in Kitchen}} & \multicolumn{2}{l}{\texttt{Wall Wall Wall Wall Wall}} \\
+\multicolumn{2}{l}{\texttt{Roy is\_}} & \multicolumn{2}{l}{\texttt{in Kitchen}} & \multicolumn{2}{l}{\texttt{Roy is\_}} \\
+\multicolumn{2}{l}{\texttt{Sandra i}} & \multicolumn{2}{l}{\texttt{s\_in Garden}} & \multicolumn{2}{l}{\texttt{Sandra i}} \\
+\multicolumn{2}{l}{\texttt{Bird fle}} & \multicolumn{2}{l}{\texttt{w\_over Wall}} & \multicolumn{2}{l}{\texttt{Bird fle}} \\
+\multicolumn{2}{l}{\texttt{Cat sa}} & \multicolumn{2}{l}{\texttt{t\_on Mat}} & \multicolumn{2}{l}{\texttt{Cat sa}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 4} & \multicolumn{3}{l}{Holdout: per dataset configuration} \\
-\multicolumn{3}{l}{Mean score: 0.0972} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.3055} \\
+\multicolumn{3}{l}{Mean score: 0.0114} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0455} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}
