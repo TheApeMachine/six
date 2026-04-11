@@ -256,14 +256,14 @@ type Config struct {
 	TelemetryEndpoint string
 
 	// TelemetryUniversalBitwiseSlots emits one Backend/UniversalBitwise event per LGP slot per CPU
-	// tile iteration (very high volume). Use only with viz / short runs.
+	// dispatch (very high volume). Use only with viz / short runs.
 	TelemetryUniversalBitwiseSlots bool
 
-	// Programs holds raw tile-program text keyed by name, loaded from the
+	// Programs holds raw program source keyed by name, loaded from the
 	// `programs:` block of config.yml. These are the in-band programs the
 	// substrate kernels execute (affinity fold, popcount, coupling, etc.).
 	// Parsing is deferred to pkg/compute/programmer so this package stays
-	// free of the tile IR and avoids an import cycle.
+	// free of the programmer IR and avoids an import cycle.
 	Programs map[string]string
 }
 
@@ -492,8 +492,8 @@ func NewConfig() *Config {
 
 /*
 loadPrograms returns the raw text of every entry under the `programs:`
-block as a name→source map. Parsing into TileProgram happens in
-pkg/compute/programmer so this package does not pull in the tile IR.
+block as a name→source map. Parsing into the programmer representation
+happens in pkg/compute/programmer so this package does not pull in that IR.
 Missing block yields an empty map so callers can range without nil
 checks; zero-length programs are filtered because they indicate a stub
 left in the config.

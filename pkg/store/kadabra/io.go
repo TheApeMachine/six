@@ -3,8 +3,6 @@ package kadabra
 import (
 	"math/bits"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/markovtrie"
@@ -25,12 +23,12 @@ has not reached ShannonLimit. When nothing qualifies a fresh trie is
 created, seeded with the incoming affinity, and atomically appended to
 the node's tries slice.
 
-The entire distance computation and argmin reduction happen in-band
-inside the Value frame. The programmer compiles a batch distance
-layout, the backend dispatches it to the best substrate, and the
-kernel writes the winning index and distance at
-SignalsStartWord+SignalBestIdxOffset and SignalsStartWord+SignalBestDistOffset.
-Go never touches raw distance arrays.
+Distance and argmin use the scalar Hamming path in Go for now. A future
+step is to encode opcode 0x6 (batch nearest affinity) into the program
+region, pack candidates at word 56, publish the Value, and Drain before
+reading Signals — same fixed layout the CUDA/Metal Execute path already
+implements — so this policy stays aligned with the ALU rather than a
+one-off compiler API.
 */
 func (node *Node) selectOrSpawnTrie(
 	affinity *primitive.Affinity,
@@ -43,60 +41,7 @@ func (node *Node) selectOrSpawnTrie(
 		return node.spawnTrie(affinity)
 	}
 
-	if len(tries) > kernel.MaxNearestAffinityCandidates {
-		return node.selectOrSpawnTrieScalar(affinity, tries, threshold, shannonLimit)
-	}
-
-	candidates := make([][]uint64, len(tries))
-
-	for idx, cluster := range tries {
-		vec := cluster.Affinity.Vector()
-		candidates[idx] = vec[:]
-	}
-
-	queryVec := affinity.Vector()
-
-	var frame primitive.Value
-
-	for idx, word := range queryVec {
-		frame.Set(idx, word)
-	}
-
-	compiler := programmer.New(
-		&frame,
-		programmer.CompilerWithIntent(
-			programmer.Intent{
-				Operation: programmer.Distance,
-				Assets:    candidates,
-			},
-		),
-		programmer.CompilerWithBatchAffinityLayout(),
-		programmer.CompilerWithFinalizer(func(value *primitive.Value, next programmer.FinalizeNext) ([]*primitive.Value, error) {
-			sig := kernel.SignalsStartWord
-
-			bestIdx := int(frame[sig+6])
-			bestDist := int(frame[sig+7])
-
-			if bestIdx >= 0 && bestIdx < len(tries) && bestDist <= threshold {
-				cluster := tries[bestIdx]
-
-				if cluster.Affinity.Popcount() < shannonLimit {
-					count := cluster.AffinityCount.Load()
-					nextAff, nextCount := cluster.Affinity.Blended(affinity, count, shannonLimit)
-
-					cluster.Affinity = nextAff
-					cluster.AffinityCount.Store(nextCount)
-
-					return []*primitive.Value{value}, nil
-				}
-			}
-
-			return nil, nil
-		}),
-	)
-
-	node.queue.Publish(compiler.Frame(), "kadabra:selectOrSpawnTrie")
-	return node.spawnTrie(affinity)
+	return node.selectOrSpawnTrieScalar(affinity, tries, threshold, shannonLimit)
 }
 
 /*

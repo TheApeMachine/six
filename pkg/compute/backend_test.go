@@ -68,7 +68,7 @@ func TestBackendPickPrefersFastSubstrateUnderAmortizedPenalty(t *testing.T) {
 
 		var frame [128]uint64
 
-		kernel.StampFrameResidency(unsafe.Pointer(&frame), 0)
+		frame[kernel.FrameMetaResidencyWord] = 1
 
 		chosen := backend.pick([]unsafe.Pointer{unsafe.Pointer(&frame)})
 
@@ -86,7 +86,7 @@ func TestBackendPickExplorationIgnoresPenalty(t *testing.T) {
 
 		var frame [128]uint64
 
-		kernel.StampFrameResidency(unsafe.Pointer(&frame), 0)
+		frame[kernel.FrameMetaResidencyWord] = 1
 
 		chosen := backend.pick([]unsafe.Pointer{unsafe.Pointer(&frame)})
 
@@ -103,7 +103,7 @@ func BenchmarkBackendPick(b *testing.B) {
 
 	var frame [128]uint64
 
-	kernel.StampFrameResidency(unsafe.Pointer(&frame), 0)
+	frame[kernel.FrameMetaResidencyWord] = 1
 
 	ptrs := []unsafe.Pointer{unsafe.Pointer(&frame)}
 

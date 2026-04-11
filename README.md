@@ -116,9 +116,39 @@ The current field path now carries a finite-field phase hierarchy alongside the 
 
 Instead of treating attention as an explicit weight matrix, Six can now project a dominant global phase back down the stack. Tries rotate their local phase toward the field, beam search boosts continuations that constructively interfere with that phase, and online learning gates plasticity when incoming context is out of phase with the current mesh-wide mode.
 
+### Canonical ingest path (bytes → DHT)
+
+This is the end-to-end story the code implements today; layer details follow in the next subsection.
+
+1. **Mint from a byte stream** — `primitive.NewValue` ingests dataset (or tokenizer) bytes into one or more `Value` segments (`pkg/primitive`, `vm.Tokenizer.adoptChunk`).
+2. **Fill the token region** — Payload bytes are **Morton-coded** into 16-bit slot pairs (position ordinal × geometry slot code) until the configured token slab is full; overflow continues in the **next segment** with Prev/Next IDs (`newValuesFromPayload`).
+3. **Affinity from tokens** — After packing, **`ComputeAffinityLSH`** derives the 257-bit affinity fingerprint from the **token region** (LSH over the Morton slab), then a fresh **Value ID** is stamped.
+4. **Enter Kadabra** — `kadabra.Node.Publish` / `Store` admits the record; routing and replication use Hamming distance on that affinity (`pkg/store/kadabra/replication.go`, `routing.go`).
+5. **No matching home** — If no trie is close enough under `kadabra.clusterThreshold`, **`spawnTrie`** seeds a new Markov trie for that affinity neighborhood (`io.go`).
+6. **Node-level centroid** — Primary ingest blends into **`meshLoad`** (`blendMeshLoadCentroid`): a running centroid affinity with the same **Shannon cap** as trie clusters; when the centroid hits the cap, **`onMeshExpand`** can admit a new mesh peer (`Node.SetMeshExpandHandler`, `vm.Machine` wiring).
+7. **Trie centroid from Values** — Each trie’s **`Affinity`** is updated by **EMA blending** (`primitive.Affinity.Blended`) when an ingested vector lands in that trie under distance threshold (`selectOrSpawnTrie` / scalar path).
+8. **Trie at Shannon limit** — If the **nearest** trie already matches but its centroid **`Popcount()` ≥ `kadabra.shannonLimit`**, ingest cannot blend into that trie; a **new trie** is spawned (`spawnTrie`) so learning can continue.
+9. **Node at Shannon limit** — If the **node mesh-load centroid** is saturated (`Popcount()` ≥ `shannonLimit`) while primary ingest still arrives, **`blendMeshLoadCentroid`** triggers expansion (`onMeshExpand`) instead of unbounded blending; a false return **drops** that primary record (operator-visible via metrics).
+
+**Shannon “saturation” in config** — `kadabra.shannonLimit` is a **set-bit popcount ceiling** on the 257-bit affinity vector (same units as `primitive.Affinity.Popcount()`), not a fractional percentage. Maximum entropy for a binary vector of length 257 is near **50%** ones (~128 bits); a **~47%** design target corresponds to roughly **121** set bits — tighten `shannonLimit` toward that if you want peak-entropy pressure. The stock `cmd/cfg/config.yml` default (`240`) leaves more headroom before prune/spawn pressure.
+
+### Layered fields = layered communication
+
+The three finite fields are not only statistics — they are the **substrates on which phase-aligned state flows**. Higher layers aggregate lower layers; **gossip** carries the vectors peers need to reconstruct the same pressure field.
+
+| Layer      | Field         | Role                                                                                         | Where it lives                                                                                                               |
+|------------|---------------|----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| **Trie**   | **GF(257)**   | Phase mesh across **Values** inside one trie — local interference, beam bias, training gates | `markovtrie.Store.LocalPhase()` (`pkg/core/numeric/gf`), updated as Values are observed                                      |
+| **Node**   | **GF(8191)**  | Phase mesh across **tries** on one node — regional chord                                     | `Field.refreshNodePhase()` projects each trie’s `Vector257` into the node’s `Vector8191` (`field.go`)                        |
+| **Global** | **GF(65537)** | Mesh across **nodes** — eigenphase of the DHT                                                | `Field.refreshGlobalPhase()` folds the local node phase plus **remote digests’ `NodePhase`** into `Vector65537` (`field.go`) |
+
+**Gossip** (`Gossip.Digests`) emits **one digest per local trie**: 257-bit trie affinity, algorithm signals (surprisal, entropy, growth), and a snapshot of the **node GF(8191) phase** so receivers can **`Field.Absorb`** remote state and recompute compatible global modes. That is the hook the protocol uses to stay coherent without centralizing trie data — phase is the shared coordinate system.
+
 ## Values: Programmable Data
 
 The `Value` type comes from the idea that machine intelligence currently lacks its own distinct "language" and that, to me at least, it seems like a missed opportunity when we force machines to reason using human language. I believe that severely constrains a system, locking it in human-level semantics.
+
+Authoring flows through **`pkg/compute/programmer`**: text under `programs:` in config (or inline source) is parsed into tokens, the **`Compiler`** lowers tokens to one or more **`Frame`** values, and each frame is sized to fit exactly one **`Value` program region** (config: `value.region.program`). If a logical program does not fit in a single region, compilation produces **multiple frames** and **`Executable.Execute`** materializes **one `Value` per frame** (each with that frame written into its program words).
 
 A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
@@ -132,16 +162,32 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
 - **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines where the Value lives in the network.
-- **Program region**: 32-bit instruction slots that execute on the Value's own bits. When Values encounter each other, their programs run — no external interpreter needed.
+- **Program region**: Packed bits the compute kernels interpret (e.g. universal bitwise sweep with per-rotation opcodes in the program words). **Authoring** does not hand-edit raw words: you write lines of source (see below), the programmer **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
-- **Prev/Next**: Linked-list pointers for chaining Values into sequences and graphs.
+- **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads), not the same field as “which program runs next” (see below).
 - **ID**: 64-bit unique identifier.
+- **Word 117** (`primitive.SchedulerNextProgramWord`): **scheduler next program** — `pkg/compute/programmer` and **`Executable.Execute`** write the **ValueID** that should run **after** this frame completes. Zero means no explicit hop. This sits just before words **118–119** (correlation / residency tags used by `pkg/compute/backend`).
+
+### Program authoring (`pkg/compute/programmer`)
+
+Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes that text; **`NewProgram(nameOrSource)`** resolves a string against that map when the key exists, otherwise treats the string as full source.
+
+Pipeline in order:
+
+1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
+2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value’s own ID — recursion / re-entry).
+3. **`NewCompiler(tokens, WithContinuation(cont))`** — holds tokens and the optional continuation; **`Compile(CompilerTarget)`** dispatches to CPU / Metal / CUDA lowering and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
+4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**’s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** writes **word 117** on each Value: **non-final Values** in the batch point to the **following emitted Value’s ID** (implicit chain across a multi-frame compile); the **final** Value uses the parsed **`next`** line when present (**literal ID** anywhere in the system, **`next self`**, or omit for no trailing hop). An optional **finalizer** can emit follow-on Values; **`Finalize`** runs on one post-execution Value.
+
+So: **one compiled frame → one program region on one Value**; **N frames → N Values**; **chaining** is expressed both **within a batch** (frame *i* → frame *i+1*) and **after the last frame** (arbitrary ValueID, including self).
 
 ### The ALU
 
 The Boolean ALU path is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the operations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
 
-Because alignment is important in this process the `Program` region is sized for 32 packed instruction slots over the fixed token slab. The `A` span of token data can be held steady while the `B` span is rotated, and the "line number" of the `Program` acts as the local program counter. Rotations happen in steps of 8 positions at a time, matching byte-level granularity.
+The physical layout in the program words (including packed per-rotation opcodes and the steady **A** vs rotated **B** token spans) is what the CPU / Metal / CUDA kernels consume after authoring has been lowered into those bits. Rotations advance in steps that match the kernel contract (e.g. 8-bit steps for the universal bitwise path). The high-level **source lines** you edit under `programs:` are **not** the same as raw machine words — the compiler bridges them.
+
+The region-program ABI now lowers each five-column source line into a single Value frame descriptor. Program word 16 carries the descriptor marker, ALU op, and mode; program words 17-19 pack `srcA`, `srcB`, and `dst` region references. The ALU executes those references directly against the Value frame: `accumulate` writes bitwise results back into the destination region, while `reduce` writes popcount scalars into destination lanes. Multi-line programs still materialize as chained Values through word 117, so recursion is `next self` rather than a host-side loop.
 
 Once the `Value` comes out of the `ALU` those `Signals` are used to emit new `Values` which are linked via the `PrevID`, `NextID`, and `ValueID` regions.
 
@@ -255,9 +301,11 @@ Episodic memory stores one geometry vector per event. `Buffer.Realign` lets an i
 
 ### Kadabra: Distributed Knowledge Routing
 
-Kadabra is a Kademlia-style distributed hash table where the nodes are MarkovTries. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges.
+Kadabra is a Kademlia-style distributed hash table where logical **peers** host **Markov tries**. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges. The **canonical ingest path** (above) is the authoritative lifecycle from raw bytes to stored trie rows.
 
-**Affinity-based routing**: When a Value is published, its 257-bit affinity fingerprint determines which trie stores it. Values with similar content cluster on the same node. This is not a design choice imposed from outside — it follows from the LSH property: similar inputs produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
+**Affinity-based routing**: When a Value is published, its 257-bit affinity fingerprint determines which trie stores it (`Node.Publish` → `Store` → `selectOrSpawnTrie`). Values with similar content cluster on the same node. This follows from the LSH property: similar token regions produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
+
+**Trie vs node saturation**: Two independent caps use the same `kadabra.shannonLimit` popcount ceiling — **trie** centroids (`primitive.Affinity` per `markovtrie.Store`) and the **node** mesh-load centroid (`meshLoadState`). Hitting the cap on a matching trie spawns another trie; hitting it on the node centroid triggers **`onMeshExpand`** (when set) for mesh growth instead of unbounded blending.
 
 **Replication**: Each Value is stored on the `k` closest nodes by affinity distance (Hamming distance over the 257-bit affinity vectors). This provides both redundancy and the ability for multiple tries to learn from the same data.
 
@@ -269,7 +317,7 @@ Kadabra is a Kademlia-style distributed hash table where the nodes are MarkovTri
 
 The field is the mechanism that binds isolated tries into a coherent system. It is not a data structure that nodes query — it is a force that acts on them.
 
-**Gossip protocol**: At each epoch boundary, every node broadcasts a compact `FieldDigest` — its current surprisal, classification entropy, growth rate, node phase, and 257-bit affinity vector — to all routing peers. Propagation is automatic.
+**Gossip protocol**: `Gossip.Digests()` builds **one compact digest per local trie** (origin ID, trie 257-bit affinity, surprisal / classification entropy / growth, plus the current **node GF(8191) phase** snapshot). Remote nodes **`Field.Absorb`** these digests so `refreshGlobalPhase` can fold peer **NodePhase** vectors into **GF(65537)**. Wire transport may batch the same structure; in-process tests exercise the absorb path directly. Propagation is the mechanism that turns layered fields into a **communication substrate**, not a side channel.
 
 **Eigenmode detection**: When a node absorbs a digest, the field recomputes emergent eigenmodes — clusters of structurally aligned tries. Structural alignment is measured by Jaccard coupling over the 257-bit affinity vectors, with the coupling threshold learned from the observed pairwise distribution. Phase coherence is measured by **surprisal velocity** during pressure projection — whether nodes are rising or falling in surprisal together.
 
@@ -345,7 +393,7 @@ kadabra:
   epochQueries: 100
 ```
 
-Firmware programs (LGP assembly for Value program regions) are also defined in config, enabling runtime-configurable computation without recompilation.
+**`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
 
 ---
 
@@ -440,6 +488,7 @@ six/
 ├── pkg/
 │   ├── primitive/           # Value type, VSA operations, affinity LSH
 │   ├── compute/             # Multi-substrate load balancer
+│   │   ├── programmer/      # Program source → tokens → frames → Values
 │   │   └── kernel/
 │   │       ├── cpu/         # SIMD-optimized bitwise executor
 │   │       ├── cuda/        # NVIDIA GPU kernels

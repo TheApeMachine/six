@@ -94,7 +94,7 @@ UniversalBitwise kernel — CUDA implementation.
 Per thread (one Value):
   1. Copy A (4 words) and B (4 words) from Tokens region.
   2. Expand B into 16 rotations × 4 words = 64-word surface.
-     A is tiled 16 times to match.
+     A is replicated for each of the 16 rotations to match B's expanded surface.
   3. Extract one 4-bit opcode per rotation from Program region.
   4. Apply truth table across the full 64-element surface.
   5. Pack low 8 bits of each result into 8-word Signals region.
@@ -130,15 +130,15 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
         signals[i] = 0;
     }
 
-    // Word 17 (prog[1]) packs 16 × 4-bit tile opcodes little-endian. Legacy
+    // Word 17 (prog[1]) packs 16 × 4-bit opcodes (one per rotation), little-endian. Legacy
     // single-opcode callers broadcast the same nibble 16× so the per-rotation
     // decode collapses to the old broadcast semantics; per-rotation programs
-    // place distinct nibbles so each tile in the sweep pulls its own truth
+    // place distinct nibbles so each rotation in the sweep pulls its own truth
     // table.
-    uint64_t tileWord = prog[1];
+    uint64_t rotationOpcodeWord = prog[1];
 
     for (int rot = 0; rot < NUM_ROTATIONS; rot++) {
-        uint8_t op = (uint8_t)((tileWord >> (rot * 4)) & 0xF);
+        uint8_t op = (uint8_t)((rotationOpcodeWord >> (rot * 4)) & 0xF);
 
         // Build masks from truth table bits.
         uint64_t m0 = 0 - (uint64_t)(op & 1);         // bit 0: a=0,b=0

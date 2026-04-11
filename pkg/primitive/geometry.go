@@ -3,19 +3,13 @@ package primitive
 import "math"
 
 /*
-geometry projects ordinal payload positions into an N-dimensional lattice.
-The lattice shape is modality-agnostic and stays internal to Value packing.
+geometry parameterizes Morton slot keys for token packing in newValuesFromPayload.
 */
 type geometry struct {
 	morton *Morton
 	shape  []uint32
 }
 
-/*
-newGeometry constructs a geometry from axis extents. Zero extents are clamped
-to one so projection always yields valid coordinates. A missing or 1D shape is
-expanded to at least two axes because Morton encoding requires two dimensions.
-*/
 func newGeometry(shape ...uint32) *geometry {
 	if len(shape) == 0 {
 		shape = []uint32{1, 1}
@@ -40,10 +34,6 @@ func newGeometry(shape ...uint32) *geometry {
 	}
 }
 
-/*
-newBalancedGeometry constructs a near-cubic lattice large enough to hold at
-least points ordinals. This is the default Value packing geometry.
-*/
 func newBalancedGeometry(points int, dimensions int) *geometry {
 	if points < 1 {
 		points = 1
@@ -82,45 +72,15 @@ func geometryCapacity(axisLen uint32, dimensions int) uint64 {
 	return capacity
 }
 
-/*
-Dimensions returns the active lattice dimensionality after normalization.
-*/
-func (geometry *geometry) Dimensions() int {
-	if geometry == nil {
-		return 0
-	}
-
-	return len(geometry.shape)
-}
-
-/*
-Shape returns a copy of the geometry's axis extents.
-*/
-func (geometry *geometry) Shape() []uint32 {
-	if geometry == nil {
+func (g *geometry) Coordinates(ordinal uint32) []uint32 {
+	if g == nil {
 		return nil
 	}
 
-	out := make([]uint32, len(geometry.shape))
-	copy(out, geometry.shape)
-
-	return out
-}
-
-/*
-Coordinates projects ordinal into mixed-radix coordinates using the geometry's
-axis extents. Higher ordinals continue through the lattice in lexicographic
-tile order.
-*/
-func (geometry *geometry) Coordinates(ordinal uint32) []uint32 {
-	if geometry == nil {
-		return nil
-	}
-
-	coords := make([]uint32, len(geometry.shape))
+	coords := make([]uint32, len(g.shape))
 	remaining := ordinal
 
-	for idx, axisLen := range geometry.shape {
+	for idx, axisLen := range g.shape {
 		if axisLen == 0 {
 			continue
 		}
@@ -132,32 +92,12 @@ func (geometry *geometry) Coordinates(ordinal uint32) []uint32 {
 	return coords
 }
 
-/*
-PositionCode returns the compact 8-bit Morton-local position key for ordinal.
-The low byte is sufficient for the default token slab capacity and remains the
-compact coordinate channel paired with the payload byte in Value token slots.
-*/
-func (geometry *geometry) PositionCode(ordinal uint32) uint8 {
-	if geometry == nil || geometry.morton == nil {
-		return 0
-	}
-
-	coords := geometry.Coordinates(ordinal)
-
-	return uint8(geometry.morton.Encode(coords...))
-}
-
-/*
-SlotCode combines a payload byte with its geometry-derived position code into
-the compact 16-bit token slot stored in a Value's token region.
-*/
-func (geometry *geometry) SlotCode(datum byte, ordinal uint32) uint16 {
-	if geometry == nil {
+func (g *geometry) SlotCode(datum byte, ordinal uint32) uint16 {
+	if g == nil || g.morton == nil {
 		return EncodeInterleaved8x8(uint32(datum), 0)
 	}
 
-	return EncodeInterleaved8x8(
-		uint32(datum),
-		uint32(geometry.PositionCode(ordinal)),
-	)
+	coords := g.Coordinates(ordinal)
+
+	return uint16(g.morton.Encode(coords...))
 }

@@ -1,7 +1,8 @@
 package kadabra
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -130,19 +131,16 @@ func (peers PeerSet) Dedup() PeerSet {
 SortByID sorts peers by their ID in ascending order.
 */
 func (peers PeerSet) SortByID() {
-	sort.Slice(peers, func(leftIdx, rightIdx int) bool {
-		left := peers[leftIdx]
-		right := peers[rightIdx]
-
+	slices.SortFunc(peers, func(left *Peer, right *Peer) int {
 		if left == nil {
-			return false
+			return 1
 		}
 
 		if right == nil {
-			return true
+			return -1
 		}
 
-		return left.ID < right.ID
+		return cmp.Compare(left.ID, right.ID)
 	})
 }
 
@@ -151,26 +149,23 @@ SortByDistance sorts peers by XOR distance to the target,
 breaking ties by ID.
 */
 func (peers PeerSet) SortByDistance(target uint64) {
-	sort.Slice(peers, func(leftIdx, rightIdx int) bool {
-		left := peers[leftIdx]
-		right := peers[rightIdx]
-
+	slices.SortFunc(peers, func(left *Peer, right *Peer) int {
 		if left == nil {
-			return false
+			return 1
 		}
 
 		if right == nil {
-			return true
+			return -1
 		}
 
 		leftDist := numeric.XOR(left.ID, target)
 		rightDist := numeric.XOR(right.ID, target)
 
 		if leftDist == rightDist {
-			return left.ID < right.ID
+			return cmp.Compare(left.ID, right.ID)
 		}
 
-		return leftDist < rightDist
+		return cmp.Compare(leftDist, rightDist)
 	})
 }
 

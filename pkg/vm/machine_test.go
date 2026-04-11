@@ -10,7 +10,6 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -113,20 +112,6 @@ func (provider *staticPromptProvider) Generate() iter.Seq[byte] {
 
 func (provider *staticPromptProvider) GeneratePrompts() iter.Seq[data.Prompt] {
 	return provider.seq
-}
-
-/*
-stubPublisherExecutor satisfies programmer.Executor for tests that skip real
-substrate execution while Finalize still runs on the publisher path.
-*/
-type stubPublisherExecutor struct{}
-
-func (*stubPublisherExecutor) CompileAndExecute(
-	program *programmer.Compiler,
-) error {
-	_ = program
-
-	return nil
 }
 
 func TestNewMachine(t *testing.T) {

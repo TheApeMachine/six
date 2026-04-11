@@ -1,25 +1,17 @@
 package kadabra
 
 import (
-	"cmp"
 	"context"
-	"errors"
 	"fmt"
-	"math/bits"
-	"math/rand"
-	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/algo"
-	"github.com/theapemachine/six/pkg/core/algo/beam"
-	"github.com/theapemachine/six/pkg/core/algo/classify"
 	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store/markovtrie"
@@ -47,30 +39,14 @@ type Node struct {
 	cancel            context.CancelFunc
 	err               error
 	ID                uint64
-	epoch             uint64
+	conn              *gossip.Conn
+	field             *geometry.Field
 	tries             atomic.Pointer[[]*markovtrie.Store]
-	Field             *Field
-	stack             *algo.Stack
 	routing           *RoutingTable
-	gossip            *Gossip
-	random            *rand.Rand
 	bucketSize        int
 	replicationFactor int
-	epochQueries      int
 	securityThreshold float64
 	queue             *pool.Queue
-	sequenceSurfaces  sequenceSurfaceIndex
-
-	// meshLoad holds the primary-ingest centroid (Store with fanout) under
-	// lock-free CAS updates (see blendMeshLoadCentroid). At ShannonLimit,
-	// onMeshExpand runs so vm.Machine can add a peer like selectOrSpawnTrie
-	// spawns another trie cluster.
-	meshLoad     atomic.Value // *meshLoadState
-	onMeshExpand func(*primitive.Affinity) bool
-
-	// trieGraphVizLast throttles full trie topology snapshots to the viz bus.
-	trieGraphVizMu   sync.Mutex
-	trieGraphVizLast map[int]time.Time
 }
 
 type nodeOption func(*Node)
@@ -106,9 +82,10 @@ func NewNode(
 		ctx:               ctx,
 		cancel:            cancel,
 		ID:                idHash,
+		conn:              gossip.NewConn(nil, nil),
+		field:             geometry.NewField(geometry.Mod8191),
 		bucketSize:        core.Cfg.Kadabra.BucketSize,
 		replicationFactor: core.Cfg.Kadabra.ReplicationFactor,
-		epochQueries:      core.Cfg.Kadabra.EpochQueries,
 		queue:             queue,
 	}
 
@@ -119,21 +96,7 @@ func NewNode(
 		option(node)
 	}
 
-	if node.random == nil {
-		node.random = rand.New(rand.NewSource(int64(node.ID) + 1))
-	}
-
 	node.routing = NewRoutingTable(node)
-
-	node.gossip = &Gossip{
-		owner: node,
-	}
-
-	node.Field = NewField(node)
-	node.stack = algo.NewStack(
-		classify.NewClassifier(),
-		beam.NewSearch(),
-	)
 
 	viz.DefaultBus.Publish(viz.NodeCreated(node.ID, id))
 
@@ -143,23 +106,6 @@ func NewNode(
 		"ID":     node.ID,
 		"queue":  node.queue,
 	})
-}
-
-/*
-SetMeshExpandHandler registers the callback run when the mesh-load centroid
-is saturated during primary ingest. A false return aborts that record (Key
-released); nil or a true return resets the local load centroid so ingest
-can continue. Standalone nodes leave the handler nil and only reset.
-*/
-func (node *Node) SetMeshExpandHandler(handler func(*primitive.Affinity) bool) {
-	node.onMeshExpand = handler
-}
-
-/*
-Gossip returns the node's gossip layer for digest propagation.
-*/
-func (node *Node) Gossip() *Gossip {
-	return node.gossip
 }
 
 /*
@@ -195,219 +141,7 @@ func (node *Node) Publish(
 		return errnie.Error(fmt.Errorf("kadabra: nil Value"))
 	}
 
-	affVec := value.AffinityVector()
-
-	if primitive.AffinityVectorIsZero(affVec) {
-		if err := value.ComputeAffinityLSH(); err != nil {
-			return errnie.Error(fmt.Errorf(
-				"kadabra: zero affinity and ComputeAffinityLSH failed: %w",
-				err,
-			))
-		}
-
-		affVec = value.AffinityVector()
-	}
-
-	if primitive.AffinityVectorIsZero(affVec) {
-		return errnie.Error(fmt.Errorf(
-			"kadabra: refusing to publish Value with zero affinity — call ComputeAffinityLSH first",
-		))
-	}
-
-	record := SequenceRecord{
-		Value:     *value,
-		Affinity:  affVec,
-		Label:     label,
-		Publisher: node.ID,
-	}
-
-	record.Key = record.Hash()
-
-	if err := node.Store(record); err != nil {
-		return errnie.Error(err)
-	}
-
-	viz.DefaultBus.Publish(viz.ValuePublished(node.ID, record.Key, label))
+	viz.DefaultBus.Publish(viz.ValuePublished(node.ID, value.ID(), label))
 
 	return nil
-}
-
-/*
-Predict projects through the field, scores local tries by affinity to
-the prompt, runs Predict only on the nearest subset, merges
-child labels and continuations into the node-level algorithm stack, and
-breaks non-contributing trie beams so they re-search.
-*/
-func (node *Node) Predict(value Routable) (*algo.Prediction, error) {
-	if node.err = validate.Require(map[string]any{
-		"value": value,
-	}); node.err != nil {
-		return nil, errnie.Error(node.err)
-	}
-
-	pv, ok := value.(*primitive.Value)
-
-	if !ok {
-		return nil, errnie.Error(fmt.Errorf(
-			"kadabra.Predict requires *primitive.Value",
-		))
-	}
-
-	var predictErr error
-
-	fieldProjection, projectErr := node.Field.Project(pv)
-
-	if projectErr != nil {
-		predictErr = errors.Join(predictErr, errnie.Error(fmt.Errorf(
-			"kadabra: field projection failed: %w",
-			projectErr,
-		)))
-	}
-
-	observation := algo.NewPrediction()
-	observation.AddContext(*pv)
-	observation.Continuations = append(
-		observation.Continuations,
-		node.partialSequenceContinuations(pv)...,
-	)
-
-	if fieldProjection != nil {
-		observation.Merge(fieldProjection)
-	}
-
-	tries := node.triesSnapshot()
-	selected := node.selectTriesForPredict(pv, tries, predictTrieFanout)
-
-	for _, trie := range selected {
-		triePred, err := trie.Predict(*pv)
-		if err != nil {
-			predictErr = errors.Join(predictErr, err)
-		}
-
-		if triePred != nil {
-			observation.Continuations = append(observation.Continuations, triePred.Continuations...)
-			observation.Labels = append(observation.Labels, triePred.Labels...)
-		}
-	}
-
-	viz.DefaultBus.Publish(viz.BeamCollectEvent(
-		node.ID, len(selected), len(observation.Continuations),
-	))
-
-	result, stackErr := node.stack.Update(observation)
-
-	if stackErr != nil {
-		predictErr = errors.Join(predictErr, stackErr)
-	}
-
-	bestScore := 0.0
-
-	if len(result.Continuations) > 0 {
-		bestScore = result.Continuations[0].Score
-	}
-
-	viz.DefaultBus.Publish(viz.BeamComposeEvent(
-		node.ID,
-		len(result.Continuations),
-		len(result.Rejected),
-		bestScore,
-	))
-
-	node.breakRejected(result.Rejected)
-
-	if len(result.Continuations) > 0 {
-		viz.DefaultBus.Publish(viz.BeamConvergeEvent(
-			node.ID,
-			string(result.Continuations[0].Sequence),
-			bestScore,
-		))
-	}
-
-	return result, predictErr
-}
-
-/*
-breakRejected sends a BreakBeam signal to tries whose Origins were
-rejected by the node-level beam. Those tries reset their beam state
-so they can re-search on the next round.
-*/
-func (node *Node) breakRejected(rejected []uint64) {
-	if len(rejected) == 0 {
-		return
-	}
-
-	rejectedSet := make(map[uint64]bool, len(rejected))
-
-	for _, origin := range rejected {
-		rejectedSet[origin] = true
-	}
-
-	breakSignal := algo.NewPrediction()
-	breakSignal.Signals[algo.BreakBeam] = numeric.NewDerivedFrom(1)
-
-	for _, trie := range node.triesSnapshot() {
-		if !rejectedSet[trie.ID] {
-			continue
-		}
-
-		_ = trie.Observe(breakSignal)
-
-		viz.DefaultBus.Publish(viz.BeamBreakEvent(node.ID, trie.ID))
-	}
-}
-
-func (node *Node) selectTriesForPredict(
-	query *primitive.Value,
-	tries []*markovtrie.Store,
-	maxPick int,
-) []*markovtrie.Store {
-	if len(tries) <= maxPick {
-		return tries
-	}
-
-	queryVec := query.AffinityVector()
-
-	type scored struct {
-		idx  int
-		dist int
-	}
-
-	ranked := make([]scored, len(tries))
-
-	for idx, trie := range tries {
-		ranked[idx] = scored{
-			idx:  idx,
-			dist: affinityPopcountDistance(queryVec, trie.Affinity.Vector()),
-		}
-	}
-
-	slices.SortFunc(ranked, func(left, right scored) int {
-		return cmp.Compare(left.dist, right.dist)
-	})
-
-	out := make([]*markovtrie.Store, 0, maxPick)
-
-	for pickIdx := 0; pickIdx < maxPick && pickIdx < len(ranked); pickIdx++ {
-		out = append(out, tries[ranked[pickIdx].idx])
-	}
-
-	return out
-}
-
-func affinityPopcountDistance(
-	query, candidate [primitive.AffinityWords]uint64,
-) int {
-	dist := 0
-
-	for wordIdx := range primitive.AffinityWords {
-		xor := query[wordIdx] ^ candidate[wordIdx]
-
-		if wordIdx == primitive.AffinityWords-1 {
-			xor &= primitive.AffinityLastWordMask
-		}
-
-		dist += bits.OnesCount64(xor)
-	}
-
-	return dist
 }

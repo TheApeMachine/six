@@ -177,7 +177,7 @@ UniversalBitwise kernel — Metal implementation.
 Per thread (one Value):
   1. Copy A (4 words) and B (4 words) from Tokens region.
   2. Expand B into 16 rotations × 4 words = 64-word surface.
-     A is tiled 16 times to match.
+     A is replicated for each of the 16 rotations to match B's expanded surface.
   3. Extract one 4-bit opcode per rotation from Program region.
   4. Apply truth table across the full 64-element surface.
   5. Pack low 8 bits of each result into 8-word Signals region.
@@ -213,15 +213,15 @@ kernel void unified_bitwise_kernel(
         signals[i] = 0;
     }
 
-    // Word 17 (prog[1]) packs 16 × 4-bit tile opcodes little-endian. Legacy
+    // Word 17 (prog[1]) packs 16 × 4-bit opcodes (one per rotation), little-endian. Legacy
     // single-opcode callers broadcast the same nibble 16× so the per-rotation
     // decode collapses to the old broadcast semantics. Per-rotation programs
     // (e.g. Coupling, which splits AND and OR across the sweep) place
     // distinct nibbles so each rotation pulls its own truth table.
-    ulong tileWord = prog[1];
+    ulong rotationOpcodeWord = prog[1];
 
     for (int rot = 0; rot < NUM_ROTATIONS; rot++) {
-        uchar op = (uchar)((tileWord >> (rot * 4)) & 0xF);
+        uchar op = (uchar)((rotationOpcodeWord >> (rot * 4)) & 0xF);
 
         // Build masks from truth table bits.
         ulong m0 = 0 - (ulong)(op & 1);         // bit 0: a=0,b=0

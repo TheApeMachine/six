@@ -284,7 +284,7 @@ ub_loop:
 // Layout (word offsets, each word = 8 bytes):
 //   [0-3]    A (query, 4 words = 32 bytes)
 //   [16]     legacy opcode (low 4 bits) + geometric gate (high 4 bits)
-//   [17]     tile opcode table: 16 × 4-bit nibbles, one per rotation.
+//   [17]     rotation opcode table: 16 × 4-bit nibbles, one per rotation.
 //            Legacy single-opcode callers broadcast the same nibble 16×,
 //            which reproduces the old behaviour byte-for-byte. Per-rotation
 //            programs (e.g. Coupling AND+OR split) write distinct nibbles.
@@ -298,7 +298,7 @@ ub_loop:
 //   V28-V29  signal accumulators (zero-initialized; unused today but reserved)
 //   V31      all-ones for NOT
 //   V0-V15   B loads + truth table computation (4 rotations/iter)
-//   R19      pinned tile opcode word (word 17, byte offset 136)
+//   R19      pinned rotation opcode word (word 17, byte offset 136)
 //
 // Processes 4 rotations per iteration, 4 iterations total. Per rotation we
 // decode a fresh 4-bit opcode from R19, rebuild the truth-table masks, then
@@ -311,7 +311,7 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	// Pin A in V16-V17 (words 0-3, bytes 0-31).
 	VLD1	(R0), [V16.B16, V17.B16]
 
-	// Load the 16-nibble tile opcode table from word 17 (byte 136).
+	// Load the 16-nibble rotation opcode table from word 17 (byte 136).
 	// R19 stays pinned for the whole function; each rotation shifts it
 	// right by (rot_global*4) and masks with 0xF to recover its opcode.
 	MOVD	136(R0), R19
@@ -319,7 +319,7 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT|NOFRAME, $0-16
 	// V31 = all ones for NOT.
 	WORD	$0x6F00E7FF		// movi v31.16b, #0xff
 
-	// Zero signal accumulators V28-V29 (reserved for future reduce tiles).
+	// Zero signal accumulators V28-V29 (reserved for future reduce stages).
 	VEOR	V28.B16, V28.B16, V28.B16
 	VEOR	V29.B16, V29.B16, V29.B16
 

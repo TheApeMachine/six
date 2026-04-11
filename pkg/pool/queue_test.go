@@ -5,9 +5,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -15,7 +15,7 @@ type stubQueueExecutor struct {
 	calls atomic.Int32
 }
 
-func (stub *stubQueueExecutor) CompileAndExecute(program *programmer.Compiler) error {
+func (stub *stubQueueExecutor) Execute(frames []unsafe.Pointer) error {
 	stub.calls.Add(1)
 
 	return nil
@@ -26,10 +26,17 @@ type snapshotQueueExecutor struct {
 	word    chan uint64
 }
 
-func (stub *snapshotQueueExecutor) CompileAndExecute(program *programmer.Compiler) error {
+func (stub *snapshotQueueExecutor) Execute(frames []unsafe.Pointer) error {
 	<-stub.release
 
-	stub.word <- program.Frame()[0]
+	if len(frames) == 0 || frames[0] == nil {
+		stub.word <- 0
+
+		return nil
+	}
+
+	frameWords := (*[128]uint64)(frames[0])
+	stub.word <- frameWords[0]
 
 	return nil
 }
@@ -143,7 +150,7 @@ func TestQueueSubmitTrackedNil(t *testing.T) {
 func TestQueueSetBackend(t *testing.T) {
 	t.Parallel()
 
-	Convey("SetBackend wires the executor for Execute", t, func() {
+	Convey("SetBackend wires the backend for Publish", t, func() {
 		queue, err := NewQueue(context.Background())
 
 		So(err, ShouldBeNil)
@@ -190,7 +197,7 @@ func TestQueuePublish(t *testing.T) {
 func TestQueueExecuteNil(t *testing.T) {
 	t.Parallel()
 
-	Convey("Execute with nil queue or backend returns early", t, func() {
+	Convey("Publish with nil queue or backend returns early", t, func() {
 		var queue *Queue
 
 		queue.Publish(nil, "")
@@ -199,35 +206,7 @@ func TestQueueExecuteNil(t *testing.T) {
 
 		So(err, ShouldBeNil)
 
-		realQueue.Publish(nil, "")
+		So(realQueue.Publish(nil, ""), ShouldNotBeNil)
 		So(realQueue.Close(), ShouldBeNil)
 	})
-}
-
-func TestQueueDrainNil(t *testing.T) {
-	t.Parallel()
-
-	Convey("Drain on nil is safe", t, func() {
-		var queue *Queue
-
-		queue.Drain()
-	})
-}
-
-func BenchmarkQueueSubmit(b *testing.B) {
-	queue, err := NewQueue(context.Background())
-
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	b.Cleanup(func() {
-		_ = queue.Close()
-	})
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		queue.Submit(func() {})
-	}
 }

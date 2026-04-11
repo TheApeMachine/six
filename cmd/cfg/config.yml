@@ -4,7 +4,7 @@ loglevel: trace
 telemetry:
   enabled: true
   udp_endpoint: "127.0.0.1:8258"
-  # High volume: one UDP event per LGP slot per CPU UniversalBitwise tile (viz / debug only).
+  # High volume: one UDP event per LGP slot per CPU UniversalBitwise dispatch (viz / debug only).
   universal_bitwise_slots: true
 
 # Logging and trace shipping (see pkg/errnie/logging_config.go).
@@ -42,12 +42,17 @@ system:
   queueSize: 20000
   shannonLimit: 0.47
 
+# Kadabra DHT: affinity-routed tries, replication, and Shannon-capped centroids.
+# See README "Canonical ingest path" and "Layered fields = layered communication".
 kadabra:
   bits: 64
   bucketSize: 20
   replicationFactor: 3
+  # Max Hamming distance for "same neighborhood" trie selection (see selectOrSpawnTrie).
   clusterThreshold: 192
   maxMeshPeers: 4096
+  # Max set-bit popcount on the 257-bit affinity before blending prunes / spawns.
+  # ~47% of 257 bits ≈ 121 (entropy-peak region); default 240 leaves more headroom.
   shannonLimit: 240
   alpha: 3
   epochQueries: 100
@@ -167,23 +172,59 @@ programs:
   # affinity0 = words 120..123, with bit 0 of word 127 held as the Fermat
   # tail). Pure XOR keeps the fold linear so merging two values' affinities
   # commutes with merging their tokens — required for Kadabra node/trie
-  # merging toward the Shannon limit. Each tile is:
-  #   op  srcA       srcB       dst        [flags]
-  # flags: accumulate (XOR-merge into dst), reduce (popcount to scalar lane),
-  # shr=N (right-shift srcB by N before op).
+  # merging toward the Shannon limit. Each op line is:
+  #   srcA  srcB  dst  op  mode
+  # modes: accumulate (XOR-merge into dst), reduce (popcount to scalar lane),
+  # shr=N (right-shift srcB by N before op) — when implemented in lowering.
+  # Optional last line: next <value_id> | next self  (scheduler: word 117).
   affinity: |
-    xor  tokens0    tokens1    affinity0
-    xor  tokens2    tokens3    signals0
-    xor  affinity0  signals0   affinity0
+    tokens[0,2] tokens[1,3] signals[0]  xor      accumulate
+    affinity[0] signals[0]  affinity[0] xor      accumulate
+    affinity[0] signals[0]  signals[0]  popcount reduce
 
   # Popcount of the Affinity block into scalar lane 0 of signals.
   popcount: |
-    a    affinity0  affinity0  signals0   reduce
+    affinity[0] signals[0] signals[0] popcount reduce
 
   # Jaccard coupling numerator/denominator. Runs AND then OR on the same
   # operand pair; reduce writes popcount scalars to signals0 (intersection)
   # and signals1 (union). Go side divides; there is no scalar fallback on
   # the bit path.
   coupling: |
-    and  tokens0    affinity0  signals0   reduce
-    or   tokens0    affinity0  signals1   reduce
+    tokens[0] affinity[0] signals[0] and reduce
+    tokens[0] affinity[0] signals[1] or  reduce
+
+  # Staged hypothesis lives in context0; query slab is tokens0. Intersection and
+  # union popcounts → signals0 / signals1 (Jaccard inputs). No affinity, no
+  # string layer — this is the beam-step shape before lowering fills real words.
+  beam_swarm_step: |
+    # 1. EXPANSION (Motion)
+    # Apply the local environment's transition motor (Gradient) to the particle's 
+    # state (Tokens). The 'sandwich' opcode applies the SE(3) motor to advance the state.
+    tokens[0,7] gradient[0,7] tokens[0,7] sandwich accumulate
+
+    # 2. SCORING (Interference)
+    # Measure how far the new state is from the target attractor (Context).
+    # A perfect resonance yields all zeros.
+    tokens[0,7] context[0,7] signals[0,7] xor accumulate
+
+    # 3. COLLAPSE (Loss Calculation)
+    # Reduce the geometric interference pattern into a scalar error score.
+    # We reduce the popcount into the first lane of Meta.
+    signals[0,7] signals[0,7] meta[0] popcount reduce
+
+    # 4. FIELD PRESSURE (Attention via Gossip)
+    # meta[1] contains the local field pressure projected from the GF(65537) field.
+    # If the network's consensus is out of phase with this particle, this adds massive error.
+    meta[0] meta[1] meta[0] or accumulate
+
+    # 5. TOPOLOGICAL PRUNING (Garbage Collection)
+    # Morph the particle's Affinity using the error.
+    # High error physically pushes the Value into the void of the Kadabra DHT space.
+    # Low error leaves the Affinity intact, keeping it in the "Beam".
+    meta[0] affinity[0] affinity[0] xor accumulate
+
+    # 6. RECURSION (Erlang-style loop)
+    # Dump this Value back into the routing queue to hop to its new DHT location
+    # and run the next step.
+    next self

@@ -375,9 +375,9 @@ TEXT ·universalBitwiseV2(SB), NOSPLIT, $0-16
 	// Pin A in Y10 (words 0-3, bytes 0-31).
 	VMOVDQU	(DI), Y10
 
-	// R13 holds the 16-nibble tile opcode table from word 17 (byte 136).
+	// R13 holds the 16-nibble rotation opcode table from word 17 (byte 136).
 	// Per rotation we shift right by (rot_global * 4) and mask with 0xF to
-	// recover that tile's opcode, then rebuild Y11-Y14 masks before the
+	// recover that rotation's opcode, then rebuild Y11-Y14 masks before the
 	// truth-table AND/OR tree. Legacy single-opcode callers broadcast the
 	// same nibble 16 times so the decode path is byte-identical to the
 	// old broadcast-once kernel. R13 as a GPR is disjoint from Y13 (the m2

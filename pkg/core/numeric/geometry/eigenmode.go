@@ -1,7 +1,5 @@
 package geometry
 
-import "github.com/theapemachine/six/pkg/core/numeric/gf"
-
 /*
 Eigenmode represents a cluster of field participants whose affinity
 vectors are mutually coupled above a threshold. The members share
@@ -48,31 +46,38 @@ type PhaseMode struct {
 }
 
 /*
-DetectPhaseMode257 extracts the dominant lane from a trie-local phase vector.
+DetectPhaseMode extracts the dominant lane from any GF(p) phase field. The
+modulus is carried by the Field; there is no separate API per layer.
 */
-func DetectPhaseMode257(phaseVector gf.Vector257) PhaseMode {
+func DetectPhaseMode(phaseVector *Field) PhaseMode {
+	if phaseVector == nil {
+		return PhaseMode{Index: -1}
+	}
+
 	return phaseModeFromDominant(phaseVector.Dominant())
 }
 
 /*
-DetectPhaseMode8191 extracts the dominant lane from a node phase vector.
+DetectPhaseMode257, DetectPhaseMode8191, and DetectPhaseMode65537 are aliases
+for DetectPhaseMode — the Field already encodes which modulus applies.
 */
-func DetectPhaseMode8191(phaseVector gf.Vector8191) PhaseMode {
-	return phaseModeFromDominant(phaseVector.Dominant())
+func DetectPhaseMode257(phaseVector *Field) PhaseMode {
+	return DetectPhaseMode(phaseVector)
 }
 
-/*
-DetectPhaseMode65537 extracts the dominant lane from a global phase vector.
-*/
-func DetectPhaseMode65537(phaseVector gf.Vector65537) PhaseMode {
-	return phaseModeFromDominant(phaseVector.Dominant())
+func DetectPhaseMode8191(phaseVector *Field) PhaseMode {
+	return DetectPhaseMode(phaseVector)
+}
+
+func DetectPhaseMode65537(phaseVector *Field) PhaseMode {
+	return DetectPhaseMode(phaseVector)
 }
 
 /*
 PhaseAlignment measures circular agreement between two dominant phase lanes.
 */
-func PhaseAlignment(leftMode PhaseMode, rightMode PhaseMode) float64 {
-	return gf.Alignment(leftMode.Index, rightMode.Index)
+func PhaseAlignment(leftMode PhaseMode, rightMode PhaseMode, field *Field) float64 {
+	return field.Alignment(leftMode.Index, rightMode.Index)
 }
 
 /*
@@ -136,7 +141,7 @@ func DetectModes(
 	return modes, dominantIdx
 }
 
-func phaseModeFromDominant(dominantPhase gf.DominantPhase) PhaseMode {
+func phaseModeFromDominant(dominantPhase PhaseMode) PhaseMode {
 	return PhaseMode{
 		Index:         dominantPhase.Index,
 		Amplitude:     dominantPhase.Amplitude,

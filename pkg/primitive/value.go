@@ -4,8 +4,6 @@ package primitive
 import (
 	"fmt"
 	"io"
-	"math"
-	"math/bits"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -34,7 +32,7 @@ FrameMultivector is the primitive-level 512-bit geometric payload. It mirrors
 the PGA even subalgebra layout used by pkg/core/numeric/geometry without
 importing that package, which would create a package cycle.
 */
-type FrameMultivector [RegionWords]float64
+type FrameMultivector [8]float64
 
 func init() {
 	x := uint16(1)
@@ -103,8 +101,8 @@ var valuePool = sync.Pool{
 var valueIDSeq atomic.Uint64
 
 /*
-NewValue requires a non-empty payload. valueFrom copies it into the Value
-layout, ComputeAffinityLSH fills affinity from the token region, and stampID
+NewValue requires a non-empty payload. The Morton token slab is written into
+the configured tokens region, the full wire frame is materialized, and stampID
 assigns a new ID. The result is ready for backend execution, Publish, and
 trie storage.
 
@@ -208,7 +206,6 @@ func newValuesFromPayload(
 	var out []*Value
 
 	for idx < len(p) {
-		segmentStart := idx
 		buf := make([]byte, tokenBytes)
 		offset := 0
 		positionOrdinal := uint32(0)
@@ -262,10 +259,12 @@ func newValuesFromPayload(
 
 		raw := valuePool.Get()
 		value := raw.(*Value)
-		valueFrom(buf, value)
-		value.SetContextMultivector(NewFrameMultivector(p[segmentStart:idx]))
+		*value = Value{}
 
-		if err := value.ComputeAffinityLSH(); err != nil {
+		wire := make([]byte, core.Cfg.Value.Bytes)
+		tokenStart := core.Cfg.Value.Region.Tokens.Start * 8
+
+		if tokenStart+offset > len(wire) {
 			*value = Value{}
 			valuePool.Put(value)
 
@@ -274,8 +273,11 @@ func newValuesFromPayload(
 				valuePool.Put(v)
 			}
 
-			return nil, err
+			return nil, io.ErrShortBuffer
 		}
+
+		copy(wire[tokenStart:], buf[:offset])
+		valueFrom(wire, value)
 
 		stamped := value.stampID()
 		out = append(out, stamped)
@@ -404,440 +406,6 @@ func (value *Value) ID() uint64 {
 	}
 
 	return (*value)[core.Cfg.Value.Region.ID.Start]
-}
-
-/*
-AffinityVector returns the 257-bit affinity region as a fixed-size array.
-The last word is masked to AffinityLastWordMask so only bit 0 survives.
-*/
-func (value *Value) AffinityVector() [AffinityWords]uint64 {
-	var aff [AffinityWords]uint64
-
-	if value == nil {
-		return aff
-	}
-
-	start := core.Cfg.Value.Region.Affinity.Start
-
-	for wordIdx := range AffinityWords {
-		idx := start + wordIdx
-
-		if idx < 0 || idx >= len(*value) {
-			break
-		}
-
-		aff[wordIdx] = (*value)[idx]
-	}
-
-	aff[AffinityWords-1] &= AffinityLastWordMask
-
-	return aff
-}
-
-/*
-SetAffinityVector writes the full affinity region, masking the last word.
-*/
-func (value *Value) SetAffinityVector(aff [AffinityWords]uint64) {
-	if value == nil {
-		return
-	}
-
-	start := core.Cfg.Value.Region.Affinity.Start
-
-	for wordIdx := range AffinityWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		w := aff[wordIdx]
-
-		if wordIdx == AffinityWords-1 {
-			w &= AffinityLastWordMask
-		}
-
-		(*value)[idx] = w
-	}
-}
-
-/*
-ContextVector returns the raw 512-bit context region. Boolean callers still
-use these lanes for XOR-bound variables, while geometric callers reinterpret
-the same bits as one FrameMultivector.
-*/
-func (value *Value) ContextVector() [RegionWords]uint64 {
-	var ctx [RegionWords]uint64
-
-	if value == nil {
-		return ctx
-	}
-
-	start := core.Cfg.Value.Region.Context.Start
-
-	for wordIdx := range RegionWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		ctx[wordIdx] = (*value)[idx]
-	}
-
-	return ctx
-}
-
-/*
-SetContextVector writes the full context region.
-*/
-func (value *Value) SetContextVector(ctx [RegionWords]uint64) {
-	if value == nil {
-		return
-	}
-
-	start := core.Cfg.Value.Region.Context.Start
-
-	for wordIdx := range RegionWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		(*value)[idx] = ctx[wordIdx]
-	}
-}
-
-/*
-NewFrameMultivector derives a normalized 512-bit geometric coordinate from a
-byte span. The scalar lane is anchored at one and the remaining lanes are
-deterministic signed projections, giving every non-empty payload a stable PGA
-position without changing the Value frame size.
-*/
-func NewFrameMultivector(data []byte) FrameMultivector {
-	if len(data) == 0 {
-		return FrameMultivector{}
-	}
-
-	lanes := [RegionWords]uint64{
-		0x243f6a8885a308d3,
-		0x13198a2e03707344,
-		0xa4093822299f31d0,
-		0x082efa98ec4e6c89,
-		0x452821e638d01377,
-		0xbe5466cf34e90c6c,
-		0xc0ac29b7c97c50dd,
-		0x3f84d5b5b5470917,
-	}
-
-	for idx, datum := range data {
-		lane := idx & (RegionWords - 1)
-		mix := uint64(datum) + uint64(idx+1)*0x9e3779b185ebca87
-
-		lanes[lane] ^= mix
-		lanes[lane] *= 0xbf58476d1ce4e5b9
-		lanes[(lane+3)&(RegionWords-1)] ^= bits.RotateLeft64(lanes[lane], int(datum&63))
-	}
-
-	mv := FrameMultivector{1}
-
-	for idx := 1; idx < RegionWords; idx++ {
-		mv[idx] = signedUnitFloat64(lanes[idx])
-	}
-
-	return mv.Normalize()
-}
-
-/*
-FrameMultivectorFromWords decodes a multivector from the raw uint64 lanes used
-inside Value regions. It is the inverse of Words and preserves NaN payload bits.
-*/
-func FrameMultivectorFromWords(words [RegionWords]uint64) FrameMultivector {
-	var mv FrameMultivector
-
-	for wordIdx := range RegionWords {
-		mv[wordIdx] = math.Float64frombits(words[wordIdx])
-	}
-
-	return mv
-}
-
-/*
-Words returns the exact uint64 representation written into a Value region.
-*/
-func (mv FrameMultivector) Words() [RegionWords]uint64 {
-	var words [RegionWords]uint64
-
-	for wordIdx := range RegionWords {
-		words[wordIdx] = math.Float64bits(mv[wordIdx])
-	}
-
-	return words
-}
-
-/*
-Normalize scales the multivector by its rotor bulk norm. This mirrors the PGA
-normalization rule while staying in primitive to avoid a geometry import cycle.
-*/
-func (mv FrameMultivector) Normalize() FrameMultivector {
-	bulkSq := mv[0]*mv[0] + mv[4]*mv[4] + mv[5]*mv[5] + mv[6]*mv[6]
-
-	if bulkSq == 0 {
-		return mv
-	}
-
-	inv := 1.0 / math.Sqrt(bulkSq)
-
-	for idx := range RegionWords {
-		mv[idx] *= inv
-	}
-
-	return mv
-}
-
-/*
-IsZero reports whether all multivector lanes are exactly zero.
-*/
-func (mv FrameMultivector) IsZero() bool {
-	for idx := range RegionWords {
-		if mv[idx] != 0 {
-			return false
-		}
-	}
-
-	return true
-}
-
-/*
-ContextMultivector returns the PGA coordinate stored in the Context region.
-*/
-func (value *Value) ContextMultivector() FrameMultivector {
-	return value.multivectorRegion(core.Cfg.Value.Region.Context.Start)
-}
-
-/*
-SetContextMultivector writes the PGA coordinate stored in the Context region.
-*/
-func (value *Value) SetContextMultivector(mv FrameMultivector) {
-	value.setMultivectorRegion(core.Cfg.Value.Region.Context.Start, mv)
-}
-
-/*
-GradientMultivector returns the PGA momentum or target stored in Gradient.
-*/
-func (value *Value) GradientMultivector() FrameMultivector {
-	return value.multivectorRegion(core.Cfg.Value.Region.Gradient.Start)
-}
-
-/*
-SetGradientMultivector writes the PGA momentum or target stored in Gradient.
-*/
-func (value *Value) SetGradientMultivector(mv FrameMultivector) {
-	value.setMultivectorRegion(core.Cfg.Value.Region.Gradient.Start, mv)
-}
-
-/*
-SignalsMultivector returns the PGA result emitted into Signals.
-*/
-func (value *Value) SignalsMultivector() FrameMultivector {
-	return value.multivectorRegion(core.Cfg.Value.Region.Signals.Start)
-}
-
-/*
-SetSignalsMultivector writes a PGA result into Signals.
-*/
-func (value *Value) SetSignalsMultivector(mv FrameMultivector) {
-	value.setMultivectorRegion(core.Cfg.Value.Region.Signals.Start, mv)
-}
-
-func signedUnitFloat64(word uint64) float64 {
-	const scale = 1.0 / float64(uint64(1)<<63)
-
-	return float64(int64(word)) * scale
-}
-
-func (value *Value) multivectorRegion(start int) FrameMultivector {
-	var mv FrameMultivector
-
-	if value == nil {
-		return mv
-	}
-
-	for wordIdx := range RegionWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		mv[wordIdx] = math.Float64frombits((*value)[idx])
-	}
-
-	return mv
-}
-
-func (value *Value) setMultivectorRegion(start int, mv FrameMultivector) {
-	if value == nil {
-		return
-	}
-
-	for wordIdx := range RegionWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		(*value)[idx] = math.Float64bits(mv[wordIdx])
-	}
-}
-
-/*
-BindContext XORs the given affinity vector into the first AffinityWords
-of the context region, creating a compositional binding. XOR is its own
-inverse: binding twice with the same vector unbinds it. This is the
-substrate for Pearl's do-operator — severing a variable from its causal
-parents is an unbind, forcing a new value is a rebind. The remaining
-context words (AffinityWords..RegionWords-1) are untouched, available
-for non-affinity bindings.
-*/
-func (value *Value) BindContext(binding [AffinityWords]uint64) {
-	if value == nil {
-		return
-	}
-
-	start := core.Cfg.Value.Region.Context.Start
-
-	for wordIdx := range AffinityWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		(*value)[idx] ^= binding[wordIdx]
-	}
-}
-
-/*
-GradientVector returns the 512-bit gradient region. Under causal
-framing this tracks intervention residual — the difference between
-predicted and observed outcomes when a variable was intervened on.
-Accumulated over multiple interventions, this is the noise term
-in a structural causal model.
-*/
-func (value *Value) GradientVector() [RegionWords]uint64 {
-	var grad [RegionWords]uint64
-
-	if value == nil {
-		return grad
-	}
-
-	start := core.Cfg.Value.Region.Gradient.Start
-
-	for wordIdx := range RegionWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		grad[wordIdx] = (*value)[idx]
-	}
-
-	return grad
-}
-
-/*
-AccumulateGradient XORs a residual vector into the gradient region,
-building up the latent noise term from repeated interventions.
-*/
-func (value *Value) AccumulateGradient(residual [RegionWords]uint64) {
-	if value == nil {
-		return
-	}
-
-	start := core.Cfg.Value.Region.Gradient.Start
-
-	for wordIdx := range RegionWords {
-		idx := start + wordIdx
-
-		if idx >= len(*value) {
-			break
-		}
-
-		(*value)[idx] ^= residual[wordIdx]
-	}
-}
-
-/*
-MetaWord offsets within the 512-bit meta region.
-*/
-const (
-	MetaConfidence        = 0
-	MetaNovelty           = 1
-	MetaStability         = 2
-	MetaUseCount          = 3
-	MetaCreatedEpoch      = 4
-	MetaLastAccessEpoch   = 5
-	MetaInterventionCount = 6
-	MetaFlags             = 7
-)
-
-/*
-MetaWord reads a single word from the meta region at the given offset
-(0–7). Returns 0 for nil Values or out-of-range offsets.
-*/
-func (value *Value) MetaWord(offset int) uint64 {
-	if value == nil || offset < 0 || offset >= RegionWords {
-		return 0
-	}
-
-	idx := core.Cfg.Value.Region.Meta.Start + offset
-
-	if idx >= len(*value) {
-		return 0
-	}
-
-	return (*value)[idx]
-}
-
-/*
-SetMetaWord writes a single word into the meta region at the given offset.
-*/
-func (value *Value) SetMetaWord(offset int, val uint64) {
-	if value == nil || offset < 0 || offset >= RegionWords {
-		return
-	}
-
-	idx := core.Cfg.Value.Region.Meta.Start + offset
-
-	if idx >= len(*value) {
-		return
-	}
-
-	(*value)[idx] = val
-}
-
-/*
-IncrementMeta performs a non-atomic read-modify-write on a meta word
-via (*value)[idx]++. Suitable for use-count and intervention-count
-tracking; callers must serialize through a trie's update path — there
-is no atomic or lock-free guarantee on the underlying store word.
-*/
-func (value *Value) IncrementMeta(offset int) {
-	if value == nil || offset < 0 || offset >= RegionWords {
-		return
-	}
-
-	idx := core.Cfg.Value.Region.Meta.Start + offset
-
-	if idx >= len(*value) {
-		return
-	}
-
-	(*value)[idx]++
 }
 
 /*

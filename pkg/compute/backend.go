@@ -10,7 +10,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
@@ -38,9 +37,8 @@ Frames may carry a residency tag (word 119). When present, pick adds
 transferPenalty to scores for substrates that would pull the buffer
 across a physical hop relative to where it last completed.
 
-All compute flows through Execute. The programmer compiles intent into
-the Value's layout; the substrate reads the opcode and dispatches to
-the appropriate kernel.
+All compute flows through Execute. Values carry fixed-layout program words;
+the substrate reads the opcode and dispatches to the appropriate kernel.
 */
 type Backend struct {
 	ctx             context.Context
@@ -293,16 +291,6 @@ func (st *substrateState) observe(elapsed time.Duration) {
 	st.emaNanos.Store(old + (nanos-old)>>3)
 }
 
-func (backend *Backend) stampResidency(frames []unsafe.Pointer, st *substrateState) {
-	if st == nil {
-		return
-	}
-
-	for _, ptr := range frames {
-		kernel.StampFrameResidency(ptr, st.idx)
-	}
-}
-
 func (backend *Backend) ensureCorrelationIDs(frames []unsafe.Pointer) {
 	for _, ptr := range frames {
 		kernel.EnsureFrameCorrelationSeq(&backend.correlationSeq, ptr)
@@ -332,22 +320,10 @@ func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.P
 	))
 }
 
-func substrateTargetLabel(target programmer.Target) string {
-	switch target {
-	case programmer.Metal:
-		return "metal"
-	case programmer.CUDA:
-		return "cuda"
-	default:
-		return "cpu"
-	}
-}
-
 /*
 Execute dispatches pre-compiled Value frames to the best available
-substrate. The programmer must have already compiled the intent into
-each Value's layout before calling this. The substrate reads the
-opcode from the program region and dispatches internally.
+substrate. Each Value must already contain the program bits the ALU
+expects; the substrate reads the opcode from the program region.
 */
 func (backend *Backend) Execute(
 	frames []unsafe.Pointer,
@@ -378,91 +354,6 @@ func (backend *Backend) Execute(
 	))
 
 	backend.publishALUDispatch(st, frames, elapsed)
-
-	if err == nil {
-		backend.stampResidency(frames, st)
-	}
-
-	return err
-}
-
-/*
-targetFor maps a substrate's Name to the programmer.Target so the
-compiler emits the correct layout just before execution.
-*/
-func targetFor(substrate kernel.Substrate) programmer.Target {
-	switch substrate.Name() {
-	case "metal":
-		return programmer.Metal
-	case "cuda":
-		return programmer.CUDA
-	default:
-		return programmer.CPU
-	}
-}
-
-/*
-CompileAndExecute picks the lowest-pressure substrate, compiles the
-program for that specific target, and executes the resulting frame.
-This is the deferred-compilation path: callers build an uncompiled
-Compiler and hand it off — the backend decides which hardware to
-target at dispatch time.
-*/
-func (backend *Backend) CompileAndExecute(
-	program *programmer.Compiler,
-) error {
-	framePtr := unsafe.Pointer(program.Frame())
-
-	backend.ensureCorrelationIDs([]unsafe.Pointer{framePtr})
-
-	st := backend.pick([]unsafe.Pointer{framePtr})
-
-	target := targetFor(st.substrate)
-
-	compileStart := time.Now()
-	value := program.Compile(target)
-	compileNanos := time.Since(compileStart).Nanoseconds()
-
-	intent := program.Intent()
-	corr := kernel.FrameCorrelationID(unsafe.Pointer(value))
-
-	viz.DefaultBus.Publish(viz.CompilerCompileEvent(
-		substrateTargetLabel(target),
-		uint64(intent.Operation),
-		corr,
-		compileNanos,
-		program.UsesBatchAffinityLayout(),
-		program.FinalizerDepth(),
-	))
-
-	st.inflight.Add(1)
-
-	viz.DefaultBus.Publish(viz.PoolScheduleEvent(
-		st.substrate.Name(),
-		int(st.inflight.Load()),
-		len(backend.states),
-	))
-
-	start := time.Now()
-
-	err := st.substrate.Execute([]unsafe.Pointer{
-		unsafe.Pointer(value),
-	})
-
-	elapsed := time.Since(start)
-	st.inflight.Add(-1)
-	st.observe(elapsed)
-
-	viz.DefaultBus.Publish(viz.PoolCompleteEvent(
-		st.substrate.Name(),
-		int(elapsed.Milliseconds()),
-	))
-
-	backend.publishALUDispatch(st, []unsafe.Pointer{unsafe.Pointer(value)}, elapsed)
-
-	if err == nil {
-		backend.stampResidency([]unsafe.Pointer{unsafe.Pointer(value)}, st)
-	}
 
 	return err
 }

@@ -1,5 +1,11 @@
 package programmer
 
+/*
+RegionType names coarse Value regions for later lowering from region refs.
+
+Source text uses string refs (e.g. tokens[0,2]); lowering maps those into the
+packed Value layout.
+*/
 type RegionType uint8
 
 const (
@@ -16,6 +22,12 @@ const (
 	AffinityRegion
 )
 
+/*
+OperationType is the 4-bit universal bitwise opcode space (value.opcodes).
+
+Source mnemonics may name non-truth-table ops (e.g. popcount); those stay on
+Token as strings until lowering selects a concrete kernel path.
+*/
 type OperationType uint8
 
 const (
@@ -37,9 +49,19 @@ const (
 	TRUE       OperationType = 0b1111
 )
 
+/*
+Token is one source line after parse: region refs for operands and destination,
+a mnemonic op, and execution mode (accumulate vs reduce).
+
+Syntax matches cmd/cfg/config.yml programs: blocks, e.g.:
+
+	srcA srcB dst op mode
+	tokens[0,2] tokens[1,3] signals[0] xor accumulate
+*/
 type Token struct {
-	a   RegionType
-	b   RegionType
-	dst RegionType
-	op  OperationType
+	SrcA string
+	SrcB string
+	Dst  string
+	Op   string
+	Mode string
 }

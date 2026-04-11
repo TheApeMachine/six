@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -27,6 +26,14 @@ func queueWorkerCount() int {
 }
 
 /*
+QueueBackend runs pre-layout ALU work: the Value must already carry the
+program bits (and operands) the substrate expects; dispatch is opcode-driven.
+*/
+type QueueBackend interface {
+	Execute(frames []unsafe.Pointer) error
+}
+
+/*
 Queue is the universal work scheduler. It owns the goroutine pool and
 three priority-tiered lock-free ring buffers. Every subsystem that needs
 to schedule work (tokenizer, compute backend, routing) receives a Queue
@@ -38,7 +45,7 @@ type Queue struct {
 	cancel    context.CancelFunc
 	err       error
 	pool      *Pool
-	backend   programmer.Executor
+	backend   QueueBackend
 	normal    *data.Ring
 	priority  *data.Ring
 	spill     *data.Ring
@@ -96,6 +103,7 @@ Close cancels the queue context.
 */
 func (queue *Queue) Close() error {
 	queue.cancel()
+
 	return queue.err
 }
 
@@ -127,9 +135,6 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 		*frame = *value
 	}
 
-	aSpan := frame[0:31]
-	bSpan := frame[32:63]
-
 	inflight := queue.inflight.Add(1)
 	viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight))
 
@@ -145,12 +150,8 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 			}
 		}()
 
-		queue.backend.CompileAndExecute(programmer.New(
-			frame, programmer.CompilerWithIntent(programmer.Intent{
-				Operation: programmer.Similarity,
-				Assets:    [][]uint64{aSpan, bSpan},
-			}),
-		))
+		_ = label
+		_ = queue.backend.Execute([]unsafe.Pointer{unsafe.Pointer(frame)})
 	})
 
 	return nil
@@ -194,28 +195,10 @@ func (queue *Queue) SubmitTracked(task func()) {
 }
 
 /*
-SetBackend wires the compute backend into the queue so Execute
-can defer compilation to the moment a substrate is picked.
+SetBackend wires the compute backend into the queue for Publish.
 */
-func (queue *Queue) SetBackend(backend programmer.Executor) {
+func (queue *Queue) SetBackend(backend QueueBackend) {
 	queue.backend = backend
-}
-
-/*
-CompileAndExecute forwards program to the wired backend. Used when the
-caller supplies a Compiler directly instead of Queue.Publish’s fixed
-Similarity shortcut.
-*/
-func (queue *Queue) CompileAndExecute(program *programmer.Compiler) error {
-	if queue == nil {
-		return errors.New("queue: nil")
-	}
-
-	if queue.backend == nil {
-		return errors.New("queue: no backend")
-	}
-
-	return queue.backend.CompileAndExecute(program)
 }
 
 /*

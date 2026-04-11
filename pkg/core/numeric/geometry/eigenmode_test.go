@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/core/numeric/gf"
 )
 
 func TestEigenmodeMembers(t *testing.T) {
@@ -69,84 +68,69 @@ func TestDetectModes(t *testing.T) {
 	})
 }
 
-func TestDetectPhaseMode257(t *testing.T) {
+func TestDetectPhaseMode(t *testing.T) {
 	t.Parallel()
 
-	Convey("An empty phase vector has no dominant lane", t, func() {
-		var vector gf.Vector257
+	Convey("An empty field has no dominant lane", t, func() {
+		vector := NewField(Mod257)
 
-		mode := DetectPhaseMode257(vector)
+		mode := DetectPhaseMode(vector)
 
 		So(mode.Index, ShouldEqual, -1)
 	})
 
 	Convey("The strongest occupied lane wins", t, func() {
-		var vector gf.Vector257
+		vector := NewField(Mod257)
 
-		vector[17] = 900
-		vector[18] = 100
+		vector.lanes[17] = 900
+		vector.lanes[18] = 100
 
-		mode := DetectPhaseMode257(vector)
+		mode := DetectPhaseMode(vector)
 
 		So(mode.Index, ShouldEqual, 17)
 		So(mode.Amplitude, ShouldEqual, 900)
 		So(mode.Concentration, ShouldAlmostEqual, 0.9, 1e-9)
 	})
-}
 
-func TestDetectPhaseMode8191(t *testing.T) {
-	t.Parallel()
+	Convey("DetectPhaseMode aliases match DetectPhaseMode for each modulus", t, func() {
+		f8191 := NewField(Mod8191)
 
-	Convey("DetectPhaseMode8191 mirrors Dominant on Vector8191", t, func() {
-		var vector gf.Vector8191
+		f8191.lanes[42] = 50
 
-		vector[42] = 50
+		So(DetectPhaseMode8191(f8191), ShouldResemble, DetectPhaseMode(f8191))
 
-		mode := DetectPhaseMode8191(vector)
+		f65537 := NewField(Mod65537)
 
-		So(mode.Index, ShouldEqual, 42)
-		So(mode.Amplitude, ShouldEqual, 50)
-		So(mode.Concentration, ShouldEqual, 1)
-	})
-}
+		f65537.lanes[5] = 1000
+		f65537.lanes[6] = 500
 
-func TestDetectPhaseMode65537(t *testing.T) {
-	t.Parallel()
-
-	Convey("DetectPhaseMode65537 mirrors Dominant on Vector65537", t, func() {
-		var vector gf.Vector65537
-
-		vector[5] = 1000
-		vector[6] = 500
-
-		mode := DetectPhaseMode65537(vector)
-
-		So(mode.Index, ShouldEqual, 5)
-		So(mode.Concentration, ShouldAlmostEqual, 1000.0/1500.0, 1e-9)
+		So(DetectPhaseMode65537(f65537), ShouldResemble, DetectPhaseMode(f65537))
 	})
 }
 
 func TestPhaseAlignment(t *testing.T) {
 	t.Parallel()
 
-	Convey("PhaseAlignment defers to gf.Alignment for lane agreement", t, func() {
+	Convey("PhaseAlignment uses the field ring width", t, func() {
+		field := NewField(Mod257)
+
 		left := PhaseMode{Index: 7}
 		right := PhaseMode{Index: 7}
 
-		So(PhaseAlignment(left, right), ShouldEqual, 1)
+		So(PhaseAlignment(left, right, field), ShouldEqual, 1)
 
 		left.Index = 0
 		right.Index = 128
 
-		So(PhaseAlignment(left, right), ShouldEqual, 0)
+		So(PhaseAlignment(left, right, field), ShouldEqual, 0)
 	})
 }
 
 func TestPhaseModeFromDominant(t *testing.T) {
 	t.Parallel()
 
-	Convey("phaseModeFromDominant maps DominantPhase fields", t, func() {
-		d := gf.DominantPhase{
+	Convey("phaseModeFromDominant maps PhaseMode fields", t, func() {
+		d := PhaseMode{
 			Index:         3,
 			Amplitude:     200,
 			Concentration: 0.42,
@@ -189,18 +173,18 @@ func BenchmarkDetectModes(b *testing.B) {
 	_ = dominant
 }
 
-func BenchmarkDetectPhaseMode257(b *testing.B) {
-	var vector gf.Vector257
+func BenchmarkDetectPhaseMode(b *testing.B) {
+	vector := NewField(Mod257)
 
-	vector[13] = 400
-	vector[14] = 100
+	vector.lanes[13] = 400
+	vector.lanes[14] = 100
 
 	var mode PhaseMode
 
 	b.ResetTimer()
 
 	for b.Loop() {
-		mode = DetectPhaseMode257(vector)
+		mode = DetectPhaseMode(vector)
 	}
 
 	_ = mode
