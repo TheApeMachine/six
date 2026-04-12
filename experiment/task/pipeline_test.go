@@ -20,6 +20,7 @@ import (
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/vm"
@@ -220,12 +221,11 @@ func TestPipeline(t *testing.T) {
 						}
 
 						generation := prediction.String()
-						classification := generation
 
-						nearest := machine.Nearest(prediction)
-						if nearest != nil {
-							classification = machine.WalkChain(nearest)
-						}
+						// Read the classification label from the properties region
+						// The substrate is expected to write the predicted category index to PropertiesStartWord
+						predLabelInt := (*prediction)[kernel.PropertiesStartWord]
+						classification := fmt.Sprintf("%d", predLabelInt)
 
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.

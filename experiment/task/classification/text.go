@@ -2,6 +2,7 @@ package classification
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -117,11 +118,17 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 
 	if results.PredLabel == nil && len(results.Classification) > 0 {
 		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
-		fmt.Printf("Classification string: %q\n", normalizedClass)
-		for i, label := range experiment.ClassLabels() {
-			if strings.Contains(normalizedClass, label) {
-				results.PredLabel = tools.OptionalLabel(i)
-				break
+		
+		if idx, err := strconv.Atoi(normalizedClass); err == nil {
+			if idx >= 0 && idx < len(experiment.ClassLabels()) {
+				results.PredLabel = tools.OptionalLabel(idx)
+			}
+		} else {
+			for i, label := range experiment.ClassLabels() {
+				if strings.Contains(normalizedClass, label) {
+					results.PredLabel = tools.OptionalLabel(i)
+					break
+				}
 			}
 		}
 	}
