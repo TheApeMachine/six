@@ -20,7 +20,8 @@ func TestInstallProgram(t *testing.T) {
 		var value primitive.Value
 
 		Convey("InstallProgram with NewProgram inline resolution should lower program words", func() {
-			err := InstallProgram(&value, affinitySource)
+			installer := Installer{}
+			err := installer.InstallProgram(&value, affinitySource)
 
 			So(err, ShouldBeNil)
 			So(value[kernel.ProgramRotTabWord], ShouldNotEqual, uint64(0))
@@ -29,11 +30,28 @@ func TestInstallProgram(t *testing.T) {
 
 		Convey("InstallProgram with empty source should leave program region untouched", func() {
 			var clean primitive.Value
+			installer := Installer{}
 
-			err := InstallProgram(&clean, "")
+			err := installer.InstallProgram(&clean, "")
 
 			So(err, ShouldBeNil)
 			So(clean[kernel.ProgramRotTabWord], ShouldEqual, uint64(0))
 		})
 	})
+}
+
+func BenchmarkInstallProgram(b *testing.B) {
+	original := *core.Cfg
+	b.Cleanup(func() {
+		*core.Cfg = original
+	})
+	b.ReportAllocs()
+	b.ResetTimer()
+	installer := Installer{}
+	for i := 0; i < b.N; i++ {
+		var value primitive.Value
+		if err := installer.InstallProgram(&value, affinitySource); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

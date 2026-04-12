@@ -2,7 +2,6 @@ package programmer
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,9 +15,10 @@ word offset inside that region, Span is a word count. Span >= 1 always;
 a bare region[index] parses as Span=1.
 */
 type RegionRef struct {
-	Name  string
-	Start int
-	Span  int
+	Name     string
+	Start    int
+	Span     int
+	absStart int
 }
 
 /*
@@ -32,35 +32,38 @@ type regionLayout struct {
 }
 
 /*
-refSyntaxRE accepts a single-index ref (tokens[5]) or a start,span ref
-(tokens[0,16]). Whitespace inside the brackets is tolerated so hand-edited
-programs do not fail on a stray space.
-*/
-var refSyntaxRE = regexp.MustCompile(`^([a-z]+)\[\s*(\d+)\s*(?:,\s*(\d+)\s*)?\]$`)
-
-/*
 ParseRegionRef turns a single DSL operand string into a validated RegionRef.
 It resolves the region layout against core.Cfg so an out-of-range start or
 span is caught at parse time rather than at staging time.
 */
 func ParseRegionRef(label string) (RegionRef, error) {
-	match := refSyntaxRE.FindStringSubmatch(strings.TrimSpace(label))
+	label = strings.TrimSpace(label)
 
-	if len(match) == 0 {
+	openIdx := strings.IndexByte(label, '[')
+	if openIdx < 0 || !strings.HasSuffix(label, "]") {
 		return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q", label)
 	}
 
-	start, err := strconv.Atoi(match[2])
+	name := label[:openIdx]
+	inner := label[openIdx+1 : len(label)-1]
 
+	commaIdx := strings.IndexByte(inner, ',')
+	var startStr, spanStr string
+	if commaIdx >= 0 {
+		startStr = strings.TrimSpace(inner[:commaIdx])
+		spanStr = strings.TrimSpace(inner[commaIdx+1:])
+	} else {
+		startStr = strings.TrimSpace(inner)
+	}
+
+	start, err := strconv.Atoi(startStr)
 	if err != nil {
 		return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q: %w", label, err)
 	}
 
 	span := 1
-
-	if match[3] != "" {
-		span, err = strconv.Atoi(match[3])
-
+	if spanStr != "" {
+		span, err = strconv.Atoi(spanStr)
 		if err != nil {
 			return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q: %w", label, err)
 		}
@@ -70,10 +73,9 @@ func ParseRegionRef(label string) (RegionRef, error) {
 		return RegionRef{}, fmt.Errorf("programmer: region ref %q span must be >= 1", label)
 	}
 
-	ref := RegionRef{Name: match[1], Start: start, Span: span}
+	ref := RegionRef{Name: name, Start: start, Span: span}
 
 	layout, err := regionLayoutByName(ref.Name)
-
 	if err != nil {
 		return RegionRef{}, err
 	}
@@ -85,6 +87,8 @@ func ParseRegionRef(label string) (RegionRef, error) {
 		)
 	}
 
+	ref.absStart = layout.StartWord + ref.Start
+
 	return ref, nil
 }
 
@@ -93,19 +97,13 @@ AbsStart is the absolute word index of the slice's first word in a Value.
 Used by staging/writeback paths that need a raw uint64 offset.
 */
 func (ref RegionRef) AbsStart() int {
-	layout, err := regionLayoutByName(ref.Name)
-
-	if err != nil {
-		return 0
-	}
-
-	return layout.StartWord + ref.Start
+	return ref.absStart
 }
 
 /*
 regionLayoutByName resolves a DSL region name against the live core.Cfg
 layout. The "reserved" band (words 56..117) is named implicitly because it
-does not have its own offset struct: it is whatever is left between Meta
+does not have its own offset struct: it is whatever is left between Properties
 and the kernel-transport/identity words, which today means 62 words.
 */
 func regionLayoutByName(name string) (regionLayout, error) {
@@ -126,8 +124,8 @@ func regionLayoutByName(name string) (regionLayout, error) {
 		return layoutFrom(region.Context), nil
 	case "gradient":
 		return layoutFrom(region.Gradient), nil
-	case "meta":
-		return layoutFrom(region.Meta), nil
+	case "properties":
+		return layoutFrom(region.Properties), nil
 	case "prev":
 		return layoutFrom(region.Prev), nil
 	case "next":

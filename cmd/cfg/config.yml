@@ -132,9 +132,12 @@ value:
     gradient:
       start: 40
       bits: 512
-    meta:
+    properties:
       start: 48
       bits: 512
+    reserved:
+      start: 56
+      bits: 4096
     prev:
       start: 120
       bits: 64
@@ -210,34 +213,61 @@ programs:
   # drift away in DHT space, and loops via `next self` so the scheduler
   # keeps spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
-    tokens[0,8]   gradient[0,8]  context[0,8]  xor      accumulate
-    tokens[0,8]   context[0,8]   signals[0,8]  xor      accumulate
-    signals[0,8]  signals[0,8]   meta[0,1]     xor      reduce
-    meta[0,1]     meta[1,1]      meta[0,1]     or       accumulate
-    meta[0,1]     affinity[0,5]  affinity[0,5] xor      accumulate
+    tokens[0,8]  gradient[0,8]  context[0,8]  xor accumulate
+    tokens[0,8]  context[0,8]   signals[0,8]  xor accumulate
+    signals[0,8] signals[0,8]   properties[0,1]     xor reduce
+    properties[0,1]    properties[1,1]      properties[0,1]     or  accumulate
+    properties[0,1]    affinity[0,5]  affinity[0,5] xor accumulate
     next self
 
   # Free Energy / Prediction Error: Computes the gap between the incoming
   # tokens and the context (the local eigenmode/attractor).
   surprisal: |
-    tokens[0,8] context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] meta[0,1] xor reduce
+    tokens[0,8]  context[0,8] signals[0,8] xor accumulate
+    signals[0,8] signals[0,8] properties[0,1]    xor reduce
 
   # Popperian Test: XORs tokens against a predicted-absent pattern in context.
-  # A high popcount in meta[1] means the claim held (they differ); a low
-  # popcount refutes it. If refuted, we zero the TTL word (meta[3]).
+  # A high popcount in properties[1] means the claim held (they differ); a low
+  # popcount refutes it. If refuted, we zero the TTL word (properties[3]).
   falsification: |
-    tokens[0,8] context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] meta[1,1] xor reduce
-    meta[1,1] meta[3,1] meta[3,1] and accumulate
+    tokens[0,8]  context[0,8] signals[0,8] xor accumulate
+    signals[0,8] signals[0,8] properties[1,1]    xor reduce
+    properties[1,1]    properties[3,1]    properties[3,1]    and accumulate
 
   # Temperature: Physical noise injected into the Affinity vector during
   # exploration to widen the search space.
   temperature: |
-    meta[4,1] affinity[0,5] affinity[0,5] xor accumulate
+    properties[4,1] affinity[0,5] affinity[0,5] xor accumulate
 
-  # Phase-Rotated Attractors: Compares the value against multiple phase-rotated
-  # attractors to determine the best fit.
-  classification: |
-    tokens[0,8] context[0,8] signals[0,8] xnor accumulate
-    signals[0,8] signals[0,8] meta[2,1] xor reduce
+  # Active Inference: Unified cognitive loop that simulates multiple futures,
+  # evaluates their expected free energy, and applies the action that minimizes
+  # surprisal.
+  active_inference: |
+    tokens[0,8]    gradient[0,8]   reserved[0,8]  xor accumulate
+    tokens[0,4]    properties[4,2] reserved[8,4]  and accumulate
+    tokens[4,4]    properties[6,2] reserved[12,4] and accumulate
+    tokens[0,8]    context[0,8]    reserved[16,8] xor accumulate
+    reserved[0,8]  context[0,8]    signals[0,8]   xor accumulate
+    reserved[8,8]  context[0,8]    reserved[24,8] xor accumulate
+    reserved[16,8] context[0,8]    reserved[32,8] xor accumulate
+    signals[0,8]   signals[0,8]    signals[0,1]   xor reduce
+    reserved[24,8] reserved[24,8]  signals[1,1]   xor reduce
+    reserved[32,8] reserved[32,8]  signals[2,1]   xor reduce
+    next self
+
+  # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
+  # Used by phase probes; the field drives parallel population, not one tight loop.
+  causal_explore: |
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
+    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
+    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+
+  # Causal Hub: Iterative causal gap exploration.
+  # Loops via next self until the queue or finalizer breaks the circuit.
+  causal_hub: |
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
+    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
+    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    next self

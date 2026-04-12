@@ -17,14 +17,15 @@ import (
 	"github.com/theapemachine/six/pkg/viz"
 )
 
+/*
+cascadeSafetyCeiling is the hard upper bound on scheduler hops. Thermodynamic
+halting (convergence, Shannon death) is the real regulator; this is only a
+circuit breaker that should never fire under normal operation.
+*/
+const cascadeSafetyCeiling = uint32(32)
+
 func queueWorkerCount() int {
-	n := runtime.NumCPU() - 1
-
-	if n < 1 {
-		n = 1
-	}
-
-	return n
+	return max(runtime.NumCPU()-1, 1)
 }
 
 /*
@@ -49,6 +50,7 @@ type Queue struct {
 	pool      *Pool
 	backend   QueueBackend
 	field     *geometry.Field
+	global    *geometry.Field
 	normal    *data.Ring
 	priority  *data.Ring
 	spill     *data.Ring
@@ -80,6 +82,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 		cancel: cancel,
 		pool:   NewPool(uint64(queueWorkerCount())),
 		field:  geometry.NewField(geometry.Mod8191),
+		global: geometry.NewField(geometry.Mod65537),
 	}
 
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
@@ -119,6 +122,122 @@ func (queue *Queue) Error() error {
 }
 
 /*
+publishTask avoids closure allocations in Publish and PublishTracked.
+*/
+type publishTask struct {
+	queue    *Queue
+	frame    *primitive.Value
+	label    string
+	tracked  bool
+	hopsUsed uint32
+	run      func()
+	ptrs     [1]unsafe.Pointer
+}
+
+var taskPool *sync.Pool
+
+func init() {
+	taskPool = &sync.Pool{
+		New: func() any {
+			t := &publishTask{}
+			t.run = func() { t.execute() }
+			return t
+		},
+	}
+}
+
+func (t *publishTask) execute() error {
+	queue := t.queue
+	frame := t.frame
+	label := t.label
+	tracked := t.tracked
+
+	// EXECUTE — run whatever program is installed on this Value.
+	t.ptrs[0] = unsafe.Pointer(frame)
+
+	if err := queue.backend.Execute(t.ptrs[:]); err != nil {
+		return errnie.Error(err)
+	}
+
+	if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
+		hops := t.hopsUsed + 1
+
+		if hops >= cascadeSafetyCeiling {
+			(*frame)[kernel.SchedulingNextProgramWord] = 0
+		} else {
+			if tracked {
+				queue.republishTracked(frame, label, hops)
+			} else {
+				// Re-enqueue without making a copy since we already own the frame
+				inflight := queue.inflight.Add(1)
+
+				if viz.DefaultBus.IsActive() {
+					viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+						inflight,
+						frame.ID(),
+						(*frame)[kernel.PrevStartWord],
+						(*frame)[kernel.NextStartWord],
+						"",
+					))
+				}
+
+				newTask := taskPool.Get().(*publishTask)
+				newTask.queue = queue
+				newTask.frame = frame
+				newTask.label = label
+				newTask.tracked = false
+				newTask.hopsUsed = hops
+
+				queue.pool.Submit(newTask.run)
+			}
+		}
+	}
+
+	if (*frame)[kernel.SchedulingNextProgramWord] == 0 && !tracked {
+		for i := range *frame {
+			(*frame)[i] = 0
+		}
+		publishFramePool.Put(frame)
+	}
+
+	if queue.inflight.Add(-1) == 0 {
+		queue.drainMu.Lock()
+		queue.drainWait.Broadcast()
+		queue.drainMu.Unlock()
+	}
+
+	taskPool.Put(t)
+	return nil
+}
+
+/*
+republishTracked re-enqueues a tracked frame carrying the cumulative hop
+counter so the safety ceiling spans the full cascade lifetime.
+*/
+func (queue *Queue) republishTracked(frame *primitive.Value, label string, hopsUsed uint32) {
+	inflight := queue.inflight.Add(1)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			inflight,
+			frame.ID(),
+			(*frame)[kernel.PrevStartWord],
+			(*frame)[kernel.NextStartWord],
+			"",
+		))
+	}
+
+	task := taskPool.Get().(*publishTask)
+	task.queue = queue
+	task.frame = frame
+	task.label = label
+	task.tracked = true
+	task.hopsUsed = hopsUsed
+
+	queue.pool.Submit(task.run)
+}
+
+/*
 Publish enqueues a task to the normal-priority ring buffer.
 It implement the Publishable interface.
 */
@@ -140,70 +259,72 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 	}
 
 	inflight := queue.inflight.Add(1)
-	viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight))
 
-	queue.pool.Submit(func() {
-		var run func()
-		run = func() {
-			_ = label
-			
-			// 1. SENSE: Read the local eigenmode from the field based on affinity
-			if queue.field != nil {
-				// We need to sample the field and write it to context/gradient
-				// For now, we'll just impress the tokens into the field to build up the eigenmodes
-				queue.field.ObserveBytes(frame.TokenRegionBytes())
-			}
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			inflight,
+			frame.ID(),
+			(*frame)[kernel.PrevStartWord],
+			(*frame)[kernel.NextStartWord],
+			"",
+		))
+	}
 
-			_ = queue.backend.Execute([]unsafe.Pointer{unsafe.Pointer(frame)})
+	task := taskPool.Get().(*publishTask)
+	task.queue = queue
+	task.frame = frame
+	task.label = label
+	task.tracked = false
+	task.hopsUsed = 0
 
-			nextID := (*frame)[kernel.SchedulingNextProgramWord]
-			if nextID == 0 {
-				*frame = primitive.Value{}
-				publishFramePool.Put(frame)
-
-				if queue.inflight.Add(-1) == 0 {
-					queue.drainMu.Lock()
-					queue.drainWait.Broadcast()
-					queue.drainMu.Unlock()
-				}
-				return
-			}
-
-			// Decrement TTL (unary bitmask in MetaTTLWord)
-			ttlWord := (*frame)[kernel.MetaTTLWord]
-			if ttlWord != ^uint64(0) && ttlWord != 0 {
-				// Clear the lowest set bit
-				(*frame)[kernel.MetaTTLWord] = ttlWord & (ttlWord - 1)
-				if (*frame)[kernel.MetaTTLWord] == 0 {
-					// Cascade self-terminates
-					(*frame)[kernel.SchedulingNextProgramWord] = 0
-				}
-			}
-
-			if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
-				queue.pool.Submit(run)
-			} else {
-				*frame = primitive.Value{}
-				publishFramePool.Put(frame)
-
-				if queue.inflight.Add(-1) == 0 {
-					queue.drainMu.Lock()
-					queue.drainWait.Broadcast()
-					queue.drainMu.Unlock()
-				}
-			}
-		}
-
-		run()
-	})
+	queue.pool.Submit(task.run)
 
 	return nil
 }
 
 /*
-Submit dispatches a task to the goroutine pool for immediate execution.
-This is the fast path for CPU-bound work that should not queue.
+PublishTracked enqueues a task to the normal-priority ring buffer WITHOUT
+making a copy. The caller retains ownership of the Value and MUST NOT close
+it until the queue drains. Cascade halting is driven by thermodynamics
+(convergence / Shannon death); the safety ceiling lives on the task counter.
 */
+func (queue *Queue) PublishTracked(frame *primitive.Value, label string) error {
+	if queue == nil {
+		return errors.New("queue: nil")
+	}
+
+	if queue.backend == nil {
+		return errors.New("queue: no backend")
+	}
+
+	if frame == nil {
+		return errors.New("queue: nil frame")
+	}
+
+	inflight := queue.inflight.Add(1)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			inflight,
+			frame.ID(),
+			(*frame)[kernel.PrevStartWord],
+			(*frame)[kernel.NextStartWord],
+			"",
+		))
+	}
+
+	task := taskPool.Get().(*publishTask)
+	task.queue = queue
+	task.frame = frame
+	task.label = label
+	task.tracked = true
+	task.hopsUsed = 0
+
+	queue.pool.Submit(task.run)
+
+	return nil
+}
+
 func (queue *Queue) Submit(task func()) {
 	if queue == nil {
 		return
@@ -256,12 +377,11 @@ func (queue *Queue) Drain() {
 	}
 
 	queue.drainMu.Lock()
+	defer queue.drainMu.Unlock()
 
 	for queue.inflight.Load() > 0 {
 		queue.drainWait.Wait()
 	}
-
-	queue.drainMu.Unlock()
 }
 
 /*

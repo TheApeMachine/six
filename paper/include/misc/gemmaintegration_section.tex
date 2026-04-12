@@ -12,7 +12,7 @@ centre that translates the manifold's pre-resolved geometric state into fluent
 natural language via logit biases.
 
 \textbf{Manifold-grafted generation.}
-For each of $N=3$ contradiction-heavy prompts the manifold substrate
+For each of $N=0$ contradiction-heavy prompts the manifold substrate
 (populated by ingesting the relevant context paragraphs through the full
 pipeline) projects its top-$k$ readout value bytes onto a logit bias over the
 Gemma vocabulary.  Byte-level fallback tokens (IDs 3--258) receive a positive
@@ -20,7 +20,7 @@ bias proportional to their frequency in the substrate readout, nudging
 generation toward tokens coherent with the manifold's constraint state.
 
 \textbf{KV-cache replacement.}
-For each of $N=4$ needle-in-distractor documents the full document is
+For each of $N=0$ needle-in-distractor documents the full document is
 ingested into the substrate.  Gemma then generates from a question-only prompt;
 the substrate readout provides context via the same logit-bias projection.
 This decouples generation cost from document length---the LLM prompt is
@@ -30,8 +30,8 @@ This decouples generation cost from document length---the LLM prompt is
 Figure~\ref{fig:gemma_integration} summarises wall-clock latency and
 task-success (heuristic substring match) for both modes.
 
-Graft mode: plain Gemma solved 0/3 cases;
-Gemma+Manifold solved 0/3 cases.
+Graft mode: plain Gemma solved 0/0 cases;
+Gemma+Manifold solved 0/0 cases.
 Mean latency: Gemma 0.00\,s, Hybrid 0.00\,s.
 
 \paragraph{Assessment.}

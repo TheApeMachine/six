@@ -297,26 +297,31 @@ func (backend *Backend) ensureCorrelationIDs(frames []unsafe.Pointer) {
 	}
 }
 
-func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, correlation uint64) {
+func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, correlation uint64, valueID uint64) {
 	for _, ptr := range frames {
 		if ptr == nil {
 			continue
 		}
 
-		return kernel.FrameProgramRawOpcode(ptr), kernel.FrameCorrelationID(ptr)
+		return kernel.FrameProgramRawOpcode(ptr), kernel.FrameCorrelationID(ptr), kernel.FrameID(ptr)
 	}
 
-	return 0, 0
+	return 0, 0, 0
 }
 
 func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.Pointer, elapsed time.Duration) {
-	op, corr := firstFrameOpcodeAndCorrelation(frames)
+	if !viz.DefaultBus.IsActive() {
+		return
+	}
+
+	op, corr, valID := firstFrameOpcodeAndCorrelation(frames)
 
 	viz.DefaultBus.Publish(viz.ALUDispatchEvent(
 		st.substrate.Name(),
 		op,
 		corr,
 		int(elapsed.Milliseconds()),
+		valID,
 	))
 }
 
@@ -330,15 +335,32 @@ func (backend *Backend) Execute(
 ) error {
 	backend.ensureCorrelationIDs(frames)
 
-	st := backend.pick(frames)
+	// Force CPU substrate for OpcodeRegionProgram since it's only implemented there
+	op, _, valID := firstFrameOpcodeAndCorrelation(frames)
+	var st *substrateState
+	if uint64(op) == kernel.OpcodeRegionProgram {
+		for _, state := range backend.states {
+			if state.substrate.Name() == "cpu" {
+				st = state
+				break
+			}
+		}
+	}
+
+	if st == nil {
+		st = backend.pick(frames)
+	}
 
 	st.inflight.Add(1)
 
-	viz.DefaultBus.Publish(viz.PoolScheduleEvent(
-		st.substrate.Name(),
-		int(st.inflight.Load()),
-		len(backend.states),
-	))
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+			st.substrate.Name(),
+			int(st.inflight.Load()),
+			len(backend.states),
+			valID,
+		))
+	}
 
 	start := time.Now()
 
@@ -348,10 +370,13 @@ func (backend *Backend) Execute(
 	st.inflight.Add(-1)
 	st.observe(elapsed)
 
-	viz.DefaultBus.Publish(viz.PoolCompleteEvent(
-		st.substrate.Name(),
-		int(elapsed.Milliseconds()),
-	))
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+			st.substrate.Name(),
+			int(elapsed.Milliseconds()),
+			valID,
+		))
+	}
 
 	backend.publishALUDispatch(st, frames, elapsed)
 

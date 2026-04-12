@@ -12,22 +12,6 @@ import (
 )
 
 /*
-giModelID is the HuggingFace repository for Gemma 2B instruction-tuned.
-Requires HF_TOKEN in the environment (read-only token is sufficient).
-*/
-const giModelID = "google/gemma-2-2b-it"
-
-/*
-giDataDir is the local weight cache root.
-*/
-const giDataDir = "~/.cache/six/gemma"
-
-/*
-giMaxTokens is the per-call generation budget.
-*/
-const giMaxTokens = 256
-
-/*
 graftCase is a single test case for the manifold-grafted generation mode.
 Context is ingested into the substrate during the pipeline phase.
 Prompt is the chat-formatted question fed to Gemma.
@@ -311,31 +295,6 @@ func (exp *GemmaIntegrationExperiment) Finalize() error {
 	exp.kvResults = exp.kvResults[:0]
 
 	return nil
-}
-
-/*
-flattenSubstrateBytes concatenates substrate readout sequences into a single
-string, truncated to maxBytes. Used for prepending substrate context to a
-Gemma prompt in graft mode.
-*/
-func flattenSubstrateBytes(sequences [][]byte, maxBytes int) string {
-	var sb strings.Builder
-
-	for _, seq := range sequences {
-		if sb.Len()+len(seq) > maxBytes {
-			remaining := maxBytes - sb.Len()
-
-			if remaining > 0 {
-				sb.Write(seq[:remaining])
-			}
-
-			break
-		}
-
-		sb.Write(seq)
-	}
-
-	return sb.String()
 }
 
 /*

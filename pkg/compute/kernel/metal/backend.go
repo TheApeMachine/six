@@ -30,6 +30,7 @@ the cheapest correct fix — the GPU work itself is still parallel
 on-device; we only serialize the host-side dispatch.
 */
 var metalMu sync.Mutex
+var batchBuffer []byte
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
 //go:generate xcrun -sdk macosx metallib backend.air -o backend.metallib
@@ -110,6 +111,41 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	metalMu.Lock()
 	defer metalMu.Unlock()
 
+	var unifiedBatch []unsafe.Pointer
+	var unifiedBatchCount int
+
+	flushUnified := func() error {
+		if unifiedBatchCount == 0 {
+			return nil
+		}
+
+		reqBytes := unifiedBatchCount * 1024
+		if cap(batchBuffer) < reqBytes {
+			batchBuffer = make([]byte, reqBytes)
+		}
+		batchBuffer = batchBuffer[:reqBytes]
+
+		for i, ptr := range unifiedBatch {
+			copy(batchBuffer[i*1024:(i+1)*1024], unsafe.Slice((*byte)(ptr), 1024))
+		}
+
+		if C.unified_bitwise_metal(unsafe.Pointer(&batchBuffer[0]), C.uint32_t(unifiedBatchCount)) != 0 {
+			err := NewMetalKernelError(
+				kernel.KernelErrDispatchFailed, nil, "Execute",
+			)
+			backend.observer.Error("metal.Backend.Execute", err)
+			return err
+		}
+
+		for i, ptr := range unifiedBatch {
+			copy(unsafe.Slice((*byte)(ptr), 1024), batchBuffer[i*1024:(i+1)*1024])
+		}
+
+		unifiedBatch = unifiedBatch[:0]
+		unifiedBatchCount = 0
+		return nil
+	}
+
 	for _, ptr := range frames {
 		if ptr == nil {
 			continue
@@ -125,6 +161,10 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		if kernel.IsGeometricOpcode(rawOpcode) {
+			if err := flushUnified(); err != nil {
+				return err
+			}
+
 			if C.geometric_metal(ptr, 1) != 0 {
 				err := NewMetalKernelError(
 					kernel.KernelErrDispatchFailed,
@@ -141,6 +181,10 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		if opcode == kernel.OpcodeXOR && batchCount > 0 {
+			if err := flushUnified(); err != nil {
+				return err
+			}
+
 			distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
 
 			if C.nearest_affinity_metal(
@@ -176,18 +220,11 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		if C.unified_bitwise_metal(ptr, 1) != 0 {
-			err := NewMetalKernelError(
-				kernel.KernelErrDispatchFailed, nil, "Execute",
-			)
-
-			backend.observer.Error("metal.Backend.Execute", err, kernel.CorrelationKeyvalsFlat(ptr)...)
-
-			return err
-		}
+		unifiedBatch = append(unifiedBatch, ptr)
+		unifiedBatchCount++
 	}
 
-	return nil
+	return flushUnified()
 }
 
 /*
@@ -222,39 +259,6 @@ func (backend *Backend) NearestAffinity(
 	}
 
 	return distances, nil
-}
-
-/*
-batchDistances is the internal fused XOR+popcount path, called by
-Execute when it detects a batch distance opcode. Kept as a method
-for NearestAffinity backward compatibility.
-*/
-func (backend *Backend) batchDistances(
-	query unsafe.Pointer,
-	candidates unsafe.Pointer,
-	count int,
-	distances []uint32,
-) error {
-	if !metalReady.Load() {
-		return NewMetalKernelError(
-			kernel.KernelErrUnavailable,
-			errors.New("metal backend not initialized"),
-			"batchDistances",
-		)
-	}
-
-	if C.nearest_affinity_metal(
-		query,
-		candidates,
-		C.uint32_t(count),
-		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
-	) != 0 {
-		return NewMetalKernelError(
-			kernel.KernelErrDispatchFailed, nil, "batchDistances",
-		)
-	}
-
-	return nil
 }
 
 func init() {

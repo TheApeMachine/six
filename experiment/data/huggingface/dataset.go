@@ -46,6 +46,8 @@ type Dataset struct {
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
 	perSamplePos bool
+	// babiStory enables facebook/babi_qa-style rows: nested story.{text,answer,type} exploded into QA pairs.
+	babiStory bool
 
 	mu     sync.RWMutex
 	labels map[uint32]int
@@ -90,8 +92,21 @@ func New(opts ...datasetOpts) *Dataset {
 	return dataset
 }
 
-// rowVisitor is called once per sample with the joined text, optional label, and sample index.
-type rowVisitor func(text string, label int, hasLabel bool, sampleIdx uint32) bool
+/*
+rowSample is one logical unit after shard parsing (one classification row, or one exploded bAbI QA pair).
+promptText empty means GeneratePrompts uses streamText. labelIsText selects string answers (bAbI) vs integer labels.
+*/
+type rowSample struct {
+	streamText  string
+	promptText  string
+	labelInt    int
+	labelText   string
+	hasLabel    bool
+	labelIsText bool
+}
+
+// rowVisitor is called once per sample. sampleIdx is monotonic for this shard load.
+type rowVisitor func(sample rowSample, sampleIdx uint32) bool
 
 // textColumns returns the effective list of text columns to read.
 func (dataset *Dataset) effectiveTextColumns() []string {
@@ -115,7 +130,7 @@ func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 }
 
 func (dataset *Dataset) HasPromptLabels() bool {
-	return dataset != nil && dataset.labelColumn != ""
+	return dataset != nil && (dataset.labelColumn != "" || dataset.babiStory)
 }
 
 /*
@@ -152,16 +167,16 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 		}
 		defer flushLabels()
 
-		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
-			if hasLabel {
-				labelBatch[sampleIdx] = label
+		if err := dataset.streamRows(func(sample rowSample, sampleIdx uint32) bool {
+			if sample.hasLabel && !sample.labelIsText {
+				labelBatch[sampleIdx] = sample.labelInt
 
 				if len(labelBatch) >= labelBatchSize {
 					flushLabels()
 				}
 			}
 
-			for _, b := range []byte(text) {
+			for _, b := range []byte(sample.streamText) {
 				tokens = append(tokens, b)
 
 				if !yield(b) {
@@ -174,8 +189,9 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 			// When labelAppend is configured, append " → <label_name>" to the
 			// sample's byte stream so the manifold stores article+label as a
 			// single continuous sequence (classification-as-generation).
-			if hasLabel && len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
-				suffix := " → " + dataset.labelAppend[label]
+			if sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 &&
+				sample.labelInt >= 0 && sample.labelInt < len(dataset.labelAppend) {
+				suffix := " → " + dataset.labelAppend[sample.labelInt]
 
 				for _, b := range []byte(suffix) {
 					tokens = append(tokens, b)
@@ -248,7 +264,9 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 
 	dataset.readTotalSent += int64(n)
 	total := dataset.readTotalSent
-	viz.DefaultBus.Publish(viz.DatasetReadEvent(dataset.repo, int64(n), total, ""))
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.DatasetReadEvent(dataset.repo, int64(n), total, ""))
+	}
 
 	return n, nil
 }
@@ -281,20 +299,32 @@ func (dataset *Dataset) GeneratePrompts() iter.Seq[data.Prompt] {
 		}
 		defer flushLabels()
 
-		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
-			if hasLabel {
-				labelBatch[sampleIdx] = label
+		if err := dataset.streamRows(func(sample rowSample, sampleIdx uint32) bool {
+			if sample.hasLabel && !sample.labelIsText {
+				labelBatch[sampleIdx] = sample.labelInt
 
 				if len(labelBatch) >= labelBatchSize {
 					flushLabels()
 				}
 			}
 
+			promptText := sample.promptText
+			if promptText == "" {
+				promptText = sample.streamText
+			}
+
+			var labelStr string
+			if sample.labelIsText {
+				labelStr = sample.labelText
+			} else {
+				labelStr = dataset.labelAsText(sample.labelInt, sample.hasLabel)
+			}
+
 			prompt := data.Prompt{
 				SampleID: sampleIdx,
-				Text:     text,
-				HasLabel: hasLabel,
-				Label:    dataset.labelAsText(label, hasLabel),
+				Text:     promptText,
+				HasLabel: sample.hasLabel,
+				Label:    labelStr,
 			}
 
 			return yield(prompt)
@@ -415,6 +445,14 @@ func (dataset *Dataset) streamRows(fn rowVisitor) error {
 		return err
 	}
 
+	if dataset.babiStory {
+		if strings.HasSuffix(shard, ".parquet") {
+			return dataset.streamBabiParquet(reader, fn)
+		}
+
+		return dataset.streamBabiJSON(reader, fn)
+	}
+
 	if strings.HasSuffix(shard, ".parquet") {
 		return dataset.streamParquet(reader, fn)
 	}
@@ -515,7 +553,7 @@ func (dataset *Dataset) streamParquet(reader io.Reader, fn rowVisitor) error {
 						return nil
 					}
 
-					if !fn(text, 0, false, uint32(sampleCount)) {
+					if !fn(rowSample{streamText: text}, uint32(sampleCount)) {
 						pages.Close()
 						return nil
 					}
@@ -637,7 +675,11 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 			}
 		}
 
-		if !fn(text, label, hasLabel, uint32(sampleCount)) {
+		if !fn(rowSample{
+			streamText: text,
+			labelInt:   label,
+			hasLabel:   hasLabel,
+		}, uint32(sampleCount)) {
 			return nil
 		}
 
@@ -733,7 +775,11 @@ func (dataset *Dataset) streamJSON(reader io.Reader, fn rowVisitor) error {
 			}
 		}
 
-		if !fn(text, label, hasLabel, uint32(total)) {
+		if !fn(rowSample{
+			streamText: text,
+			labelInt:   label,
+			hasLabel:   hasLabel,
+		}, uint32(total)) {
 			return nil
 		}
 
@@ -1053,6 +1099,25 @@ Default (perSamplePos=true) resets Pos to 0 per sample.
 func DatasetWithContinuousPos() datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.perSamplePos = false
+	}
+}
+
+/*
+DatasetWithBabiStory parses facebook/babi_qa-style shards (nested story.text / story.answer / story.type).
+Apply after DatasetWithRepo if you rely on empty-repo defaults. When repo and subset are still empty,
+defaults match the upstream dataset: facebook/babi_qa and en-10k-qa1.
+*/
+func DatasetWithBabiStory() datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.babiStory = true
+
+		if dataset.repo == "" {
+			dataset.repo = "facebook/babi_qa"
+		}
+
+		if dataset.subset == "" {
+			dataset.subset = "en-10k-qa1"
+		}
 	}
 }
 

@@ -164,7 +164,12 @@ func safe_ready(gp unsafe.Pointer) {
 	for Readgstatus(gp)&^_Gscan != _Gwaiting {
 		mcall(gosched_m)
 	}
-	goready(gp, 1)
+
+	// Double check the status before calling goready to avoid fatal error
+	status := Readgstatus(gp) &^ _Gscan
+	if status == _Gwaiting {
+		goready(gp, 1)
+	}
 }
 
 type waitReason uint8

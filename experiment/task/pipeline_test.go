@@ -184,7 +184,7 @@ func TestPipeline(t *testing.T) {
 					t.Context(),
 					PipelineWithExperiment(experiment),
 					PipelineWithReporter(NewProjectorReporter()),
-					PipelineWithViz("127.0.0.1:6600"),
+					PipelineWithViz(":6600"),
 				)
 
 				So(err, ShouldBeNil)
@@ -208,7 +208,7 @@ func TestPipeline(t *testing.T) {
 					for idx, prompt := range experiment.Prompts() {
 						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
 						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
-						prediction, promptErr := machine.Prompt(prompt)
+						prediction, promptErr := machine.Prompt(prompt, "affinity")
 
 						if promptErr != nil {
 							t.Fatalf("prompt %d: %v", idx, promptErr)

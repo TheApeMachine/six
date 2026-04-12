@@ -2,7 +2,6 @@ package classification
 
 import (
 	"fmt"
-	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
@@ -257,22 +256,6 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 			},
 		},
 	}
-}
-
-func unambiguousLabelSubstringIndex(observed string, labels []string) (int, bool) {
-	var hits []int
-
-	for classIdx, label := range labels {
-		if strings.Contains(observed, label) {
-			hits = append(hits, classIdx)
-		}
-	}
-
-	if len(hits) != 1 {
-		return 0, false
-	}
-
-	return hits[0], true
 }
 
 func textClassificationAssessment(macroF1 float64, n int) string {

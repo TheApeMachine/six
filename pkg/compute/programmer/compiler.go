@@ -96,6 +96,7 @@ func newFrameBuilder(tokens []Token) *frameBuilder {
 frames emits one Frame per token for the chosen substrate target.
 */
 func (builder *frameBuilder) frames(target CompilerTarget) ([]Frame, error) {
+	_ = target
 	out := make([]Frame, 0, len(builder.tokens))
 
 	for _, tok := range builder.tokens {
@@ -107,7 +108,7 @@ func (builder *frameBuilder) frames(target CompilerTarget) ([]Frame, error) {
 
 		var frame Frame
 
-		builder.packTruth(&frame, op, tok, target)
+		builder.packTruth(&frame, op, tok)
 		out = append(out, frame)
 	}
 
@@ -193,7 +194,6 @@ func (*frameBuilder) packTruth(
 	frame *Frame,
 	op OperationType,
 	tok Token,
-	target CompilerTarget,
 ) {
 	nibble := uint64(op) & 0xF
 
@@ -210,6 +210,4 @@ func (*frameBuilder) packTruth(
 	frame.Program[3] = kernel.PackRegionRef(tok.SrcARef.AbsStart(), tok.SrcARef.Span)
 	frame.Program[4] = kernel.PackRegionRef(tok.SrcBRef.AbsStart(), tok.SrcBRef.Span)
 	frame.Program[5] = kernel.PackRegionRef(tok.DstRef.AbsStart(), tok.DstRef.Span)
-
-	_ = target
 }

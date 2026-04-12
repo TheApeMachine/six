@@ -1,85 +1,66 @@
 package geometry
 
 import (
+	"context"
 	"math"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
-func TestNewEigenMode(t *testing.T) {
-	Convey("Given NewEigenMode", t, func() {
-		ei := NewEigenMode()
-		So(ei, ShouldNotBeNil)
-		So(ei.Trained, ShouldBeFalse)
+func TestSymbolFromPropertyBand(t *testing.T) {
+	Convey("Given SymbolFromPropertyBand", t, func() {
+		Convey("empty slice yields 0", func() {
+			So(SymbolFromPropertyBand(nil), ShouldEqual, 0)
+			So(SymbolFromPropertyBand([]uint64{}), ShouldEqual, 0)
+		})
+
+		Convey("eight-word fold is stable and in 0..511", func() {
+			words := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
+			s := SymbolFromPropertyBand(words)
+			So(s, ShouldBeGreaterThanOrEqualTo, 0)
+			So(s, ShouldBeLessThan, 512)
+			So(SymbolFromPropertyBand(words), ShouldEqual, s)
+		})
+
+		Convey("extra words beyond eight are ignored", func() {
+			long := []uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFFFF}
+			short := []uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+			So(SymbolFromPropertyBand(long), ShouldEqual, SymbolFromPropertyBand(short))
+		})
 	})
 }
 
-func TestEigenModePhaseForValue(t *testing.T) {
-	Convey("Given EigenMode.PhaseForValue", t, func() {
-		ei := NewEigenMode()
-		values, err := primitive.NewValue([]byte("phase"))
+func TestEigenModeToroidal_BuildCooccurrence(t *testing.T) {
+	Convey("Given EigenModeToroidal.BuildCooccurrence", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		emt, err := NewEigenModeToroidal(
+			EigenWithContext(ctx),
+			func(e *EigenModeToroidal) {
+				e.cancel = cancel
+				e.affinity = []uint64{1}
+			},
+		)
+
 		So(err, ShouldBeNil)
-		So(len(values), ShouldBeGreaterThan, 0)
 
-		theta, phi := ei.PhaseForValue(values[0])
-		So(theta, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
-		So(phi, ShouldBeBetweenOrEqual, 0, 2*math.Pi)
+		Convey("It should fill phase and frequency from a byte corpus", func() {
+			emt.BuildCooccurrence([]byte("ababab"), 2)
+			So(len(emt.frequency), ShouldEqual, 512)
+			So(emt.phase[0], ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
+		})
 	})
 }
 
-func TestEigenModeBuildMultiScaleCooccurrence(t *testing.T) {
-	Convey("Given BuildMultiScaleCooccurrence", t, func() {
-		ei := NewEigenMode()
-		err := ei.BuildMultiScaleCooccurrence(nil)
-		So(err, ShouldBeNil)
-		So(ei.Trained, ShouldBeTrue)
-	})
-}
+func BenchmarkSymbolFromPropertyBand(b *testing.B) {
+	words := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
 
-func TestEigenModeWeightedCircularMean(t *testing.T) {
-	Convey("Given empty slice", t, func() {
-		ei := NewEigenMode()
-		p, c := ei.WeightedCircularMean(nil)
-		So(p, ShouldEqual, 0)
-		So(c, ShouldEqual, 0)
-	})
-}
-
-func BenchmarkNewEigenMode(b *testing.B) {
 	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		_ = NewEigenMode()
-	}
-}
-
-func BenchmarkEigenModePhaseForValue(b *testing.B) {
-	ei := NewEigenMode()
-	values, err := primitive.NewValue([]byte("benchmark phase payload"))
-	if err != nil || len(values) < 1 {
-		b.Fatal(err)
-	}
-
-	value := values[0]
-
 	b.ResetTimer()
-	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		_, _ = ei.PhaseForValue(value)
-	}
-}
-
-func BenchmarkBuildMultiScaleCooccurrence(b *testing.B) {
-	ei := NewEigenMode()
-	payload := []primitive.Value{}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		_ = ei.BuildMultiScaleCooccurrence(payload)
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = SymbolFromPropertyBand(words)
 	}
 }

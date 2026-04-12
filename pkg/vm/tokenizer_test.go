@@ -57,6 +57,9 @@ func setupTokenizerValueConfig(tb testing.TB) {
 		core.Cfg.Programs = make(map[string]string)
 	}
 	core.Cfg.Programs["affinity"] = "tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate"
+	// Prompt installs these by name; tests do not load cmd/cfg/config.yml.
+	core.Cfg.Programs["active_inference"] = core.Cfg.Programs["affinity"]
+	core.Cfg.Programs["causal_explore"] = core.Cfg.Programs["affinity"]
 }
 
 func TestNewTokenizer(t *testing.T) {

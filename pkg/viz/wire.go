@@ -108,16 +108,34 @@ func marshalEventPayload(ev Event) []byte {
 	b = appendStringU32(b, ev.Target)
 	b = appendStringU32(b, ev.Label)
 
-	b = appendU32(b, uint32(len(ev.Values)))
-	for k, v := range ev.Values {
-		b = appendStringU32(b, k)
-		b = appendF64(b, v)
+	if ev.Values != nil {
+		// Only marshal values if map is not empty
+		if len(ev.Values) > 0 {
+			b = appendU32(b, uint32(len(ev.Values)))
+			for k, v := range ev.Values {
+				b = appendStringU32(b, k)
+				b = appendF64(b, v)
+			}
+		} else {
+			b = appendU32(b, 0)
+		}
+	} else {
+		b = appendU32(b, 0)
 	}
 
-	b = appendU32(b, uint32(len(ev.Meta)))
-	for k, v := range ev.Meta {
-		b = appendStringU32(b, k)
-		b = appendStringU32(b, v)
+	if ev.Meta != nil {
+		// Only marshal meta if map is not empty
+		if len(ev.Meta) > 0 {
+			b = appendU32(b, uint32(len(ev.Meta)))
+			for k, v := range ev.Meta {
+				b = appendStringU32(b, k)
+				b = appendStringU32(b, v)
+			}
+		} else {
+			b = appendU32(b, 0)
+		}
+	} else {
+		b = appendU32(b, 0)
 	}
 
 	return b

@@ -54,7 +54,7 @@ const readString = (u8: Uint8Array, off: number): { s: string; off: number } => 
     return { s, off };
 }
 
-const decodeEventPayload = (u8: Uint8Array, off: number): VizEvent => {
+const decodeEventPayload = (u8: Uint8Array, off: number): { event: VizEvent; nextOff: number } => {
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 
     if (off + 8 > u8.length) throw new Error('wire: event ts');
@@ -108,57 +108,100 @@ const decodeEventPayload = (u8: Uint8Array, off: number): VizEvent => {
         r = readString(u8, off); meta[key] = r.s; off = r.off;
     }
 
-    return { kind, ts: Number(tsBig), src, tgt, lbl, vals, meta };
+    const event: VizEvent = { kind, ts: Number(tsBig), src, tgt, lbl, vals, meta };
+    return { event, nextOff: off };
 }
 
-export const decodeVizMessage = (u8: Uint8Array): DecodedFrame | null => {
-    if (u8.length < 5 || !matchMagic(u8)) return null;
+/*
+decodeVizFrames walks a binary WebSocket payload that may concatenate multiple
+VZB frames (same magic each time). Each full frame is decoded in order.
+*/
+export const decodeVizFrames = (input: Uint8Array | ArrayBuffer): DecodedFrame[] => {
+    const arr = input instanceof ArrayBuffer ? new Uint8Array(input) : input;
+    const out: DecodedFrame[] = [];
+    const dv = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    let i = 0;
 
-    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-    const frameType = u8[4];
-    const off0 = 5;
-
-    if (frameType === FrameType.Event) {
-        return { frameType: 'event', event: decodeEventPayload(u8, off0) };
-    }
-
-    if (frameType === FrameType.Bootstrap) {
-        let off = off0;
-        const n = dv.getUint32(off, true); off += 4;
-        const nodes: string[] = [];
-    
-        for (let i = 0; i < n; i++) {
-            const r = readString(u8, off); nodes.push(r.s); off = r.off;
-        }
-        return { frameType: 'bootstrap', nodes };
-    }
-
-    if (frameType === FrameType.Stats) {
-        const dropped = Number(dv.getBigUint64(off0, true));
-        return { frameType: 'stats', dropped };
-    }
-
-    if (frameType === FrameType.Scrub) {
-        let off = off0;
-        const nEv = dv.getUint32(off, true); off += 4;
-        const events: VizEvent[] = [];
-
-        for (let i = 0; i < nEv; i++) {
-            const chunkLen = dv.getUint32(off, true); off += 4;
-            events.push(decodeEventPayload(u8.subarray(off, off + chunkLen), 0));
-            off += chunkLen;
+    while (i + 5 <= arr.length) {
+        if (!matchMagic(arr.subarray(i, i + 4))) {
+            i++;
+            continue;
         }
 
-        return { frameType: 'scrub', events };
+        const frameType = arr[i + 4];
+        const off0 = i + 5;
+
+        try {
+            if (frameType === FrameType.Event) {
+                const { event, nextOff } = decodeEventPayload(arr, off0);
+                out.push({ frameType: 'event', event });
+                i = nextOff;
+                continue;
+            }
+
+            if (frameType === FrameType.Bootstrap) {
+                let off = off0;
+                const n = dv.getUint32(off, true);
+                off += 4;
+                const nodes: string[] = [];
+
+                for (let k = 0; k < n; k++) {
+                    const r = readString(arr, off); nodes.push(r.s); off = r.off;
+                }
+
+                out.push({ frameType: 'bootstrap', nodes });
+                i = off;
+                continue;
+            }
+
+            if (frameType === FrameType.Stats) {
+                if (off0 + 8 > arr.length) break;
+                const dropped = Number(dv.getBigUint64(off0, true));
+                out.push({ frameType: 'stats', dropped });
+                i = off0 + 8;
+                continue;
+            }
+
+            if (frameType === FrameType.Scrub) {
+                let off = off0;
+                const nEv = dv.getUint32(off, true);
+                off += 4;
+                const events: VizEvent[] = [];
+
+                for (let k = 0; k < nEv; k++) {
+                    if (off + 4 > arr.length) throw new Error('wire: scrub chunk len');
+                    const chunkLen = dv.getUint32(off, true);
+                    off += 4;
+                    const { event } = decodeEventPayload(arr.subarray(off, off + chunkLen), 0);
+                    events.push(event);
+                    off += chunkLen;
+                }
+
+                out.push({ frameType: 'scrub', events });
+                i = off;
+                continue;
+            }
+
+            if (frameType === FrameType.JSONBlob) {
+                let off = off0;
+                if (off + 4 > arr.length) break;
+                const jlen = dv.getUint32(off, true);
+                off += 4;
+                if (off + jlen > arr.length) break;
+                const text = textDecoder.decode(arr.subarray(off, off + jlen));
+                out.push({ frameType: 'json', text });
+                i = off + jlen;
+                continue;
+            }
+        } catch {
+            i++;
+            continue;
+        }
+
+        i++;
     }
 
-    if (frameType === FrameType.JSONBlob) {
-        let off = off0;
-        const jlen = dv.getUint32(off, true); off += 4;
-        const text = textDecoder.decode(u8.subarray(off, off + jlen));
-    
-        return { frameType: 'json', text };
-    }
-
-    return null;
+    return out;
 }
+
+export const decodeVizMessage = (u8: Uint8Array | ArrayBuffer): DecodedFrame[] => decodeVizFrames(u8);

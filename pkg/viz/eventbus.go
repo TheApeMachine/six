@@ -75,6 +75,16 @@ const (
 	EventTokenizerChunk
 	EventTokenizerEmit
 	EventQueueSubmit
+	EventHolographicCrossover
+	EventSense
+
+	// Orchestrator / Community Routing.
+	EventCommunityCreated
+	EventValueJoinedCommunity
+	EventCommunitySaturated
+	EventCommunityAction
+	EventCommunityReaction
+	EventCausalHubProbe
 )
 
 // Event is a single visualization datum. All fields are value types so events
@@ -94,6 +104,17 @@ func now() int64 { return time.Now().UnixMicro() }
 
 // NewEvent creates an event stamped with the current time.
 func NewEvent(kind EventKind, source string) Event {
+	return Event{
+		Kind:      kind,
+		Timestamp: now(),
+		Source:    source,
+		Values:    make(map[string]float64),
+		Meta:      make(map[string]string),
+	}
+}
+
+// newEventWithMaps creates an event stamped with the current time and initializes the maps.
+func newEventWithMaps(kind EventKind, source string) Event {
 	return Event{
 		Kind:      kind,
 		Timestamp: now(),

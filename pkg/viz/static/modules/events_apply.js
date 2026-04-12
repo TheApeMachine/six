@@ -687,6 +687,13 @@ export function applyEvent(ev) {
       break;
     }
 
+    case EK.CausalHubProbe: {
+      const depth = ev.vals?.depth || 0;
+      const status = ev.meta?.status || 'unknown';
+      pipelineEvent('queue', 1, `hub depth=${depth} ${status}`);
+      break;
+    }
+
     case EK.Prompt: {
       const pos = new THREE.Vector3(0, 6, 0);
       spawnFloater(pos, ev.meta?.prompt || 'prompt', '#4a80c0');

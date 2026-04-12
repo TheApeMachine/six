@@ -378,11 +378,11 @@ func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
 		}
 
 		if read == 0 {
-			return n, nil
+			break
 		}
 	}
 
-	if n == 0 {
+	if n == 0 && m.current >= len(m.datasets) {
 		return 0, io.EOF
 	}
 

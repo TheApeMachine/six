@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -37,6 +38,19 @@ func (stub *snapshotQueueExecutor) Execute(frames []unsafe.Pointer) error {
 
 	frameWords := (*[128]uint64)(frames[0])
 	stub.word <- frameWords[0]
+
+	return nil
+}
+
+type clearingSchedulerExecutor struct{}
+
+func (stub *clearingSchedulerExecutor) Execute(frames []unsafe.Pointer) error {
+	if len(frames) == 0 || frames[0] == nil {
+		return nil
+	}
+
+	frameWords := (*[128]uint64)(frames[0])
+	frameWords[kernel.SchedulingNextProgramWord] = 0
 
 	return nil
 }

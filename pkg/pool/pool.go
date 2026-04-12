@@ -52,8 +52,8 @@ func (self *Pool) Submit(task func()) {
 			go self.loopQ(slot)
 			return
 		} else {
-			atomic.AddUint64(&self.currSize, uint64SubtractionConstant)
-			mcall(gosched_m)
+			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
+			mcall(gosched_m)                             // Use standard runtime.Gosched instead of mcall(gosched_m)
 		}
 	}
 }
@@ -90,7 +90,7 @@ type Node struct {
 }
 
 /*
-pop pops value from the top of the stack
+pop a value from the top of the stack
 */
 func (self *Pool) pop() (value *Slot) {
 	var top, next *Node

@@ -72,6 +72,35 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			}
 		}
 
+		if rawOpcode == kernel.OpcodeRegionProgram {
+			for offset := 0; offset < 60; offset += 6 {
+				op := frameWords[kernel.ReservedStartWord+offset]
+				if op == 0 && offset > 0 {
+					break
+				}
+
+				rotationTable := frameWords[kernel.ReservedStartWord+offset+1]
+				if rotationTable == 0 {
+					continue
+				}
+
+				mode := int(frameWords[kernel.ReservedStartWord+offset+2] & 0xFF)
+				aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ReservedStartWord+offset+3])
+				bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ReservedStartWord+offset+4])
+				dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ReservedStartWord+offset+5])
+
+				universalBitwiseV2(
+					value,
+					aStart, aSpan,
+					bStart, bSpan,
+					dstStart, dstSpan,
+					mode,
+					rotationTable,
+				)
+			}
+			continue
+		}
+
 		if opcode == kernel.OpcodeXOR && batchCount > 0 {
 			nearestBatchReduce(frameWords, batchCount)
 

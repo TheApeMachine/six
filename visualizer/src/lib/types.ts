@@ -3,6 +3,7 @@ types.ts — shared state types for the visualizer.
 Mirrors the actual systems in the Six project.
 */
 
+import type * as THREE from 'three';
 import type { VizEvent } from './wire';
 
 export interface NodeState {
@@ -115,7 +116,7 @@ export interface ComputeState {
 }
 
 export interface InspectorTarget {
-  kind: 'node' | 'trie' | 'pipeline' | 'beam' | 'alu' | 'algorithm';
+  kind: 'node' | 'trie' | 'pipeline' | 'beam' | 'alu' | 'algorithm' | 'value';
   id: string;
   trieIndex?: number;
   vertexVid?: number;
@@ -138,4 +139,63 @@ export interface EigenmodeEntry {
   members: string[];
   energy: number;
   phase: number;
+}
+
+export interface ValueParticle {
+  id: string;
+  mesh: THREE.Mesh;
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  mid: THREE.Vector3;
+  tmpPos: THREE.Vector3;
+  t: number;
+  speed: number;
+  active: boolean;
+  color: number;
+}
+
+export interface ValueGraphNode {
+  id: string;
+  prevId: string;
+  nextId: string;
+  lastSeen: number;
+  depth: number;
+  content: string;
+  stage: string;
+}
+
+/*
+ProcessEntry is one structured entry in the live process feed.
+Each kind maps to a distinct rendering style in the UI.
+*/
+export interface SixValue {
+  id: string;
+  pos: THREE.Vector3;
+  velocity: THREE.Vector3;
+  tokens: Uint8Array;
+  role: 'data' | 'action' | 'reaction';
+  program: string | null;
+  resonance: number;
+  age: number;
+  cooldown: number;
+  meshIndex: number; // For instanced rendering
+}
+
+export interface Community {
+  id: number;
+  members: string[]; // Value IDs
+  center: THREE.Vector3;
+  resonanceLevel: number;
+  saturated: boolean;
+  affinity: string; // Hex string of initial affinity
+}
+
+export interface ProcessEntry {
+  ts: number;
+  kind: 'beam_compose' | 'beam_converge' | 'beam_break' | 'value_submit' | 'classify' | 'experience' | 'alu_reasoning' | 'sense' | 'surprisal' | 'causal_hub';
+  nodeId: string;
+  label: string;
+  content: string;
+  score?: number;
+  hypotheses?: Array<{ tokens: string; score: number }>;
 }

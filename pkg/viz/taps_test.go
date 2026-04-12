@@ -293,7 +293,7 @@ func TestPoolScheduleEvent(t *testing.T) {
 	t.Parallel()
 
 	Convey("PoolScheduleEvent describes queue pressure", t, func() {
-		ev := PoolScheduleEvent("run", 10, 4)
+		ev := PoolScheduleEvent("run", 10, 4, 123)
 
 		So(ev.Kind, ShouldEqual, EventPoolSchedule)
 		So(ev.Source, ShouldEqual, "pool")
@@ -306,7 +306,7 @@ func TestPoolCompleteEvent(t *testing.T) {
 	t.Parallel()
 
 	Convey("PoolCompleteEvent records duration", t, func() {
-		ev := PoolCompleteEvent("run", 33)
+		ev := PoolCompleteEvent("run", 33, 123)
 
 		So(ev.Kind, ShouldEqual, EventPoolComplete)
 		So(ev.Source, ShouldEqual, "pool")
@@ -341,6 +341,23 @@ func TestPromptResultEvent(t *testing.T) {
 	})
 }
 
+func TestCausalHubProbeEvent(t *testing.T) {
+	t.Parallel()
+
+	Convey("CausalHubProbeEvent carries probe depth and status", t, func() {
+		ev := CausalHubProbeEvent(0xbeef, 0, 2, 0x40, 7, "settled")
+
+		So(ev.Kind, ShouldEqual, EventCausalHubProbe)
+		So(ev.Source, ShouldEqual, "queue")
+		So(ev.Values["prefix_start"], ShouldEqual, 0)
+		So(ev.Values["prefix_words"], ShouldEqual, 2)
+		So(ev.Values["depth"], ShouldEqual, 7)
+		So(ev.Meta["value_id"], ShouldEqual, "beef")
+		So(ev.Meta["mask"], ShouldEqual, "40")
+		So(ev.Meta["status"], ShouldEqual, "settled")
+	})
+}
+
 func TestTrieGraphSnapshotEvent(t *testing.T) {
 	t.Parallel()
 
@@ -367,7 +384,7 @@ func TestCompilerPipelineEvents(t *testing.T) {
 		So(compile.Values["finalizer_depth"], ShouldEqual, 2)
 		So(compile.Meta["correlation"], ShouldEqual, "42")
 
-		alu := ALUDispatchEvent("cpu", 7, 99, 12)
+		alu := ALUDispatchEvent("cpu", 7, 99, 12, 123)
 		So(alu.Kind, ShouldEqual, EventALUDispatch)
 		So(alu.Label, ShouldEqual, "cpu")
 		So(alu.Values["opcode"], ShouldEqual, 7)

@@ -16,7 +16,7 @@ The kernel touches exactly the three regions the caller names: it never
 reads or writes words outside [aStart..aStart+aSpan), [bStart..bStart+bSpan),
 and [dstStart..dstStart+dstSpan). That is what makes the DSL's arbitrary
 region refs safe — running a program on a Value no longer clobbers tokens,
-context, gradient, meta, or any region that is not explicitly the dst.
+context, gradient, properties, or any region that is not explicitly the dst.
 
 mode selects the writeback fold: 0 XOR-accumulates the 8 signature words
 into dst[0..min(8,dstSpan)) so successive program lines can layer state on
@@ -41,6 +41,14 @@ func universalBitwiseV2(
 	opcodeTable uint64,
 ) {
 	if value == nil || aSpan <= 0 || bSpan <= 0 || dstSpan <= 0 {
+		return
+	}
+
+	if aStart < 0 || bStart < 0 || dstStart < 0 {
+		return
+	}
+
+	if aStart+aSpan > 128 || bStart+bSpan > 128 || dstStart+dstSpan > 128 {
 		return
 	}
 

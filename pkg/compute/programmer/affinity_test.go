@@ -29,7 +29,7 @@ func isZeroAffinity(value *primitive.Value) bool {
 	start := core.Cfg.Value.Region.Affinity.Start
 	words := affinityRegionWords()
 
-	for idx := 0; idx < words; idx++ {
+	for idx := range words {
 		if (*value)[start+idx] != 0 {
 			return false
 		}
@@ -144,4 +144,38 @@ func TestAffinityProgram_SetsAffinityRegion(t *testing.T) {
 			primitive.CloseAll(values)
 		})
 	})
+}
+
+func BenchmarkAffinityProgram_Run(b *testing.B) {
+	values, mintErr := primitive.NewValue([]byte("affinity witness payload"))
+	if mintErr != nil {
+		b.Fatal(mintErr)
+	}
+	b.Cleanup(func() {
+		primitive.CloseAll(values)
+	})
+
+	value := values[0]
+
+	program := NewProgram(affinitySource)
+	tokens, cont, parseErr := NewParser(program).Parse()
+	if parseErr != nil {
+		b.Fatal(parseErr)
+	}
+
+	compiler := NewCompiler(tokens, WithContinuation(cont))
+	executable := NewExecutable(compiler, nil)
+	backend := cpu.NewBackend(context.Background())
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		input := *value
+		executable.WithInputs([]*primitive.Value{&input})
+		_, runErr := executable.Run(CPU, backend)
+		if runErr != nil {
+			b.Fatal(runErr)
+		}
+	}
 }

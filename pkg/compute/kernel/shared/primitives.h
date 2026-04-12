@@ -19,7 +19,7 @@
 #define AFFINITY_WORDS                           5
 #define AFFINITY_BITS                            257
 #define AFFINITY_LAST_WORD_MASK                  0x0000000000000001ULL
-#define META_START_WORD                          48
-#define META_WORDS                               8
+#define PROPERTIES_START_WORD                    48
+#define PROPERTIES_WORDS                         8
 
 #endif // SUBSTRATE_PRIMITIVES_H

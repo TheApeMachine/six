@@ -1,6 +1,11 @@
 package geometry
 
-import "math"
+import (
+	"math"
+	"math/bits"
+
+	"github.com/theapemachine/six/pkg/primitive"
+)
 
 /*
 Field is one phase vector over GF(p) for a fixed modulus p. The vector has
@@ -12,8 +17,13 @@ interference, and dominant extraction are identical operations at every layer
 — nothing here is trie-only or routing-only.
 */
 type Field struct {
-	modulus uint32
-	lanes   []uint32
+	modulus      uint32
+	Fields       []*Field
+	Values       []*primitive.Value
+	Affinity     []uint64
+	amplitude    uint32
+	Cooccurrence map[int]map[int]uint32
+	lastMode     int
 }
 
 /*
@@ -52,12 +62,19 @@ func newFieldLanes(laneCount int, modulus uint32) *Field {
 	}
 
 	if laneCount < 1 {
-		return &Field{modulus: modulus, lanes: nil}
+		return &Field{
+			modulus:      modulus,
+			Fields:       nil,
+			Cooccurrence: make(map[int]map[int]uint32),
+			lastMode:     -1,
+		}
 	}
 
 	return &Field{
-		modulus: modulus,
-		lanes:   make([]uint32, laneCount),
+		modulus:      modulus,
+		Fields:       make([]*Field, laneCount),
+		Cooccurrence: make(map[int]map[int]uint32),
+		lastMode:     -1,
 	}
 }
 
@@ -87,14 +104,44 @@ func (field *Field) Modulus() uint32 {
 }
 
 /*
-LaneLen returns the number of lanes (ring width for Alignment).
+MergeAffinity XORs the incoming affinity into the field's Affinity slice.
+If the field's Affinity is empty, it initializes it.
 */
-func (field *Field) LaneLen() int {
-	if field == nil {
+func (field *Field) MergeAffinity(valueAffinity []uint64) {
+	if field == nil || len(valueAffinity) == 0 {
+		return
+	}
+
+	if len(field.Affinity) == 0 {
+		field.Affinity = make([]uint64, len(valueAffinity))
+		copy(field.Affinity, valueAffinity)
+		return
+	}
+
+	minLen := len(field.Affinity)
+	if len(valueAffinity) < minLen {
+		minLen = len(valueAffinity)
+	}
+
+	for i := 0; i < minLen; i++ {
+		field.Affinity[i] ^= valueAffinity[i]
+	}
+}
+
+/*
+AffinitySaturation calculates the popcount of the Affinity slice divided by 257.
+*/
+func (field *Field) AffinitySaturation() float64 {
+	if field == nil || len(field.Affinity) == 0 {
 		return 0
 	}
 
-	return len(field.lanes)
+	var popcount int
+	for _, word := range field.Affinity {
+		popcount += bits.OnesCount64(word)
+	}
+
+	return float64(popcount) / 257.0
 }
 
 /*
@@ -106,50 +153,36 @@ func (field *Field) Rotate(multiplier uint32, bias uint32) {
 		return
 	}
 
-	for laneIndex := range field.lanes {
-		laneBias := field.addMod(bias, uint32(laneIndex+1))
-		field.lanes[laneIndex] = field.affineMod(field.lanes[laneIndex], multiplier, laneBias)
-	}
-}
-
-/*
-ObserveByte injects one byte at position into the field: identity, orbit, and
-mirror lanes use the same layout at every modulus.
-*/
-func (field *Field) ObserveByte(token byte, position int) {
-	if field == nil || len(field.lanes) == 0 {
+	if len(field.Fields) == 0 {
+		field.amplitude = field.affineMod(field.amplitude, multiplier, bias)
 		return
 	}
 
-	width := len(field.lanes)
-	positionMod := positiveMod(position, width)
-
-	multiplier := field.reduceU32(uint32(positionMod + 1))
-
-	if multiplier == 0 {
-		multiplier = 1
+	for laneIndex := range field.Fields {
+		laneBias := field.addMod(bias, uint32(laneIndex+1))
+		field.Fields[laneIndex].Rotate(multiplier, laneBias)
 	}
-
-	bias := field.addMod(uint32(token), 1)
-	identityLane := positiveMod(int(token), width)
-	orbitLane := positiveMod(identityLane+position+1, width)
-	mirrorLane := positiveMod(identityLane+positionMod+width/2, width)
-
-	field.lanes[identityLane] = field.affineMod(field.lanes[identityLane], multiplier, bias)
-	field.lanes[orbitLane] = field.addMod(field.lanes[orbitLane], bias)
-	field.lanes[mirrorLane] = field.addMod(field.lanes[mirrorLane], multiplier)
 }
 
 /*
-ObserveBytes folds a full byte sequence into the phase vector.
+Rewind reverses an affine phase rotation. It is the exact inverse of Rotate,
+allowing the field to backtrack and explore alternative trajectories.
 */
-func (field *Field) ObserveBytes(data []byte) {
+func (field *Field) Rewind(multiplier uint32, bias uint32) {
 	if field == nil {
 		return
 	}
 
-	for position, token := range data {
-		field.ObserveByte(token, position)
+	if len(field.Fields) == 0 {
+		inv := field.inverseMod(multiplier)
+		val := field.subMod(field.amplitude, bias)
+		field.amplitude = field.mulMod(val, inv)
+		return
+	}
+
+	for laneIndex := range field.Fields {
+		laneBias := field.addMod(bias, uint32(laneIndex+1))
+		field.Fields[laneIndex].Rewind(multiplier, laneBias)
 	}
 }
 
@@ -157,8 +190,16 @@ func (field *Field) ObserveBytes(data []byte) {
 Dominant returns the strongest lane and mass-normalized concentration.
 */
 func (field *Field) Dominant() PhaseMode {
-	if field == nil || len(field.lanes) == 0 {
+	if field == nil {
 		return PhaseMode{Index: -1}
+	}
+
+	if len(field.Fields) == 0 {
+		return PhaseMode{
+			Index:         -1,
+			Amplitude:     field.amplitude,
+			Concentration: 1.0,
+		}
 	}
 
 	var totalMass uint64
@@ -167,17 +208,33 @@ func (field *Field) Dominant() PhaseMode {
 
 	var bestSignal uint32
 
-	for laneIndex, laneValue := range field.lanes {
-		totalMass += uint64(laneValue)
+	for laneIndex, laneValue := range field.Fields {
+		if laneValue == nil {
+			continue
+		}
 
-		if laneValue > bestSignal {
+		laneDominant := laneValue.Dominant()
+		totalMass += uint64(laneDominant.Amplitude)
+
+		if laneDominant.Amplitude > bestSignal {
 			bestIndex = laneIndex
-			bestSignal = laneValue
+			bestSignal = laneDominant.Amplitude
 		}
 	}
 
 	if totalMass == 0 {
 		return PhaseMode{Index: -1}
+	}
+
+	if field.lastMode != -1 && bestIndex != -1 && field.lastMode != bestIndex {
+		if field.Cooccurrence[field.lastMode] == nil {
+			field.Cooccurrence[field.lastMode] = make(map[int]uint32)
+		}
+		field.Cooccurrence[field.lastMode][bestIndex]++
+	}
+
+	if bestIndex != -1 {
+		field.lastMode = bestIndex
 	}
 
 	return PhaseMode{
@@ -196,7 +253,7 @@ func (field *Field) Alignment(leftIndex int, rightIndex int) float64 {
 		return 0
 	}
 
-	return LaneRingAlignment(leftIndex, rightIndex, len(field.lanes))
+	return LaneRingAlignment(leftIndex, rightIndex, len(field.Fields))
 }
 
 func (field *Field) addMod(left uint32, right uint32) uint32 {
@@ -205,10 +262,37 @@ func (field *Field) addMod(left uint32, right uint32) uint32 {
 	return field.reduceU64(sum)
 }
 
+func (field *Field) subMod(left uint32, right uint32) uint32 {
+	if left >= right {
+		return left - right
+	}
+	return field.modulus - ((right - left) % field.modulus)
+}
+
 func (field *Field) mulMod(left uint32, right uint32) uint32 {
 	prod := uint64(left) * uint64(right)
 
 	return field.reduceU64(prod)
+}
+
+func (field *Field) inverseMod(a uint32) uint32 {
+	if a == 0 {
+		return 0
+	}
+
+	res := uint64(1)
+	base := uint64(a)
+	exp := uint64(field.modulus - 2)
+
+	for exp > 0 {
+		if exp%2 == 1 {
+			res = (res * base) % uint64(field.modulus)
+		}
+		base = (base * base) % uint64(field.modulus)
+		exp /= 2
+	}
+
+	return uint32(res)
 }
 
 func (field *Field) affineMod(value uint32, multiplier uint32, bias uint32) uint32 {
@@ -233,20 +317,13 @@ func (field *Field) reduceU64(value uint64) uint32 {
 }
 
 /*
-reduce257Uint32 maps a uint32 into GF(257) via reduce257Uint64.
-*/
-func reduce257Uint32(value uint32) uint16 {
-	return uint16(reduce257Uint64(uint64(value)))
-}
-
-/*
 reduce257Uint64 exploits 256 ≡ −1 (mod 257): fold all eight bytes with
 alternating sign so bits 0–63 participate in the residue.
 */
 func reduce257Uint64(value uint64) uint32 {
 	var acc int64
 
-	for byteIdx := 0; byteIdx < 8; byteIdx++ {
+	for byteIdx := range 8 {
 		b := int64((value >> (8 * byteIdx)) & 0xff)
 
 		if byteIdx%2 == 0 {
@@ -268,13 +345,6 @@ func reduce257Uint64(value uint64) uint32 {
 }
 
 /*
-reduce8191Uint32 maps a uint32 into GF(8191) via reduce8191Uint64.
-*/
-func reduce8191Uint32(value uint32) uint16 {
-	return uint16(reduce8191Uint64(uint64(value)))
-}
-
-/*
 reduce8191Uint64 exploits 2^13 ≡ 1 (mod 8191): fold the full uint64 with
 the same low/high 13-bit split until the residue fits.
 */
@@ -283,7 +353,7 @@ func reduce8191Uint64(value uint64) uint32 {
 
 	reduced := value
 
-	for reduced >= uint64(Mod8191) {
+	for reduced > uint64(Mod8191) {
 		reduced = (reduced & mask13) + (reduced >> 13)
 	}
 
@@ -329,8 +399,8 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 		return
 	}
 
-	parentLanes := len(field.lanes)
-	childLanes := len(child.lanes)
+	parentLanes := len(field.Fields)
+	childLanes := len(child.Fields)
 
 	if parentLanes == 0 || childLanes == 0 || childLanes > parentLanes {
 		return
@@ -353,8 +423,8 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 		slotMultiplier = 1
 	}
 
-	for laneIndex := 0; laneIndex < childLanes; laneIndex++ {
-		childValue := child.lanes[laneIndex]
+	for laneIndex := range childLanes {
+		childValue := child.Fields[laneIndex].Dominant().Amplitude
 
 		if childValue == 0 {
 			continue
@@ -362,7 +432,7 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 
 		laneMultiplier := field.addMod(slotMultiplier, uint32(laneIndex+1))
 		projected := field.mulMod(laneMultiplier, childValue)
-		field.lanes[laneIndex] = field.addMod(field.lanes[laneIndex], projected)
+		field.addMod(field.Fields[laneIndex].Dominant().Amplitude, projected)
 	}
 }
 
@@ -375,37 +445,22 @@ func (field *Field) Dot(other *Field) uint32 {
 		return 0
 	}
 
-	if field.modulus != other.modulus || len(field.lanes) != len(other.lanes) {
+	if field.modulus != other.modulus || len(field.Fields) != len(other.Fields) {
 		return 0
 	}
 
 	var accumulator uint32
 
-	for laneIndex := range field.lanes {
-		product := field.mulMod(field.lanes[laneIndex], other.lanes[laneIndex])
+	for laneIndex := range field.Fields {
+		product := field.mulMod(
+			field.Fields[laneIndex].Dominant().Amplitude,
+			other.Fields[laneIndex].Dominant().Amplitude,
+		)
+		
 		accumulator = field.addMod(accumulator, product)
 	}
 
 	return accumulator
-}
-
-/*
-LiftFromBytes builds a fresh field of the given modulus from raw bytes via
-ObserveBytes — same entry path at any tier that ingests octet streams.
-*/
-func LiftFromBytes(data []byte, modulus uint32) *Field {
-	field := NewField(modulus)
-	field.ObserveBytes(data)
-
-	return field
-}
-
-/*
-DominantForBytes is LiftFromBytes(data, Mod257).Dominant() — octet ingress at
-the lowest GF layer.
-*/
-func DominantForBytes(data []byte) PhaseMode {
-	return LiftFromBytes(data, Mod257).Dominant()
 }
 
 /*
@@ -416,8 +471,8 @@ func (field *Field) Clone() *Field {
 		return nil
 	}
 
-	out := newFieldLanes(len(field.lanes), field.modulus)
-	copy(out.lanes, field.lanes)
+	out := newFieldLanes(len(field.Fields), field.modulus)
+	copy(out.Fields, field.Fields)
 
 	return out
 }
@@ -522,4 +577,58 @@ func LaneRingAlignment(leftIndex int, rightIndex int, laneCount int) float64 {
 	}
 
 	return 1.0 - (float64(distance) / float64(half))
+}
+
+/*
+Rotation represents a single affine rotation step.
+*/
+type Rotation struct {
+	Multiplier uint32
+	Bias       uint32
+}
+
+/*
+Phasedial acts as a perspective alignment device. It maintains a rotation
+state that can be dialed forward or backward to shift the field's perspective,
+allowing for backtracking and exploring alternative trajectories.
+*/
+type Phasedial struct {
+	field   *Field
+	history []Rotation
+}
+
+/*
+NewPhasedial initializes a new perspective alignment device for a field.
+*/
+func NewPhasedial(field *Field) *Phasedial {
+	return &Phasedial{
+		field:   field,
+		history: make([]Rotation, 0),
+	}
+}
+
+/*
+Dial applies an affine rotation and records it in history.
+*/
+func (pd *Phasedial) Dial(multiplier uint32, bias uint32) {
+	if pd == nil || pd.field == nil {
+		return
+	}
+
+	pd.history = append(pd.history, Rotation{Multiplier: multiplier, Bias: bias})
+	pd.field.Rotate(multiplier, bias)
+}
+
+/*
+Rewind reverses the last affine rotation, popping it from history.
+*/
+func (pd *Phasedial) Rewind() {
+	if pd == nil || pd.field == nil || len(pd.history) == 0 {
+		return
+	}
+
+	last := pd.history[len(pd.history)-1]
+	pd.history = pd.history[:len(pd.history)-1]
+
+	pd.field.Rewind(last.Multiplier, last.Bias)
 }

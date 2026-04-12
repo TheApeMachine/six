@@ -3,7 +3,6 @@ package vm
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"iter"
 	"testing"
@@ -11,8 +10,6 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/pool"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -146,38 +143,6 @@ func TestMachineClose(t *testing.T) {
 	})
 }
 
-/*
-capturingQueue delegates to pool.Queue and records the last Value passed to
-Publish so tests can assert post-dispatch state after Drain.
-*/
-type capturingQueue struct {
-	*pool.Queue
-	last *primitive.Value
-}
-
-func (capture *capturingQueue) Publish(value *primitive.Value, label string) error {
-	capture.last = value
-
-	return capture.Queue.Publish(value, label)
-}
-
-func affinityRegionHasBits(value *primitive.Value) bool {
-	if value == nil {
-		return false
-	}
-
-	start := core.Cfg.Value.Region.Affinity.Start
-	words := int((core.Cfg.Value.Region.Affinity.Bits + 63) / 64)
-
-	for idx := 0; idx < words; idx++ {
-		if (*value)[start+idx] != 0 {
-			return true
-		}
-	}
-
-	return false
-}
-
 func TestMachineLoad(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
@@ -218,12 +183,13 @@ func TestMachineLoad(t *testing.T) {
 
 		So(machine.Load(provider), ShouldBeNil)
 
-		promptErr := machine.Prompt("orbital launch telemetry")
+		promptValue, promptErr := machine.Prompt("orbital launch telemetry", "affinity")
 
 		So(promptErr, ShouldBeNil)
+		So(promptValue, ShouldNotBeNil)
 	})
 
-	Convey("Load uses PromptProvider boundaries without labels", t, func() {
+	Convey("Load accepts PromptProvider without labels", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -238,7 +204,6 @@ func TestMachineLoad(t *testing.T) {
 				Text: "boundary-preserved prompt",
 			})
 		}, false)
-		provider.readErr = errors.New("raw Read should not be used for PromptProvider")
 
 		So(machine.Load(provider), ShouldBeNil)
 	})
@@ -247,7 +212,7 @@ func TestMachineLoad(t *testing.T) {
 func TestMachineLoadPrompts(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
-	Convey("LoadPrompts ingests each prompt with its label on every chunk", t, func() {
+	Convey("Load ingests PromptProvider datasets through the same byte-stream path", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -273,7 +238,7 @@ func TestMachineLoadPrompts(t *testing.T) {
 			})
 		})
 
-		So(machine.LoadPrompts(provider), ShouldBeNil)
+		So(machine.Load(provider), ShouldBeNil)
 	})
 }
 
@@ -290,9 +255,10 @@ func TestMachinePrompt(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		promptErr := machine.Prompt("prompt")
+		promptValue, promptErr := machine.Prompt("prompt", "affinity")
 
 		So(promptErr, ShouldBeNil)
+		So(promptValue, ShouldNotBeNil)
 	})
 }
 

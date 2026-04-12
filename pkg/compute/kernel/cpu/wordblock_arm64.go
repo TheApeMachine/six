@@ -29,13 +29,4 @@ func hammingMatch(frame *uint64, n int, target uint64, maxDist uint64) bool
 func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32)
 
 //go:noescape
-func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64)
-
-//go:noescape
 func geometricFrame(value *uint64, opcode uint64) bool
-
-//go:noescape
-func affinityPopcount(vec *uint64) uint32
-
-//go:noescape
-func affinityCoupling(a *uint64, b *uint64, out *uint32)

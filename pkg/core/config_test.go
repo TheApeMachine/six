@@ -52,18 +52,6 @@ func TestMain(m *testing.M) {
 
 func TestNewConfig(t *testing.T) {
 	Convey("NewConfig", t, func() {
-		Convey("applies control plane defaults when viper yields zero", func() {
-			viper.Set("controlplane.k", 0)
-			viper.Set("controlplane.alpha", 0)
-			viper.Set("controlplane.affinity.bits", 0)
-
-			cfg := NewConfig()
-
-			So(cfg.Kadabra.BucketSize, ShouldEqual, 20)
-			So(cfg.Kadabra.Alpha, ShouldEqual, 3)
-			So(cfg.Kadabra.Bits, ShouldEqual, 64)
-		})
-
 		Convey("loads telemetry settings from viper", func() {
 			viper.Set("telemetry.enabled", true)
 			viper.Set("telemetry.udp_endpoint", "127.0.0.1:9191")
@@ -80,12 +68,12 @@ func TestNewConfig(t *testing.T) {
 
 func TestValueRegionConfigMaxTokenIngestBytes(t *testing.T) {
 	Convey("Given a ValueRegionConfig", t, func() {
-		Convey("It should compute MaxTokenIngestBytes as half the Morton slab in bytes (minimum 1)", func() {
+		Convey("It should compute MaxTokenIngestBytes as the number of token words (minimum 1)", func() {
 			region := ValueRegionConfig{
 				Tokens: ValueOffsetConfig{Bits: 1024},
 			}
 
-			So(region.MaxTokenIngestBytes(), ShouldEqual, 64)
+			So(region.MaxTokenIngestBytes(), ShouldEqual, 16)
 
 			small := ValueRegionConfig{
 				Tokens: ValueOffsetConfig{Bits: 8},

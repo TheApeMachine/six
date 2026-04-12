@@ -82,8 +82,8 @@ func TestDetectPhaseMode(t *testing.T) {
 	Convey("The strongest occupied lane wins", t, func() {
 		vector := NewField(Mod257)
 
-		vector.lanes[17] = 900
-		vector.lanes[18] = 100
+		vector.Fields[17] = &Field{modulus: Mod257, amplitude: 900}
+		vector.Fields[18] = &Field{modulus: Mod257, amplitude: 100}
 
 		mode := DetectPhaseMode(vector)
 
@@ -95,14 +95,14 @@ func TestDetectPhaseMode(t *testing.T) {
 	Convey("DetectPhaseMode aliases match DetectPhaseMode for each modulus", t, func() {
 		f8191 := NewField(Mod8191)
 
-		f8191.lanes[42] = 50
+		f8191.Fields[42] = &Field{modulus: Mod8191, amplitude: 100}
 
 		So(DetectPhaseMode8191(f8191), ShouldResemble, DetectPhaseMode(f8191))
 
 		f65537 := NewField(Mod65537)
 
-		f65537.lanes[5] = 1000
-		f65537.lanes[6] = 500
+		f65537.Fields[5] = &Field{modulus: Mod65537, amplitude: 50}
+		f65537.Fields[6] = &Field{modulus: Mod65537, amplitude: 20}
 
 		So(DetectPhaseMode65537(f65537), ShouldResemble, DetectPhaseMode(f65537))
 	})
@@ -176,8 +176,8 @@ func BenchmarkDetectModes(b *testing.B) {
 func BenchmarkDetectPhaseMode(b *testing.B) {
 	vector := NewField(Mod257)
 
-	vector.lanes[13] = 400
-	vector.lanes[14] = 100
+	vector.Fields[13] = &Field{modulus: Mod257, amplitude: 50}
+	vector.Fields[14] = &Field{modulus: Mod257, amplitude: 100}
 
 	var mode PhaseMode
 

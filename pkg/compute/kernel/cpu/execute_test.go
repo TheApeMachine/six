@@ -114,11 +114,15 @@ func TestBackend_Execute(t *testing.T) {
 }
 
 func TestBackend_Execute_opcode0x40Frame(t *testing.T) {
-	Convey("Given program low byte 0x40 (reserved wire opcode; dispatch falls through)", t, func() {
+	Convey("Given program low byte 0x40 (reserved wire opcode; executes from reserved region)", t, func() {
 		backend := NewBackend(context.Background())
 
 		var frame [128]uint64
 		frame[kernel.ProgramOpcodeWord] = kernel.OpcodeRegionProgram
+
+		// Write a dummy instruction into the reserved region
+		frame[kernel.ReservedStartWord] = kernel.OpcodeXOR
+		frame[kernel.ReservedStartWord+1] = 0 // rotation table 0 means skip
 
 		ptr := unsafe.Pointer(&frame[0])
 

@@ -120,13 +120,13 @@ func main() {
 		writeMacro64(&content, "AFFINITY_LAST_WORD_MASK", lastWordMask)
 	}
 
-	if viper.IsSet("value.region.meta.start") {
-		metaStart := viper.GetInt("value.region.meta.start")
-		metaBits := viper.GetInt("value.region.meta.bits")
-		metaWords := (metaBits + 63) / 64
+	if viper.IsSet("value.region.properties.start") {
+		propertiesStart := viper.GetInt("value.region.properties.start")
+		propertiesBits := viper.GetInt("value.region.properties.bits")
+		propertiesWords := (propertiesBits + 63) / 64
 
-		writeMacro(&content, "META_START_WORD", metaStart)
-		writeMacro(&content, "META_WORDS", metaWords)
+		writeMacro(&content, "PROPERTIES_START_WORD", propertiesStart)
+		writeMacro(&content, "PROPERTIES_WORDS", propertiesWords)
 	}
 
 	content.WriteString("\n#endif // SUBSTRATE_PRIMITIVES_H\n")

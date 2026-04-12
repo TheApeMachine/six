@@ -9,21 +9,6 @@ func deepCopyConfigSnapshot(src *Config) Config {
 
 	dst := *src
 
-	for index := range dst.Firmware {
-		if len(src.Firmware[index]) == 0 {
-			dst.Firmware[index] = nil
-
-			continue
-		}
-
-		dst.Firmware[index] = append([]uint32(nil), src.Firmware[index]...)
-	}
-
-	if len(src.Kadabra.BucketSecurityThresholds) > 0 {
-		dst.Kadabra.BucketSecurityThresholds = append(
-			[]float64(nil), src.Kadabra.BucketSecurityThresholds...)
-	}
-
 	// StepwiseFirmwareSource is a fixed [FirmwareTypePrompt+1]string array; the
 	// struct copy already duplicates array storage (string headers only).
 

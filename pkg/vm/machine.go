@@ -3,13 +3,13 @@ package vm
 import (
 	"context"
 	"errors"
-	"fmt"
-	"math/rand"
-	"strings"
+	"runtime"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -18,6 +18,7 @@ import (
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/transport"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -26,17 +27,18 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	host      *network.Host
-	queue     *pool.Queue
-	backend   *compute.Backend
-	tokenizer *Tokenizer
-	conn      *gossip.Conn
-	field     *geometry.Field
-	remSleep  *time.Ticker
-	remDone   chan struct{}
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	host         *network.Host
+	queue        *pool.Queue
+	backend      *compute.Backend
+	tokenizer    *Tokenizer
+	conn         *gossip.Conn
+	field        *geometry.Field
+	orchestrator *Orchestrator
+	remSleep     *time.Ticker
+	remDone      chan struct{}
 }
 
 type machineOpts func(*Machine)
@@ -50,6 +52,8 @@ func NewMachine(
 		ctx:     ctx,
 		cancel:  cancel,
 		remDone: make(chan struct{}),
+		field:   geometry.NewField(geometry.Mod65537),
+		conn:    gossip.NewConn(nil, nil),
 	}
 
 	for _, opt := range opts {
@@ -64,23 +68,22 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
+	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue)
+	if machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
 	machine.backend = compute.NewBackend(
 		ctx,
 		machine.queue,
 		compute.WithExploreEvery(128),
 	)
 
-	machine.conn = gossip.NewConn(nil, nil)
-	machine.field = geometry.NewField(geometry.Mod8191)
-
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx, machine.queue,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
-
-	machine.remSleep = time.NewTicker(10 * time.Second)
-	go machine.runREMSleep()
 
 	return machine, validate.Require(map[string]any{
 		"ctx":       machine.ctx,
@@ -142,24 +145,11 @@ func (machine *Machine) Error() error {
 }
 
 /*
-Load a dataset into the machine.
-No assumptions are made about the incoming data at this stage to mimick
-real-world data streaming, which may not provide things like boundaries
-labels, or sample IDs. transport.Pipeline runs tokenizer ingest concurrently
-with DrainPublishedValues, which publishes each minted *Value directly to
-Kadabra (no tokenizer → wire → ValueFromWireFrame round trip).
-
-kadabra.Publish snapshots each Value into a SequenceRecord and schedules
-the trie insert and replication fan-out on the shared pool.Queue. Load
-therefore calls Queue.Drain after the pipeline finishes so every scheduled
-insert has attempted to complete before the method returns (the shared queue
-also serves peers added dynamically when ingest reaches ShannonLimit).
+Load a dataset into the machine. Every Value goes through the same path:
+tokenizer chunks the byte stream, links Values via prev/next, installs
+the affinity program, and publishes to the queue.
 */
 func (machine *Machine) Load(dataset data.Provider) error {
-	if promptProvider, ok := dataset.(data.PromptProvider); ok {
-		return machine.LoadPrompts(promptProvider)
-	}
-
 	if err := validate.Require(map[string]any{
 		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
@@ -172,6 +162,7 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		false,
 		machine.tokenizer,
 		machine.queue,
+		machine.orchestrator,
 	)
 
 	if err != nil {
@@ -185,110 +176,13 @@ func (machine *Machine) Load(dataset data.Provider) error {
 }
 
 /*
-LoadPrompts ingests structured samples: each Prompt.Text is chunked like a
-raw byte stream, and every chunk from that text is Published with the same
-label when HasLabel is set (empty string otherwise). The tokenizer ring is
-reused between samples via IngestReader, so performance matches repeated
-close-and-drain cycles without a second goroutine.
-
-Do not call LoadPrompts concurrently with Load on the same Machine; both
-use the shared Tokenizer.
+Prompt feeds the prompt string through the same path as Load — tokenize,
+link, install affinity, publish as tracked. We spin until the Value's
+scheduling word is zeroed (meaning it has settled), then return it.
+Causal children the queue spawns are irrelevant — they keep running in
+the background and their traces accumulate in the field.
 */
-func (machine *Machine) LoadPrompts(provider data.PromptProvider) error {
-	if err := validate.Require(map[string]any{
-		"queue":     machine.queue,
-		"tokenizer": machine.tokenizer,
-	}); err != nil {
-		return errnie.Error(err)
-	}
-
-	if provider == nil {
-		return errnie.Error(fmt.Errorf("vm.Machine.LoadPrompts: nil PromptProvider"))
-	}
-
-	publishers := []transport.Publishable{
-		machine.queue,
-	}
-
-	for prompt := range provider.GeneratePrompts() {
-		label := ""
-
-		if prompt.HasLabel {
-			label = prompt.Label
-		}
-
-		ingestErr := machine.tokenizer.IngestReader(
-			machine.ctx,
-			strings.NewReader(prompt.Text),
-			label,
-			publishers,
-			nil,
-		)
-
-		if ingestErr != nil {
-			return errnie.Error(ingestErr)
-		}
-
-		machine.queue.Drain()
-	}
-
-	machine.queue.Drain()
-
-	return nil
-}
-
-/*
-Prompt the machine and retrieve both a prediction and a classification.
-
-The prompt is converted into a Value via NewValue, which derives the
-affinity vector Kadabra uses to route the query to the closest trie
-cluster(s).
-*/
-func (machine *Machine) runREMSleep() {
-	for {
-		select {
-		case <-machine.remDone:
-			return
-		case <-machine.remSleep.C:
-			// Inject random noise values for consolidation
-			machine.injectREMNoise()
-		}
-	}
-}
-
-func (machine *Machine) injectREMNoise() {
-	if machine.queue == nil {
-		return
-	}
-
-	// Generate a random noise payload
-	noise := make([]byte, 32)
-
-	values, err := primitive.NewValue(noise)
-	if err != nil {
-		return
-	}
-
-	for _, v := range values {
-		// Set a low TTL for ephemeral exploration
-		v.Set(51, 0xFF) // meta[3] / MetaTTLWord
-
-		// Seed temperature noise into meta[4] (word 52)
-		noiseMask := rand.Uint64()
-		v.Set(52, noiseMask)
-
-		_ = machine.queue.Publish(v, "rem_sleep")
-	}
-}
-
-/*
-Prompt the machine and retrieve both a prediction and a classification.
-
-The prompt is converted into a Value via NewValue, which derives the
-affinity vector Kadabra uses to route the query to the closest trie
-cluster(s).
-*/
-func (machine *Machine) Prompt(prompt string) (*primitive.Value, error) {
+func (machine *Machine) Prompt(prompt string, program string) (*primitive.Value, error) {
 	if err := validate.Require(map[string]any{
 		"queue": machine.queue,
 	}); err != nil {
@@ -303,12 +197,34 @@ func (machine *Machine) Prompt(prompt string) (*primitive.Value, error) {
 
 	value := values[len(values)-1]
 
-	if err = machine.queue.Publish(value, "prompt"); err != nil {
-		primitive.CloseAll(values)
+	installer := programmer.Installer{}
+
+	if installErr := installer.InstallProgram(value, program); installErr != nil {
+		return nil, errnie.Error(installErr)
+	}
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PromptEvent(prompt))
+	}
+
+	if err = machine.queue.PublishTracked(value, "prompt"); err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	// We return the value so the caller can inspect it,
-	// but we don't close it here because it's now in the queue.
-	return value, nil
+	if err = machine.orchestrator.Publish(value, "prompt"); err != nil {
+		return nil, errnie.Error(err)
+	}
+
+	for {
+		select {
+		case <-machine.ctx.Done():
+			return nil, machine.ctx.Err()
+		default:
+			if value[kernel.SchedulingNextProgramWord] == 0 {
+				return value, nil
+			}
+
+			runtime.Gosched()
+		}
+	}
 }

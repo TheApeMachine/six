@@ -14,7 +14,7 @@ const (
 	SignalsRegion
 	ContextRegion
 	GradientRegion
-	MetaRegion
+	PropertiesRegion
 	ReservedRegion
 	PrevRegion
 	NextRegion

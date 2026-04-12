@@ -426,40 +426,22 @@ func (value *Value) ID() uint64 {
 }
 
 /*
-TokenRegionBytes returns the token slab bytes with trailing complete codes
-trimmed. The token region stores 16-bit Morton keys little-endian, so
-trimming operates on 2-byte boundaries.
+TokenWords returns the populated token words from the token region,
+trimming trailing zero words.
 */
-func (value *Value) TokenRegionBytes() []byte {
+func (value *Value) TokenWords() []uint64 {
 	if value == nil {
 		return nil
 	}
 
-	tokenByteLen := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
-	startByte := core.Cfg.Value.Region.Tokens.Start * 8
+	tokenStart := core.Cfg.Value.Region.Tokens.Start
+	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
 
-	slab := unsafe.Slice(
-		(*byte)(unsafe.Pointer(&value[0])),
-		startByte+tokenByteLen,
-	)[startByte:]
+	slab := (*value)[tokenStart : tokenStart+tokenWords]
 
 	trim := len(slab)
-
-	for trim >= 2 {
-		allZero := true
-
-		for idx := trim - 2; idx < trim; idx++ {
-			if slab[idx] != 0 {
-				allZero = false
-				break
-			}
-		}
-
-		if !allZero {
-			break
-		}
-
-		trim -= 2
+	for trim > 0 && slab[trim-1] == 0 {
+		trim--
 	}
 
 	return slab[:trim]
@@ -468,22 +450,30 @@ func (value *Value) TokenRegionBytes() []byte {
 /*
 String decodes the Morton-coded token region back to the original
 byte sequence for human-readable output. All algorithmic paths should
-operate on the raw Morton-coded TokenRegionBytes directly.
+operate on the raw Morton-coded TokenWords directly.
 */
 func (value *Value) String() string {
-	slab := value.TokenRegionBytes()
-
-	if len(slab) == 0 {
+	if value == nil {
 		return ""
 	}
 
-	out := make([]byte, 0, len(slab)/2)
+	words := value.TokenWords()
+	if len(words) == 0 {
+		return ""
+	}
 
-	for idx := 0; idx+2 <= len(slab); idx += 2 {
-		code := uint16(slab[idx]) | uint16(slab[idx+1])<<8
-		byteVal, _ := DecodeInterleaved8x8(code)
+	out := make([]byte, 0, len(words)*4)
 
-		out = append(out, byte(byteVal))
+	for _, word := range words {
+		for i := 0; i < 4; i++ {
+			code := uint16(word >> (i * 16))
+			if code == 0 {
+				continue
+			}
+
+			byteVal, _ := DecodeInterleaved8x8(code)
+			out = append(out, byte(byteVal))
+		}
 	}
 
 	return string(out)

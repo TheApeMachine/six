@@ -157,10 +157,10 @@ Layout (128 uint64 words = 1 KiB):
 	Tokens:   words  0–15  (1024 bits; 128 B Morton slab, up to 64 × 16-bit codes)
 	Program:  words  16–23  (512 bits)
 	Signals:  words  24–31  (512 bits)
-	Context:  words  32–39  (512 bits)
-	Gradient: words  40–47  (512 bits)
-	Meta:     words  48–55  (512 bits)
-	Reserved: words 56–117
+	Context:    words  32–39  (512 bits)
+	Gradient:   words  40–47  (512 bits)
+	Properties: words  48–55  (512 bits; canonical property / forward-transition band)
+	Reserved:   words 56–117
 	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
 	Next:     word  121
@@ -168,27 +168,25 @@ Layout (128 uint64 words = 1 KiB):
 	Affinity: words 123–127 (257 bits, Fermat prime width)
 */
 type ValueRegionConfig struct {
-	Tokens   ValueOffsetConfig `mapstructure:"tokens"`
-	Program  ValueOffsetConfig `mapstructure:"program"`
-	Signals  ValueOffsetConfig `mapstructure:"signals"`
-	Context  ValueOffsetConfig `mapstructure:"context"`
-	Gradient ValueOffsetConfig `mapstructure:"gradient"`
-	Meta     ValueOffsetConfig `mapstructure:"meta"`
-	Prev     ValueOffsetConfig `mapstructure:"prev"`
-	Next     ValueOffsetConfig `mapstructure:"next"`
-	ID       ValueOffsetConfig `mapstructure:"id"`
-	Affinity ValueOffsetConfig `mapstructure:"affinity"`
+	Tokens     ValueOffsetConfig `mapstructure:"tokens"`
+	Program    ValueOffsetConfig `mapstructure:"program"`
+	Signals    ValueOffsetConfig `mapstructure:"signals"`
+	Context    ValueOffsetConfig `mapstructure:"context"`
+	Gradient   ValueOffsetConfig `mapstructure:"gradient"`
+	Properties ValueOffsetConfig `mapstructure:"properties"`
+	Prev       ValueOffsetConfig `mapstructure:"prev"`
+	Next       ValueOffsetConfig `mapstructure:"next"`
+	ID         ValueOffsetConfig `mapstructure:"id"`
+	Affinity   ValueOffsetConfig `mapstructure:"affinity"`
 }
 
 /*
 MaxTokenIngestBytes is the largest raw byte span passed to primitive.NewValue
-from fixed-width ingest (e.g. vm.Tokenizer). It is half the Morton slab byte
-length: each stored code uses 2 bytes in the slab, so at most one new code
-per input byte stays within the slab without truncation.
+from fixed-width ingest (e.g. vm.Tokenizer). With Morton encoding each input
+byte occupies one uint64 word, so the max is simply the number of token words.
 */
 func (region ValueRegionConfig) MaxTokenIngestBytes() int {
-	slabBytes := int((region.Tokens.Bits + 7) / 8)
-	out := slabBytes / 2
+	out := int(region.Tokens.Bits / 64)
 
 	if out < 1 {
 		return 1
@@ -234,19 +232,8 @@ Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
-	System     SystemConfig
-	Value      ValueConfig
-	Kadabra    KadabraConfig
-	MarkovTrie MarkovTrieConfig
-
-	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
-	// Values should write the in-band FirmwareRegister* codes to fw rather than
-	// assuming the host enum ordinals are stable.
-	Firmware [FirmwareTypePrompt + 1][]uint32
-
-	// StepwiseFirmwareSource holds raw programsStepwise.* YAML for hosts that
-	// compile or route stepwise bands (loaded whenever the keys are present).
-	StepwiseFirmwareSource [FirmwareTypePrompt + 1]string
+	System SystemConfig
+	Value  ValueConfig
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
 	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
@@ -274,143 +261,6 @@ func NewConfig() *Config {
 			BatchWindow: time.Duration(WithDefault(viper.GetInt("system.batchWindow"), 500)) * time.Microsecond,
 			QueueSize:   WithDefault(viper.GetInt("system.queueSize"), 20000),
 		},
-		Kadabra: KadabraConfig{
-			Bits:              WithDefault(viper.GetInt("kadabra.bits"), 64),
-			BucketSize:        WithDefault(viper.GetInt("kadabra.bucketSize"), 20),
-			ReplicationFactor: WithDefault(viper.GetInt("kadabra.replicationFactor"), 3),
-			MaxMeshPeers:      WithDefault(viper.GetInt("kadabra.maxMeshPeers"), 4096),
-			Alpha:             WithDefault(viper.GetInt("kadabra.alpha"), 3),
-			EpochQueries:      WithDefault(viper.GetInt("kadabra.epochQueries"), 100),
-			Penalty:           WithDefault(viper.GetFloat64("kadabra.penalty"), 0.1),
-			SecurityThreshold: WithDefault(viper.GetFloat64("kadabra.securityThreshold"), 0.5),
-			// ShannonLimit is the maximum popcount (set bits) a cluster
-			// centroid may reach before it is considered full. At 50% set bits
-			// (256/512) a random vector's expected Hamming distance equals that
-			// of any real vector — all discrimination is gone. The useful range
-			// ends well before that. At 47% (~240/512) there is still enough
-			// headroom for incoming vectors to register meaningful distance
-			// differences, while staying clear of the zone where distances
-			// collapse to noise.
-			ShannonLimit: WithDefault(viper.GetInt("kadabra.shannonLimit"), 240),
-			// ClusterThreshold is the maximum affinity Hamming distance at
-			// which a Value is routed to an existing trie cluster. Values further
-			// than this from every existing cluster spawn a new trie.
-			//
-			// 512 total affinity bits. A threshold of 192 (~37%) means two vectors
-			// must share at least 63% of their bits to be considered "same cluster".
-			// This is intentionally generous during bootstrapping — the Field's
-			// eigenmode detection handles finer-grained splitting once enough data
-			// has arrived.
-			ClusterThreshold: WithDefault(viper.GetInt("kadabra.clusterThreshold"), 192),
-		},
-		MarkovTrie: MarkovTrieConfig{
-			DecayFactor:                    WithDefault(viper.GetFloat64("markovtrie.decayFactor"), 0.995),
-			EndToken:                       WithDefault(viper.GetString("markovtrie.endToken"), "$"),
-			MaximumPathLength:              WithDefault(viper.GetInt("markovtrie.maximumPathLength"), 5),
-			InterpolationSuffixDepth:       WithDefault(viper.GetInt("markovtrie.interpolationSuffixDepth"), 4),
-			ClassificationContext:          WithDefault(viper.GetInt("markovtrie.classificationContext"), 3),
-			CoOccurrenceWindow:             WithDefault(viper.GetInt("markovtrie.coOccurrenceWindow"), 2),
-			PruneInterval:                  WithDefault(viper.GetInt("markovtrie.pruneInterval"), 10),
-			PruneMinimumCount:              WithDefault(viper.GetFloat64("markovtrie.pruneMinimumCount"), 0.05),
-			ReplayLength:                   WithDefault(viper.GetInt("markovtrie.replayLength"), 10),
-			ReplayThreshold:                WithDefault(viper.GetFloat64("markovtrie.replayThreshold"), 85),
-			BeamWidth:                      WithDefault(viper.GetInt("markovtrie.beamWidth"), 3),
-			UnknownProbability:             WithDefault(viper.GetFloat64("markovtrie.unknownProbability"), 0.001),
-			AdditiveSmoothing:              WithDefault(viper.GetFloat64("markovtrie.additiveSmoothing"), 0.1),
-			RecentPenalty:                  WithDefault(viper.GetFloat64("markovtrie.recentPenalty"), 0.5),
-			RecentWindow:                   WithDefault(viper.GetInt("markovtrie.recentWindow"), 3),
-			EditDistance:                   WithDefault(viper.GetInt("markovtrie.editDistance"), 1),
-			EditSimilarity:                 WithDefault(viper.GetFloat64("markovtrie.editSimilarity"), 0.95),
-			NgramConfidenceFloor:           WithDefault(viper.GetFloat64("markovtrie.ngramConfidenceFloor"), 0.35),
-			SymbolMinimumTotal:             WithDefault(viper.GetInt("markovtrie.symbolMinimumTotal"), 2),
-			SymbolMinimumScore:             WithDefault(viper.GetFloat64("markovtrie.symbolMinimumScore"), 1.5),
-			SymbolLimit:                    WithDefault(viper.GetInt("markovtrie.symbolLimit"), 50),
-			BaselineLearningRate:           WithDefault(viper.GetFloat64("markovtrie.baselineLearningRate"), 0.1),
-			MaxLearningRate:                WithDefault(viper.GetFloat64("markovtrie.maxLearningRate"), 1.0),
-			SurprisalScaleBits:             WithDefault(viper.GetFloat64("markovtrie.surprisalScaleBits"), 2.0),
-			ConceptLabelPrefix:             WithDefault(viper.GetString("markovtrie.conceptLabelPrefix"), "Concept_"),
-			UnsupervisedConfidence:         WithDefault(viper.GetFloat64("markovtrie.unsupervisedConfidence"), 50.0),
-			ExperienceEmptyLabel:           WithDefault(viper.GetString("markovtrie.experienceEmptyLabel"), "None"),
-			EpisodicCapacity:               WithDefault(viper.GetInt("markovtrie.episodicCapacity"), 1000),
-			EpisodicNeighborLimit:          WithDefault(viper.GetInt("markovtrie.episodicNeighborLimit"), 16),
-			EpisodicRecencyWeight:          WithDefault(viper.GetFloat64("markovtrie.episodicRecencyWeight"), 0.25),
-			EpisodicBlendWeight:            WithDefault(viper.GetFloat64("markovtrie.episodicBlendWeight"), 0.35),
-			InitialConceptCounter:          WithDefault(viper.GetInt("markovtrie.initialConceptCounter"), 1),
-			BPEEndOfWordToken:              WithDefault(viper.GetString("markovtrie.bpeEndOfWordToken"), "</w>"),
-			BPEPairDelimiter:               WithDefault(viper.GetString("markovtrie.bpePairDelimiter"), "\x00"),
-			PredictExperienceSurprisalBits: WithDefault(viper.GetFloat64("markovtrie.predictExperienceSurprisalBits"), 1.0),
-			Temperature:                    WithDefault(viper.GetFloat64("markovtrie.temperature"), 0.7),
-			// AdaptiveEMAAlpha (0.05): the smoothing factor for all exponential
-			// moving averages (surprisal, entropy, episodic quality, growth rate).
-			// At alpha=0.05, the effective window is ~1/0.05 = 20 observations,
-			// meaning the EMA reflects roughly the last 20 tokens' worth of signal.
-			//
-			// This balances responsiveness against stability: the system needs to
-			// detect domain shifts within ~50-100 tokens (a paragraph) but must not
-			// whipsaw on individual high-surprisal tokens (typos, rare words).
-			//
-			// Sensitivity: raising to 0.2 makes all adaptive parameters jittery --
-			// a single outlier surprisal value can swing the decay factor by 0.01,
-			// causing visible oscillation in prediction quality. Lowering below 0.01
-			// makes adaptation so sluggish that domain shifts take hundreds of tokens
-			// to register, defeating the purpose of online tuning.
-			AdaptiveEMAAlpha: WithDefault(viper.GetFloat64("markovtrie.adaptiveEMAAlpha"), 0.05),
-			// AdaptiveMinSamples (50): the minimum number of surprisal observations
-			// before any adaptive parameter is allowed to deviate from its base
-			// value. This is a cold-start guard -- with fewer than 50 samples, the
-			// EMA estimates are dominated by initialization bias and the variance
-			// estimate is unreliable (sqrt of a noisy variance can be off by 2-3x).
-			//
-			// 50 was chosen as ~2.5x the EMA effective window (20). By that point,
-			// the exponential weighting has decayed the initial seed value to <10%
-			// influence, and the variance estimate has seen enough samples for its
-			// own EMA to stabilize.
-			//
-			// Sensitivity: reducing to <20 allows the adaptive decay factor to
-			// activate before the surprisal EMA is calibrated, producing erratic
-			// early decay that can prune useful nodes. Increasing beyond ~200 delays
-			// adaptation so long that the system runs on static defaults for the
-			// first several paragraphs, losing the benefit of early calibration.
-			AdaptiveMinSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMinSamples"), 50),
-			AdaptiveMaxSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxSamples"), 1000),
-			// AdaptiveMaxDepth (8): the maximum suffix depth tracked for adaptive
-			// interpolation weighting. 8 corresponds to 8-gram context, which is the
-			// practical ceiling for Markov models on natural language -- beyond depth
-			// 8, the trie becomes extremely sparse and hit rates drop below noise
-			// levels (~1-2%), so tracking deeper depths wastes memory on counters
-			// that never accumulate meaningful statistics.
-			//
-			// Sensitivity: reducing to 4 blinds the system to long-range patterns
-			// (e.g. repeated phrases, code indentation). Increasing to 16 doubles
-			// the per-node tracking arrays with no measurable prediction improvement,
-			// and the depthDecay factor (0.99) would need to be raised to prevent
-			// deep counters from decaying to zero before accumulating any hits.
-			AdaptiveMaxDepth: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepth"), 8),
-			// AdaptiveMaxDepthDecay (0.99): multiplicative decay applied to all depth-hit
-			// counters on every observation. This creates a soft sliding window
-			// so that the interpolation weights track the RECENT productivity of
-			// each depth rather than lifetime averages.
-			//
-			// At 0.99, the effective half-life is ~69 observations (ln2/0.01),
-			// meaning depth statistics from ~70 tokens ago carry half the weight
-			// of current observations. This matches the typical paragraph length
-			// where context quality shifts (e.g. switching from prose to code).
-			//
-			// Sensitivity: raising to 0.999 (half-life ~693) makes depth weights
-			// nearly static, unable to track intra-document shifts. Lowering to
-			// 0.95 (half-life ~14) makes weights hyper-reactive, thrashing
-			// between depths on every few tokens and preventing stable
-			// interpolation.
-			AdaptiveMaxDepthDecay:           WithDefault(viper.GetFloat64("markovtrie.adaptiveMaxDepthDecay"), 0.99),
-			AdaptiveMaxDepthDecayAlpha:      WithDefault(viper.GetFloat64("markovtrie.adaptiveMaxDepthDecayAlpha"), 0.05),
-			AdaptiveMaxDepthDecayMinSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMinSamples"), 50),
-			AdaptiveMaxDepthDecayMaxSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMaxSamples"), 1000),
-			AdaptiveMaxDepthDecayMaxDepth:   WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMaxDepth"), 8),
-			SurpriseRatioThreshold:          WithDefault(viper.GetFloat64("markovtrie.surpriseRatioThreshold"), 2.0),
-			SustainedBurstsRequired:         WithDefault(viper.GetInt("markovtrie.sustainedBurstsRequired"), 3),
-			MaxCapLen:                       WithDefault(viper.GetInt("markovtrie.maxCapLen"), 8),
-			BurstBoostFactor:                WithDefault(viper.GetFloat64("markovtrie.burstBoostFactor"), 0.12),
-		},
 		Value: ValueConfig{
 			Word:         WithDefault(viper.GetInt("value.word"), 64),
 			Words:        WithDefault(viper.GetInt("value.words"), 128),
@@ -437,9 +287,9 @@ func NewConfig() *Config {
 					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 40),
 					Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
 				},
-				Meta: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.meta.start"), 48),
-					Bits:  WithDefault(viper.GetUint64("value.region.meta.bits"), 512),
+				Properties: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.properties.start"), 48),
+					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 512),
 				},
 				Prev: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),

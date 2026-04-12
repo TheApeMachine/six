@@ -24,6 +24,10 @@ type Executable struct {
 	compiler  *Compiler
 	inputs    []*primitive.Value
 	finalizer func(*primitive.Value) ([]*primitive.Value, error)
+	frames    []Frame
+	target    CompilerTarget
+	compiled  bool
+	ptrBuf    [1]unsafe.Pointer
 }
 
 func NewExecutable(
@@ -40,6 +44,20 @@ func (executable *Executable) Inputs() []*primitive.Value {
 	return executable.inputs
 }
 
+func (executable *Executable) compileOnce(target CompilerTarget) ([]Frame, error) {
+	if executable.compiled && executable.target == target {
+		return executable.frames, nil
+	}
+	frames, err := executable.compiler.Compile(target)
+	if err != nil {
+		return nil, err
+	}
+	executable.frames = frames
+	executable.target = target
+	executable.compiled = true
+	return frames, nil
+}
+
 /*
 Execute compiles the program and materializes one unsafe.Pointer per
 emitted frame. Each pointer is the base of a full primitive.Value minted
@@ -51,7 +69,7 @@ Scheduling from the optional continuation is written on the last emitted
 Value (word 117).
 */
 func (executable *Executable) Execute(target CompilerTarget) ([]unsafe.Pointer, error) {
-	frames, err := executable.compiler.Compile(target)
+	frames, err := executable.compileOnce(target)
 
 	if err != nil {
 		return nil, err
@@ -101,7 +119,7 @@ func (executable *Executable) Run(
 		return nil, fmt.Errorf("programmer: Run requires a substrate")
 	}
 
-	frames, err := executable.compiler.Compile(target)
+	frames, err := executable.compileOnce(target)
 
 	if err != nil {
 		return nil, err
@@ -117,12 +135,12 @@ func (executable *Executable) Run(
 	value := executable.valueForFrame()
 	cont := executable.compiler.Continuation()
 
-	ptr := []unsafe.Pointer{unsafe.Pointer(&(*value)[0])}
+	executable.ptrBuf[0] = unsafe.Pointer(&(*value)[0])
 
 	for idx := range frames {
 		frames[idx].writeIntoProgramRegion(value)
 
-		if err := substrate.Execute(ptr); err != nil {
+		if err := substrate.Execute(executable.ptrBuf[:]); err != nil {
 			return nil, err
 		}
 	}

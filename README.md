@@ -11,173 +11,159 @@ This research project started from a simple question: "Can we reject gradient de
 
 ## Architecture
 
-Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
+Six has three active layers. Values are the atoms of computation. The Queue and Backend execute their programs. The Orchestrator groups settled Values into communities and uses the Field to drive further computation.
 
 ```mermaid
 flowchart TD
 
     subgraph "Layer 3 — Global Field GF(65537)"
         GF["Global Phase Vector"]
-        Gossip["kadabra.Gossip<br/>Digest + NodePhase"]
+        Gossip["gossip.Conn<br/>Digest + NodePhase"]
         GF <--> Gossip
     end
 
-    subgraph "Layer 2 — Node Field GF(8191)"
-        N1["kadabra.Node"]
-        N2["kadabra.Node"]
-        F1["kadabra.Field<br/>Project() → Downward Rotation"]
-        F2["kadabra.Field<br/>Project() → Downward Rotation"]
-        N1 --- F1
-        N2 --- F2
+    subgraph "Layer 2 — Community Field GF(8191)"
+        C1["Community"]
+        C2["Community"]
+        F1["geometry.Field<br/>Affine rotation + PhaseDial"]
+        F2["geometry.Field<br/>Affine rotation + PhaseDial"]
+        C1 --- F1
+        C2 --- F2
     end
 
-    subgraph "Layer 1 — Trie Field GF(257)"
-        S1["markovtrie.Store<br/>LocalPhase"]
-        S2["markovtrie.Store<br/>LocalPhase"]
-        S3["markovtrie.Store<br/>LocalPhase"]
-        S4["markovtrie.Store<br/>LocalPhase"]
+    subgraph "Layer 1 — Value Field GF(257)"
+        V1["primitive.Value<br/>1KB programmable token"]
+        V2["primitive.Value"]
+        V3["primitive.Value"]
+        V4["primitive.Value"]
     end
 
-    subgraph "Algo Stack (phase-gated)"
-        Beam["beam.Search<br/>Rotational bias"]
-        Classify["classify.Classifier<br/>Phase as prior"]
-        Train["train.Online<br/>Phase-gated plasticity"]
-        Surprisal["surprisal.Probability<br/>Contextual novelty"]
-        Causal["causal.Graph<br/>Phase-dependent edges"]
+    subgraph "Execution"
+        Q["pool.Queue<br/>Lock-free work scheduling"]
+        B["compute.Backend<br/>CPU / Metal / CUDA"]
+        O["vm.Orchestrator<br/>Community routing + action emission"]
     end
 
-    subgraph "Primitives GF(2)"
-        V["primitive.Value"]
-    end
+    %% Bottom-up: Values settle, orchestrator groups them
+    V1 --> O
+    V2 --> O
+    V3 --> O
+    V4 --> O
+    O --> C1
+    O --> C2
+    C1 --> GF
+    C2 --> GF
 
-    %% Bottom-up
-    V --> S1
-    V --> S2
-    V --> S3
-    V --> S4
-    S1 --> N1
-    S2 --> N1
-    S3 --> N2
-    S4 --> N2
-    N1 --> GF
-    N2 --> GF
-
-    %% Top-down
+    %% Top-down: field pressure drives new computation
     GF --> F1
     GF --> F2
-    F1 --> S1
-    F1 --> S2
-    F2 --> S3
-    F2 --> S4
-
-    %% Algo stack receives phase via ApplyFieldPressure
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Beam
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Classify
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Train
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Surprisal
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Causal
+    F1 --> Q
+    F2 --> Q
+    Q --> B
+    B --> V1
+    B --> V2
+    B --> V3
+    B --> V4
 ```
 
 ```text
-┌────────────────────────────────┐
-│           The Field            │
-│  Emergent eigenmodes project   │
-│  top-down pressure onto tries  │
-└──────────────┬─────────────────┘
-               │ bias
-┌──────────────▼─────────────────┐
-│         Kadabra DHT            │
-│  Affinity-routed mesh of tries │
-│  Gossip propagates field state │
-└──────────────┬─────────────────┘
-               │ store / retrieve
-┌──────────────▼────────────────┐
-│          MarkovTrie           │
-│  Adaptive probabilistic trie  │
-│  Classification + generation  │
-└──────────────┬────────────────┘
-               │ data
-┌──────────────▼────────────────┐
-│           Values              │
-│  1KB programmable tokens      │
-│                               │
-└───────────────────────────────┘
+┌──────────────────────────────────┐
+│       Global Field GF(65537)     │
+│  Aggregates community fields     │
+│  Gossip propagates phase state   │
+└──────────────┬───────────────────┘
+               │ top-down pressure
+┌──────────────▼───────────────────┐
+│     Community Fields GF(8191)    │
+│  Orchestrator groups Values by   │
+│  affinity into communities       │
+└──────────────┬───────────────────┘
+               │ action emission
+┌──────────────▼───────────────────┐
+│    Queue + Compute Backend       │
+│  Lock-free pool, multi-substrate │
+│  CPU / Metal / CUDA execution    │
+└──────────────┬───────────────────┘
+               │ programs run on
+┌──────────────▼───────────────────┐
+│           Values GF(257)         │
+│  1KB programmable tokens         │
+│  Linked via PrevID / NextID      │
+└──────────────────────────────────┘
 ```
 
-### Holographic Field Dynamics
+### Field Hierarchy
 
-The current field path now carries a finite-field phase hierarchy alongside the existing adaptive signals:
+The three finite fields form a phase hierarchy. Each layer aggregates the one below it; gossip carries the vectors peers need to reconstruct the same pressure field.
 
-| Layer        | Field       | Phase state                                            |
-|--------------|-------------|--------------------------------------------------------|
-| MarkovTrie   | `GF(257)`   | Trie-local byte-phase signature                        |
-| Kadabra Node | `GF(8191)`  | Regional chord aggregated from active tries            |
-| Mesh Field   | `GF(65537)` | Global eigenphase aggregated from gossiped node phases |
+| Layer           | Field       | Phase state                                                  |
+|-----------------|-------------|--------------------------------------------------------------|
+| Value           | `GF(257)`   | Per-Value byte-phase, local interference, affine rotation    |
+| Community Field | `GF(8191)`  | Regional aggregate from community members                    |
+| Global Field    | `GF(65537)` | Global eigenphase aggregated across nodes via gossip digests |
 
-Instead of treating attention as an explicit weight matrix, Six can now project a dominant global phase back down the stack. Tries rotate their local phase toward the field, beam search boosts continuations that constructively interfere with that phase, and online learning gates plasticity when incoming context is out of phase with the current mesh-wide mode.
+### Data Flow
 
-### Canonical ingest path (bytes → DHT)
+This is the actual end-to-end path the code implements today:
 
-This is the end-to-end story the code implements today; layer details follow in the next subsection.
+1. **Byte stream arrives** — `vm.Machine.Load` feeds a `data.Provider` into a `transport.Pipeline`.
+2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
+3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
+4. **Program installed** — `programmer.Installer` writes the `"affinity"` program into each Value's program region. This is a compiled frame, not raw words.
+5. **Published to Queue + Orchestrator** — Each minted Value is published to the `pool.Queue` (for backend execution) and the `vm.Orchestrator` (for community routing).
+6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The ALU runs the program region against the token region and writes results to signals/context/gradient.
+7. **Queue cascades** — If word 117 (`SchedulingNextProgramWord`) is non-zero after execution, the Queue re-publishes the referenced Value for another pass. `next self` makes a Value loop.
+8. **Orchestrator groups** — When a Value settles (word 117 = 0), the Orchestrator's `Cycle` picks it up. `findCommunity` computes Hamming distance over the 5 affinity words against existing community fields. Close enough → join; too far or all saturated → spawn a new `GF(8191)` community in the first empty slot.
+9. **Community emits actions** — When a community has ≥ 3 members and its dominant mode's concentration exceeds the resonance threshold, `emitActions` mints a new Value from the community's aggregate state, installs a program (`beam_swarm_step` or `active_inference`), and publishes it back to the Queue. The community's Value list is then cleared.
 
-1. **Mint from a byte stream** — `primitive.NewValue` ingests dataset (or tokenizer) bytes into one or more `Value` segments (`pkg/primitive`, `vm.Tokenizer.adoptChunk`).
-2. **Fill the token region** — Payload bytes are **Morton-coded** into 16-bit slot pairs (position ordinal × geometry slot code) until the configured token slab is full; overflow continues in the **next segment** with Prev/Next IDs (`newValuesFromPayload`).
-3. **Affinity from tokens** — After packing, **`ComputeAffinityLSH`** derives the 257-bit affinity fingerprint from the **token region** (LSH over the Morton slab), then a fresh **Value ID** is stamped.
-4. **Enter Kadabra** — `kadabra.Node.Publish` / `Store` admits the record; routing and replication use Hamming distance on that affinity (`pkg/store/kadabra/replication.go`, `routing.go`).
-5. **No matching home** — If no trie is close enough under `kadabra.clusterThreshold`, **`spawnTrie`** seeds a new Markov trie for that affinity neighborhood (`io.go`).
-6. **Node-level centroid** — Primary ingest blends into **`meshLoad`** (`blendMeshLoadCentroid`): a running centroid affinity with the same **Shannon cap** as trie clusters; when the centroid hits the cap, **`onMeshExpand`** can admit a new mesh peer (`Node.SetMeshExpandHandler`, `vm.Machine` wiring).
-7. **Trie centroid from Values** — Each trie’s **`Affinity`** is updated by **EMA blending** (`primitive.Affinity.Blended`) when an ingested vector lands in that trie under distance threshold (`selectOrSpawnTrie` / scalar path).
-8. **Trie at Shannon limit** — If the **nearest** trie already matches but its centroid **`Popcount()` ≥ `kadabra.shannonLimit`**, ingest cannot blend into that trie; a **new trie** is spawned (`spawnTrie`) so learning can continue.
-9. **Node at Shannon limit** — If the **node mesh-load centroid** is saturated (`Popcount()` ≥ `shannonLimit`) while primary ingest still arrives, **`blendMeshLoadCentroid`** triggers expansion (`onMeshExpand`) instead of unbounded blending; a false return **drops** that primary record (operator-visible via metrics).
-
-**Shannon “saturation” in config** — `kadabra.shannonLimit` is a **set-bit popcount ceiling** on the 257-bit affinity vector (same units as `primitive.Affinity.Popcount()`), not a fractional percentage. Maximum entropy for a binary vector of length 257 is near **50%** ones (~128 bits); a **~47%** design target corresponds to roughly **121** set bits — tighten `shannonLimit` toward that if you want peak-entropy pressure. The stock `cmd/cfg/config.yml` default (`240`) leaves more headroom before prune/spawn pressure.
-
-### Layered fields = layered communication
-
-The three finite fields are not only statistics — they are the **substrates on which phase-aligned state flows**. Higher layers aggregate lower layers; **gossip** carries the vectors peers need to reconstruct the same pressure field.
-
-| Layer      | Field         | Role                                                                                         | Where it lives                                                                                                               |
-|------------|---------------|----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| **Trie**   | **GF(257)**   | Phase mesh across **Values** inside one trie — local interference, beam bias, training gates | `markovtrie.Store.LocalPhase()` (`pkg/core/numeric/gf`), updated as Values are observed                                      |
-| **Node**   | **GF(8191)**  | Phase mesh across **tries** on one node — regional chord                                     | `Field.refreshNodePhase()` projects each trie’s `Vector257` into the node’s `Vector8191` (`field.go`)                        |
-| **Global** | **GF(65537)** | Mesh across **nodes** — eigenphase of the DHT                                                | `Field.refreshGlobalPhase()` folds the local node phase plus **remote digests’ `NodePhase`** into `Vector65537` (`field.go`) |
-
-**Gossip** (`Gossip.Digests`) emits **one digest per local trie**: 257-bit trie affinity, algorithm signals (surprisal, entropy, growth), and a snapshot of the **node GF(8191) phase** so receivers can **`Field.Absorb`** remote state and recompute compatible global modes. That is the hook the protocol uses to stay coherent without centralizing trie data — phase is the shared coordinate system.
+For prompts, `Machine.Prompt` takes the same path but uses `PublishTracked` and spins until the Value's scheduling word clears.
 
 ## Values: Programmable Data
 
 The `Value` type comes from the idea that machine intelligence currently lacks its own distinct "language" and that, to me at least, it seems like a missed opportunity when we force machines to reason using human language. I believe that severely constrains a system, locking it in human-level semantics.
 
-Authoring flows through **`pkg/compute/programmer`**: text under `programs:` in config (or inline source) is parsed into tokens, the **`Compiler`** lowers tokens to one or more **`Frame`** values, and each frame is sized to fit exactly one **`Value` program region** (config: `value.region.program`). If a logical program does not fit in a single region, compilation produces **multiple frames** and **`Executable.Execute`** materializes **one `Value` per frame** (each with that frame written into its program words).
-
 A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
 ```text
-┌─────────────┬────────────┬────────────┬────────────┬──────────────┬────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
-│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │    Meta    │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
-│  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │  512 bits  │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
-│ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │ words48-55 │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
-└─────────────┴────────────┴────────────┴────────────┴──────────────┴────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
+┌─────────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
+│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
+│  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │   512 bits   │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
+│ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │  words48-55  │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
+└─────────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
 ```
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
-- **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines where the Value lives in the network.
+- **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines which community the Value joins.
 - **Program region**: Packed bits the compute kernels interpret (e.g. universal bitwise sweep with per-rotation opcodes in the program words). **Authoring** does not hand-edit raw words: you write lines of source (see below), the programmer **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
+- **Properties region** (words 48–55): 512-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Legacy uses (TTL, noise, probe ABI) may still occupy fixed words inside this span until callers migrate.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
-- **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads), not the same field as “which program runs next” (see below).
-- **ID**: 64-bit unique identifier.
-- **Word 117** (`primitive.SchedulerNextProgramWord`): **scheduler next program** — `pkg/compute/programmer` and **`Executable.Execute`** write the **ValueID** that should run **after** this frame completes. Zero means no explicit hop. This sits just before words **118–119** (correlation / residency tags used by `pkg/compute/backend`).
+- **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads) and for maintaining sequence order across tokenizer chunks. Values always know their original ordering.
+- **ID**: 64-bit unique identifier, assigned by atomic counter at mint time.
+- **Word 117** (`SchedulerNextProgramWord`): scheduler next program — `pkg/compute/programmer` and **`Executable.Execute`** write the **ValueID** that should run **after** this frame completes. Zero means settled. `next self` means re-enter the Queue for another ALU pass.
 
-### Program authoring (`pkg/compute/programmer`)
+### Properties
+
+Canonical 512 bit region, spanning words 48 to 55.
+
+- WORD 0: **labels** (4 packed)
+- WORD 1: **confidence**
+- WORD 2: **epoch**
+- WORD 3: **role + programID**
+- WORD 4: **state** (IDLE, READY, BUSY, WAITING, DONE)
+- WORD 5: **temperature**
+- WORD 6: **prediction** expected dominant lane next Value, computed from eigenmode trajectory, XOR predicted vs actual = surprisal score
+- WORD 7: **prediction error** accumulated delta between predictions and outcomes (potentially: high error, raise temperature?)
+
+### Program Authoring (`pkg/compute/programmer`)
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes that text; **`NewProgram(nameOrSource)`** resolves a string against that map when the key exists, otherwise treats the string as full source.
 
 Pipeline in order:
 
 1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
-2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value’s own ID — recursion / re-entry).
+2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value's own ID — recursion / re-entry).
 3. **`NewCompiler(tokens, WithContinuation(cont))`** — holds tokens and the optional continuation; **`Compile(CompilerTarget)`** dispatches to CPU / Metal / CUDA lowering and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
-4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**’s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** writes **word 117** on each Value: **non-final Values** in the batch point to the **following emitted Value’s ID** (implicit chain across a multi-frame compile); the **final** Value uses the parsed **`next`** line when present (**literal ID** anywhere in the system, **`next self`**, or omit for no trailing hop). An optional **finalizer** can emit follow-on Values; **`Finalize`** runs on one post-execution Value.
+4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**'s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** writes **word 117** on each Value: **non-final Values** in the batch point to the **following emitted Value's ID** (implicit chain across a multi-frame compile); the **final** Value uses the parsed **`next`** line when present (**literal ID** anywhere in the system, **`next self`**, or omit for no trailing hop). An optional **finalizer** can emit follow-on Values; **`Finalize`** runs on one post-execution Value.
 
 So: **one compiled frame → one program region on one Value**; **N frames → N Values**; **chaining** is expressed both **within a batch** (frame *i* → frame *i+1*) and **after the last frame** (arbitrary ValueID, including self).
 
@@ -254,83 +240,40 @@ In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{
 
 **The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `ScanSignals` detects all of them, sorts by length, and the longest of each kind becomes the local action. Shorter signals are published for inter-cluster exchange.
 
-## MarkovTrie: Learning Without Gradients
+---
 
-This component quite naturally and very quickly spun out of control. It started at a way to store `Values`.
+## The Field: Feedback, Bias, Attention, Communication Hub
 
-MarkovTrie is a suffix trie that learns from every observation. No training epochs, no loss functions, no weight matrices. It sees data, it updates.
+The field is not one thing. It is simultaneously top-down feedback, compositional bias, an attention mechanism, and the communication substrate for the gossip protocol. Understanding it requires abandoning the idea that attention is a single operation applied to semantic units — the field operates below that level entirely, on the raw population of Values.
 
-**Core loop:**
+**Fields emerge from Values.** A community of Values — say, a group currently running beam search — produces local results. Those beams are passed upward to the GF(8191) community field, which attempts to compose longer beams from the partial beams it receives. Beams that successfully compose reward their contributing Values with amplified attention and bias. Values whose beams did not participate in a successful composition receive a top-down signal that breaks their current beams, preventing them from getting stuck in a local minimum. This is not a metaphor for attention — it is the mechanism. The field rewards productive trajectories and disrupts unproductive ones.
 
-1. **Tokenize** input (character-level, word-level, or BPE).
-2. **Walk** the trie, recording which paths exist and which don't.
-3. **Compute surprisal** — how unexpected this input is given what the trie already knows.
-4. **Learn** by inserting the sequence into the trie with a learning rate modulated by surprisal. Novel inputs are learned aggressively; familiar inputs reinforce gently.
-5. **Decay** all counts by a factor per step, so stale knowledge fades and the trie tracks the current distribution.
-6. **Prune** dead branches when their counts fall below threshold.
+**The affine rotation is the attention mechanism.** Each successful step in a task (text generation, classification, anything that progresses) is a click on the affine rotation in GF(p). These rotations are reversible: if generation drifts in the wrong direction, the rotation clicks backward through history to find the original point of divergence. If a better trajectory is spotted but the current path cannot reach it because of how the sequence started, the system drops one level — from GF(8191) to GF(257) — where the scale is much smaller, rewinds the rotation at the beginning of the generated output, and via backtracking unlocks the better trajectory. The hierarchical field structure makes this practical: coarse corrections at the top, fine-grained rewinding at the bottom.
 
-**Classification** uses Naive Bayes over interpolated n-gram probabilities. The trie maintains per-label counts at every node, and classification is a walk through the trie accumulating log-evidence per label.
+**Eigenmodes sequence without collision.** The co-occurrence matrix over active Values produces eigenmodes — natural clusters of Values that are evolving together. These eigenmodes provide sequencing: they determine which Values should be composed next, which are ready to emit, and which should wait. Crucially, eigenmodes are orthogonal by construction, so multiple sequencing tasks can run in parallel on the same field without interfering with each other.
 
-**Generation** uses beam search with temperature-controlled sampling. The beam width, temperature, and generation length are not hyperparameters — they are derived from the trie's own adaptive state.
+**The PhaseDial aligns perspectives.** Each field carries a PhaseDial — a 512-dimensional complex vector that encodes the structural fingerprint of its Value population. When two fields need to coordinate (across communities, across nodes, across the global mesh), PhaseDial similarity determines whether they are looking at the same problem from compatible angles. Misaligned perspectives are not suppressed — they are rotated toward alignment when the evidence supports it, or left alone when they represent genuinely different aspects of the state.
 
-Each trie edge also carries a transition motor derived from the parent and child `Context` multivectors. Continuation rescoring keeps the GF(257) phase interference pass as the fast Boolean filter, then adds a PGA pass that composes a candidate motor and boosts continuations that steer the current context toward the local attractor.
+**Gossip makes the field a communication substrate.** The gossip protocol does not just propagate statistics — it propagates the field itself. Each digest carries the node's GF(8191) phase snapshot, so remote nodes can reconstruct compatible pressure fields without centralizing data. Phase is the shared coordinate system. This turns the layered field hierarchy into a message-passing network where updates propagate at gossip speed rather than waiting for direct observation. The field is the medium through which the distributed system maintains coherence.
 
-**Adaptive self-tuning** replaces every fixed constant with an online estimator:
+**Values already know their order.** Values are linked via `PrevID` and `NextID`, so the original sequence is always recoverable. The field does not impose ordering on Values — it selects which orderings to amplify, which to break, and which to compose into longer structures. The causal graph is the `PrevID`/`NextID` residency pattern of the live population; the field is what shapes which patterns survive.
 
-| Parameter              | Signal                    | Mechanism                                              |
-|------------------------|---------------------------|--------------------------------------------------------|
-| Decay factor           | Surprisal EMA             | High surprisal = volatile domain = faster decay        |
-| Learning rate          | Per-token surprisal       | Novel tokens learned more aggressively                 |
-| Prune threshold        | Node growth rate          | Fast growth = prune harder to control memory           |
-| Classification context | Classification entropy    | Confused classifier = widen context window             |
-| Temperature            | Surprisal EMA             | Familiar domain = explore more; novel domain = exploit |
-| Beam width             | Classification confidence | Low confidence = wider search                          |
-| Interpolation weights  | Depth hit rate            | Tracks which n-gram depths are most predictive         |
-| Episodic blend         | Episodic match quality    | Useful episodic memory = higher blend weight           |
-| Unsupervised threshold | Classification accuracy   | Maturing label space = require more confidence         |
+### Geometry Library (`pkg/core/numeric/geometry`)
 
-The unified entry point is `Predict(data) -> Prediction` — the caller passes data, the system returns a classification and continuations. Everything else is internal.
+The field hierarchy is backed by a substantial geometry package:
 
-Internally, each layer talks through the same `algo.Prediction` envelope and `algo.Stack` orchestration object, so trie-local inference, node-level composition, and field feedback all reuse one interface instead of accumulating layer-specific management code.
-
-For control, a multimodal coordinator can bind sensory, action, and reward tries while maintaining coactivation-weighted expected reward for each observed `(sensory, action, reward)` triplet. Reward stays the terminal variable; causal regime labels describe the environment where the transition should remain stable, such as field phase, sensory cluster, source, or intervention family. The causal graph tracks `sensory -> action -> reward` path reliability from regime invariance and support, penalizes paths with high reward-affinity residual drift, and policy projection biases action ranking toward the strongest bottleneck edge before projecting ranked continuations upward through the same prediction envelope.
-
-The coordinator also builds an immutable Orthogonal Procrustes alignment from coactivated sensory and action multivectors. Exact sensory matches still dominate, but an unseen sensory `Value` can be projected into the action manifold and scored by nearest aligned action geometry. This gives the policy path a mathematical zero-shot bridge without abandoning the affinity filter.
-
-Episodic memory stores one geometry vector per event. `Buffer.Realign` lets an idle consolidation loop resolve old events against current trie coordinates, run Procrustes, and rotate the whole ring buffer in place so older memories remain coherent as the manifold drifts.
-
-### Kadabra: Distributed Knowledge Routing
-
-Kadabra is a Kademlia-style distributed hash table where logical **peers** host **Markov tries**. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges. The **canonical ingest path** (above) is the authoritative lifecycle from raw bytes to stored trie rows.
-
-**Affinity-based routing**: When a Value is published, its 257-bit affinity fingerprint determines which trie stores it (`Node.Publish` → `Store` → `selectOrSpawnTrie`). Values with similar content cluster on the same node. This follows from the LSH property: similar token regions produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
-
-**Trie vs node saturation**: Two independent caps use the same `kadabra.shannonLimit` popcount ceiling — **trie** centroids (`primitive.Affinity` per `markovtrie.Store`) and the **node** mesh-load centroid (`meshLoadState`). Hitting the cap on a matching trie spawns another trie; hitting it on the node centroid triggers **`onMeshExpand`** (when set) for mesh growth instead of unbounded blending.
-
-**Replication**: Each Value is stored on the `k` closest nodes by affinity distance (Hamming distance over the 257-bit affinity vectors). This provides both redundancy and the ability for multiple tries to learn from the same data.
-
-**Adaptive peer selection**: Each routing bucket tracks peer quality over epochs. Every `EpochQueries` queries, the bucket scores its peers by latency, explores alternatives, and swaps in better candidates. This is the Kadabra algorithm — a multi-armed bandit at the routing layer.
-
-**Zero-affinity rejection**: Values without a computed affinity fingerprint are invalid and rejected. Every Value must know what it is before entering the network.
-
-### The Field: Emergent Attention
-
-The field is the mechanism that binds isolated tries into a coherent system. It is not a data structure that nodes query — it is a force that acts on them.
-
-**Gossip protocol**: `Gossip.Digests()` builds **one compact digest per local trie** (origin ID, trie 257-bit affinity, surprisal / classification entropy / growth, plus the current **node GF(8191) phase** snapshot). Remote nodes **`Field.Absorb`** these digests so `refreshGlobalPhase` can fold peer **NodePhase** vectors into **GF(65537)**. Wire transport may batch the same structure; in-process tests exercise the absorb path directly. Propagation is the mechanism that turns layered fields into a **communication substrate**, not a side channel.
-
-**Eigenmode detection**: When a node absorbs a digest, the field recomputes emergent eigenmodes — clusters of structurally aligned tries. Structural alignment is measured by Jaccard coupling over the 257-bit affinity vectors, with the coupling threshold learned from the observed pairwise distribution. Phase coherence is measured by **surprisal velocity** during pressure projection — whether nodes are rising or falling in surprisal together.
-
-**Top-down projection**: The dominant eigenmode — the cluster with the most collective energy — is what the system is "attending to" right now. The field projects asymmetric pressure onto each trie:
-
-|              | Aligned (in dominant mode)               | Misaligned (outside dominant mode)         |
-|--------------|------------------------------------------|--------------------------------------------|
-| **Decay**    | Suppressed — knowledge retained longer   | Amplified — stale knowledge pruned faster  |
-| **Learning** | Amplified — absorbs related input faster | Suppressed — doesn't waste effort on noise |
-
-This is attention without an attention mechanism. No query-key-value matrices, no softmax — the field *is* the attention. Tries don't decide to check the field. The field decides which tries matter and modulates their behavior accordingly, exactly as a physical field acts on particles within it.
-
-**Phase dynamics**: In-phase nodes (both absorbing novelty or both consolidating) amplify each other's field pressure. Anti-phase nodes (one learning while the other is stable) dampen each other — they're already complementing each other naturally, so the field doesn't interfere.
+| Module              | Purpose                                                                       |
+|---------------------|-------------------------------------------------------------------------------|
+| `field.go`          | `Field` type — GF(p) phase vectors with `Rotate`, `Dominant`, `Dot`, `AccumulateProjected`, `AggregateFromLowerFields` |
+| `eigenmode.go`      | `Eigenmode` detection — greedy clustering via coupling functions, `DetectModes`, `PhaseAlignment` |
+| `eigenmode_toroidal.go` | Toroidal eigenmode variant for wrap-around phase spaces                   |
+| `phasedial.go`      | `PhaseDial` — 512-dimensional complex vector for perspective alignment        |
+| `gf_rotation.go`    | `GFRotation` — uint16 pair in GF(257) for kernel-level affine addressing      |
+| `pga.go`            | Projective Geometric Algebra — multivector products, sandwich, reverse        |
+| `procrustes.go`     | Orthogonal Procrustes alignment between manifolds                             |
+| `clifford.go`       | Clifford algebra primitives                                                   |
+| `scanner.go`        | Signal scanning — longest runs, signal extraction                             |
+| `phase.go`          | Phase utilities                                                               |
 
 ---
 
@@ -340,7 +283,7 @@ Six does not compute answers from inputs. It holds a **believed resolution** and
 
 ### The attractor is the local eigenmode
 
-When a prompt `Value` lands on a node, its affinity has already routed it into a neighbourhood of the DHT. That neighbourhood already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
+When a prompt Value lands on the Orchestrator, its affinity routes it into a community. That community already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
 
 The gap between the prompt's affinity and the eigenmode is the drive. The explore program steps the prompt through Morton-space each pass, and every step closes a little more of that gap. Convergence does two things at once:
 
@@ -377,17 +320,17 @@ Counterfactual reasoning lives inside this rotation space. A "what if the belief
 
 Classical causal modelling treats the counterfactual as a structural equation and falsification as a separate statistical test. Six collapses both into the same mechanism.
 
-**Counterfactuals are perturbations.** A "what if *X* had happened" query is an **ephemeral Value** encoding *X*, published into the DHT under a low TTL. Its explore program runs, it emits descendants, the descendants inherit a decremented TTL through `PrevID`, and after a bounded number of hops the whole cascade self-terminates. The answer to the what-if is the population snapshot at the moment the cascade dies — "this is how the live state would have looked if *X* had landed here." Nothing is mutated; the ephemeral lineage leaves no permanent trace. The same substrate that runs real queries runs counterfactuals — only the initial TTL differs.
+**Counterfactuals are perturbations.** A "what if *X* had happened" query is an **ephemeral Value** encoding *X*, published with a low TTL. Its explore program runs, it emits descendants, the descendants inherit a decremented TTL through `PrevID`, and after a bounded number of hops the whole cascade self-terminates. The answer to the what-if is the population snapshot at the moment the cascade dies — "this is how the live state would have looked if *X* had landed here." Nothing is mutated; the ephemeral lineage leaves no permanent trace. The same substrate that runs real queries runs counterfactuals — only the initial TTL differs.
 
 **Falsification is cancellation with the sign flipped.** The normal cancel signal (`XOR` → longest **zero-run**) rewards agreement: a big shared substring produces a big zero-run and two Values are treated as related. Falsification uses the same `XOR` against a *predicted-absent* pattern. If the hypothesis claims "if *X*, then NOT *Y*," the explore program `XOR`s the downstream Value against the predicted-absent *Y* and looks for a long **one-run** rather than a zero-run. A long one-run confirms disagreement — the claim held. A long zero-run means *Y* appeared where it was predicted absent — the hypothesis is refuted, and the refuting Value is published as evidence.
 
 This gives Popperian falsification a natural substrate. A hypothesis is a Value whose program runs an `XOR` against a predicted-absent successor pattern. **Sharp hypotheses** — narrow, specific claims — produce clean, decisive `XOR` signals when tested. **Vague hypotheses** produce mushy signals and get field-suppressed. Falsifiability becomes a **survival trait in the population**. Popper is not imposed on top of the system; he drops out of the substrate.
 
-**Causal edges are not stored.** They are the `PrevID` / `NextID` residency pattern of the live population itself. When Value *A* reliably precedes Value *B* across many cancel/merge events, that *is* the causal edge from *A* to *B*. Edge weight is how frequently the pair co-occurs in emission lineages. Discovery is emission. Intervention is: drop a Value into the DHT and observe how the downstream population reshapes under the field. A causal graph query is a walk over `PrevID` / `NextID` links in the live state — the same operation used to chain segments of a long payload. **The graph and the data are the same structure.**
+**Causal edges are not stored.** They are the `PrevID` / `NextID` residency pattern of the live population itself. When Value *A* reliably precedes Value *B* across many cancel/merge events, that *is* the causal edge from *A* to *B*. Edge weight is how frequently the pair co-occurs in emission lineages. Discovery is emission. Intervention is: drop a Value into the system and observe how the downstream population reshapes under the field. A causal graph query is a walk over `PrevID` / `NextID` links in the live state — the same operation used to chain segments of a long payload. **The graph and the data are the same structure.**
 
 | Concept                         | Substrate mechanism                                                |
 |---------------------------------|--------------------------------------------------------------------|
-| Believed resolution             | Local eigenmode of the landing neighbourhood                       |
+| Believed resolution             | Local eigenmode of the landing community                           |
 | Gap as drive                    | Affinity + phase distance between prompt and eigenmode             |
 | Perception update               | Prompt converges toward the mode                                   |
 | World update                    | Mode shifts as the new Value joins the cluster                     |
@@ -400,7 +343,7 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 
 ### Ephemerality and TTL
 
-Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the `meta` region. It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
+Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
 
 Because a hypothesis query and a real observation share the same substrate, Six can interleave the two freely. A stream of real observations updates the field. In-between, ephemeral queries probe the field without disturbing it. The field itself cannot tell a query from an observation until the query dies — which means the same dynamics that handle real-world inference handle hypothetical reasoning for free.
 
@@ -449,20 +392,13 @@ value:
     tokens:   { start: 0,   bits: 1024 }
     program:  { start: 16,  bits: 512 }
     signals:  { start: 24,  bits: 512 }
-    context:  { start: 32,  bits: 512 }
-    gradient: { start: 40,  bits: 512 }
-    meta:     { start: 48,  bits: 512 }
+    context:    { start: 32,  bits: 512 }
+    gradient:   { start: 40,  bits: 512 }
+    properties: { start: 48,  bits: 512 }
     prev:     { start: 120, bits: 64 }
     next:     { start: 121, bits: 64 }
     id:       { start: 122, bits: 64 }
     affinity: { start: 123, bits: 257 }
-
-kadabra:
-  bits: 64
-  bucketSize: 20
-  replicationFactor: 3
-  alpha: 3
-  epochQueries: 100
 ```
 
 **`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
@@ -511,42 +447,17 @@ make pprof EXP=Text_Classification
 ## Usage
 
 ```go
-// Create a Kadabra node backed by a MarkovTrie
-node := kadabra.NewKadabraNode(
-    kadabra.NodeIDFromString("node-alpha"),
-    kadabra.WithReplicationFactor(3),
-)
+// Create a machine
+machine, _ := vm.NewMachine(ctx)
+defer machine.Close()
 
-// Create a Value (affinity + ID filled by NewValue), publish to the DHT
-value, _ := primitive.NewValue([]byte("the cat sat on the mat"))
-node.Publish(*value, "Sentence")
-value.Close()
+// Load a dataset — Values are minted, linked, programmed, and
+// published to the queue and orchestrator automatically.
+machine.Load(dataset)
 
-// The trie learns automatically. Query it:
-prediction := node.Store.Predict("the cat sat")
-fmt.Println(prediction.Label)         // "Sentence"
-fmt.Println(prediction.Continuations) // [{Sequence: "on the mat" Score: 0.87} ...]
-```
-
-For distributed operation, connect nodes and let the field emerge:
-
-```go
-nodes := make([]*kadabra.KadabraNode, 10)
-for i := range nodes {
-    nodes[i] = kadabra.NewKadabraNode(kadabra.NodeID(i))
-}
-
-// Connect the mesh
-for i := range nodes {
-    for j := i + 1; j < len(nodes); j++ {
-        kadabra.Connect(nodes[i], nodes[j], 1.0)
-    }
-}
-
-// Publish data — Values route to affinity-similar tries automatically.
-// The field emerges from gossip and biases learning across the network.
-// No central coordinator. No global optimizer. Just local learning
-// shaped by emergent collective dynamics.
+// Prompt — the Value flows through the same pipeline as Load.
+// Spins until the scheduling word clears (Value has settled).
+result, _ := machine.Prompt("the cat sat on the", "beam_swarm_step")
 ```
 
 ---
@@ -558,20 +469,30 @@ six/
 ├── cmd/                    # CLI commands (root, init, paper)
 │   └── cfg/config.yml      # Default configuration
 ├── pkg/
-│   ├── primitive/           # Value type, VSA operations, affinity LSH
+│   ├── primitive/           # Value type, Morton coding, affinity LSH
 │   ├── compute/             # Multi-substrate load balancer
 │   │   ├── programmer/      # Program source → tokens → frames → Values
 │   │   └── kernel/
-│   │       ├── cpu/         # SIMD-optimized bitwise executor
+│   │       ├── cpu/         # SIMD-optimized bitwise executor + ARM64/AMD64 asm
 │   │       ├── cuda/        # NVIDIA GPU kernels
 │   │       └── metal/       # Apple Metal GPU shaders
-│   ├── store/
-│   │   ├── markovtrie/     # Adaptive probabilistic trie
-│   │   └── kadabra/         # Kademlia DHT + field dynamics
+│   ├── core/                # Configuration, data structures
+│   │   └── numeric/
+│   │       └── geometry/    # Field, PhaseDial, eigenmode, PGA, Procrustes
+│   ├── pool/                # Lock-free thread pool + tiered work queue
+│   ├── vm/                  # Machine, Orchestrator, Tokenizer
+│   ├── gossip/              # Gossip protocol types (Conn, Digest)
 │   ├── network/             # QUIC, UDP, IPC transports
-│   ├── vm/                  # Machine orchestrator
-│   ├── core/                # Configuration management
-│   └── errnie/              # Structured logging + Elasticsearch
+│   ├── transport/           # Pipeline, Stream framing
+│   ├── viz/                 # Event bus, WebSocket server, timeline
+│   └── errnie/              # Structured logging + Elasticsearch shipping
+├── experiment/              # Experiment tasks, data loaders, paper generation
+│   ├── data/                # HuggingFace + local data providers
+│   ├── task/                # Classification, codegen, logic, phasedial, scaling, textgen
+│   ├── projector/           # LaTeX/chart templates
+│   └── trialmap/            # Trial visualization
+├── visualizer/              # React/Three.js 3D visualizer
+├── paper/                   # LaTeX paper + generated figures
 ├── docker-compose.yml       # Elasticsearch, Kibana, MinIO, LakeFS
 ├── Makefile                 # Build targets
 └── main.go                  # Entry point
@@ -583,10 +504,10 @@ six/
 
 Six is research software under active development. The core mechanisms work and are tested, but the system is not yet production-ready. Current focus areas:
 
-- Field dynamics and eigenmode-driven attention
-- Multi-node distributed learning across network boundaries
+- Field dynamics: wiring community fields to actually drive Value-level behavior via affine rotation and eigenmode sequencing
+- Gossip integration: connecting the digest protocol to the network transports
+- Multi-node distributed execution across network boundaries
 - GPU acceleration of Value program execution at scale
-- Episodic memory integration with field pressure
 
 ---
 

@@ -9,12 +9,9 @@
 #define OPCODE_GEOMETRIC_COMPOSE 0x10
 #define OPCODE_GEOMETRIC_SANDWICH 0x20
 #define OPCODE_GEOMETRIC_REVERSE 0x30
+#define OPCODE_REGION_PROGRAM 0x40
+#define RESERVED_START_WORD 56
 
-/*
-Multivector is the Cl(3,0,1) 8-lane payload carried in the Value frame.
-The frame remains uint64_t at rest so the Boolean and geometric ALUs share the
-same 1024-byte ABI; CUDA reinterprets the lanes only at arithmetic boundaries.
-*/
 struct Multivector {
     double v[8];
 };
@@ -29,12 +26,10 @@ static __device__ __forceinline__ uint64_t double_to_word(double value) {
 
 static __device__ __forceinline__ Multivector load_multivector(uint64_t* frame, int start) {
     Multivector mv;
-
     #pragma unroll
     for (int idx = 0; idx < 8; idx++) {
         mv.v[idx] = word_to_double(frame[start + idx]);
     }
-
     return mv;
 }
 
@@ -47,31 +42,23 @@ static __device__ __forceinline__ void store_multivector(uint64_t* frame, int st
 
 static __device__ __forceinline__ Multivector geometric_product(Multivector left, Multivector right) {
     Multivector out;
-
     out.v[0] = left.v[0]*right.v[0] - left.v[4]*right.v[4] - left.v[5]*right.v[5] - left.v[6]*right.v[6];
-
     out.v[1] = left.v[0]*right.v[1] + left.v[1]*right.v[0] - left.v[2]*right.v[4] + left.v[3]*right.v[5] +
                left.v[4]*right.v[2] - left.v[5]*right.v[3] - left.v[6]*right.v[7] - left.v[7]*right.v[6];
-
     out.v[2] = left.v[0]*right.v[2] + left.v[1]*right.v[4] + left.v[2]*right.v[0] - left.v[3]*right.v[6] -
                left.v[4]*right.v[1] - left.v[5]*right.v[7] + left.v[6]*right.v[3] - left.v[7]*right.v[5];
-
     out.v[3] = left.v[0]*right.v[3] - left.v[1]*right.v[5] + left.v[2]*right.v[6] + left.v[3]*right.v[0] -
                left.v[4]*right.v[7] + left.v[5]*right.v[1] - left.v[6]*right.v[2] - left.v[7]*right.v[4];
-
     out.v[4] = left.v[0]*right.v[4] + left.v[4]*right.v[0] + left.v[5]*right.v[6] - left.v[6]*right.v[5];
     out.v[5] = left.v[0]*right.v[5] - left.v[4]*right.v[6] + left.v[5]*right.v[0] + left.v[6]*right.v[4];
     out.v[6] = left.v[0]*right.v[6] + left.v[4]*right.v[5] - left.v[5]*right.v[4] + left.v[6]*right.v[0];
-
     out.v[7] = left.v[0]*right.v[7] + left.v[1]*right.v[6] + left.v[2]*right.v[5] + left.v[3]*right.v[4] +
                left.v[4]*right.v[3] + left.v[5]*right.v[2] + left.v[6]*right.v[1] + left.v[7]*right.v[0];
-
     return out;
 }
 
 static __device__ __forceinline__ Multivector reverse(Multivector mv) {
     Multivector out;
-
     out.v[0] =  mv.v[0];
     out.v[1] = -mv.v[1];
     out.v[2] = -mv.v[2];
@@ -80,7 +67,6 @@ static __device__ __forceinline__ Multivector reverse(Multivector mv) {
     out.v[5] = -mv.v[5];
     out.v[6] = -mv.v[6];
     out.v[7] =  mv.v[7];
-
     return out;
 }
 
@@ -88,99 +74,122 @@ static __device__ __forceinline__ Multivector sandwich(Multivector motor, Multiv
     return geometric_product(geometric_product(motor, target), reverse(motor));
 }
 
-/*
-UniversalBitwise kernel — CUDA implementation.
+static __device__ __forceinline__ void unpack_region_ref(uint64_t word, int* start, int* span) {
+    *start = (int)(uint32_t)word;
+    *span = (int)(uint32_t)(word >> 32);
+}
 
-Per thread (one Value):
-  1. Copy A (4 words) and B (4 words) from Tokens region.
-  2. Expand B into 16 rotations × 4 words = 64-word surface.
-     A is replicated for each of the 16 rotations to match B's expanded surface.
-  3. Extract one 4-bit opcode per rotation from Program region.
-  4. Apply truth table across the full 64-element surface.
-  5. Pack low 8 bits of each result into 8-word Signals region.
+static __device__ __forceinline__ void universal_bitwise_v2_device(
+    uint64_t* frame,
+    int aStart, int aSpan,
+    int bStart, int bSpan,
+    int dstStart, int dstSpan,
+    int mode, uint64_t opcodeTable
+) {
+    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    if (aStart + aSpan > 128 || bStart + bSpan > 128 || dstStart + dstSpan > 128) return;
 
-Token and Program regions are never mutated.
-*/
+    uint64_t aLane[4] = {0, 0, 0, 0};
+    for (int idx = 0; idx < aSpan; idx++) {
+        aLane[idx & 3] ^= frame[aStart + idx];
+    }
+
+    uint8_t sigBytes[64];
+    for (int i = 0; i < 64; i++) sigBytes[i] = 0;
+
+    for (int rot = 0; rot < 16; rot++) {
+        uint8_t op = (uint8_t)((opcodeTable >> (rot * 4)) & 0xF);
+        uint64_t m0 = (op & 1) ? ~0ULL : 0ULL;
+        uint64_t m1 = (op & 2) ? ~0ULL : 0ULL;
+        uint64_t m2 = (op & 4) ? ~0ULL : 0ULL;
+        uint64_t m3 = (op & 8) ? ~0ULL : 0ULL;
+
+        for (int lane = 0; lane < 4; lane++) {
+            int bIdx = bStart + ((rot * 4) + lane) % bSpan;
+            uint64_t a = aLane[lane];
+            uint64_t b = frame[bIdx];
+            uint64_t notA = ~a;
+            uint64_t notB = ~b;
+
+            uint64_t result = (a & b & m0) |
+                              (a & notB & m1) |
+                              (notA & b & m2) |
+                              (notA & notB & m3);
+
+            sigBytes[rot * 4 + lane] = (uint8_t)(result & 0xFF);
+        }
+    }
+
+    uint64_t sigWords[8];
+    for (int w = 0; w < 8; w++) {
+        int base = w * 8;
+        sigWords[w] = (uint64_t)sigBytes[base] |
+                      ((uint64_t)sigBytes[base + 1] << 8) |
+                      ((uint64_t)sigBytes[base + 2] << 16) |
+                      ((uint64_t)sigBytes[base + 3] << 24) |
+                      ((uint64_t)sigBytes[base + 4] << 32) |
+                      ((uint64_t)sigBytes[base + 5] << 40) |
+                      ((uint64_t)sigBytes[base + 6] << 48) |
+                      ((uint64_t)sigBytes[base + 7] << 56);
+    }
+
+    if (mode == 0) {
+        int limit = dstSpan;
+        if (limit > 8) limit = 8;
+        for (int idx = 0; idx < limit; idx++) {
+            frame[dstStart + idx] ^= sigWords[idx];
+        }
+        return;
+    }
+
+    uint64_t total = 0;
+    for (int idx = 0; idx < 8; idx++) {
+        total += __popcll(sigWords[idx]);
+    }
+    frame[dstStart] = total;
+}
 
 __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_values) return;
 
     uint32_t base = id * WORDS;
+    uint64_t* frame = A + base;
 
-    // Load A (steady) and B (will be rotated).
-    uint64_t a[A_WORDS];
-    uint64_t b[B_WORDS];
-    for (int i = 0; i < A_WORDS; i++) {
-        a[i] = A[base + TOKENS_START_WORD + i];
-    }
-    for (int i = 0; i < B_WORDS; i++) {
-        b[i] = A[base + TOKENS_START_WORD + A_WORDS + i];
-    }
+    uint8_t rawOpcode = (uint8_t)(frame[PROGRAM_START_WORD] & 0xFF);
 
-    // Load program region.
-    uint64_t prog[PROGRAM_WORDS];
-    for (int i = 0; i < PROGRAM_WORDS; i++) {
-        prog[i] = A[base + PROGRAM_START_WORD + i];
-    }
+    if (rawOpcode == OPCODE_REGION_PROGRAM) {
+        for (int offset = 0; offset < 60; offset += 6) {
+            uint64_t op = frame[RESERVED_START_WORD + offset];
+            if (op == 0 && offset > 0) break;
 
-    // Expand surfaces, apply truth table, pack signals.
-    uint64_t signals[SIGNALS_WORDS];
-    for (int i = 0; i < SIGNALS_WORDS; i++) {
-        signals[i] = 0;
-    }
+            uint64_t rotationTable = frame[RESERVED_START_WORD + offset + 1];
+            if (rotationTable == 0) continue;
 
-    // Word 17 (prog[1]) packs 16 × 4-bit opcodes (one per rotation), little-endian. Legacy
-    // single-opcode callers broadcast the same nibble 16× so the per-rotation
-    // decode collapses to the old broadcast semantics; per-rotation programs
-    // place distinct nibbles so each rotation in the sweep pulls its own truth
-    // table.
-    uint64_t rotationOpcodeWord = prog[1];
+            int mode = (int)(frame[RESERVED_START_WORD + offset + 2] & 0xFF);
+            int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
+            unpack_region_ref(frame[RESERVED_START_WORD + offset + 3], &aStart, &aSpan);
+            unpack_region_ref(frame[RESERVED_START_WORD + offset + 4], &bStart, &bSpan);
+            unpack_region_ref(frame[RESERVED_START_WORD + offset + 5], &dstStart, &dstSpan);
 
-    for (int rot = 0; rot < NUM_ROTATIONS; rot++) {
-        uint8_t op = (uint8_t)((rotationOpcodeWord >> (rot * 4)) & 0xF);
-
-        // Build masks from truth table bits.
-        uint64_t m0 = 0 - (uint64_t)(op & 1);         // bit 0: a=0,b=0
-        uint64_t m1 = 0 - (uint64_t)((op >> 1) & 1);  // bit 1: a=1,b=0
-        uint64_t m2 = 0 - (uint64_t)((op >> 2) & 1);  // bit 2: a=0,b=1
-        uint64_t m3 = 0 - (uint64_t)((op >> 3) & 1);  // bit 3: a=1,b=1
-
-        for (int w = 0; w < A_WORDS; w++) {
-            // Apply truth table: result = (~a&~b&m0) | (a&~b&m1) | (~a&b&m2) | (a&b&m3)
-            uint64_t av = a[w];
-            uint64_t bv = b[w];
-            uint64_t result = (~av & ~bv & m0) |
-                              ( av & ~bv & m1) |
-                              (~av &  bv & m2) |
-                              ( av &  bv & m3);
-
-            // Pack low 8 bits into signals.
-            int sigIdx = rot * A_WORDS + w;  // 0..63
-            int sigWord = sigIdx / 8;
-            int sigShift = (sigIdx % 8) * 8;
-            signals[sigWord] |= ((result & 0xFFULL) << sigShift);
+            universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
         }
-
-        // Rotate B left by 8 bits for next rotation.
-        for (int w = 0; w < B_WORDS; w++) {
-            b[w] = (b[w] << 8) | (b[w] >> 56);
-        }
+        return;
     }
 
-    // Write only the Signals region.
-    for (int i = 0; i < SIGNALS_WORDS; i++) {
-        A[base + SIGNALS_START_WORD + i] = signals[i];
-    }
+    uint64_t rotationTable = frame[PROGRAM_START_WORD + 1];
+    if (rotationTable == 0) return;
+
+    int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
+    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
+    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+
+    universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
 }
 
-/*
-NearestAffinity kernel — parallel Hamming distance search.
-
-One thread per candidate. Each thread computes the Hamming distance
-between the query vector and its candidate vector, writing the scalar
-distance to an output buffer. The host reduces the argmin.
-*/
 __global__ void nearest_affinity_kernel(
     const uint64_t* candidates,
     const uint64_t* query,
@@ -200,13 +209,6 @@ __global__ void nearest_affinity_kernel(
     distances[id] = dist;
 }
 
-/*
-Geometric kernel — PGA lane for Value-local multivectors.
-
-The opcode is read from the high nibble of Program[0], leaving the low nibble
-available for Boolean truth tables. Context and Gradient are interpreted as
-8x float64 multivectors and Signals receives the computed result.
-*/
 __global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_values) return;

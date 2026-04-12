@@ -39,7 +39,7 @@ func nearestBatchReduce(v *[128]uint64, batchCount uint64) {
 		cand := (*[8]uint64)(unsafe.Pointer(&v[base]))
 		var dist uint32
 
-		for laneIdx := 0; laneIdx < 8; laneIdx++ {
+		for laneIdx := range query {
 			dist += uint32(bits.OnesCount64(query[laneIdx] ^ cand[laneIdx]))
 		}
 

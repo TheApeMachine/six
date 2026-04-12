@@ -1,2712 +1,1300 @@
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import type {
-	ALUState,
-	BeamHypothesis,
-	BeamState,
-	EdgeState,
-	FieldState,
-	InspectorTarget,
-	NodeState,
-	PipelineStageState,
-	TrieGraphPayload,
-	TrieState,
-} from "./types";
-import { decodeVizMessage, EK, type VizEvent } from "./wire";
-
-const C = {
-	bg: 0x0a0e1a,
-	dataset: 0x448aff,
-	machine: 0xff6e40,
-	dht: 0xffab00,
-	trie: 0xe6c930,
-	algo: 0x76ff03,
-	field: 0xba68c8,
-	compiler: 0x4cc9f0,
-	queue: 0xb388ff,
-	cpu: 0x26c6da,
-	cuda: 0x66bb6a,
-	metal: 0xbdbdbd,
-	errnie: 0xf44336,
-	prim: 0xff80ab,
-	network: 0x448aff,
-	transport: 0x80deea,
-	beam: 0xff6e40,
-	gf257: 0x40c8a0,
-	gf8191: 0xe89850,
-	gf65537: 0xa868e8,
-	beamActive: 0x76ff03,
-	beamRejected: 0xf44336,
-	beamConverge: 0xffab00,
-};
-
-const NODE_RADIUS = 14;
-const TRIE_RING_R = 3.5;
-const MAX_TRIES = 64;
+import { decodeVizFrames, EK, KIND_NAMES, type VizEvent } from "./wire";
 
 /*
-LogSegment is one styled fragment for the event log UI (React renders text + optional color).
+GF(257) arithmetic for inspector-side field lane visualization.
+Mirrors pkg/core/numeric/geometry/field.go at the Mod257 tier.
 */
-export interface LogSegment {
-	readonly text: string;
-	readonly color?: string;
+const GF_MOD = 257;
+
+function gfAdd(a: number, b: number): number {
+  return ((a + b) % GF_MOD + GF_MOD) % GF_MOD;
 }
 
-export interface EngineCallbacks {
-	onEvent: (event: VizEvent) => void;
-	onInspect: (target: InspectorTarget | null) => void;
-	onStats: (stats: EngineStats) => void;
-	onLog: (segments: LogSegment[]) => void;
-	onBeamUpdate: (nodeId: string, beam: BeamState) => void;
-	onALUUpdate: (alu: ALUState) => void;
-	onConnectionChange: (connected: boolean) => void;
-	onTimelineUpdate: (cursor: number, total: number) => void;
+function gfMul(a: number, b: number): number {
+  return ((a % GF_MOD) * (b % GF_MOD)) % GF_MOD;
 }
 
-export interface EngineStats {
-	nodeCount: number;
-	trieCount: number;
-	edgeCount: number;
-	eventCount: number;
-	droppedCount: number;
-	fps: number;
-	eventsPerSec: number;
+function gfAffine(v: number, m: number, b: number): number {
+  return gfAdd(gfMul(v, m), b);
 }
 
-interface SceneNode {
-	id: string;
-	group: THREE.Group;
-	core: THREE.Mesh;
-	face: THREE.Mesh;
-	wire: THREE.LineSegments;
-	pulse: THREE.Mesh;
-	gfRing: GFRing;
-	label: THREE.Sprite;
-	data: NodeState;
-	tries: SceneTrie[];
-	edges: Set<string>;
-	beam: InternalBeamState;
-	beamRays: BeamRay[];
-	beamHypMeshes: THREE.Mesh[];
+function reduce257(value: number): number {
+  let acc = 0;
+  for (let i = 0; i < 4; i++) {
+    const byte = (value >>> (8 * i)) & 0xff;
+    acc += (i & 1) ? -byte : byte;
+  }
+
+  while (acc < 0) acc += 257;
+  while (acc >= 257) acc -= 257;
+  return acc;
 }
 
-interface SceneTrie {
-	group: THREE.Group;
-	rootMesh: THREE.Mesh;
-	gfRing: GFRing;
-	pickMeshes: THREE.Mesh[];
-	graphGroup: THREE.Group | null;
-	graphNodeByVid: Map<number, THREE.Mesh>;
-	state: TrieState;
+class PhaseField {
+  lanes: Uint32Array;
+
+  constructor() {
+    this.lanes = new Uint32Array(GF_MOD);
+  }
+
+  observeByte(tok: number, pos: number) {
+    const w = this.lanes.length;
+    const pm = ((pos % w) + w) % w;
+    const mult = reduce257(pm + 1) || 1;
+    const bias = gfAdd(tok, 1);
+    const id = ((tok % w) + w) % w;
+    const orb = ((id + pos + 1) % w + w) % w;
+    const mir = ((id + pm + (w >> 1)) % w + w) % w;
+
+    this.lanes[id] = gfAffine(this.lanes[id], mult, bias);
+    this.lanes[orb] = gfAdd(this.lanes[orb], bias);
+    this.lanes[mir] = gfAdd(this.lanes[mir], mult);
+  }
+
+  observeBytes(data: Uint8Array | number[]) {
+    for (let i = 0; i < data.length; i++) this.observeByte(data[i], i);
+  }
+
+  dominant(): { index: number; amplitude: number; concentration: number } {
+    let best = -1, bv = 0, tot = 0;
+
+    for (let i = 0; i < this.lanes.length; i++) {
+      tot += this.lanes[i];
+      if (this.lanes[i] > bv) { bv = this.lanes[i]; best = i; }
+    }
+
+    return { index: best, amplitude: bv, concentration: tot > 0 ? bv / tot : 0 };
+  }
 }
 
-interface GFRing {
-	group: THREE.Group;
-	marker: THREE.Mesh;
-	needle: THREE.Line;
-	radius: number;
-	phase: number;
-	speed: number;
+const ACTIONS: { name: string; color: [number, number, number] }[] = [
+  { name: "beam_swarm",       color: [0,   255, 150] },
+  { name: "causal_explore",   color: [255, 200, 0  ] },
+  { name: "active_inference", color: [255, 150, 50 ] },
+  { name: "classification",   color: [100, 180, 255] },
+];
+
+const REACTIONS: { name: string; color: [number, number, number] }[] = [
+  { name: "surprisal",     color: [0,   200, 255] },
+  { name: "falsification", color: [255, 80,  80 ] },
+];
+
+const PROGRAM_COLORS: Record<string, [number, number, number]> = {};
+for (const a of ACTIONS) PROGRAM_COLORS[a.name] = a.color;
+PROGRAM_COLORS["beam_swarm_step"] = ACTIONS[0].color;
+for (const r of REACTIONS) PROGRAM_COLORS[r.name] = r.color;
+PROGRAM_COLORS["affinity"] = [186, 104, 200];
+
+function programColor(name: string): [number, number, number] {
+  return PROGRAM_COLORS[name] || [180, 180, 180];
 }
 
-interface SceneEdge {
-	from: string;
-	to: string;
-	line: THREE.Line;
-	state: EdgeState;
-	activity: number;
+/*
+fnv1a32 yields deterministic [0,1) floats from string keys so layout matches
+backend ids across runs — no Math.random placement for telemetry-driven nodes.
+*/
+function fnv1a32(input: string): number {
+  let hash = 0x811c9dc5;
+
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return hash >>> 0;
 }
 
-interface BeamRay {
-	line: THREE.Line;
-	mat: THREE.LineBasicMaterial;
-	tipMesh: THREE.Mesh;
-	tipMat: THREE.MeshBasicMaterial;
-	targetPos: THREE.Vector3;
-	active: boolean;
-	score: number;
+function unitFromKey(key: string, salt: string): number {
+  return fnv1a32(`${key}\0${salt}`) / 0xffffffff;
 }
 
-interface InternalBeamState {
-	activeCount: number;
-	rejectedCount: number;
-	bestScore: number;
-	lastSequence: string;
-	lastCompose: number;
-	hypotheses: BeamHypothesis[];
-	converged: boolean;
+function layoutPoint(key: string, width: number, height: number, inset: number): { x: number; y: number } {
+  const ux = unitFromKey(key, "x");
+  const uy = unitFromKey(key, "y");
+  const w = Math.max(1, width - 2 * inset);
+  const h = Math.max(1, height - 2 * inset);
+
+  return { x: inset + ux * w, y: inset + uy * h };
 }
 
-interface PipelineStage3D {
-	id: string;
-	mesh: THREE.Mesh;
-	edges: THREE.LineSegments;
-	label: THREE.Sprite;
-	subBoxes: THREE.Mesh[];
-	pulseRing: THREE.Mesh;
-	position: THREE.Vector3;
-	color: number;
-	metrics: PipelineStageState;
+const VIZ_LAYOUT_INSET = 80;
+
+function layoutVelocity(key: string): { x: number; y: number } {
+  const vx = unitFromKey(key, "vx") - 0.5;
+  const vy = unitFromKey(key, "vy") - 0.5;
+
+  return { x: vx * 0.8, y: vy * 0.8 };
 }
 
-export function initEngine(
-	container: HTMLDivElement,
-	callbacks: EngineCallbacks,
-) {
-	const scene = new THREE.Scene();
-	scene.fog = new THREE.FogExp2(C.bg, 0.004);
-
-	const camera = new THREE.PerspectiveCamera(
-		50,
-		container.clientWidth / container.clientHeight,
-		0.1,
-		400,
-	);
-	camera.position.set(0, 32, 44);
-
-	const renderer = new THREE.WebGLRenderer({
-		antialias: true,
-		powerPreference: "high-performance",
-	});
-	renderer.setSize(container.clientWidth, container.clientHeight);
-	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-	renderer.setClearColor(C.bg);
-	container.appendChild(renderer.domElement);
-
-	const composer = new EffectComposer(renderer);
-	composer.addPass(new RenderPass(scene, camera));
-	const bloom = new UnrealBloomPass(
-		new THREE.Vector2(container.clientWidth, container.clientHeight),
-		1.5,
-		0.4,
-		0.85,
-	);
-	bloom.threshold = 0.15;
-	bloom.strength = 0.4;
-	bloom.radius = 0.5;
-	composer.addPass(bloom);
-
-	const controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true;
-	controls.dampingFactor = 0.05;
-	controls.maxDistance = 180;
-	controls.minDistance = 8;
-	controls.target.set(0, 4, 0);
-
-	scene.add(new THREE.AmbientLight(0xffffff, 0.12));
-	const grid = new THREE.GridHelper(80, 80, 0x151a2a, 0x0c1018);
-	grid.position.y = -7;
-	scene.add(grid);
-
-	/* ── shared geometry / material factories ─────────────────────── */
-
-	function makeMat(color: number, opacity = 0.06) {
-		return new THREE.MeshBasicMaterial({
-			color,
-			transparent: true,
-			opacity,
-			side: THREE.DoubleSide,
-			depthWrite: false,
-		});
-	}
-
-	function edgeMat(color: number, opacity = 0.4) {
-		return new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-	}
-
-	function labelTexture(
-		text: string,
-		color: number,
-		fontSize = 28,
-	): THREE.CanvasTexture {
-		const cv = document.createElement("canvas");
-		const ctx = cv.getContext("2d");
-		cv.width = 512;
-		cv.height = 64;
-		ctx.font = `bold ${fontSize}px "Courier New", monospace`;
-		ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
-		ctx.fillText(text, 4, 42);
-		const tex = new THREE.CanvasTexture(cv);
-		tex.minFilter = THREE.LinearFilter;
-		return tex;
-	}
-
-	function makeLabel(
-		text: string,
-		pos: THREE.Vector3,
-		color = 0xffffff,
-		size = 0.18,
-	): THREE.Sprite {
-		const sp = new THREE.Sprite(
-			new THREE.SpriteMaterial({
-				map: labelTexture(text, color),
-				transparent: true,
-				opacity: 0.8,
-			}),
-		);
-		sp.scale.set(size * text.length * 0.42, size * 0.75, 1);
-		sp.position.copy(pos);
-		return sp;
-	}
-
-	function makeBox(
-		w: number,
-		h: number,
-		d: number,
-		color: number,
-		pos: THREE.Vector3,
-		opacity = 0.06,
-	): { mesh: THREE.Mesh; edges: THREE.LineSegments } {
-		const geo = new THREE.BoxGeometry(w, h, d);
-		const mesh = new THREE.Mesh(geo, makeMat(color, opacity));
-		mesh.position.copy(pos);
-		const edges = new THREE.LineSegments(
-			new THREE.EdgesGeometry(geo),
-			edgeMat(color),
-		);
-		edges.position.copy(pos);
-		return { mesh, edges };
-	}
-
-	function makeGFRing(
-		radius: number,
-		ticks: number,
-		pos: THREE.Vector3,
-		color: number,
-		initPhase = 0,
-	): GFRing {
-		const group = new THREE.Group();
-		group.position.copy(pos);
-
-		const torusGeo = new THREE.TorusGeometry(radius, radius * 0.02, 8, 64);
-		group.add(new THREE.Mesh(torusGeo, makeMat(color, 0.06)));
-		const re = new THREE.LineSegments(
-			new THREE.EdgesGeometry(torusGeo),
-			edgeMat(color, 0.3),
-		);
-		group.children[0].rotation.x = Math.PI / 2;
-		re.rotation.x = Math.PI / 2;
-		group.add(re);
-
-		const dt = Math.min(ticks, 24);
-		for (let i = 0; i < dt; i++) {
-			const a = (i / dt) * Math.PI * 2;
-			const pts = [
-				new THREE.Vector3(
-					Math.cos(a) * radius * 0.88,
-					0,
-					Math.sin(a) * radius * 0.88,
-				),
-				new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius),
-			];
-			group.add(
-				new THREE.Line(
-					new THREE.BufferGeometry().setFromPoints(pts),
-					edgeMat(color, i === 0 ? 0.6 : 0.15),
-				),
-			);
-		}
-
-		const marker = new THREE.Mesh(
-			new THREE.SphereGeometry(radius * 0.06, 8, 8),
-			new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
-		);
-		marker.position.set(
-			Math.cos(initPhase) * radius,
-			0,
-			Math.sin(initPhase) * radius,
-		);
-		group.add(marker);
-
-		const needleArr = new Float32Array(6);
-		needleArr[0] = 0;
-		needleArr[1] = 0;
-		needleArr[2] = 0;
-		needleArr[3] = marker.position.x;
-		needleArr[4] = marker.position.y;
-		needleArr[5] = marker.position.z;
-		const needleGeo = new THREE.BufferGeometry();
-		needleGeo.setAttribute("position", new THREE.BufferAttribute(needleArr, 3));
-		needleGeo.setDrawRange(0, 2);
-		const needle = new THREE.Line(
-			needleGeo,
-			new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }),
-		);
-		group.add(needle);
-
-		return { group, marker, needle, radius, phase: initPhase, speed: 0.1 };
-	}
-
-	function updateGFMarker(gf: GFRing) {
-		gf.marker.position.set(
-			Math.cos(gf.phase) * gf.radius,
-			0,
-			Math.sin(gf.phase) * gf.radius,
-		);
-		const posAttr = gf.needle.geometry.attributes
-			.position as THREE.BufferAttribute;
-		posAttr.setXYZ(
-			1,
-			gf.marker.position.x,
-			gf.marker.position.y,
-			gf.marker.position.z,
-		);
-		posAttr.needsUpdate = true;
-		gf.needle.geometry.computeBoundingSphere();
-	}
-
-	function curvedPipe(
-		a: THREE.Vector3,
-		b: THREE.Vector3,
-		color: number,
-		midY = 2,
-		opacity = 0.18,
-	): THREE.Line {
-		const mid = a.clone().add(b).multiplyScalar(0.5);
-		mid.y += midY;
-		return new THREE.Line(
-			new THREE.BufferGeometry().setFromPoints(
-				new THREE.QuadraticBezierCurve3(a, mid, b).getPoints(24),
-			),
-			new THREE.LineBasicMaterial({ color, transparent: true, opacity }),
-		);
-	}
-
-	function dashedPipe(
-		a: THREE.Vector3,
-		b: THREE.Vector3,
-		color: number,
-	): THREE.Line {
-		const mat = new THREE.LineDashedMaterial({
-			color,
-			transparent: true,
-			opacity: 0.12,
-			dashSize: 0.3,
-			gapSize: 0.2,
-		});
-		const line = new THREE.Line(
-			new THREE.BufferGeometry().setFromPoints([a, b]),
-			mat,
-		);
-		line.computeLineDistances();
-		return line;
-	}
-
-	/* ── state ────────────────────────────────────────────────────── */
-
-	const nodes = new Map<string, SceneNode>();
-	const edges = new Map<string, SceneEdge>();
-	const timeline: VizEvent[] = [];
-	let timelineCursor = 0;
-	let eventCount = 0;
-	let droppedCount = 0;
-	let paused = false;
-	let selectedTarget: InspectorTarget | null = null;
-
-	const alu: ALUState = {
-		totalDispatches: 0,
-		substrates: {
-			cpu: {
-				inflight: 0,
-				totalDispatches: 0,
-				emaDurationNs: 0,
-				lastDurationNs: 0,
-			},
-			cuda: {
-				inflight: 0,
-				totalDispatches: 0,
-				emaDurationNs: 0,
-				lastDurationNs: 0,
-			},
-			metal: {
-				inflight: 0,
-				totalDispatches: 0,
-				emaDurationNs: 0,
-				lastDurationNs: 0,
-			},
-		},
-		recentOps: [],
-	};
-
-	const fieldState: FieldState = {
-		globalPhase: 0,
-		phaseConcentration: 0,
-		eigenmodes: [],
-	};
-
-	const pipelineStages = new Map<string, PipelineStage3D>();
-
-	/* ── static scene elements ────────────────────────────────────── */
-
-	const dhtCenter = new THREE.Vector3(5, 2, 0);
-	const dhtGroup = new THREE.Group();
-	scene.add(dhtGroup);
-
-	/* DHT ring torus */
-	const dhtRingGeo = new THREE.TorusGeometry(NODE_RADIUS, 0.06, 8, 64);
-	const dhtRingMesh = new THREE.Mesh(dhtRingGeo, makeMat(C.dht, 0.04));
-	dhtRingMesh.rotation.x = Math.PI / 2;
-	dhtRingMesh.position.copy(dhtCenter);
-	const dhtRingEdge = new THREE.LineSegments(
-		new THREE.EdgesGeometry(dhtRingGeo),
-		edgeMat(C.dht, 0.2),
-	);
-	dhtRingEdge.rotation.x = Math.PI / 2;
-	dhtRingEdge.position.copy(dhtCenter);
-	dhtGroup.add(dhtRingMesh, dhtRingEdge);
-
-	const dhtLabel = makeLabel(
-		"kadabra.DHT",
-		new THREE.Vector3(
-			dhtCenter.x,
-			dhtCenter.y + NODE_RADIUS * 0.5 + 2.5,
-			dhtCenter.z,
-		),
-		C.dht,
-		0.3,
-	);
-	dhtGroup.add(dhtLabel);
-
-	/* Global phase ring GF(65537) */
-	const globalGF = makeGFRing(
-		NODE_RADIUS + 2,
-		32,
-		new THREE.Vector3(dhtCenter.x, dhtCenter.y + 5, dhtCenter.z),
-		C.gf65537,
-	);
-	globalGF.speed = 0.05;
-	dhtGroup.add(globalGF.group);
-	dhtGroup.add(
-		makeLabel(
-			"GF(65537)",
-			new THREE.Vector3(
-				dhtCenter.x + NODE_RADIUS + 3,
-				dhtCenter.y + 5,
-				dhtCenter.z,
-			),
-			C.gf65537,
-			0.14,
-		),
-	);
-
-	/* ── data pipeline (left) ─────────────────────────────────────── */
-
-	const staticGroup = new THREE.Group();
-	scene.add(staticGroup);
-
-	function addStatic(
-		w: number,
-		h: number,
-		d: number,
-		color: number,
-		pos: THREE.Vector3,
-		opacity = 0.06,
-	): THREE.Mesh {
-		const { mesh, edges: edg } = makeBox(w, h, d, color, pos, opacity);
-		staticGroup.add(mesh, edg);
-		return mesh;
-	}
-
-	/* Dataset */
-	const datasetMesh = addStatic(
-		3,
-		2.5,
-		3,
-		C.dataset,
-		new THREE.Vector3(-18, 1.25, 0),
-	);
-	datasetMesh.userData = { kind: "pipeline", id: "dataset" };
-	staticGroup.add(
-		makeLabel("Dataset", new THREE.Vector3(-18, 3, 0), C.dataset, 0.24),
-	);
-	addStatic(1.2, 0.6, 1, C.dataset, new THREE.Vector3(-18.5, 0.5, -0.5), 0.1);
-	staticGroup.add(
-		makeLabel("HF", new THREE.Vector3(-18.5, 0.9, -0.5), 0x448aff, 0.1),
-	);
-	addStatic(1.2, 0.6, 1, C.dataset, new THREE.Vector3(-17.3, 0.5, -0.5), 0.1);
-	staticGroup.add(
-		makeLabel("local", new THREE.Vector3(-17.3, 0.9, -0.5), 0x76ff03, 0.1),
-	);
-	for (let i = 0; i < 6; i++) {
-		staticGroup.add(
-			new THREE.Line(
-				new THREE.BufferGeometry().setFromPoints([
-					new THREE.Vector3(-16.2 + i * 1.5, 1.25, 0),
-					new THREE.Vector3(-16.2 + i * 1.5 + 1.2, 1.25, 0),
-				]),
-				edgeMat(C.dataset, 0.1 + i * 0.03),
-			),
-		);
-	}
-	staticGroup.add(
-		makeLabel("io.Copy stream", new THREE.Vector3(-13, 2.2, 0), C.dataset, 0.1),
-	);
-
-	/* vm.Machine */
-	const machineMesh = addStatic(
-		5,
-		4,
-		4,
-		C.machine,
-		new THREE.Vector3(-8, 2, 0),
-	);
-	machineMesh.userData = { kind: "pipeline", id: "machine" };
-	staticGroup.add(
-		makeLabel("vm.Machine", new THREE.Vector3(-8, 4.5, 0), C.machine, 0.28),
-	);
-
-	const tokenizerRingGeo = new THREE.TorusGeometry(1.2, 0.08, 8, 48);
-	const tokenizerRing = new THREE.Mesh(
-		tokenizerRingGeo,
-		makeMat(C.machine, 0.05),
-	);
-	tokenizerRing.position.set(-8, 2, 0);
-	tokenizerRing.rotation.x = Math.PI / 2;
-	tokenizerRing.userData = { kind: "pipeline", id: "tokenizer" };
-	staticGroup.add(tokenizerRing);
-	staticGroup.add(
-		new THREE.LineSegments(
-			new THREE.EdgesGeometry(tokenizerRingGeo),
-			edgeMat(C.machine, 0.25),
-		),
-	);
-	(
-		staticGroup.children[staticGroup.children.length - 1] as THREE.Object3D
-	).position.set(-8, 2, 0);
-	(
-		staticGroup.children[staticGroup.children.length - 1] as THREE.Object3D
-	).rotation.x = Math.PI / 2;
-	staticGroup.add(
-		makeLabel("vm.Tokenizer", new THREE.Vector3(-8, 3.4, 0), C.machine, 0.11),
-	);
-
-	/* Value pipeline boxes */
-	for (let i = 0; i < 7; i++) {
-		const x = -6 + i * 0.55;
-		addStatic(0.4, 0.35, 0.35, C.prim, new THREE.Vector3(x, 2, 0), 0.25);
-		if (i < 6) {
-			staticGroup.add(
-				new THREE.Line(
-					new THREE.BufferGeometry().setFromPoints([
-						new THREE.Vector3(x + 0.2, 2, 0),
-						new THREE.Vector3(x + 0.35, 2, 0),
-					]),
-					edgeMat(C.prim, 0.35),
-				),
-			);
-		}
-	}
-	staticGroup.add(
-		makeLabel("Value pipeline", new THREE.Vector3(-3.5, 2.6, 0), C.prim, 0.08),
-	);
-	addStatic(2, 0.7, 1.5, C.prim, new THREE.Vector3(-8, 0.2, 2.2), 0.1);
-	staticGroup.add(
-		makeLabel("primitive.Value", new THREE.Vector3(-8, 0.7, 2.2), C.prim, 0.1),
-	);
-
-	/* Machine → DHT pipe */
-	staticGroup.add(
-		curvedPipe(
-			new THREE.Vector3(-5.5, 2, 0),
-			new THREE.Vector3(dhtCenter.x - NODE_RADIUS, 2, 0),
-			C.machine,
-			1.5,
-		),
-	);
-	staticGroup.add(
-		makeLabel(
-			"DrainPublishedValues",
-			new THREE.Vector3(-1, 3.8, 0),
-			C.machine,
-			0.09,
-		),
-	);
-
-	/* ── compute pipeline (bottom) ────────────────────────────────── */
-
-	const compY = -5;
-
-	function addPipelineStage(
-		id: string,
-		label: string,
-		color: number,
-		pos: THREE.Vector3,
-		w: number,
-		h: number,
-		d: number,
-		subs: { name: string; offset: number }[],
-	): PipelineStage3D {
-		const { mesh, edges: edg } = makeBox(w, h, d, color, pos, 0.06);
-		mesh.userData = { kind: "pipeline", id };
-		staticGroup.add(mesh, edg);
-		const lbl = makeLabel(
-			label,
-			new THREE.Vector3(pos.x, pos.y + h / 2 + 0.4, pos.z),
-			color,
-			0.14,
-		);
-		staticGroup.add(lbl);
-
-		const subBoxes: THREE.Mesh[] = [];
-		subs.forEach((sub) => {
-			const sb = addStatic(
-				1,
-				0.45,
-				1,
-				color,
-				new THREE.Vector3(pos.x + sub.offset, pos.y - 0.5, pos.z),
-				0.15,
-			);
-			subBoxes.push(sb);
-			staticGroup.add(
-				makeLabel(
-					sub.name,
-					new THREE.Vector3(pos.x + sub.offset, pos.y - 0.05, pos.z),
-					color,
-					0.07,
-				),
-			);
-		});
-
-		const pulseGeo = new THREE.TorusGeometry(w / 2.5, 0.03, 8, 32);
-		const pulseRing = new THREE.Mesh(pulseGeo, makeMat(color, 0));
-		pulseRing.position.copy(pos);
-		pulseRing.rotation.x = Math.PI / 2;
-		staticGroup.add(pulseRing);
-
-		const stage: PipelineStage3D = {
-			id,
-			mesh,
-			edges: edg,
-			label: lbl,
-			subBoxes,
-			pulseRing,
-			position: pos.clone(),
-			color,
-			metrics: {
-				id,
-				totalEvents: 0,
-				bytesProcessed: 0,
-				inflight: 0,
-				emaDurationMs: 0,
-				recentOps: [],
-			},
-		};
-		pipelineStages.set(id, stage);
-		return stage;
-	}
-
-	addPipelineStage(
-		"compiler",
-		"programmer.Compiler",
-		C.compiler,
-		new THREE.Vector3(-4, compY, 0),
-		4,
-		2,
-		3,
-		[],
-	);
-	addPipelineStage(
-		"queue",
-		"pool.Queue",
-		C.queue,
-		new THREE.Vector3(1, compY, 0),
-		3.5,
-		2,
-		3,
-		[],
-	);
-
-	const spillGeo = new THREE.TorusGeometry(0.5, 0.035, 8, 32);
-	const spillRing = new THREE.Mesh(spillGeo, makeMat(C.queue, 0.05));
-	spillRing.position.set(1, compY - 0.3, 0);
-	spillRing.rotation.x = Math.PI / 2;
-	staticGroup.add(spillRing);
-	staticGroup.add(
-		new THREE.LineSegments(
-			new THREE.EdgesGeometry(spillGeo),
-			edgeMat(C.queue, 0.2),
-		),
-	);
-	(
-		staticGroup.children[staticGroup.children.length - 1] as THREE.Object3D
-	).position.set(1, compY - 0.3, 0);
-	(
-		staticGroup.children[staticGroup.children.length - 1] as THREE.Object3D
-	).rotation.x = Math.PI / 2;
-	staticGroup.add(
-		makeLabel(
-			"spill ring",
-			new THREE.Vector3(1, compY - 1.1, 0),
-			C.queue,
-			0.07,
-		),
-	);
-
-	addPipelineStage(
-		"cpu",
-		"cpu.Backend",
-		C.cpu,
-		new THREE.Vector3(6.5, compY, 0),
-		3,
-		2,
-		3,
-		[
-			{ name: "CSA", offset: -0.5 },
-			{ name: "WBlk", offset: 0.6 },
-		],
-	);
-	addPipelineStage(
-		"cuda",
-		"cuda.Backend",
-		C.cuda,
-		new THREE.Vector3(10.5, compY, 0),
-		2.5,
-		2,
-		3,
-		[{ name: "kern", offset: 0 }],
-	);
-	addPipelineStage(
-		"metal",
-		"metal.Backend",
-		C.metal,
-		new THREE.Vector3(13.5, compY, 0),
-		2.5,
-		2,
-		3,
-		[{ name: "shdr", offset: 0 }],
-	);
-
-	/* Observer + frames */
-	addStatic(
-		2,
-		0.7,
-		1.5,
-		C.compiler,
-		new THREE.Vector3(6.5, compY + 1.5, 2),
-		0.08,
-	);
-	staticGroup.add(
-		makeLabel(
-			"kernel.Observer",
-			new THREE.Vector3(6.5, compY + 2, 2),
-			C.compiler,
-			0.08,
-		),
-	);
-	addStatic(
-		2,
-		0.7,
-		1.5,
-		C.compiler,
-		new THREE.Vector3(9.5, compY + 1.5, 2),
-		0.08,
-	);
-	staticGroup.add(
-		makeLabel("frames", new THREE.Vector3(9.5, compY + 2, 2), C.compiler, 0.08),
-	);
-
-	/* Compute pipes */
-	staticGroup.add(
-		new THREE.Line(
-			new THREE.BufferGeometry().setFromPoints([
-				new THREE.Vector3(-2, compY, 0),
-				new THREE.Vector3(-0.5, compY, 0),
-			]),
-			edgeMat(C.compiler, 0.25),
-		),
-	);
-	staticGroup.add(
-		new THREE.Line(
-			new THREE.BufferGeometry().setFromPoints([
-				new THREE.Vector3(2.75, compY, 0),
-				new THREE.Vector3(5, compY, 0),
-			]),
-			edgeMat(C.queue, 0.25),
-		),
-	);
-	staticGroup.add(
-		new THREE.Line(
-			new THREE.BufferGeometry().setFromPoints([
-				new THREE.Vector3(-8, 0, 0),
-				new THREE.Vector3(-4, compY + 1, 0),
-			]),
-			edgeMat(C.compiler, 0.12),
-		),
-	);
-	staticGroup.add(
-		new THREE.Line(
-			new THREE.BufferGeometry().setFromPoints([
-				new THREE.Vector3(5, 0.6, 0),
-				new THREE.Vector3(1, compY + 1, 0),
-			]),
-			edgeMat(C.queue, 0.12),
-		),
-	);
-
-	/* ── network (right) ──────────────────────────────────────────── */
-
-	const netMesh = addStatic(
-		3,
-		2,
-		3,
-		C.network,
-		new THREE.Vector3(-16, compY + 1, 6),
-	);
-	netMesh.userData = { kind: "pipeline", id: "network" };
-	staticGroup.add(
-		makeLabel(
-			"network.UniConn",
-			new THREE.Vector3(-16, compY + 2.5, 6),
-			C.network,
-			0.12,
-		),
-	);
-	addStatic(
-		1,
-		0.5,
-		0.8,
-		C.network,
-		new THREE.Vector3(-16.5, compY + 0.5, 5.5),
-		0.1,
-	);
-	staticGroup.add(
-		makeLabel(
-			"QUIC",
-			new THREE.Vector3(-16.5, compY + 0.9, 5.5),
-			C.network,
-			0.08,
-		),
-	);
-	addStatic(
-		1,
-		0.5,
-		0.8,
-		C.network,
-		new THREE.Vector3(-15.3, compY + 0.5, 5.5),
-		0.1,
-	);
-	staticGroup.add(
-		makeLabel(
-			"UDP",
-			new THREE.Vector3(-15.3, compY + 0.9, 5.5),
-			C.network,
-			0.08,
-		),
-	);
-
-	addStatic(2.5, 1.2, 2, C.transport, new THREE.Vector3(-16, compY + 3.5, 6));
-	staticGroup.add(
-		makeLabel(
-			"transport.Pipeline",
-			new THREE.Vector3(-16, compY + 4.5, 6),
-			C.transport,
-			0.1,
-		),
-	);
-	staticGroup.add(
-		curvedPipe(
-			new THREE.Vector3(-14.5, compY + 1, 6),
-			new THREE.Vector3(-1.5, 2, 2),
-			C.network,
-			3,
-		),
-	);
-
-	/* errnie.Logger */
-	addStatic(2.5, 1.5, 2, C.errnie, new THREE.Vector3(-16, compY + 1, -5));
-	staticGroup.add(
-		makeLabel(
-			"errnie.Logger",
-			new THREE.Vector3(-16, compY + 2.5, -5),
-			C.errnie,
-			0.12,
-		),
-	);
-	staticGroup.add(
-		dashedPipe(
-			new THREE.Vector3(-16, compY + 1, -5),
-			new THREE.Vector3(-8, 2, 0),
-			C.errnie,
-		),
-	);
-	staticGroup.add(
-		dashedPipe(
-			new THREE.Vector3(-16, compY + 1, -5),
-			new THREE.Vector3(5, 2, 0),
-			C.errnie,
-		),
-	);
-
-	/* ── algo.Stack (top) ─────────────────────────────────────────── */
-
-	const algoStackY = 14;
-	addStatic(18, 1.8, 3.5, 0x444444, new THREE.Vector3(0, algoStackY, 0), 0.025);
-	staticGroup.add(
-		makeLabel(
-			"algo.Stack",
-			new THREE.Vector3(0, algoStackY + 1.3, 0),
-			0xcccccc,
-			0.22,
-		),
-	);
-
-	const algoComponents = [
-		"classify.Classifier",
-		"beam.Search",
-		"train.Online",
-		"causal.Graph",
-		"surprisal.Probability",
-		"cooccurrence.Matrix",
-		"episodic.Buffer",
-		"policy.Scores",
-	];
-	const algoMeshes: THREE.Mesh[] = [];
-	algoComponents.forEach((name, i) => {
-		const x = -7 + i * 2;
-		const m = addStatic(
-			2,
-			0.6,
-			1,
-			0xcccccc,
-			new THREE.Vector3(x, algoStackY - 0.2, 0),
-			0.08,
-		);
-		m.userData = { kind: "algorithm", id: name };
-		algoMeshes.push(m);
-		staticGroup.add(
-			makeLabel(
-				name,
-				new THREE.Vector3(x, algoStackY + 0.15, 0),
-				0xcccccc,
-				0.07,
-			),
-		);
-	});
-
-	/* cmd box */
-	addStatic(
-		2.5,
-		0.7,
-		1.5,
-		0xffffff,
-		new THREE.Vector3(0, algoStackY + 1.8, 0),
-		0.03,
-	);
-	staticGroup.add(
-		makeLabel("cmd", new THREE.Vector3(0, algoStackY + 2.4, 0), 0xffffff, 0.18),
-	);
-
-	/* Stack → field pipe */
-	staticGroup.add(
-		curvedPipe(
-			new THREE.Vector3(0, algoStackY - 0.9, 0),
-			new THREE.Vector3(3, 12, 0),
-			C.field,
-			1,
-		),
-	);
-	staticGroup.add(
-		curvedPipe(
-			new THREE.Vector3(-6, algoStackY - 0.9, 0),
-			new THREE.Vector3(-18, 2.5, 0),
-			C.dataset,
-			2,
-		),
-	);
-
-	/* ── phase dials ──────────────────────────────────────────────── */
-
-	const dialY = 11;
-	const dialDefs = [
-		{ name: "Clifford", x: -3, color: 0xba68c8 },
-		{ name: "PGA", x: 1, color: 0x80cbc4 },
-		{ name: "Phase", x: 5, color: 0xffab40 },
-		{ name: "Eigenmode", x: 9, color: 0x4fc3f7 },
-	];
-	const dials: {
-		group: THREE.Group;
-		needle: THREE.Line;
-		tip: THREE.Mesh;
-		radius: number;
-		phase: number;
-		speed: number;
-		needlePos: THREE.BufferAttribute;
-	}[] = [];
-
-	dialDefs.forEach((d) => {
-		const group = new THREE.Group();
-		group.position.set(d.x, dialY, 0);
-		const dR = 1.2;
-		const disc = new THREE.Mesh(
-			new THREE.CylinderGeometry(dR, dR, 0.02, 32),
-			makeMat(d.color, 0.08),
-		);
-		group.add(disc);
-		group.add(
-			new THREE.LineSegments(
-				new THREE.EdgesGeometry(disc.geometry),
-				edgeMat(d.color, 0.3),
-			),
-		);
-
-		for (let i = 0; i < 12; i++) {
-			const a = (i / 12) * Math.PI * 2;
-			group.add(
-				new THREE.Line(
-					new THREE.BufferGeometry().setFromPoints([
-						new THREE.Vector3(
-							Math.cos(a) * dR * 0.75,
-							0.02,
-							Math.sin(a) * dR * 0.75,
-						),
-						new THREE.Vector3(
-							Math.cos(a) * dR * 0.95,
-							0.02,
-							Math.sin(a) * dR * 0.95,
-						),
-					]),
-					edgeMat(d.color, i % 3 === 0 ? 0.5 : 0.2),
-				),
-			);
-		}
-
-		const ph = Math.random() * Math.PI * 2;
-		const tipX = Math.cos(ph) * dR * 0.85;
-		const tipZ = Math.sin(ph) * dR * 0.85;
-		const tipPos = new THREE.Vector3(tipX, 0.04, tipZ);
-		const dialNeedleArr = new Float32Array(6);
-		dialNeedleArr[0] = 0;
-		dialNeedleArr[1] = 0.04;
-		dialNeedleArr[2] = 0;
-		dialNeedleArr[3] = tipX;
-		dialNeedleArr[4] = 0.04;
-		dialNeedleArr[5] = tipZ;
-		const needleGeo = new THREE.BufferGeometry();
-		const needlePos = new THREE.BufferAttribute(dialNeedleArr, 3);
-		needleGeo.setAttribute("position", needlePos);
-		needleGeo.setDrawRange(0, 2);
-		const needle = new THREE.Line(
-			needleGeo,
-			new THREE.LineBasicMaterial({
-				color: d.color,
-				transparent: true,
-				opacity: 0.8,
-			}),
-		);
-		group.add(needle);
-		const tip = new THREE.Mesh(
-			new THREE.SphereGeometry(dR * 0.06, 6, 6),
-			new THREE.MeshBasicMaterial({
-				color: d.color,
-				transparent: true,
-				opacity: 0.9,
-			}),
-		);
-		tip.position.copy(tipPos);
-		group.add(tip);
-		group.add(
-			new THREE.Mesh(
-				new THREE.SphereGeometry(dR * 0.04, 6, 6),
-				new THREE.MeshBasicMaterial({
-					color: d.color,
-					transparent: true,
-					opacity: 0.6,
-				}),
-			),
-		);
-		scene.add(group);
-		staticGroup.add(
-			makeLabel(d.name, new THREE.Vector3(d.x, dialY + 1.5, 0), d.color, 0.12),
-		);
-		dials.push({
-			group,
-			needle,
-			tip,
-			radius: dR,
-			phase: ph,
-			speed: 0.05 + Math.random() * 0.15,
-			needlePos,
-		});
-	});
-
-	["EMA", "delta", "shannon", "\u03C3-clamp"].forEach((n, i) => {
-		addStatic(
-			1.2,
-			0.4,
-			0.7,
-			C.field,
-			new THREE.Vector3(-3 + i * 1.8, dialY - 1.8, 1.5),
-			0.1,
-		);
-		staticGroup.add(
-			makeLabel(
-				n,
-				new THREE.Vector3(-3 + i * 1.8, dialY - 1.4, 1.5),
-				C.field,
-				0.06,
-			),
-		);
-	});
-
-	/* Dial → DHT pipes */
-	dialDefs.forEach((d) => {
-		staticGroup.add(
-			curvedPipe(
-				new THREE.Vector3(d.x, dialY - 1.2, 0),
-				new THREE.Vector3(dhtCenter.x, dhtCenter.y + 1.5, 0),
-				d.color,
-				-1,
-				0.08,
-			),
-		);
-	});
-
-	/* ── algorithm ring around DHT ────────────────────────────────── */
-
-	const algoRingR = NODE_RADIUS + 3.5;
-	const algoRingNames = [
-		"attention",
-		"beam",
-		"causal",
-		"episodic",
-		"replay",
-		"policy",
-		"infer",
-		"surprisal",
-		"train",
-		"classify",
-		"pattern",
-		"semantic",
-	];
-	const algoRingMeshes: THREE.Mesh[] = [];
-	algoRingNames.forEach((name, i) => {
-		const a = (i / 12) * Math.PI * 2;
-		const ax = dhtCenter.x + Math.cos(a) * algoRingR;
-		const az = dhtCenter.z + Math.sin(a) * algoRingR;
-		const m = addStatic(
-			1.4,
-			0.55,
-			0.8,
-			C.algo,
-			new THREE.Vector3(ax, 5.5, az),
-			0.1,
-		);
-		m.userData = { kind: "algorithm", id: name };
-		algoRingMeshes.push(m);
-		staticGroup.add(
-			makeLabel(name, new THREE.Vector3(ax, 5.95, az), C.algo, 0.08),
-		);
-	});
-
-	/* ── particles ────────────────────────────────────────────────── */
-
-	const datasetParticles: THREE.Mesh[] = [];
-	const pGeo = new THREE.SphereGeometry(0.05, 6, 6);
-	for (let i = 0; i < 14; i++) {
-		const pm = new THREE.Mesh(
-			pGeo,
-			new THREE.MeshBasicMaterial({
-				color: C.dataset,
-				transparent: true,
-				opacity: 0.5,
-			}),
-		);
-		pm.userData = { t: i / 14, sp: 0.1 + Math.random() * 0.05 };
-		scene.add(pm);
-		datasetParticles.push(pm);
-	}
-
-	const valueParticles: THREE.Mesh[] = [];
-	const vGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-	for (let i = 0; i < 10; i++) {
-		const vm = new THREE.Mesh(
-			vGeo,
-			new THREE.MeshBasicMaterial({
-				color: C.machine,
-				transparent: true,
-				opacity: 0.4,
-			}),
-		);
-		vm.userData = { t: i / 10, sp: 0.07 + Math.random() * 0.03, ni: 0 };
-		scene.add(vm);
-		valueParticles.push(vm);
-	}
-
-	/* Flow particles for compute pipeline */
-	const flowParticles: {
-		mesh: THREE.Mesh;
-		from: THREE.Vector3;
-		to: THREE.Vector3;
-		mid: THREE.Vector3;
-		tmpPos: THREE.Vector3;
-		t: number;
-		speed: number;
-		active: boolean;
-	}[] = [];
-	const flowGeo = new THREE.SphereGeometry(0.08, 6, 6);
-	for (let i = 0; i < 20; i++) {
-		const fm = new THREE.Mesh(
-			flowGeo,
-			new THREE.MeshBasicMaterial({
-				color: C.compiler,
-				transparent: true,
-				opacity: 0,
-			}),
-		);
-		scene.add(fm);
-		flowParticles.push({
-			mesh: fm,
-			from: new THREE.Vector3(),
-			to: new THREE.Vector3(),
-			mid: new THREE.Vector3(),
-			tmpPos: new THREE.Vector3(),
-			t: 0,
-			speed: 0,
-			active: false,
-		});
-	}
-
-	/* ── node management ──────────────────────────────────────────── */
-
-	function repositionNodes() {
-		const N = nodes.size;
-		let idx = 0;
-		for (const node of nodes.values()) {
-			const angle = (idx / N) * Math.PI * 2 - Math.PI / 2;
-			const nx = dhtCenter.x + Math.cos(angle) * NODE_RADIUS;
-			const nz = dhtCenter.z + Math.sin(angle) * NODE_RADIUS;
-			node.group.position.set(nx, dhtCenter.y, nz);
-			idx++;
-		}
-
-		/* Reconnect algo ring dashed lines to nearest nodes */
-		/* (These are rebuilt dynamically as nodes come/go) */
-	}
-
-	function ensureNode(id: string): SceneNode {
-		let node = nodes.get(id);
-		if (node) return node;
-
-		const group = new THREE.Group();
-		group.position.copy(dhtCenter);
-
-		const coreGeo = new THREE.BoxGeometry(2.4, 2.8, 2.4);
-		const core = new THREE.Mesh(coreGeo, makeMat(C.dht, 0.06));
-		core.userData = { kind: "node", id };
-		group.add(core);
-
-		const face = new THREE.Mesh(coreGeo, makeMat(C.dht, 0.03));
-		group.add(face);
-
-		const wire = new THREE.LineSegments(
-			new THREE.EdgesGeometry(coreGeo),
-			edgeMat(C.dht, 0.35),
-		);
-		group.add(wire);
-
-		/* Pulse ring */
-		const pulseGeo = new THREE.TorusGeometry(1.8, 0.04, 8, 32);
-		const pulse = new THREE.Mesh(pulseGeo, makeMat(C.dht, 0));
-		pulse.rotation.x = Math.PI / 2;
-		group.add(pulse);
-
-		const gfRing = makeGFRing(1.8, 24, new THREE.Vector3(0, 0, 0), C.gf8191);
-		gfRing.speed = 0.1 + Math.random() * 0.2;
-		group.add(gfRing.group);
-
-		const label = makeLabel(
-			id.length > 16 ? id.substring(0, 16) : id,
-			new THREE.Vector3(0, 1.9, 0),
-			C.dht,
-			0.11,
-		);
-		group.add(label);
-
-		scene.add(group);
-
-		node = {
-			id,
-			group,
-			core,
-			face,
-			wire,
-			pulse,
-			gfRing,
-			label,
-			data: {
-				id,
-				label: id,
-				insertCount: 0,
-				predictCount: 0,
-				gossipCount: 0,
-				trieCount: 0,
-				digest: { surprisal: 0, entropy: 0, growth: 0 },
-				pressure: {},
-				latencies: {},
-				labelCounts: {},
-				recentSequences: [],
-				eigenmode: -1,
-			},
-			tries: [],
-			edges: new Set(),
-			beam: {
-				activeCount: 0,
-				rejectedCount: 0,
-				bestScore: 0,
-				lastSequence: "",
-				lastCompose: 0,
-				hypotheses: [],
-				converged: false,
-			},
-			beamRays: [],
-			beamHypMeshes: [],
-		};
-		nodes.set(id, node);
-		repositionNodes();
-
-		callbacks.onStats(getStats());
-		return node;
-	}
-
-	function ensureTrie(nodeId: string, trieIdx: number): SceneTrie {
-		const node = ensureNode(nodeId);
-		while (node.tries.length <= trieIdx && node.tries.length < MAX_TRIES) {
-			const ti = node.tries.length;
-			const trieGroup = new THREE.Group();
-
-			const count = node.tries.length + 1;
-			const angle = (ti / Math.max(count, 1)) * Math.PI * 2;
-			trieGroup.position.set(
-				Math.cos(angle) * TRIE_RING_R,
-				0.8,
-				Math.sin(angle) * TRIE_RING_R,
-			);
-
-			/* Root sphere */
-			const rootMesh = new THREE.Mesh(
-				new THREE.SphereGeometry(0.06, 8, 8),
-				new THREE.MeshBasicMaterial({
-					color: C.trie,
-					transparent: true,
-					opacity: 0.7,
-				}),
-			);
-			rootMesh.userData = { kind: "trie", id: nodeId, trieIndex: ti };
-			trieGroup.add(rootMesh);
-
-			/* Mini trie shape (root + 2 branches + 4 leaves) */
-			const spread = 0.18;
-			const branches = [
-				[-spread, -0.35, -0.1],
-				[spread, -0.35, 0.1],
-			];
-			branches.forEach((bp) => {
-				trieGroup.add(
-					new THREE.Line(
-						new THREE.BufferGeometry().setFromPoints([
-							new THREE.Vector3(0, 0, 0),
-							new THREE.Vector3(bp[0], bp[1], bp[2]),
-						]),
-						edgeMat(C.trie, 0.3),
-					),
-				);
-				const bm = new THREE.Mesh(
-					new THREE.SphereGeometry(0.04, 6, 6),
-					new THREE.MeshBasicMaterial({
-						color: C.trie,
-						transparent: true,
-						opacity: 0.5,
-					}),
-				);
-				bm.position.set(bp[0], bp[1], bp[2]);
-				trieGroup.add(bm);
-
-				/* Leaves */
-				[
-					[-0.08, -0.2, -0.05],
-					[0.08, -0.2, 0.05],
-				].forEach((lp) => {
-					trieGroup.add(
-						new THREE.Line(
-							new THREE.BufferGeometry().setFromPoints([
-								new THREE.Vector3(bp[0], bp[1], bp[2]),
-								new THREE.Vector3(bp[0] + lp[0], bp[1] + lp[1], bp[2] + lp[2]),
-							]),
-							edgeMat(C.trie, 0.2),
-						),
-					);
-					const lm = new THREE.Mesh(
-						new THREE.SphereGeometry(0.025, 4, 4),
-						new THREE.MeshBasicMaterial({
-							color: C.trie,
-							transparent: true,
-							opacity: 0.4,
-						}),
-					);
-					lm.position.set(bp[0] + lp[0], bp[1] + lp[1], bp[2] + lp[2]);
-					trieGroup.add(lm);
-				});
-			});
-
-			/* Trie GF(257) ring */
-			const gfRing = makeGFRing(
-				0.4,
-				16,
-				new THREE.Vector3(0, -0.55, 0),
-				C.gf257,
-			);
-			gfRing.speed = 0.2 + Math.random() * 0.4;
-			trieGroup.add(gfRing.group);
-
-			node.group.add(trieGroup);
-
-			const trieSt: SceneTrie = {
-				group: trieGroup,
-				rootMesh,
-				gfRing,
-				pickMeshes: [rootMesh],
-				graphGroup: null,
-				graphNodeByVid: new Map(),
-				state: {
-					index: ti,
-					nodeId,
-					insertFlash: 0,
-					surprisal: 0,
-					entropy: 0,
-					growth: 0,
-					decayMul: 1,
-					learnMul: 1,
-					aligned: false,
-					graphPayload: null,
-				},
-			};
-			node.tries.push(trieSt);
-
-			/* Add beam rays from this trie */
-			for (let b = 0; b < 2; b++) {
-				const ba = Math.random() * Math.PI * 2;
-				const bl = 2 + Math.random() * 2.5;
-				const endX = Math.cos(ba) * bl;
-				const endZ = Math.sin(ba) * bl;
-				const endY = 0.5 + Math.random() * 1.5;
-
-				const A = new THREE.Vector3(0, 0, 0);
-				const M = new THREE.Vector3(endX / 2, endY / 2 + 0.5, endZ / 2);
-				const B = new THREE.Vector3(endX, endY, endZ);
-
-				const bMat = new THREE.LineBasicMaterial({
-					color: C.beam,
-					transparent: true,
-					opacity: 0,
-				});
-				const bLine = new THREE.Line(
-					new THREE.BufferGeometry().setFromPoints(
-						new THREE.QuadraticBezierCurve3(A, M, B).getPoints(16),
-					),
-					bMat,
-				);
-				trieGroup.add(bLine);
-
-				const tipMat = new THREE.MeshBasicMaterial({
-					color: C.beam,
-					transparent: true,
-					opacity: 0,
-				});
-				const tipMesh = new THREE.Mesh(
-					new THREE.SphereGeometry(0.06, 6, 6),
-					tipMat,
-				);
-				tipMesh.position.copy(B);
-				trieGroup.add(tipMesh);
-
-				node.beamRays.push({
-					line: bLine,
-					mat: bMat,
-					tipMesh,
-					tipMat,
-					targetPos: B,
-					active: false,
-					score: 0,
-				});
-			}
-		}
-
-		/* Reposition tries around the ring */
-		const count = node.tries.length;
-		node.tries.forEach((t, i) => {
-			const angle = (i / count) * Math.PI * 2;
-			t.group.position.set(
-				Math.cos(angle) * TRIE_RING_R,
-				0.8,
-				Math.sin(angle) * TRIE_RING_R,
-			);
-		});
-
-		node.data.trieCount = node.tries.length;
-		return node.tries[trieIdx];
-	}
-
-	function ensureEdge(from: string, to: string): SceneEdge {
-		const eid = from < to ? `${from}|${to}` : `${to}|${from}`;
-		let edge = edges.get(eid);
-		if (edge) return edge;
-
-		const nFrom = ensureNode(from);
-		const nTo = ensureNode(to);
-
-		const line = curvedPipe(
-			nFrom.group.position,
-			nTo.group.position,
-			C.dht,
-			2,
-			0.1,
-		);
-		scene.add(line);
-
-		nFrom.edges.add(eid);
-		nTo.edges.add(eid);
-
-		edge = {
-			from,
-			to,
-			line,
-			state: {
-				from,
-				to,
-				latencyMs: 0,
-				gossipCount: 0,
-				replicationCount: 0,
-				activity: 0,
-			},
-			activity: 0,
-		};
-		edges.set(eid, edge);
-		return edge;
-	}
-
-	/* ── beam search visualization helpers ────────────────────────── */
-
-	function updateBeamVisuals(node: SceneNode) {
-		const bm = node.beam;
-
-		/* Color beam rays: active = green pulse, rejected = red fade, converged = gold */
-		node.beamRays.forEach((ray, i) => {
-			if (bm.converged) {
-				ray.mat.color.setHex(C.beamConverge);
-				ray.tipMat.color.setHex(C.beamConverge);
-				ray.active = true;
-				ray.score = bm.bestScore;
-			} else if (i < bm.activeCount) {
-				ray.mat.color.setHex(C.beamActive);
-				ray.tipMat.color.setHex(C.beamActive);
-				ray.active = true;
-				ray.score = bm.hypotheses[i]?.score ?? 0;
-			} else if (i < bm.activeCount + bm.rejectedCount) {
-				ray.mat.color.setHex(C.beamRejected);
-				ray.tipMat.color.setHex(C.beamRejected);
-				ray.active = true;
-				ray.score = -1;
-			} else {
-				ray.active = false;
-			}
-		});
-
-		/* Orbiting hypothesis spheres */
-		while (node.beamHypMeshes.length < bm.hypotheses.length) {
-			const hm = new THREE.Mesh(
-				new THREE.SphereGeometry(0.1, 8, 8),
-				new THREE.MeshBasicMaterial({
-					color: C.beam,
-					transparent: true,
-					opacity: 0.6,
-				}),
-			);
-			node.group.add(hm);
-			node.beamHypMeshes.push(hm);
-		}
-		while (node.beamHypMeshes.length > bm.hypotheses.length) {
-			const hm = node.beamHypMeshes.pop();
-			node.group.remove(hm);
-			hm.geometry.dispose();
-			(hm.material as THREE.Material).dispose();
-		}
-	}
-
-	/* ── trie graph snapshot rendering ────────────────────────────── */
-
-	function renderTrieGraph(trie: SceneTrie, payload: TrieGraphPayload) {
-		/* Remove old graph */
-		if (trie.graphGroup) {
-			trie.group.remove(trie.graphGroup);
-			trie.graphGroup.traverse((obj: THREE.Object3D) => {
-				if (!(obj instanceof THREE.Mesh)) return;
-				const mats = obj.material;
-				if (Array.isArray(mats)) {
-					for (const m of mats) m.dispose();
-					return;
-				}
-				mats.dispose();
-			});
-		}
-
-		trie.graphGroup = new THREE.Group();
-		trie.graphNodeByVid.clear();
-
-		const vertices = payload.vertices;
-		const edgeList = payload.edges;
-
-		/* Layout: spread by depth and index */
-		const byDepth = new Map<number, typeof vertices>();
-		vertices.forEach((v) => {
-			const arr = byDepth.get(v.depth) || [];
-			arr.push(v);
-			byDepth.set(v.depth, arr);
-		});
-
-		const vertexPos = new Map<number, THREE.Vector3>();
-		byDepth.forEach((verts, depth) => {
-			verts.forEach((v, i) => {
-				const spread = 0.15;
-				const x = (i - (verts.length - 1) / 2) * spread;
-				const y = -depth * 0.2;
-				const pos = new THREE.Vector3(x, y, 0);
-				vertexPos.set(v.vid, pos);
-
-				const size = Math.max(0.015, Math.min(0.04, v.visits * 0.002));
-				const vMesh = new THREE.Mesh(
-					new THREE.SphereGeometry(size, 6, 6),
-					new THREE.MeshBasicMaterial({
-						color: C.trie,
-						transparent: true,
-						opacity: 0.6 + Math.min(v.visits * 0.05, 0.35),
-					}),
-				);
-				vMesh.position.copy(pos);
-				vMesh.userData = {
-					kind: "trieVertex",
-					kadabraNodeId: trie.state.nodeId,
-					trieIdx: trie.state.index,
-					graphVertexVid: v.vid,
-				};
-				trie.graphGroup.add(vMesh);
-				trie.graphNodeByVid.set(v.vid, vMesh);
-				trie.pickMeshes.push(vMesh);
-			});
-		});
-
-		/* Edges */
-		edgeList.forEach((e) => {
-			const fPos = vertexPos.get(e.from);
-			const tPos = vertexPos.get(e.to);
-			if (fPos && tPos) {
-				trie.graphGroup.add(
-					new THREE.Line(
-						new THREE.BufferGeometry().setFromPoints([fPos, tPos]),
-						edgeMat(C.trie, 0.2),
-					),
-				);
-			}
-		});
-
-		trie.graphGroup.position.set(0, -0.1, 0);
-		trie.group.add(trie.graphGroup);
-		trie.state.graphPayload = payload;
-	}
-
-	/* ── flow particle spawn ──────────────────────────────────────── */
-
-	function spawnFlowParticle(
-		from: THREE.Vector3,
-		to: THREE.Vector3,
-		color: number,
-	) {
-		for (const fp of flowParticles) {
-			if (!fp.active) {
-				fp.from.copy(from);
-				fp.to.copy(to);
-				fp.mid.copy(from).add(to).multiplyScalar(0.5);
-				fp.mid.y += 1.5;
-				fp.t = 0;
-				fp.speed = 0.8 + Math.random() * 0.4;
-				fp.active = true;
-				(fp.mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
-				return;
-			}
-		}
-	}
-
-	/* ── pulse a node ─────────────────────────────────────────────── */
-
-	function pulseNode(node: SceneNode) {
-		(node.pulse.material as THREE.MeshBasicMaterial).opacity = 0.4;
-	}
-
-	function pulsePipelineStage(stageId: string) {
-		const stage = pipelineStages.get(stageId);
-		if (stage) {
-			(stage.pulseRing.material as THREE.MeshBasicMaterial).opacity = 0.5;
-		}
-	}
-
-	/*
-  disposeObjectTree releases GPU buffers for a subtree. Geometry and materials
-  shared across meshes are disposed at most once per call via local sets.
+/*
+posFromWireLayout maps pkg/viz layout_meta.go normalized viz_lx/viz_ly into canvas
+pixels. When the backend omits them, callers fall back to deterministic hashes.
+*/
+function posFromWireLayout(
+  meta: Record<string, string> | undefined,
+  width: number,
+  height: number,
+): { x: number; y: number } | null {
+  if (!meta) return null;
+
+  const xs = meta.viz_lx;
+  const ys = meta.viz_ly;
+
+  if (xs === undefined || ys === undefined) return null;
+
+  const lx = Number.parseFloat(xs);
+  const ly = Number.parseFloat(ys);
+
+  if (!Number.isFinite(lx) || !Number.isFinite(ly)) return null;
+  if (lx < 0 || lx > 1 || ly < 0 || ly > 1) return null;
+
+  const w = Math.max(1, width - 2 * VIZ_LAYOUT_INSET);
+  const h = Math.max(1, height - 2 * VIZ_LAYOUT_INSET);
+
+  return { x: VIZ_LAYOUT_INSET + lx * w, y: VIZ_LAYOUT_INSET + ly * h };
+}
+
+function posOrFallback(
+  meta: Record<string, string> | undefined,
+  width: number,
+  height: number,
+  fallback: () => { x: number; y: number },
+): { x: number; y: number } {
+  const p = posFromWireLayout(meta, width, height);
+
+  if (p) return p;
+
+  return fallback();
+}
+
+function snapshotTelemetry(ev: VizEvent): {
+  ts: number;
+  src: string;
+  tgt: string;
+  lbl: string;
+  vals: Record<string, number>;
+  meta: Record<string, string>;
+} {
+  return {
+    ts: ev.ts,
+    src: ev.src,
+    tgt: ev.tgt,
+    lbl: ev.lbl,
+    vals: { ...ev.vals },
+    meta: { ...ev.meta },
+  };
+}
+
+interface VisValue {
+  id: string;
+  pos: { x: number; y: number };
+  vel: { x: number; y: number };
+  role: "data" | "action" | "reaction" | "prompt";
+  program: string;
+  communityId: number;
+  label: string;
+  content: string;
+  tokens: Uint8Array | null;
+  field: PhaseField | null;
+  resonance: number;
+  age: number;
+  prevId: string;
+  nextId: string;
+  telemetry: ReturnType<typeof snapshotTelemetry> | null;
+  actionResonance: number;
+}
+
+interface VisCommunity {
+  id: number;
+  memberIds: Set<string>;
+  saturated: boolean;
+  saturation: number;
+  lastAction: string;
+  actionCount: number;
+  reactionCount: number;
+  center: { x: number; y: number };
+  affinityHex: string;
+}
+
+export interface VizRuntimeStats {
+  values: number;
+  communities: number;
+  actions: number;
+  reactions: number;
+  dropped: number;
+  bootstrapNodes: number;
+  wireJsonBlobs: number;
+}
+
+export interface VizInspectSnapshot {
+  id: string;
+  role: VisValue["role"];
+  program: string;
+  communityId: number;
+  label: string;
+  content: string;
+  pos: { x: number; y: number };
+  resonance: number;
+  actionResonance: number;
+  prevId: string;
+  nextId: string;
+  telemetry: ReturnType<typeof snapshotTelemetry> | null;
+}
+
+export interface VizCallbacks {
+  onEvent: (ev: VizEvent) => void;
+  onStats: (stats: VizRuntimeStats) => void;
+  onSelection?: (sel: VizInspectSnapshot | null) => void;
+}
+
+function tokensFromString(s: string): Uint8Array {
+  const cap = Math.min(s.length, 256);
+  const t = new Uint8Array(Math.max(16, cap));
+
+  for (let i = 0; i < cap; i++) t[i] = s.charCodeAt(i) & 0xff;
+
+  return t;
+}
+
+function buildField(tokens: Uint8Array): PhaseField {
+  const f = new PhaseField();
+  f.observeBytes(tokens);
+  return f;
+}
+
+export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
+  const canvas = document.createElement("canvas");
+  canvas.style.display = "block";
+  container.appendChild(canvas);
+
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  let W = container.clientWidth;
+  let H = container.clientHeight;
+  canvas.width = W;
+  canvas.height = H;
+
+  let mouseX = W / 2;
+  let mouseY = H / 2;
+  let selectedId: string | null = null;
+
+  canvas.addEventListener("mousemove", (e) => {
+    mouseX = e.offsetX;
+    mouseY = e.offsetY;
+  });
+
+  canvas.addEventListener("click", (e) => {
+    const cx = e.offsetX, cy = e.offsetY;
+    selectedId = null;
+
+    for (const [vid, v] of valueMap) {
+      if (Math.hypot(v.pos.x - cx, v.pos.y - cy) < 12) {
+        selectedId = vid;
+        break;
+      }
+    }
+
+    emitSelection();
+  });
+
+  const ro = new ResizeObserver(() => {
+    W = container.clientWidth;
+    H = container.clientHeight;
+    canvas.width = W;
+    canvas.height = H;
+  });
+  ro.observe(container);
+
+  const valueMap = new Map<string, VisValue>();
+  const communityMap = new Map<number, VisCommunity>();
+  const eventLog: { ts: number; kind: string; detail: string }[] = [];
+  const stats: VizRuntimeStats = {
+    values: 0,
+    communities: 0,
+    actions: 0,
+    reactions: 0,
+    dropped: 0,
+    bootstrapNodes: 0,
+    wireJsonBlobs: 0,
+  };
+  let frameCount = 0;
+  let isDestroyed = false;
+  let ws: WebSocket | null = null;
+  let bootstrapNodeIds: string[] = [];
+
+  const MAX_VALUES = 500;
+
+  function addLog(kind: string, detail: string) {
+    eventLog.unshift({ ts: Date.now(), kind, detail });
+    if (eventLog.length > 40) eventLog.length = 40;
+  }
+
+  function emitSelection() {
+    if (!callbacks.onSelection) return;
+
+    if (!selectedId) {
+      callbacks.onSelection(null);
+      return;
+    }
+
+    const v = valueMap.get(selectedId);
+
+    if (!v) {
+      callbacks.onSelection(null);
+      return;
+    }
+
+    callbacks.onSelection({
+      id: v.id,
+      role: v.role,
+      program: v.program,
+      communityId: v.communityId,
+      label: v.label,
+      content: v.content,
+      pos: { ...v.pos },
+      resonance: v.resonance,
+      actionResonance: v.actionResonance,
+      prevId: v.prevId,
+      nextId: v.nextId,
+      telemetry: v.telemetry,
+    });
+  }
+
+  function spawnPos(layoutKey: string, communityId?: number): { x: number; y: number } {
+    if (communityId !== undefined && communityId >= 0) {
+      const c = communityMap.get(communityId);
+
+      if (c) {
+        const ox = (unitFromKey(`${layoutKey}|${communityId}`, "ox") - 0.5) * 72;
+        const oy = (unitFromKey(`${layoutKey}|${communityId}`, "oy") - 0.5) * 72;
+
+        return { x: c.center.x + ox, y: c.center.y + oy };
+      }
+    }
+
+    return layoutPoint(`spawn|${layoutKey}`, W, H, 80);
+  }
+
+  function cullOldest() {
+    if (valueMap.size <= MAX_VALUES) return;
+
+    const sorted = [...valueMap.entries()]
+      .filter(([, v]) => v.role !== "prompt")
+      .sort((a, b) => a[1].age - b[1].age);
+
+    const excess = valueMap.size - MAX_VALUES;
+
+    for (let i = 0; i < Math.min(excess, sorted.length); i++) {
+      const [vid, v] = sorted[i];
+      valueMap.delete(vid);
+
+      if (vid === selectedId) {
+        selectedId = null;
+        emitSelection();
+      }
+
+      if (v.communityId >= 0) {
+        const c = communityMap.get(v.communityId);
+        if (c) c.memberIds.delete(vid);
+      }
+    }
+  }
+
+  function applyEvent(ev: VizEvent) {
+    const kindName = KIND_NAMES[ev.kind] || `kind_${ev.kind}`;
+
+    if (ev.kind === EK.Prompt) {
+      const promptText = ev.meta?.prompt || "";
+
+      for (const [pid, pv] of valueMap) {
+        if (pv.role === "prompt") valueMap.delete(pid);
+      }
+
+      const vid = `prompt_${ev.ts}_${fnv1a32(promptText).toString(16)}`;
+      const tokens = tokensFromString(promptText);
+      const pos = posOrFallback(ev.meta, W, H, () => layoutPoint(`prompt|${vid}`, W, H, 120));
+      const tel = snapshotTelemetry(ev);
+
+      valueMap.set(vid, {
+        id: vid, pos, vel: { x: 0, y: 0 },
+        role: "prompt", program: "", communityId: -1,
+        label: promptText.substring(0, 40), content: promptText,
+        tokens, field: buildField(tokens),
+        resonance: 1, age: 0, prevId: "", nextId: "",
+        telemetry: tel,
+        actionResonance: 0,
+      });
+      cullOldest();
+      addLog("prompt", promptText.substring(0, 50));
+    }
+
+    else if (ev.kind === EK.PromptResult) {
+      const gen = ev.meta?.generation || "";
+      addLog("prompt_result", gen.substring(0, 56));
+    }
+
+    else if (ev.kind === EK.TokenizerEmit) {
+      const vid = ev.meta?.value_id || `v_${ev.ts}`;
+      const tokenContent = ev.meta?.content || "";
+      const tokens = tokensFromString(tokenContent || vid);
+      const pos = posOrFallback(ev.meta, W, H, () => spawnPos(`emit|${vid}`));
+      const vel = layoutVelocity(`tok|${vid}`);
+      const tel = snapshotTelemetry(ev);
+
+      valueMap.set(vid, {
+        id: vid, pos,
+        vel,
+        role: "data", program: "", communityId: -1,
+        label: ev.lbl || "", content: tokenContent,
+        tokens, field: buildField(tokens),
+        resonance: 0.5, age: 0, prevId: "", nextId: "",
+        telemetry: tel,
+        actionResonance: 0,
+      });
+      cullOldest();
+      addLog("tokenizer", `${(tokenContent || vid).substring(0, 30)}${ev.lbl ? " [" + ev.lbl + "]" : ""}`);
+    }
+
+    else if (ev.kind === EK.TokenizerChunk) {
+      const bw = ev.vals?.bytes_written ?? 0;
+      addLog("tokenizer_chunk", `+${bw} B`);
+    }
+
+    else if (ev.kind === EK.DatasetRead) {
+      const ds = ev.meta?.dataset || "";
+      const br = ev.vals?.bytes_read ?? 0;
+      addLog("dataset", `${ds} +${br} B`);
+    }
+
+    else if (ev.kind === EK.TrieGraphSnapshot) {
+      const tidx = ev.vals?.trie_idx ?? -1;
+      const gj = ev.meta?.graph || "";
+      addLog("trie_graph", `trie ${tidx} json ${gj.length} B`);
+    }
+
+    else if (ev.kind === EK.CommunityCreated) {
+      const cid = ev.vals?.community_id ?? -1;
+      const affinityHex = ev.meta?.initial_affinity || "";
+
+      communityMap.set(cid, {
+        id: cid,
+        memberIds: new Set(),
+        saturated: false,
+        saturation: 0,
+        lastAction: "",
+        actionCount: 0,
+        reactionCount: 0,
+        center: posOrFallback(ev.meta, W, H, () => layoutPoint(`community|${cid}`, W, H, 100)),
+        affinityHex,
+      });
+      addLog("community", `created #${cid}${affinityHex ? " aff=" + affinityHex.substring(0, 16) + ".." : ""}`);
+    }
+
+    else if (ev.kind === EK.ValueJoinedCommunity) {
+      const vid = ev.meta?.value_id || "";
+      const cid = ev.vals?.community_id ?? -1;
+      const distance = ev.vals?.distance ?? -1;
+      const c = communityMap.get(cid);
+
+      if (c) {
+        c.memberIds.add(vid);
+        const v = valueMap.get(vid);
+
+        if (v) {
+          v.communityId = cid;
+          v.resonance = 1;
+          v.telemetry = snapshotTelemetry(ev);
+        }
+      }
+
+      addLog("join", `${vid.substring(0, 8)} -> #${cid} (dist=${distance.toFixed(0)})`);
+    }
+
+    else if (ev.kind === EK.CommunitySaturated) {
+      const cid = ev.vals?.community_id ?? -1;
+      const sat = ev.vals?.saturation ?? 0;
+      const c = communityMap.get(cid);
+      if (c) { c.saturated = true; c.saturation = sat; }
+      addLog("saturated", `#${cid} at ${(sat * 100).toFixed(1)}%`);
+    }
+
+    else if (ev.kind === EK.CommunityAction) {
+      const prog = ev.lbl || "unknown";
+      const cid = ev.vals?.community_id ?? -1;
+      const c = communityMap.get(cid);
+      if (c) { c.lastAction = prog; c.actionCount++; }
+      stats.actions++;
+
+      const vid = ev.meta?.value_id || ev.meta?.action_id || `a_${ev.ts}`;
+      const pos = posOrFallback(ev.meta, W, H, () => spawnPos(`action|${vid}`, cid));
+      const vel = layoutVelocity(`act|${vid}`);
+      const tel = snapshotTelemetry(ev);
+      const ar = ev.vals?.resonance ?? 0;
+
+      valueMap.set(vid, {
+        id: vid, pos,
+        vel,
+        role: "action", program: prog, communityId: cid,
+        label: prog, content: "",
+        tokens: null, field: null,
+        resonance: 1, age: 0, prevId: "", nextId: "",
+        telemetry: tel,
+        actionResonance: ar,
+      });
+      cullOldest();
+      addLog("action", `#${cid} -> ${prog}`);
+    }
+
+    else if (ev.kind === EK.CommunityReaction) {
+      const prog = ev.lbl || "unknown";
+      const cid = ev.vals?.community_id ?? -1;
+      const c = communityMap.get(cid);
+      if (c) c.reactionCount++;
+      stats.reactions++;
+
+      const vid = ev.meta?.value_id || ev.meta?.reaction_id || `r_${ev.ts}`;
+      const pos = posOrFallback(ev.meta, W, H, () => spawnPos(`reaction|${vid}`, cid));
+      const vel = layoutVelocity(`rx|${vid}`);
+      const tel = snapshotTelemetry(ev);
+
+      valueMap.set(vid, {
+        id: vid, pos,
+        vel,
+        role: "reaction", program: prog, communityId: cid,
+        label: prog, content: "",
+        tokens: null, field: null,
+        resonance: 0.8, age: 0, prevId: "", nextId: "",
+        telemetry: tel,
+        actionResonance: 0,
+      });
+      cullOldest();
+      addLog("reaction", `#${cid} -> ${prog}`);
+    }
+
+    else if (ev.kind === EK.QueueSubmit) {
+      const vid = ev.meta?.value_id || "";
+      const v = valueMap.get(vid);
+
+      if (v) {
+        v.prevId = ev.meta?.prev_id || "";
+        v.nextId = ev.meta?.next_id || "";
+        v.telemetry = snapshotTelemetry(ev);
+      }
+
+      const inf = ev.vals?.inflight ?? -1;
+      addLog("queue", `submit inf=${inf} ${(ev.lbl || "").substring(0, 40)}`);
+    }
+
+    else if (ev.kind === EK.CausalHubProbe) {
+      const depth = ev.vals?.depth ?? 0;
+      const status = ev.meta?.status || "unknown";
+      addLog("causal_hub", `depth=${depth} ${status}`);
+    }
+
+    else if (ev.kind === EK.HolographicCrossover || ev.kind === EK.Sense) {
+      addLog(kindName, ev.lbl || ev.src || "");
+    }
+
+    else {
+      addLog(kindName, ev.lbl || ev.src || "");
+    }
+  }
+
+  function connect() {
+    const meta = import.meta as ImportMeta & { env?: Record<string, string> };
+    const host = meta.env?.VITE_VIZ_HOST || "localhost";
+    const port = meta.env?.VITE_VIZ_PORT || "6600";
+    ws = new WebSocket(`ws://${host}:${port}/ws`);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => addLog("system", "connected");
+
+    ws.onmessage = (msg) => {
+      if (isDestroyed) return;
+      if (!(msg.data instanceof ArrayBuffer)) return;
+      try {
+        const buf = new Uint8Array(msg.data);
+
+        for (const frame of decodeVizFrames(buf)) {
+          if (frame.frameType === "event") {
+            applyEvent(frame.event);
+            callbacks.onEvent(frame.event);
+            continue;
+          }
+
+          if (frame.frameType === "bootstrap") {
+            bootstrapNodeIds = frame.nodes;
+            stats.bootstrapNodes = frame.nodes.length;
+            addLog("system", `bootstrap ${frame.nodes.length} nodes`);
+            continue;
+          }
+
+          if (frame.frameType === "stats") {
+            stats.dropped = frame.dropped;
+
+            if (frame.dropped > 0) {
+              addLog("viz_bus", `dropped ${frame.dropped} (bus)`);
+            }
+
+            continue;
+          }
+
+          if (frame.frameType === "scrub") {
+            for (const ev of frame.events) {
+              applyEvent(ev);
+              callbacks.onEvent(ev);
+            }
+
+            continue;
+          }
+
+          if (frame.frameType === "json") {
+            stats.wireJsonBlobs++;
+            let summary = `len=${frame.text.length}`;
+
+            try {
+              const j = JSON.parse(frame.text) as Record<string, unknown>;
+
+              if (typeof j.snapshot_kind === "string") summary = `snap:${j.snapshot_kind}`;
+            } catch { /* non-JSON or partial */ }
+
+            addLog("json", summary);
+          }
+        }
+      } catch (_) { /* malformed frame */ }
+    };
+
+    ws.onclose = () => {
+      if (!isDestroyed) setTimeout(connect, 2000);
+    };
+  }
+
+  function updateLayout() {
+    for (const [, v] of valueMap) {
+      v.age++;
+      v.resonance *= 0.96;
+
+      if (v.communityId >= 0) {
+        const c = communityMap.get(v.communityId);
+
+        if (c && c.memberIds.size >= 2) {
+          const dx = c.center.x - v.pos.x;
+          const dy = c.center.y - v.pos.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+
+          if (d > 5) {
+            v.vel.x += (dx / d) * 0.03;
+            v.vel.y += (dy / d) * 0.03;
+          }
+        }
+      }
+
+      v.vel.x *= 0.985;
+      v.vel.y *= 0.985;
+      v.pos.x += v.vel.x;
+      v.pos.y += v.vel.y;
+
+      const speed = Math.sqrt(v.vel.x * v.vel.x + v.vel.y * v.vel.y);
+      if (speed > 1.2) {
+        v.vel.x = (v.vel.x / speed) * 1.2;
+        v.vel.y = (v.vel.y / speed) * 1.2;
+      }
+
+      const margin = 30;
+      if (v.pos.x < margin) v.vel.x += 0.05;
+      if (v.pos.x > W - margin) v.vel.x -= 0.05;
+      if (v.pos.y < margin) v.vel.y += 0.05;
+      if (v.pos.y > H - margin) v.vel.y -= 0.05;
+    }
+
+    for (const [, c] of communityMap) {
+      if (c.memberIds.size === 0) continue;
+      let cx = 0, cy = 0, n = 0;
+
+      for (const vid of c.memberIds) {
+        const v = valueMap.get(vid);
+        if (v) { cx += v.pos.x; cy += v.pos.y; n++; }
+      }
+
+      if (n > 0) {
+        c.center.x += (cx / n - c.center.x) * 0.1;
+        c.center.y += (cy / n - c.center.y) * 0.1;
+      }
+    }
+  }
+
+  function drawPressureField() {
+    ctx.strokeStyle = "rgba(255,255,255,0.03)";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < W; x += 80) {
+      for (let y = 0; y < H; y += 80) {
+        const angle = Math.atan2(mouseY - y, mouseX - x);
+        const d = Math.hypot(mouseX - x, mouseY - y);
+        const len = 3 + (1 - Math.min(d / Math.max(W, H), 1)) * 9;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  function drawEdges() {
+    ctx.strokeStyle = "rgba(255,255,255,0.04)";
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+
+    for (const [, v] of valueMap) {
+      if (!v.nextId) continue;
+      const other = valueMap.get(v.nextId);
+      if (!other) continue;
+      ctx.moveTo(v.pos.x, v.pos.y);
+      ctx.lineTo(other.pos.x, other.pos.y);
+    }
+
+    ctx.stroke();
+  }
+
+  function drawCommunities() {
+    for (const [, c] of communityMap) {
+      if (c.memberIds.size < 2) continue;
+
+      const col = c.lastAction ? programColor(c.lastAction) : [186, 104, 200] as [number, number, number];
+      const [cr, cg, cb] = col;
+      const radius = 30 + c.memberIds.size * 8 + Math.sin(frameCount * 0.08) * 5;
+      const baseAlpha = c.saturated ? 0.4 : 0.2;
+
+      ctx.strokeStyle = `rgba(${cr},${cg},${cb},${baseAlpha})`;
+      ctx.lineWidth = c.saturated ? 2 : 1;
+      ctx.beginPath();
+      ctx.arc(c.center.x, c.center.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(${cr},${cg},${cb},${baseAlpha * 0.4})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (const vid of c.memberIds) {
+        const v = valueMap.get(vid);
+        if (v) {
+          ctx.moveTo(c.center.x, c.center.y);
+          ctx.lineTo(v.pos.x, v.pos.y);
+        }
+      }
+      ctx.stroke();
+
+      if (c.memberIds.size >= 3) {
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},0.04)`;
+        ctx.beginPath();
+        ctx.arc(c.center.x, c.center.y, radius * 1.3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},0.45)`;
+        ctx.font = "9px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          `#${c.id} [${c.memberIds.size}]${c.lastAction ? " " + c.lastAction : ""}`,
+          c.center.x, c.center.y + radius + 12,
+        );
+
+        if (c.actionCount > 0 || c.reactionCount > 0) {
+          ctx.fillStyle = `rgba(${cr},${cg},${cb},0.35)`;
+          ctx.fillText(`a:${c.actionCount} r:${c.reactionCount}`, c.center.x, c.center.y + radius + 22);
+        }
+
+        if (c.saturated) {
+          ctx.fillStyle = "rgba(255,80,80,0.45)";
+          ctx.fillText(`SATURATED ${(c.saturation * 100).toFixed(0)}%`, c.center.x, c.center.y + radius + 32);
+        }
+      }
+    }
+  }
+
+  function valueColor(v: VisValue): [number, number, number] {
+    if (v.role === "prompt") return [255, 180, 0];
+    if (v.program) return programColor(v.program);
+
+    if (v.field) {
+      const dom = v.field.dominant();
+      const hue = (dom.index / GF_MOD) * 255;
+      return [hue, 200, Math.max(0, 255 - hue * 0.3)];
+    }
+
+    return [100, 180, 255];
+  }
+
+  function drawValues() {
+    for (const [vid, v] of valueMap) {
+      if (v.role === "prompt") continue;
+
+      const [r, g, b] = valueColor(v);
+      const a = 0.47 + v.resonance * 0.53;
+
+      ctx.save();
+      ctx.translate(v.pos.x, v.pos.y);
+
+      if (v.resonance > 0.2) {
+        ctx.fillStyle = `rgba(${r},${g},${b},${v.resonance * 0.1})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 9 + v.resonance * 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = `rgba(${r},${g},${b},${a})`;
+      ctx.lineWidth = 1;
+
+      if (v.role === "action") {
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(5, 5);
+        ctx.lineTo(-5, 5);
+        ctx.closePath();
+        ctx.stroke();
+      } else if (v.role === "reaction") {
+        ctx.beginPath();
+        ctx.moveTo(0, 5);
+        ctx.lineTo(5, -4);
+        ctx.lineTo(-5, -4);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(-4, -4, 8, 8);
+      }
+
+      if (v.program) {
+        ctx.fillStyle = `rgba(${r},${g},${b},${a * 0.7})`;
+        ctx.font = "8px monospace";
+        ctx.textAlign = "left";
+        ctx.fillText(v.program, 8, 3);
+      } else if (v.content && v.role === "data") {
+        ctx.fillStyle = `rgba(${r},${g},${b},${a * 0.4})`;
+        ctx.font = "7px monospace";
+        ctx.textAlign = "left";
+        ctx.fillText(v.content.substring(0, 20), 8, 3);
+      }
+
+      if (selectedId === vid) {
+        ctx.strokeStyle = "rgba(255,255,255,0.8)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  /*
+  Prompts drawn last so they always sit on top of everything else.
+  Bright orange diamond with pulsing glow, impossible to miss.
   */
-	function disposeObjectTree(root: THREE.Object3D) {
-		const seenGeo = new Set<THREE.BufferGeometry>();
-		const seenMat = new Set<THREE.Material>();
-		const seenTex = new Set<THREE.Texture>();
-
-		root.traverse((child) => {
-			if (
-				child instanceof THREE.Mesh ||
-				child instanceof THREE.Line ||
-				child instanceof THREE.LineSegments ||
-				child instanceof THREE.LineLoop
-			) {
-				const geo = child.geometry as THREE.BufferGeometry | undefined;
-
-				if (geo && !seenGeo.has(geo)) {
-					seenGeo.add(geo);
-					geo.dispose();
-				}
-
-				const mat = child.material as THREE.Material | THREE.Material[];
-
-				if (Array.isArray(mat)) {
-					for (const m of mat) {
-						if (m && !seenMat.has(m)) {
-							seenMat.add(m);
-							m.dispose();
-						}
-					}
-
-					return;
-				}
-
-				if (mat && !seenMat.has(mat)) {
-					seenMat.add(mat);
-					mat.dispose();
-				}
-
-				return;
-			}
-
-			if (child instanceof THREE.Sprite) {
-				const sm = child.material as THREE.SpriteMaterial;
-
-				if (sm.map && !seenTex.has(sm.map)) {
-					seenTex.add(sm.map);
-					sm.map.dispose();
-				}
-
-				if (!seenMat.has(sm)) {
-					seenMat.add(sm);
-					sm.dispose();
-				}
-			}
-		});
-	}
-
-	function disposeSceneNode(node: SceneNode) {
-		scene.remove(node.group);
-		disposeObjectTree(node.group);
-	}
-
-	/*
-  Clears dynamic nodes/edges and simulation counters so timeline replay matches
-  a cold apply of events[0..index).
-  */
-	function resetDynamicVisualization() {
-		for (const node of nodes.values()) {
-			disposeSceneNode(node);
-		}
-
-		nodes.clear();
-
-		for (const edge of edges.values()) {
-			scene.remove(edge.line);
-			disposeObjectTree(edge.line);
-		}
-
-		edges.clear();
-
-		alu.totalDispatches = 0;
-		alu.recentOps.length = 0;
-
-		for (const key of Object.keys(
-			alu.substrates,
-		) as (keyof typeof alu.substrates)[]) {
-			const substrate = alu.substrates[key];
-			substrate.inflight = 0;
-			substrate.totalDispatches = 0;
-			substrate.emaDurationNs = 0;
-			substrate.lastDurationNs = 0;
-		}
-
-		fieldState.globalPhase = 0;
-		fieldState.phaseConcentration = 0;
-		fieldState.eigenmodes = [];
-
-		for (const stage of pipelineStages.values()) {
-			stage.metrics.totalEvents = 0;
-			stage.metrics.bytesProcessed = 0;
-			stage.metrics.inflight = 0;
-			stage.metrics.emaDurationMs = 0;
-			stage.metrics.recentOps = [];
-		}
-
-		eventCount = 0;
-		selectedTarget = null;
-		deselectAll();
-
-		flowParticles.forEach((fp) => {
-			fp.active = false;
-			(fp.mesh.material as THREE.MeshBasicMaterial).opacity = 0;
-		});
-	}
-
-	/* ── event application ────────────────────────────────────────── */
-
-	function applyEvent(ev: VizEvent) {
-		eventCount++;
-		const k = ev.kind;
-
-		if (k === EK.NodeCreated) {
-			ensureNode(ev.src);
-		} else if (k === EK.NodeRemoved) {
-			const node = nodes.get(ev.src);
-			if (node) {
-				disposeSceneNode(node);
-				nodes.delete(ev.src);
-				repositionNodes();
-			}
-		} else if (k === EK.PeerAdded) {
-			ensureEdge(ev.src, ev.tgt);
-		} else if (k === EK.PeerLatency) {
-			const edge = ensureEdge(ev.src, ev.tgt);
-			edge.state.latencyMs = ev.vals.latency_ms ?? 0;
-			const nFrom = nodes.get(ev.src);
-			const nTo = nodes.get(ev.tgt);
-			if (nFrom) nFrom.data.latencies[ev.tgt] = edge.state.latencyMs;
-			if (nTo) nTo.data.latencies[ev.src] = edge.state.latencyMs;
-		} else if (k === EK.ValuePublished) {
-			const node = ensureNode(ev.src);
-			node.data.insertCount++;
-			pulseNode(node);
-		} else if (k === EK.ValueReplicated) {
-			const edge = ensureEdge(ev.src, ev.tgt);
-			edge.state.replicationCount++;
-			edge.activity = 1;
-		} else if (k === EK.GossipSent || k === EK.GossipReceived) {
-			const node = ensureNode(ev.src);
-			node.data.gossipCount++;
-			if (ev.tgt) {
-				const edge = ensureEdge(ev.src, ev.tgt);
-				edge.state.gossipCount++;
-				edge.activity = 1;
-			}
-		} else if (k === EK.FieldDigest) {
-			const node = ensureNode(ev.src);
-			node.data.digest.surprisal = ev.vals.surprisal ?? 0;
-			node.data.digest.entropy = ev.vals.entropy ?? 0;
-			node.data.digest.growth = ev.vals.growth ?? 0;
-		} else if (k === EK.EigenmodeDetected) {
-			fieldState.globalPhase = ev.vals.phase ?? 0;
-			fieldState.phaseConcentration = ev.vals.concentration ?? 0;
-		} else if (k === EK.FieldPressure) {
-			const node = ensureNode(ev.src);
-			node.data.pressure.decay_mul = ev.vals.decay_mul ?? 1;
-			node.data.pressure.learn_mul = ev.vals.learn_mul ?? 1;
-		} else if (k === EK.TrieInsert) {
-			const trieIdx = ev.vals.trie_idx ?? 0;
-			const trie = ensureTrie(ev.src, trieIdx);
-			trie.state.insertFlash = 1;
-			const node = nodes.get(ev.src);
-			if (node) {
-				node.data.insertCount++;
-				pulseNode(node);
-			}
-		} else if (k === EK.TrieDecay) {
-			/* Visual: brief dim on trie */
-		} else if (k === EK.TriePrune) {
-			/* Visual: brief shrink */
-		} else if (k === EK.TriePredict || k === EK.TrieClassify) {
-			const node = ensureNode(ev.src);
-			node.data.predictCount++;
-			if (k === EK.TrieClassify && ev.meta.labels) {
-				try {
-					const labels: Record<string, number> = JSON.parse(ev.meta.labels);
-					Object.entries(labels).forEach(([l, c]) => {
-						node.data.labelCounts[l] = (node.data.labelCounts[l] ?? 0) + c;
-					});
-				} catch {
-					/* ignore malformed */
-				}
-			}
-		} else if (k === EK.TrieExperience) {
-			const node = ensureNode(ev.src);
-			if (ev.lbl) {
-				node.data.recentSequences.push(ev.lbl);
-				if (node.data.recentSequences.length > 16)
-					node.data.recentSequences.shift();
-			}
-		} else if (k === EK.TrieCoupling) {
-			/* Visual: arc between two tries (could add later) */
-		} else if (k === EK.TrieMode) {
-			const trieIdx = ev.vals.trie_idx ?? 0;
-			const trie = ensureTrie(ev.src, trieIdx);
-			trie.state.aligned = !!ev.vals.aligned;
-		} else if (k === EK.TriePressure) {
-			const trieIdx = ev.vals.trie_idx ?? 0;
-			const trie = ensureTrie(ev.src, trieIdx);
-			trie.state.decayMul = ev.vals.decay_mul ?? 1;
-			trie.state.learnMul = ev.vals.learn_mul ?? 1;
-		} else if (k === EK.TrieSignal) {
-			const trieIdx = ev.vals.trie_idx ?? 0;
-			const trie = ensureTrie(ev.src, trieIdx);
-			trie.state.surprisal = ev.vals.surprisal ?? 0;
-			trie.state.entropy = ev.vals.entropy ?? 0;
-			trie.state.growth = ev.vals.growth ?? 0;
-		} else if (k === EK.BeamCollect) {
-			const node = ensureNode(ev.src);
-			pulseNode(node);
-			node.beam.activeCount = ev.vals.count ?? 0;
-		} else if (k === EK.BeamCompose) {
-			const node = ensureNode(ev.src);
-			node.beam.lastCompose = Date.now();
-			node.beam.activeCount = ev.vals.selected ?? 0;
-			node.beam.rejectedCount = ev.vals.rejected ?? 0;
-			node.beam.bestScore = ev.vals.best_score ?? 0;
-			node.beam.converged = false;
-
-			/* Parse hypotheses from meta */
-			if (ev.meta.hypotheses) {
-				try {
-					node.beam.hypotheses = JSON.parse(ev.meta.hypotheses);
-				} catch {
-					/* ignore */
-				}
-			}
-			updateBeamVisuals(node);
-			callbacks.onBeamUpdate(ev.src, {
-				activeCount: node.beam.activeCount,
-				rejectedCount: node.beam.rejectedCount,
-				bestScore: node.beam.bestScore,
-				lastSequence: node.beam.lastSequence,
-				hypotheses: node.beam.hypotheses,
-				converged: false,
-			});
-		} else if (k === EK.BeamBreak) {
-			const node = ensureNode(ev.src);
-			/* Flash red on broken trie */
-			const trieIdx = ev.vals.trie_idx ?? 0;
-			if (node.tries[trieIdx]) {
-				(
-					node.tries[trieIdx].rootMesh.material as THREE.MeshBasicMaterial
-				).color.setHex(C.beamRejected);
-				setTimeout(() => {
-					if (node.tries[trieIdx]) {
-						(
-							node.tries[trieIdx].rootMesh.material as THREE.MeshBasicMaterial
-						).color.setHex(C.trie);
-					}
-				}, 600);
-			}
-		} else if (k === EK.BeamConverge) {
-			const node = ensureNode(ev.src);
-			node.beam.converged = true;
-			node.beam.lastSequence = ev.lbl || ev.meta.sequence || "";
-			node.beam.bestScore = ev.vals.score ?? node.beam.bestScore;
-			updateBeamVisuals(node);
-			callbacks.onBeamUpdate(ev.src, {
-				activeCount: node.beam.activeCount,
-				rejectedCount: 0,
-				bestScore: node.beam.bestScore,
-				lastSequence: node.beam.lastSequence,
-				hypotheses: node.beam.hypotheses,
-				converged: true,
-			});
-		} else if (k === EK.TrieGraphSnapshot) {
-			const trieIdx = ev.vals.trie_idx ?? 0;
-			const trie = ensureTrie(ev.src, trieIdx);
-			if (ev.meta.graph) {
-				try {
-					const payload: TrieGraphPayload = JSON.parse(ev.meta.graph);
-					renderTrieGraph(trie, payload);
-				} catch {
-					/* ignore */
-				}
-			}
-		} else if (k === EK.CompilerCompile) {
-			pulsePipelineStage("compiler");
-			const stage = pipelineStages.get("compiler");
-			if (stage) {
-				stage.metrics.totalEvents++;
-				stage.metrics.recentOps.push(ev.lbl || "compile");
-				if (stage.metrics.recentOps.length > 8) stage.metrics.recentOps.shift();
-			}
-			spawnFlowParticle(
-				new THREE.Vector3(-4, compY, 0),
-				new THREE.Vector3(1, compY, 0),
-				C.compiler,
-			);
-			callbacks.onLog([
-				{ text: "compile", color: "#4cc9f0" },
-				{ text: ` ${ev.lbl || ""}` },
-			]);
-		} else if (k === EK.ALUDispatch) {
-			const substrate = ev.meta.substrate || "cpu";
-			const opcode = ev.vals.opcode ?? 0;
-			const durationNs = ev.vals.duration_ns ?? 0;
-
-			alu.totalDispatches++;
-			const sub = alu.substrates[substrate] ?? {
-				inflight: 0,
-				totalDispatches: 0,
-				emaDurationNs: 0,
-				lastDurationNs: 0,
-			};
-			sub.totalDispatches++;
-			sub.lastDurationNs = durationNs;
-			sub.emaDurationNs = sub.emaDurationNs * 0.9 + durationNs * 0.1;
-			sub.inflight = ev.vals.inflight ?? sub.inflight;
-			alu.substrates[substrate] = sub;
-
-			alu.recentOps.push({
-				timestamp: ev.ts,
-				substrate,
-				opcode,
-				durationNs,
-				label: ev.lbl || `op 0x${opcode.toString(16)}`,
-			});
-			if (alu.recentOps.length > 32) alu.recentOps.shift();
-
-			/* Pipeline pulse */
-			pulsePipelineStage(substrate);
-			const queueStage = pipelineStages.get("queue");
-			if (queueStage) {
-				spawnFlowParticle(
-					new THREE.Vector3(1, compY, 0),
-					pipelineStages.get(substrate)?.position ??
-						new THREE.Vector3(6.5, compY, 0),
-					C.queue,
-				);
-			}
-
-			callbacks.onALUUpdate(alu);
-			callbacks.onLog([
-				{ text: "ALU", color: "#26c6da" },
-				{
-					text: ` ${substrate} op=0x${opcode.toString(16)} `,
-				},
-				{
-					text: `${(durationNs / 1000).toFixed(1)}\u00B5s`,
-					color: "#76ff03",
-				},
-			]);
-		} else if (k === EK.FinalizerRun) {
-			const stage = pipelineStages.get("compiler");
-			if (stage) {
-				stage.metrics.totalEvents++;
-				stage.metrics.recentOps.push(`finalizer: ${ev.lbl || ""}`);
-				if (stage.metrics.recentOps.length > 8) stage.metrics.recentOps.shift();
-			}
-		} else if (k === EK.DatasetRead) {
-			pulsePipelineStage("dataset");
-			const stage = pipelineStages.get("dataset");
-			if (stage) {
-				stage.metrics.totalEvents++;
-				stage.metrics.bytesProcessed += ev.vals.bytes ?? 0;
-			}
-		} else if (k === EK.TokenizerChunk || k === EK.TokenizerEmit) {
-			pulsePipelineStage("tokenizer");
-		} else if (k === EK.QueueSubmit) {
-			pulsePipelineStage("queue");
-			const stage = pipelineStages.get("queue");
-			if (stage) {
-				stage.metrics.totalEvents++;
-				stage.metrics.inflight = ev.vals.inflight ?? 0;
-			}
-		} else if (k === EK.PoolSchedule) {
-			pulsePipelineStage("queue");
-		} else if (k === EK.PoolComplete) {
-			/* Could decrement inflight */
-		} else if (k === EK.Prompt) {
-			callbacks.onLog([
-				{ text: "PROMPT", color: "#ffab00" },
-				{ text: ` ${ev.lbl || ""}` },
-			]);
-		} else if (k === EK.PromptResult) {
-			callbacks.onLog([
-				{ text: "RESULT", color: "#76ff03" },
-				{ text: ` ${ev.lbl || ""}` },
-			]);
-		}
-
-		/* Forward to React */
-		callbacks.onEvent(ev);
-	}
-
-	/* ── WebSocket connection ─────────────────────────────────────── */
-
-	let ws: WebSocket | null = null;
-	let wsReconnectTimer: number | null = null;
-
-	function connectWS() {
-		const vizHost =
-			import.meta.env.VITE_VIZ_HOST ||
-			window.location.hostname ||
-			"localhost";
-		const vizPort = import.meta.env.VITE_VIZ_PORT || "6600";
-		const wsUrl = `ws://${vizHost}:${vizPort}/ws`;
-		try {
-			ws = new WebSocket(wsUrl);
-			ws.binaryType = "arraybuffer";
-		} catch {
-			scheduleReconnect();
-			return;
-		}
-
-		ws.onopen = () => {
-			callbacks.onConnectionChange(true);
-			callbacks.onLog([{ text: "WS connected", color: "#76ff03" }]);
-		};
-
-		ws.onmessage = (msg) => {
-			if (paused) return;
-
-			let data: Uint8Array;
-			if (msg.data instanceof ArrayBuffer) {
-				data = new Uint8Array(msg.data);
-			} else {
-				return;
-			}
-
-			const frame = decodeVizMessage(data);
-			if (!frame) return;
-
-			if (frame.frameType === "event") {
-				timeline.push(frame.event);
-				timelineCursor = timeline.length;
-				applyEvent(frame.event);
-				callbacks.onTimelineUpdate(timelineCursor, timeline.length);
-			} else if (frame.frameType === "bootstrap") {
-				for (const id of frame.nodes) {
-					ensureNode(id);
-				}
-			} else if (frame.frameType === "stats") {
-				droppedCount = frame.dropped;
-			} else if (frame.frameType === "scrub") {
-				frame.events.forEach((ev) => {
-					timeline.push(ev);
-					applyEvent(ev);
-				});
-				timelineCursor = timeline.length;
-				callbacks.onTimelineUpdate(timelineCursor, timeline.length);
-			} else if (frame.frameType === "json") {
-				try {
-					const obj = JSON.parse(frame.text);
-					if (obj.kind !== undefined) applyEvent(obj as VizEvent);
-				} catch {
-					/* ignore legacy JSON */
-				}
-			}
-		};
-
-		ws.onclose = () => {
-			callbacks.onConnectionChange(false);
-			scheduleReconnect();
-		};
-
-		ws.onerror = () => {
-			ws?.close();
-		};
-	}
-
-	function scheduleReconnect() {
-		if (wsReconnectTimer) return;
-		wsReconnectTimer = window.setTimeout(() => {
-			wsReconnectTimer = null;
-			connectWS();
-		}, 2000);
-	}
-
-	connectWS();
-
-	/* ── stats ────────────────────────────────────────────────────── */
-
-	let lastFrameTime = performance.now();
-	let fps = 60;
-	let eventsLastSec = 0;
-	let eventsPerSec = 0;
-	let lastSecTime = performance.now();
-
-	function getStats(): EngineStats {
-		let trieCount = 0;
-		nodes.forEach((n) => {
-			trieCount += n.tries.length;
-		});
-		return {
-			nodeCount: nodes.size,
-			trieCount,
-			edgeCount: edges.size,
-			eventCount,
-			droppedCount,
-			fps: Math.round(fps),
-			eventsPerSec: Math.round(eventsPerSec),
-		};
-	}
-
-	/* ── raycasting / click ───────────────────────────────────────── */
-
-	const raycaster = new THREE.Raycaster();
-	const mouse = new THREE.Vector2();
-
-	function onClick(e: MouseEvent) {
-		const rect = renderer.domElement.getBoundingClientRect();
-		mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-		mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-		raycaster.setFromCamera(mouse, camera);
-
-		/* Collect all pickable meshes */
-		const pickMeshes: THREE.Object3D[] = [];
-
-		for (const node of nodes.values()) {
-			pickMeshes.push(node.core, node.face);
-			for (const trie of node.tries) {
-				pickMeshes.push(...trie.pickMeshes);
-			}
-		}
-
-		/* Pipeline stages */
-		for (const stage of pipelineStages.values()) {
-			pickMeshes.push(stage.mesh);
-		}
-
-		/* Static clickables (dataset, machine, network, algo ring/stack) */
-		pickMeshes.push(datasetMesh, machineMesh, tokenizerRing, netMesh);
-		pickMeshes.push(...algoRingMeshes, ...algoMeshes);
-
-		const hits = raycaster.intersectObjects(pickMeshes);
-		if (hits.length > 0) {
-			const hit = hits[0].object;
-			const ud = hit.userData;
-
-			if (ud.kind === "trieVertex") {
-				selectedTarget = {
-					kind: "trie",
-					id: ud.kadabraNodeId,
-					trieIndex: ud.trieIdx,
-					vertexVid: ud.graphVertexVid,
-				};
-
-				/* Highlight parent node */
-				const node = nodes.get(ud.kadabraNodeId);
-				if (node) {
-					(node.wire.material as THREE.Material).opacity = 0.5;
-					focusOn(node.group.position, 14);
-				}
-			} else if (ud.kind === "trie") {
-				selectedTarget = { kind: "trie", id: ud.id, trieIndex: ud.trieIndex };
-				const node = nodes.get(ud.id);
-				if (node) {
-					(node.wire.material as THREE.Material).opacity = 0.5;
-					focusOn(node.group.position, 14);
-				}
-			} else if (ud.kind === "node") {
-				selectedTarget = { kind: "node", id: ud.id };
-				const node = nodes.get(ud.id);
-				if (node) {
-					(node.wire.material as THREE.Material).opacity = 0.5;
-					focusOn(node.group.position, 16);
-				}
-			} else if (ud.kind === "pipeline") {
-				selectedTarget = { kind: "pipeline", id: ud.id };
-				const stage = pipelineStages.get(ud.id);
-				if (stage) focusOn(stage.position, 12);
-				/* Also handle dataset/machine/tokenizer/network */
-				if (ud.id === "dataset") focusOn(new THREE.Vector3(-18, 1.25, 0), 12);
-				if (ud.id === "machine") focusOn(new THREE.Vector3(-8, 2, 0), 14);
-				if (ud.id === "tokenizer") focusOn(new THREE.Vector3(-8, 2, 0), 14);
-				if (ud.id === "network")
-					focusOn(new THREE.Vector3(-16, compY + 1, 6), 12);
-			} else if (ud.kind === "algorithm") {
-				selectedTarget = { kind: "algorithm", id: ud.id };
-			} else {
-				selectedTarget = null;
-			}
-
-			callbacks.onInspect(selectedTarget);
-			return;
-		}
-
-		/* Deselect */
-		deselectAll();
-		selectedTarget = null;
-		callbacks.onInspect(null);
-	}
-
-	function deselectAll() {
-		for (const node of nodes.values()) {
-			(node.wire.material as THREE.Material).opacity = 0.35;
-		}
-	}
-
-	const cameraTarget: {
-		pos: THREE.Vector3;
-		lookAt: THREE.Vector3;
-		active: boolean;
-	} = {
-		pos: new THREE.Vector3(),
-		lookAt: new THREE.Vector3(),
-		active: false,
-	};
-
-	function focusOn(worldPos: THREE.Vector3, distance = 16) {
-		cameraTarget.active = true;
-		cameraTarget.lookAt.copy(worldPos);
-		const dir = camera.position.clone().sub(worldPos).normalize();
-		cameraTarget.pos.copy(worldPos).addScaledVector(dir, distance);
-		cameraTarget.pos.y = Math.max(cameraTarget.pos.y, worldPos.y + 4);
-	}
-
-	renderer.domElement.addEventListener("click", onClick);
-
-	/* ── animation loop ───────────────────────────────────────────── */
-
-	let animationId: number;
-
-	function animate() {
-		animationId = requestAnimationFrame(animate);
-		const now = performance.now();
-		const dt = (now - lastFrameTime) / 1000;
-		lastFrameTime = now;
-		fps = fps * 0.95 + (1 / Math.max(dt, 0.001)) * 0.05;
-
-		/* Events/sec counter */
-		eventsLastSec++;
-		if (now - lastSecTime > 1000) {
-			eventsPerSec = eventsLastSec;
-			eventsLastSec = 0;
-			lastSecTime = now;
-			callbacks.onStats(getStats());
-		}
-
-		const time = now * 0.001;
-
-		/* Camera smooth transition */
-		if (cameraTarget.active) {
-			camera.position.lerp(cameraTarget.pos, 0.04);
-			controls.target.lerp(cameraTarget.lookAt, 0.04);
-			if (camera.position.distanceTo(cameraTarget.pos) < 0.5) {
-				cameraTarget.active = false;
-			}
-		}
-
-		/* Dataset particles */
-		datasetParticles.forEach((p) => {
-			p.userData.t = (p.userData.t + p.userData.sp * dt) % 1;
-			const t = p.userData.t;
-			p.position.set(
-				-18 + t * 10,
-				1.25 + Math.sin(t * Math.PI) * 0.25,
-				Math.sin(t * 6) * 0.1,
-			);
-			(p.material as THREE.Material).opacity =
-				0.25 + Math.sin(t * Math.PI) * 0.35;
-		});
-
-		/* Value particles flowing to DHT nodes */
-		const nodeArr = Array.from(nodes.values());
-		valueParticles.forEach((v) => {
-			v.userData.t = (v.userData.t + v.userData.sp * dt) % 1;
-			const t = v.userData.t;
-			const ni = v.userData.ni % Math.max(nodeArr.length, 1);
-			const target = nodeArr[ni]?.group.position ?? dhtCenter;
-			v.position.set(
-				-5.5 + t * (target.x + 5.5),
-				2 + Math.sin(t * Math.PI) * 1.8,
-				t * target.z,
-			);
-			(v.material as THREE.Material).opacity =
-				0.15 + Math.sin(t * Math.PI) * 0.35;
-			if (t > 0.99)
-				v.userData.ni = Math.floor(Math.random() * Math.max(nodeArr.length, 1));
-		});
-
-		/* Flow particles */
-		flowParticles.forEach((fp) => {
-			if (!fp.active) return;
-			fp.t += fp.speed * dt;
-			if (fp.t >= 1) {
-				fp.active = false;
-				(fp.mesh.material as THREE.MeshBasicMaterial).opacity = 0;
-				return;
-			}
-			const t = fp.t;
-			const u = 1 - t;
-			const uu = u * u;
-			const tt = t * t;
-			fp.tmpPos.copy(fp.from).multiplyScalar(uu);
-			fp.tmpPos.addScaledVector(fp.mid, 2 * u * t);
-			fp.tmpPos.addScaledVector(fp.to, tt);
-			fp.mesh.position.copy(fp.tmpPos);
-			(fp.mesh.material as THREE.MeshBasicMaterial).opacity =
-				0.6 * Math.sin(fp.t * Math.PI);
-		});
-
-		/* GF ring rotations */
-		globalGF.phase += globalGF.speed * dt;
-		updateGFMarker(globalGF);
-
-		for (const node of nodes.values()) {
-			node.gfRing.phase += node.gfRing.speed * dt;
-			updateGFMarker(node.gfRing);
-
-			/* Pulse decay */
-			const pulseOp = (node.pulse.material as THREE.MeshBasicMaterial).opacity;
-			if (pulseOp > 0) {
-				(node.pulse.material as THREE.MeshBasicMaterial).opacity = Math.max(
-					0,
-					pulseOp - dt * 0.8,
-				);
-				node.pulse.scale.setScalar(1 + (0.4 - pulseOp) * 2);
-			}
-
-			/* Trie GF rings + insert flash */
-			node.tries.forEach((trie) => {
-				trie.gfRing.phase += trie.gfRing.speed * dt;
-				updateGFMarker(trie.gfRing);
-
-				if (trie.state.insertFlash > 0) {
-					trie.state.insertFlash = Math.max(0, trie.state.insertFlash - dt * 2);
-					(trie.rootMesh.material as THREE.MeshBasicMaterial).opacity =
-						0.7 + trie.state.insertFlash * 0.3;
-				}
-			});
-
-			/* Beam ray animation */
-			node.beamRays.forEach((ray) => {
-				if (ray.active) {
-					const pulse = Math.sin(time * 1.5 + Math.random() * 0.01);
-					ray.mat.opacity = Math.max(0, pulse * 0.3);
-					ray.tipMat.opacity = Math.max(0, pulse * 0.5);
-				} else {
-					ray.mat.opacity = Math.max(0, ray.mat.opacity - dt * 2);
-					ray.tipMat.opacity = Math.max(0, ray.tipMat.opacity - dt * 2);
-				}
-			});
-
-			/* Beam hypothesis orbiting */
-			node.beamHypMeshes.forEach((hm, i) => {
-				const angle =
-					time * 0.5 +
-					(i / Math.max(node.beamHypMeshes.length, 1)) * Math.PI * 2;
-				const orbitR = 2.5;
-				hm.position.set(
-					Math.cos(angle) * orbitR,
-					1.5 + Math.sin(angle * 2) * 0.3,
-					Math.sin(angle) * orbitR,
-				);
-
-				const hyp = node.beam.hypotheses[i];
-				if (hyp) {
-					const score01 = Math.max(0, Math.min(1, (hyp.score + 15) / 15));
-					(hm.material as THREE.MeshBasicMaterial).color.lerpColors(
-						new THREE.Color(C.beamRejected),
-						new THREE.Color(C.beamActive),
-						score01,
-					);
-				}
-			});
-		}
-
-		/* Pipeline stage pulse decay */
-		for (const stage of pipelineStages.values()) {
-			const op = (stage.pulseRing.material as THREE.MeshBasicMaterial).opacity;
-			if (op > 0) {
-				(stage.pulseRing.material as THREE.MeshBasicMaterial).opacity =
-					Math.max(0, op - dt * 1.2);
-				stage.pulseRing.scale.setScalar(1 + (0.5 - op) * 1.5);
-			}
-		}
-
-		/* Phase dials */
-		dials.forEach((d) => {
-			d.phase += d.speed * dt;
-			const tipX = Math.cos(d.phase) * d.radius * 0.85;
-			const tipZ = Math.sin(d.phase) * d.radius * 0.85;
-			d.tip.position.set(tipX, 0.04, tipZ);
-			d.needlePos.setXYZ(1, tipX, 0.04, tipZ);
-			d.needlePos.needsUpdate = true;
-			d.needle.geometry.computeBoundingSphere();
-		});
-
-		/* Edge activity decay */
-		for (const edge of edges.values()) {
-			if (edge.activity > 0) {
-				edge.activity = Math.max(0, edge.activity - dt * 0.5);
-				(edge.line.material as THREE.LineBasicMaterial).opacity =
-					0.1 + edge.activity * 0.4;
-			}
-		}
-
-		controls.update();
-		composer.render();
-	}
-
-	/* ── resize ───────────────────────────────────────────────────── */
-
-	function onResize() {
-		camera.aspect = container.clientWidth / container.clientHeight;
-		camera.updateProjectionMatrix();
-		renderer.setSize(container.clientWidth, container.clientHeight);
-		composer.setSize(container.clientWidth, container.clientHeight);
-	}
-	window.addEventListener("resize", onResize);
-
-	animate();
-
-	/* ── public API ───────────────────────────────────────────────── */
-
-	return {
-		destroy() {
-			cancelAnimationFrame(animationId);
-			window.removeEventListener("resize", onResize);
-			renderer.domElement.removeEventListener("click", onClick);
-			controls.dispose();
-
-			ws?.close();
-			ws = null;
-
-			if (wsReconnectTimer !== null) {
-				clearTimeout(wsReconnectTimer);
-				wsReconnectTimer = null;
-			}
-
-			for (const node of nodes.values()) {
-				scene.remove(node.group);
-				disposeObjectTree(node.group);
-			}
-
-			nodes.clear();
-
-			for (const edge of edges.values()) {
-				scene.remove(edge.line);
-				disposeObjectTree(edge.line);
-			}
-
-			edges.clear();
-
-			for (const particleMesh of datasetParticles) {
-				scene.remove(particleMesh);
-				disposeObjectTree(particleMesh);
-			}
-
-			for (const particleMesh of valueParticles) {
-				scene.remove(particleMesh);
-				disposeObjectTree(particleMesh);
-			}
-
-			for (const fp of flowParticles) {
-				scene.remove(fp.mesh);
-				disposeObjectTree(fp.mesh);
-			}
-
-			disposeObjectTree(scene);
-
-			renderer.dispose();
-			composer.dispose();
-			renderer.forceContextLoss();
-			container.removeChild(renderer.domElement);
-		},
-
-		closeInspector() {
-			deselectAll();
-			selectedTarget = null;
-		},
-
-		togglePause() {
-			paused = !paused;
-			return paused;
-		},
-
-		isPaused() {
-			return paused;
-		},
-
-		scrubTo(index: number) {
-			if (index < 0 || index > timeline.length) return;
-			resetDynamicVisualization();
-			for (let idx = 0; idx < index; idx++) {
-				applyEvent(timeline[idx]);
-			}
-			timelineCursor = index;
-			callbacks.onTimelineUpdate(timelineCursor, timeline.length);
-			callbacks.onStats(getStats());
-		},
-
-		stepForward() {
-			if (timelineCursor < timeline.length) {
-				applyEvent(timeline[timelineCursor]);
-				timelineCursor++;
-				callbacks.onTimelineUpdate(timelineCursor, timeline.length);
-			}
-		},
-
-		stepBackward() {
-			/* Can't un-apply events easily; just report cursor */
-			if (timelineCursor > 0) {
-				timelineCursor--;
-				callbacks.onTimelineUpdate(timelineCursor, timeline.length);
-			}
-		},
-
-		sendPrompt(text: string) {
-			if (ws && ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({ type: "prompt", text }));
-			}
-		},
-
-		getNodeState(id: string): NodeState | null {
-			return nodes.get(id)?.data ?? null;
-		},
-
-		getBeamState(id: string): BeamState | null {
-			const node = nodes.get(id);
-			if (!node) return null;
-			return {
-				activeCount: node.beam.activeCount,
-				rejectedCount: node.beam.rejectedCount,
-				bestScore: node.beam.bestScore,
-				lastSequence: node.beam.lastSequence,
-				hypotheses: node.beam.hypotheses,
-				converged: node.beam.converged,
-			};
-		},
-
-		getTrieState(nodeId: string, trieIdx: number): TrieState | null {
-			const node = nodes.get(nodeId);
-			return node?.tries[trieIdx]?.state ?? null;
-		},
-
-		getALUState(): ALUState {
-			return alu;
-		},
-
-		getPipelineState(id: string): PipelineStageState | null {
-			return pipelineStages.get(id)?.metrics ?? null;
-		},
-
-		getFieldState(): FieldState {
-			return fieldState;
-		},
-
-		getStats,
-	};
+  function drawPrompts() {
+    for (const [vid, v] of valueMap) {
+      if (v.role !== "prompt") continue;
+
+      const pulse = 0.6 + Math.sin(frameCount * 0.12) * 0.4;
+
+      ctx.save();
+      ctx.translate(v.pos.x, v.pos.y);
+
+      ctx.fillStyle = `rgba(255,180,0,${0.08 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, 30 + pulse * 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255,140,0,${0.12 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18 + pulse * 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(255,200,0,${0.7 + pulse * 0.3})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(10, 0);
+      ctx.lineTo(0, 10);
+      ctx.lineTo(-10, 0);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255,160,0,${0.4 + pulse * 0.2})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -15);
+      ctx.lineTo(15, 0);
+      ctx.lineTo(0, 15);
+      ctx.lineTo(-15, 0);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.fillStyle = `rgba(255,200,0,${0.85})`;
+      ctx.font = "bold 10px monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`PROMPT: ${v.label}`, 20, 4);
+
+      if (selectedId === vid) {
+        ctx.strokeStyle = "rgba(255,255,255,0.9)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  function drawHUD() {
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+    let y = 20;
+    const x = 16;
+
+    const allVals = [...valueMap.values()];
+    const prompts = allVals.filter(v => v.role === "prompt").length;
+    const data = allVals.filter(v => v.role === "data").length;
+    const actionVals = allVals.filter(v => v.role === "action").length;
+    const reactionVals = allVals.filter(v => v.role === "reaction").length;
+    const liveCommunities = [...communityMap.values()].filter(c => c.memberIds.size >= 2).length;
+    const totalCommunities = [...communityMap.values()].filter(c => c.memberIds.size > 0).length;
+    const saturated = [...communityMap.values()].filter(c => c.saturated).length;
+
+    ctx.fillText(`values: ${valueMap.size}`, x, y); y += 16;
+
+    ctx.fillStyle = "rgba(255,180,0,0.9)";
+    ctx.fillText(`  prompts: ${prompts}`, x, y); y += 14;
+
+    ctx.fillStyle = "rgba(100,180,255,0.7)";
+    ctx.fillText(`  data: ${data}`, x, y); y += 14;
+
+    ctx.fillStyle = "rgba(0,255,150,0.7)";
+    ctx.fillText(`  actions: ${actionVals}  (total: ${stats.actions})`, x, y); y += 14;
+
+    ctx.fillStyle = "rgba(255,150,50,0.7)";
+    ctx.fillText(`  reactions: ${reactionVals}  (total: ${stats.reactions})`, x, y); y += 18;
+
+    ctx.fillStyle = "rgba(186,104,200,0.7)";
+    ctx.fillText(`communities: ${liveCommunities} active  (${totalCommunities} total, ${saturated} sat)`, x, y); y += 18;
+
+    ctx.fillStyle = stats.dropped > 0 ? "rgba(255,100,100,0.9)" : "rgba(255,255,255,0.35)";
+    ctx.fillText(`bus dropped: ${stats.dropped}`, x, y); y += 14;
+
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.fillText(`bootstrap: ${bootstrapNodeIds.length} peers   json: ${stats.wireJsonBlobs}`, x, y); y += 20;
+
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.font = "9px monospace";
+    ctx.fillText("click value to inspect (see JSON panel)", x, y); y += 16;
+
+    ctx.fillStyle = "rgba(255,180,0,0.7)";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 2);
+    ctx.lineTo(x + 5, y + 4);
+    ctx.lineTo(x, y + 10);
+    ctx.lineTo(x - 5, y + 4);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.48)";
+    ctx.fillText("prompt", x + 12, y + 6);
+    y += 16;
+
+    ctx.fillStyle = "rgba(100,180,255,0.6)";
+    ctx.fillRect(x - 4, y, 8, 8);
+    ctx.fillStyle = "rgba(255,255,255,0.48)";
+    ctx.fillText("data", x + 12, y + 7);
+    y += 14;
+
+    ctx.fillStyle = "rgba(255,255,255,0.48)";
+    ctx.fillText("ACTIONS", x, y); y += 14;
+
+    for (const action of ACTIONS) {
+      const [ar, ag, ab] = action.color;
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},0.63)`;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 4);
+      ctx.lineTo(x + 5, y + 4);
+      ctx.lineTo(x - 5, y + 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.48)";
+      ctx.fillText(action.name, x + 12, y + 3);
+      y += 14;
+    }
+
+    y += 4;
+    ctx.fillStyle = "rgba(255,255,255,0.48)";
+    ctx.fillText("REACTIONS", x, y); y += 14;
+
+    for (const reaction of REACTIONS) {
+      const [rr, rg, rb] = reaction.color;
+      ctx.fillStyle = `rgba(${rr},${rg},${rb},0.63)`;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 4);
+      ctx.lineTo(x + 5, y - 4);
+      ctx.lineTo(x - 5, y - 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.48)";
+      ctx.fillText(reaction.name, x + 12, y + 3);
+      y += 14;
+    }
+  }
+
+  function drawInspector() {
+    if (!selectedId) return;
+    const v = valueMap.get(selectedId);
+
+    if (!v) {
+      selectedId = null;
+      emitSelection();
+      return;
+    }
+
+    const px = W - 340;
+    const py = 20;
+    let y = py;
+    let panelH = 168;
+
+    if (v.field) panelH += 118;
+    if (v.telemetry) panelH += 118;
+    if (v.communityId >= 0) panelH += 52;
+    if (v.prevId || v.nextId) panelH += 14;
+    if (v.role === "action" && v.actionResonance > 0) panelH += 14;
+
+    panelH = Math.min(460, panelH);
+
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillRect(px - 10, py - 10, 330, panelH);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.strokeRect(px - 10, py - 10, 330, panelH);
+
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+
+    ctx.fillText(`VALUE ${v.id}`, px, y); y += 16;
+
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillText(`role: ${v.role}${v.program ? "  program: " + v.program : ""}`, px, y); y += 14;
+    ctx.fillText(`community: ${v.communityId >= 0 ? "#" + v.communityId : "none"}`, px, y); y += 14;
+    ctx.fillText(`age: ${v.age}  resonance: ${v.resonance.toFixed(3)}`, px, y); y += 14;
+    ctx.fillText(`pos: (${v.pos.x.toFixed(1)}, ${v.pos.y.toFixed(1)})`, px, y); y += 14;
+
+    if (v.role === "action" && v.actionResonance > 0) {
+      ctx.fillStyle = "rgba(0,255,180,0.55)";
+      ctx.fillText(`wire resonance: ${v.actionResonance.toFixed(4)}`, px, y); y += 14;
+    }
+
+    if (v.prevId || v.nextId) {
+      ctx.fillStyle = "rgba(200,200,255,0.55)";
+      ctx.font = "9px monospace";
+      ctx.fillText(`queue prev ${v.prevId || "—"}  next ${v.nextId || "—"}`, px, y); y += 14;
+    }
+
+    ctx.font = "11px monospace";
+
+    if (v.label) {
+      ctx.fillStyle = "rgba(255,200,0,0.7)";
+      ctx.fillText(`label: ${v.label}`, px, y); y += 14;
+    }
+
+    if (v.content) {
+      ctx.fillStyle = "rgba(0,255,150,0.8)";
+      ctx.font = "10px monospace";
+      ctx.fillText(`content: "${v.content.substring(0, 40)}"`, px, y); y += 14;
+
+      if (v.content.length > 40) {
+        ctx.fillText(`  "${v.content.substring(40, 80)}"`, px, y); y += 14;
+      }
+    }
+
+    if (v.field) {
+      const dom = v.field.dominant();
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.font = "9px monospace";
+      ctx.fillText(
+        `dominant: idx=${dom.index}  amp=${dom.amplitude}  conc=${dom.concentration.toFixed(4)}`,
+        px, y,
+      ); y += 14;
+
+      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.font = "8px monospace";
+      ctx.fillText("field lanes (64 of 257):", px, y); y += 10;
+
+      const maxLane = Math.max(1, ...Array.from(v.field.lanes.slice(0, 64)));
+      const barY = y + 30;
+      for (let i = 0; i < 64; i++) {
+        const h = (v.field.lanes[i] / maxLane) * 30;
+        const hue = (i / 64) * 255;
+        ctx.fillStyle = `rgba(${hue},200,${Math.max(0, 255 - hue * 0.3)},0.4)`;
+        ctx.fillRect(px + i * 4.5, barY - h, 3, h);
+      }
+
+      y = barY + 8;
+    }
+
+    if (v.telemetry) {
+      const tel = v.telemetry;
+      ctx.fillStyle = "rgba(140,220,255,0.65)";
+      ctx.font = "8px monospace";
+      ctx.fillText(`wire ts(µs) ${tel.ts}`, px, y); y += 10;
+      ctx.fillText(`src ${tel.src}  tgt ${tel.tgt}`, px, y); y += 10;
+
+      let nk = 0;
+      ctx.fillStyle = "rgba(200,220,255,0.5)";
+      for (const key of Object.keys(tel.vals).sort()) {
+        if (nk++ >= 6) {
+          ctx.fillText("vals …", px, y); y += 10;
+          break;
+        }
+
+        ctx.fillText(`vals.${key}=${tel.vals[key]}`, px, y); y += 10;
+      }
+
+      nk = 0;
+      ctx.fillStyle = "rgba(220,200,255,0.5)";
+      for (const key of Object.keys(tel.meta).sort()) {
+        if (nk++ >= 6) {
+          ctx.fillText("meta …", px, y); y += 10;
+          break;
+        }
+
+        const mv = tel.meta[key];
+        const clip = mv.length > 48 ? `${mv.substring(0, 46)}..` : mv;
+        ctx.fillText(`meta.${key}=${clip}`, px, y); y += 10;
+      }
+    }
+
+    if (v.communityId >= 0) {
+      const c = communityMap.get(v.communityId);
+
+      if (c) {
+        y += 6;
+        ctx.fillStyle = "rgba(186,104,200,0.6)";
+        ctx.font = "9px monospace";
+        ctx.fillText(`community #${c.id}: ${c.memberIds.size} members`, px, y); y += 12;
+        ctx.fillText(`actions: ${c.actionCount}  reactions: ${c.reactionCount}`, px, y); y += 12;
+
+        if (c.affinityHex) {
+          const aff = c.affinityHex.length > 36 ? `${c.affinityHex.substring(0, 34)}..` : c.affinityHex;
+          ctx.fillText(`affinity ${aff}`, px, y); y += 12;
+        }
+
+        if (c.saturated) {
+          ctx.fillStyle = "rgba(255,80,80,0.6)";
+          ctx.fillText(`SATURATED (${(c.saturation * 100).toFixed(1)}%)`, px, y); y += 12;
+        }
+      }
+    }
+  }
+
+  function drawEventLog() {
+    if (eventLog.length === 0) return;
+
+    const pw = 300;
+    const px = W - pw - 10;
+    const visibleCount = Math.min(eventLog.length, 25);
+    const py = selectedId ? 420 : 20;
+
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(px - 4, py - 14, pw + 8, 14 + visibleCount * 12 + 4);
+
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.font = "9px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("EVENT LOG", px, py);
+
+    for (let i = 0; i < visibleCount; i++) {
+      const entry = eventLog[i];
+      const age = ((Date.now() - entry.ts) / 1000).toFixed(1);
+
+      let color = "rgba(255,255,255,0.2)";
+      if (entry.kind === "prompt") color = "rgba(255,180,0,0.7)";
+      else if (entry.kind === "tokenizer") color = "rgba(100,180,255,0.5)";
+      else if (entry.kind === "community") color = "rgba(186,104,200,0.5)";
+      else if (entry.kind === "join") color = "rgba(186,104,200,0.4)";
+      else if (entry.kind === "action") color = "rgba(0,255,150,0.5)";
+      else if (entry.kind === "reaction") color = "rgba(255,106,64,0.5)";
+      else if (entry.kind === "saturated") color = "rgba(255,80,80,0.5)";
+      else if (entry.kind === "system") color = "rgba(255,255,255,0.4)";
+      else if (entry.kind === "viz_bus") color = "rgba(255,120,120,0.65)";
+      else if (entry.kind === "json") color = "rgba(180,255,200,0.5)";
+      else if (entry.kind === "prompt_result") color = "rgba(100,255,180,0.55)";
+      else if (entry.kind === "dataset") color = "rgba(120,200,255,0.45)";
+      else if (entry.kind === "tokenizer_chunk") color = "rgba(130,160,255,0.45)";
+      else if (entry.kind === "trie_graph") color = "rgba(255,200,120,0.5)";
+
+      ctx.fillStyle = color;
+      ctx.fillText(
+        `${age.padStart(6)}s  ${entry.kind.padEnd(10).substring(0, 10)}  ${entry.detail.substring(0, 34)}`,
+        px, py + 14 + i * 12,
+      );
+    }
+  }
+
+  function drawWaiting() {
+    if (valueMap.size > 0) return;
+
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.font = "14px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("waiting for events...", W / 2, H / 2);
+
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.font = "11px monospace";
+
+    const meta = import.meta as ImportMeta & { env?: Record<string, string> };
+    const host = meta.env?.VITE_VIZ_HOST || "localhost";
+    const port = meta.env?.VITE_VIZ_PORT || "6600";
+    ctx.fillText(`ws://${host}:${port}/ws`, W / 2, H / 2 + 20);
+  }
+
+  function draw() {
+    if (isDestroyed) return;
+    requestAnimationFrame(draw);
+    frameCount++;
+
+    ctx.fillStyle = "rgba(5,5,16,0.25)";
+    ctx.fillRect(0, 0, W, H);
+
+    drawPressureField();
+    updateLayout();
+    drawEdges();
+    drawCommunities();
+    drawValues();
+    drawPrompts();
+    drawHUD();
+    drawInspector();
+    drawEventLog();
+    drawWaiting();
+
+    stats.values = valueMap.size;
+    stats.communities = communityMap.size;
+    stats.bootstrapNodes = bootstrapNodeIds.length;
+    callbacks.onStats(stats);
+  }
+
+  connect();
+  draw();
+
+  return {
+    destroy() {
+      isDestroyed = true;
+      if (ws) ws.close();
+      ro.disconnect();
+      container.removeChild(canvas);
+    },
+
+    sendPrompt(text: string) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "prompt", text }));
+      }
+    },
+  };
 }

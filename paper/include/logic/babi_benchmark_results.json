@@ -18,9 +18,9 @@
   "name": "babi_benchmark",
   "outcome": {
     "actual": 0,
-    "message": "Expected '0' to be greater than or equal to '0.004438766854084179' (but it wasn't)!",
+    "message": "Expected '0' to be greater than or equal to '0.00403563138454787' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.004438766854084179
+    "threshold": 0.00403563138454787
   },
   "results": [
     {

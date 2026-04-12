@@ -236,9 +236,10 @@ func (tokenizer *Tokenizer) DrainPublishedValues(
 			}
 
 			for _, seg := range minted {
-				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), label))
+				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), label, seg.String()))
 
-				if installErr := programmer.InstallProgram(seg, "affinity"); installErr != nil {
+				installer := programmer.Installer{}
+				if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {
 					return errnie.Error(installErr)
 				}
 
@@ -325,16 +326,21 @@ func (tokenizer *Tokenizer) IngestReader(
 		return errnie.Error(err)
 	}
 
-	if _, err = io.Copy(tokenizer, r); err != nil {
-		return errnie.Error(err)
-	}
-
-	if err = tokenizer.ClosePipeWriter(); err != nil {
-		return errnie.Error(err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		_, copyErr := io.Copy(tokenizer, r)
+		if closeErr := tokenizer.ClosePipeWriter(); closeErr != nil && copyErr == nil {
+			copyErr = closeErr
+		}
+		errChan <- copyErr
+	}()
 
 	if err = tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee); err != nil {
 		return errnie.Error(err)
+	}
+
+	if copyErr := <-errChan; copyErr != nil {
+		return errnie.Error(copyErr)
 	}
 
 	tokenizer.ResetAfterEOF()

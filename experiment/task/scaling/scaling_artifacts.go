@@ -213,13 +213,7 @@ func SubstrateQueryScalingArtifacts(tableData []tools.ExperimentalData) []tools.
 
 	n := len(rows)
 	labels := queryLabels(n)
-	pm := predictionMetrics{
-		TopScore:        []float64{},
-		ScoreSpread:     []float64{},
-		RejectionRate:   []float64{},
-		OriginDiversity: []float64{},
-		SelectedOrigins: []float64{},
-	}
+	pm := predictionMetrics{}
 
 	topScoreStats := computeStats(pm.TopScore)
 	rejStats := computeStats(pm.RejectionRate)
@@ -397,13 +391,7 @@ func CompressionArtifacts(
 
 	n := len(rows)
 	labels := queryLabels(n)
-	pm := predictionMetrics{
-		TopScore:        []float64{},
-		ScoreSpread:     []float64{},
-		RejectionRate:   []float64{},
-		OriginDiversity: []float64{},
-		SelectedOrigins: []float64{},
-	}
+	pm := predictionMetrics{}
 
 	topScoreStats := computeStats(pm.TopScore)
 	rejStats := computeStats(pm.RejectionRate)
@@ -591,13 +579,7 @@ func ThroughputArtifacts(
 
 	n := len(rows)
 	labels := queryLabels(n)
-	pm := predictionMetrics{
-		TopScore:        []float64{},
-		ScoreSpread:     []float64{},
-		RejectionRate:   []float64{},
-		OriginDiversity: []float64{},
-		SelectedOrigins: []float64{},
-	}
+	pm := predictionMetrics{}
 
 	latencies := computeLatencies(ingestTime, promptStamps, n)
 	latStats := computeStats(latencies)
@@ -820,13 +802,7 @@ func SequencerArtifacts(tableData []tools.ExperimentalData) []tools.Artifact {
 
 	nRows := len(rows)
 	labels := queryLabels(nRows)
-	pm := predictionMetrics{
-		TopScore:        []float64{},
-		ScoreSpread:     []float64{},
-		RejectionRate:   []float64{},
-		OriginDiversity: []float64{},
-		SelectedOrigins: []float64{},
-	}
+	pm := predictionMetrics{}
 
 	topScoreStats := computeStats(pm.TopScore)
 	rejStats := computeStats(pm.RejectionRate)

@@ -18,7 +18,7 @@ facebook/babi_qa dataset (Task 1: single supporting fact).
 */
 type BabiExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   *huggingface.BabiQADataset
+	dataset   *huggingface.Dataset
 	prompt    []string
 	holdouts  [][]byte
 	evaluator *tools.Evaluator
@@ -34,11 +34,11 @@ var samples = 100
 func NewBabiExperiment() *BabiExperiment {
 	experiment := &BabiExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset: huggingface.NewBabiQA(
+		dataset: huggingface.New(
+			huggingface.DatasetWithBabiStory(),
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
 			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
-			huggingface.DatasetWithTextColumn("story"),
 		),
 		// Baseline 0.10: bAbI Task 1 answers are named locations (bathroom,
 		// garden, kitchen, etc.). Random byte output has near-zero chance of
@@ -278,16 +278,6 @@ requires the entity's movement facts to produce a sufficiently
 distinct residue value; at this sample size the substrate geometry
 may not separate location attractors reliably.`
 	}
-}
-
-type entityStat struct {
-	Correct int
-	Total   int
-}
-
-type locationStat struct {
-	Correct int
-	Total   int
 }
 
 type failureRecord struct {

@@ -10,9 +10,9 @@ func TestNewField(t *testing.T) {
 	t.Parallel()
 
 	Convey("NewField allocates p lanes for GF(p) tier primes", t, func() {
-		So(len(NewField(Mod257).lanes), ShouldEqual, int(Mod257))
-		So(len(NewField(Mod8191).lanes), ShouldEqual, int(Mod8191))
-		So(len(NewField(Mod65537).lanes), ShouldEqual, int(Mod65537))
+		So(len(NewField(Mod257).Fields), ShouldEqual, int(Mod257))
+		So(len(NewField(Mod8191).Fields), ShouldEqual, int(Mod8191))
+		So(len(NewField(Mod65537).Fields), ShouldEqual, int(Mod65537))
 	})
 }
 

@@ -24,6 +24,14 @@ export const EK = {
   TokenizerChunk: 37,
   TokenizerEmit: 38,
   QueueSubmit: 39,
+  HolographicCrossover: 40,
+  Sense: 41,
+  CommunityCreated: 42,
+  ValueJoinedCommunity: 43,
+  CommunitySaturated: 44,
+  CommunityAction: 45,
+  CommunityReaction: 46,
+  CausalHubProbe: 47,
 };
 
 export const KIND_NAMES = Object.fromEntries(Object.entries(EK).map(([k, v]) => [v, k]));

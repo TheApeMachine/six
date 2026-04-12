@@ -10,8 +10,12 @@ const (
 	SignalsStartWord          = 24
 	ContextStartWord          = 32
 	GradientStartWord         = 40
-	MetaStartWord             = 48
-	MetaTTLWord               = 51 // meta[3]
+	PropertiesStartWord       = 48
+	PropertiesTTLWord         = 51 // properties[3]
+	PropertiesNoiseWord       = 52 // properties[4]
+	PropertiesProbeStateWord  = 53 // properties[5], explicit runtime probe ABI only
+	PropertiesProbeWindowWord = 54 // properties[6], PackRegionRef over token words
+	PropertiesProbeDepthWord  = 55 // properties[7], final re-stabilization depth
 	ReservedStartWord         = 56
 	SchedulingNextProgramWord = 117
 	PrevStartWord             = 120
@@ -38,6 +42,39 @@ const (
 	SignalBestIdxOffset  = 0
 	SignalBestDistOffset = 1
 )
+
+const (
+	CausalProbeKindNone uint8 = iota
+	CausalProbeKindHub
+)
+
+const (
+	CausalProbeStatusInactive uint8 = iota
+	CausalProbeStatusActive
+	CausalProbeStatusSettled
+	CausalProbeStatusCeiling
+)
+
+/*
+PackProbeState encodes probe kind and lifecycle status into one properties word.
+*/
+func PackProbeState(kind uint8, status uint8) uint64 {
+	return uint64(kind) | (uint64(status) << 8)
+}
+
+/*
+ProbeKind returns the encoded probe kind from a probe-state word.
+*/
+func ProbeKind(word uint64) uint8 {
+	return uint8(word & 0xff)
+}
+
+/*
+ProbeStatus returns the encoded probe lifecycle status from a probe-state word.
+*/
+func ProbeStatus(word uint64) uint8 {
+	return uint8((word >> 8) & 0xff)
+}
 
 /*
 Program region wire layout. The DSL compiler packs one line's operand map

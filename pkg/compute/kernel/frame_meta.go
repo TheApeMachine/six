@@ -11,6 +11,16 @@ const (
 	FrameMetaResidencyWord   = 119
 )
 
+func FrameID(frame unsafe.Pointer) uint64 {
+	if frame == nil {
+		return 0
+	}
+
+	frameWords := (*[128]uint64)(frame)
+
+	return frameWords[IDStartWord]
+}
+
 func FrameCorrelationID(frame unsafe.Pointer) uint64 {
 	if frame == nil {
 		return 0
