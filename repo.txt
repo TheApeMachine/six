@@ -2149,6 +2149,7 @@ package huggingface
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -2189,12 +2190,12 @@ func (dataset *Dataset) streamBabiParquet(reader io.Reader, fn rowVisitor) error
 
 	for {
 		n, err := pReader.ReadRows(rows)
-		if n == 0 && err != nil {
-			break
-		}
-
 		if n == 0 {
-			break
+			if err == nil || errors.Is(err, io.EOF) {
+				break
+			}
+
+			return fmt.Errorf("huggingface: read parquet rows: %w", err)
 		}
 
 		if dataset.maxSamples > 0 && rowsRead >= dataset.maxSamples {
@@ -2569,7 +2570,28 @@ func New(opts ...datasetOpts) *Dataset {
 		opt(dataset)
 	}
 
+	dataset.ApplyBabiDefaults()
+
 	return dataset
+}
+
+/*
+ApplyBabiDefaults sets facebook/babi_qa defaults for repo and subset when bAbI story
+mode is enabled and those fields are still empty. Runs after all options so ordering
+of DatasetWithBabiStory relative to DatasetWithRepo/Subset does not matter.
+*/
+func (dataset *Dataset) ApplyBabiDefaults() {
+	if !dataset.babiStory {
+		return
+	}
+
+	if dataset.repo == "" {
+		dataset.repo = "facebook/babi_qa"
+	}
+
+	if dataset.subset == "" {
+		dataset.subset = "en-10k-qa1"
+	}
 }
 
 /*
@@ -3584,20 +3606,12 @@ func DatasetWithContinuousPos() datasetOpts {
 
 /*
 DatasetWithBabiStory parses facebook/babi_qa-style shards (nested story.text / story.answer / story.type).
-Apply after DatasetWithRepo if you rely on empty-repo defaults. When repo and subset are still empty,
-defaults match the upstream dataset: facebook/babi_qa and en-10k-qa1.
+Repo and subset default to facebook/babi_qa and en-10k-qa1 when still empty; that runs in ApplyBabiDefaults
+after all options are applied (see New).
 */
 func DatasetWithBabiStory() datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.babiStory = true
-
-		if dataset.repo == "" {
-			dataset.repo = "facebook/babi_qa"
-		}
-
-		if dataset.subset == "" {
-			dataset.subset = "en-10k-qa1"
-		}
 	}
 }
 
@@ -17160,6 +17174,12 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
+const (
+	regionEntryWords = 6
+	maxRegionEntries = 10
+	regionTableWords = regionEntryWords * maxRegionEntries
+)
+
 /*
 Execute walks each Value frame and routes it through the right substrate
 path: geometric opcodes go to the PGA wordblock, OpcodeXOR with a positive
@@ -17200,7 +17220,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		if rawOpcode == kernel.OpcodeRegionProgram {
-			for offset := 0; offset < 60; offset += 6 {
+			for offset := 0; offset < regionTableWords; offset += regionEntryWords {
 				op := frameWords[kernel.ReservedStartWord+offset]
 				if op == 0 && offset > 0 {
 					break
@@ -22332,7 +22352,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	metalMu.Lock()
 	defer metalMu.Unlock()
 
-	var unifiedBatch []unsafe.Pointer
+	unifiedBatch := make([]unsafe.Pointer, 0, len(frames))
 	var unifiedBatchCount int
 
 	flushUnified := func() error {
@@ -23453,9 +23473,48 @@ package programmer
 
 import (
 	"sync"
+
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 )
 
-var programCache sync.Map
+/*
+ProgramCacheMaxEntries caps how many distinct compiled programs stay resident; least-recently-used
+entries are evicted under mutex protection.
+*/
+const ProgramCacheMaxEntries = 256
+
+var (
+	programCacheMu sync.Mutex
+	programCache   *simplelru.LRU[string, cachedProgram]
+)
+
+func init() {
+	next, err := simplelru.NewLRU[string, cachedProgram](ProgramCacheMaxEntries, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	programCache = next
+}
+
+/*
+SetProgramCacheMaxEntries replaces the LRU with a new empty cache of the given capacity.
+Use for tests or tuning; max must be positive.
+*/
+func SetProgramCacheMaxEntries(max int) {
+	if max <= 0 {
+		return
+	}
+
+	next, err := simplelru.NewLRU[string, cachedProgram](max, nil)
+	if err != nil {
+		return
+	}
+
+	programCacheMu.Lock()
+	programCache = next
+	programCacheMu.Unlock()
+}
 
 type cachedProgram struct {
 	frames []Frame
@@ -23463,14 +23522,22 @@ type cachedProgram struct {
 }
 
 func getCachedProgram(nameOrSource string) (cachedProgram, bool) {
-	if val, ok := programCache.Load(nameOrSource); ok {
-		return val.(cachedProgram), true
+	programCacheMu.Lock()
+	defer programCacheMu.Unlock()
+
+	val, ok := programCache.Get(nameOrSource)
+	if !ok {
+		return cachedProgram{}, false
 	}
-	return cachedProgram{}, false
+
+	return val, true
 }
 
 func setCachedProgram(nameOrSource string, cp cachedProgram) {
-	programCache.Store(nameOrSource, cp)
+	programCacheMu.Lock()
+	defer programCacheMu.Unlock()
+
+	programCache.Add(nameOrSource, cp)
 }
 
 <<<END>>>
@@ -24025,6 +24092,8 @@ func (frame *Frame) writeIntoProgramRegion(value *primitive.Value) {
 package programmer
 
 import (
+	"fmt"
+
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -24081,13 +24150,26 @@ func (i Installer) installCached(value *primitive.Value, frames []Frame, cont *C
 	}
 
 	if len(frames) > 1 {
+		const (
+			wordsPerRegionFrame    = 6
+			reservedProgramWords   = 60
+			maxRegionProgramFrames = reservedProgramWords / wordsPerRegionFrame
+		)
+
+		if len(frames) > maxRegionProgramFrames {
+			return fmt.Errorf(
+				"programmer: install program has %d frames; reserved region program table holds at most %d frames (%d words, %d words per entry)",
+				len(frames),
+				maxRegionProgramFrames,
+				reservedProgramWords,
+				wordsPerRegionFrame,
+			)
+		}
+
 		// Install multi-line program into the Reserved region
 		for idx, frame := range frames {
-			if idx*6 >= 60 { // Max 10 instructions in 64-word Reserved region
-				break
-			}
-			for j := 0; j < 6; j++ {
-				(*value)[kernel.ReservedStartWord+idx*6+j] = frame.Program[j]
+			for wordOffset := 0; wordOffset < wordsPerRegionFrame; wordOffset++ {
+				(*value)[kernel.ReservedStartWord+idx*wordsPerRegionFrame+wordOffset] = frame.Program[wordOffset]
 			}
 		}
 		// Set OpcodeRegionProgram to trigger execution from Reserved region
@@ -26689,14 +26771,14 @@ var FibWeights []float64
 func init() {
 	var sum float64
 
-	for _, w := range FibWindows {
-		sum += 1.0 / float64(w)
+	for _, window := range FibWindows {
+		sum += 1.0 / float64(window)
 	}
 
 	FibWeights = make([]float64, len(FibWindows))
 
-	for i, w := range FibWindows {
-		FibWeights[i] = (1.0 / float64(w)) / sum
+	for idx, window := range FibWindows {
+		FibWeights[idx] = (1.0 / float64(window)) / sum
 	}
 }
 
@@ -26709,7 +26791,7 @@ func NewNumerics() *Numerics {
 		BasisPrimes: make([]int32, 512),
 	}
 
-	numerics.SieveOfEratosthenes(4000) // Upper bound for 512 primes is 3671
+	numerics.SieveOfEratosthenes(4000) // Upper bound for len(BasisPrimes) primes is 3671
 	return numerics
 }
 
@@ -26717,40 +26799,42 @@ func (numerics *Numerics) SumSinCos(phases []float64) (float64, float64) {
 	sinSum := 0.0
 	cosSum := 0.0
 
-	for _, phi := range phases {
-		sinSum += math.Sin(phi)
-		cosSum += math.Cos(phi)
+	for _, phase := range phases {
+		sinSum += math.Sin(phase)
+		cosSum += math.Cos(phase)
 	}
 
 	return sinSum, cosSum
 }
 
-func (numerics *Numerics) CircularDistance(a, b float64) float64 {
-	d := math.Mod(a-b+math.Pi, 2*math.Pi)
+func (numerics *Numerics) CircularDistance(angleA, angleB float64) float64 {
+	delta := math.Mod(angleA-angleB+math.Pi, 2*math.Pi)
 
-	if d < 0 {
-		d += 2 * math.Pi
+	if delta < 0 {
+		delta += 2 * math.Pi
 	}
 
-	return d - math.Pi
+	return delta - math.Pi
 }
 
-func (numerics *Numerics) SieveOfEratosthenes(n int) {
-	checked := make([]bool, n)
-	sqrt_n := int(math.Sqrt(float64(n)))
+func (numerics *Numerics) SieveOfEratosthenes(limit int) {
+	checked := make([]bool, limit)
+	sqrtLimit := int(math.Sqrt(float64(limit)))
 
-	for i := 2; i <= sqrt_n; i++ {
-		if !checked[i] {
-			for j := i * i; j < n; j += i {
-				checked[j] = true
+	for p := 2; p <= sqrtLimit; p++ {
+		if !checked[p] {
+			for multiple := p * p; multiple < limit; multiple += p {
+				checked[multiple] = true
 			}
 		}
 	}
 
+	basisCap := len(numerics.BasisPrimes)
 	idx := 0
-	for i := 2; i < n && idx < 512; i++ {
-		if !checked[i] {
-			numerics.BasisPrimes[idx] = int32(i)
+
+	for candidate := 2; candidate < limit && idx < basisCap; candidate++ {
+		if !checked[candidate] {
+			numerics.BasisPrimes[idx] = int32(candidate)
 			idx++
 		}
 	}
@@ -27107,6 +27191,12 @@ propertyWords is the number of uint64 words in the canonical 512-bit properties 
 const propertyWords = 8
 
 /*
+phaseScalarSumThresholdLog2 is the inclusive byte-count ceiling for the allocation-free
+scalar sin/cos accumulation path in SeqCircularMeanPhaseFromPhases (matches log2(512)).
+*/
+const phaseScalarSumThresholdLog2 = 9
+
+/*
 symbolFromPropertyWord maps one 64-bit lane to a matrix index 0…511. Callers that hold a
 full properties snapshot should fold first (e.g. SymbolFromPropertyBand).
 */
@@ -27356,16 +27446,17 @@ func (emt *EigenModeToroidal) top3Eigenvectors(
 ) (v1, v2, v3 [512]float64) {
 	// Build row-major dense matrix for gonum
 	data := make([]float64, 512*512)
-	for i := range 512 {
-		for j := range 512 {
-			data[i*512+j] = C[i][j]
+	for rowIdx := range 512 {
+		for colIdx := range 512 {
+			data[rowIdx*512+colIdx] = C[rowIdx][colIdx]
 		}
 	}
 	dense := mat.NewDense(512, 512, data)
 
 	var eig mat.Eigen
 	if !eig.Factorize(dense, mat.EigenRight) {
-		panic("eigenmode: eig.Factorize failed — degenerate or invalid cooccurrence matrix; no fallback")
+		v1, v2, v3 = emt.top3EigenvectorsPowerIteration(C)
+		return emt.alignAndNormalizeTop3(&v1, &v2, &v3)
 	}
 
 	values := eig.Values(nil)
@@ -27390,44 +27481,56 @@ func (emt *EigenModeToroidal) top3Eigenvectors(
 	// Extract real vectors for (v2, v3) eigenplane
 	if imag(lam1) != 0 {
 		// idx1 and idx2 are complex conjugates; use real and imag of column idx1
-		for i := range 512 {
-			v := vecs.At(i, idx1)
-			v2[i] = real(v)
-			v3[i] = imag(v)
+		for rowIdx := range 512 {
+			eigenComponent := vecs.At(rowIdx, idx1)
+			v2[rowIdx] = real(eigenComponent)
+			v3[rowIdx] = imag(eigenComponent)
 		}
 	} else if imag(lam2) != 0 {
 		// idx1 real, idx2 complex: 2D invariant subspace from real/imag of same eigenvector
-		for i := range 512 {
-			v := vecs.At(i, idx2)
-			v2[i] = real(v)
-			v3[i] = imag(v)
+		for rowIdx := range 512 {
+			eigenComponent := vecs.At(rowIdx, idx2)
+			v2[rowIdx] = real(eigenComponent)
+			v3[rowIdx] = imag(eigenComponent)
 		}
 	} else {
 		// Both real
-		for i := range 512 {
-			v2[i] = real(vecs.At(i, idx1))
-			v3[i] = real(vecs.At(i, idx2))
+		for rowIdx := range 512 {
+			v2[rowIdx] = real(vecs.At(rowIdx, idx1))
+			v3[rowIdx] = real(vecs.At(rowIdx, idx2))
 		}
 	}
 
 	// v1 from leading (Perron) eigenvector. Sign is arbitrary; flip to all-non-negative.
-	for i := range 512 {
-		v1[i] = real(vecs.At(i, indices[0]))
+	for rowIdx := range 512 {
+		v1[rowIdx] = real(vecs.At(rowIdx, indices[0]))
 	}
+
+	return emt.alignAndNormalizeTop3(&v1, &v2, &v3)
+}
+
+/*
+alignAndNormalizeTop3 flips the leading eigenvector sign to nonnegative sum, then L2-normalizes
+all three vectors returned for phase mapping.
+*/
+func (emt *EigenModeToroidal) alignAndNormalizeTop3(v1, v2, v3 *[512]float64) (v1out, v2out, v3out [512]float64) {
 	var v1Sum float64
-	for i := range 512 {
-		v1Sum += v1[i]
+
+	for rowIdx := range 512 {
+		v1Sum += v1[rowIdx]
 	}
+
 	if v1Sum < 0 {
-		for i := range 512 {
-			v1[i] = -v1[i]
+		for rowIdx := range 512 {
+			v1[rowIdx] = -v1[rowIdx]
 		}
 	}
 
-	emt.normalizeVec(&v1)
-	emt.normalizeVec(&v2)
-	emt.normalizeVec(&v3)
-	return v1, v2, v3
+	emt.normalizeVec(v1)
+	emt.normalizeVec(v2)
+	emt.normalizeVec(v3)
+
+	return *v1, *v2, *v3
 }
 
 /*
@@ -27619,7 +27722,7 @@ func SeqCircularMeanPhaseFromPhases(phase *[512]float64, seq []byte) (float64, e
 	if n == 0 {
 		return 0, EigenErrorEmptySequence
 	}
-	if n <= int(math.Log2(float64(512))) {
+	if n <= phaseScalarSumThresholdLog2 {
 		var sinSum, cosSum float64
 		for _, b := range seq {
 			p := phase[b]
@@ -27944,24 +28047,24 @@ func (field *Field) mulMod(left uint32, right uint32) uint32 {
 	return field.reduceU64(prod)
 }
 
-func (field *Field) inverseMod(a uint32) uint32 {
-	if a == 0 {
+func (field *Field) inverseMod(value uint32) uint32 {
+	if value == 0 {
 		return 0
 	}
 
-	res := uint64(1)
-	base := uint64(a)
-	exp := uint64(field.modulus - 2)
+	result := uint64(1)
+	basePow := uint64(value)
+	exponent := uint64(field.modulus - 2)
 
-	for exp > 0 {
-		if exp%2 == 1 {
-			res = (res * base) % uint64(field.modulus)
+	for exponent > 0 {
+		if exponent%2 == 1 {
+			result = (result * basePow) % uint64(field.modulus)
 		}
-		base = (base * base) % uint64(field.modulus)
-		exp /= 2
+		basePow = (basePow * basePow) % uint64(field.modulus)
+		exponent /= 2
 	}
 
-	return uint32(res)
+	return uint32(result)
 }
 
 func (field *Field) affineMod(value uint32, multiplier uint32, bias uint32) uint32 {
@@ -28121,11 +28224,21 @@ func (field *Field) Dot(other *Field) uint32 {
 	var accumulator uint32
 
 	for laneIndex := range field.Fields {
-		product := field.mulMod(
-			field.Fields[laneIndex].Dominant().Amplitude,
-			other.Fields[laneIndex].Dominant().Amplitude,
-		)
-		
+		receiverLane := field.Fields[laneIndex]
+		otherLane := other.Fields[laneIndex]
+
+		var ampReceiver uint32
+		var ampOther uint32
+
+		if receiverLane != nil {
+			ampReceiver = receiverLane.Dominant().Amplitude
+		}
+
+		if otherLane != nil {
+			ampOther = otherLane.Dominant().Amplitude
+		}
+
+		product := field.mulMod(ampReceiver, ampOther)
 		accumulator = field.addMod(accumulator, product)
 	}
 
@@ -31526,19 +31639,91 @@ func (conn *Conn) Listen(others ...GossipConn) {
 }
 
 /*
-Receive receives a value from the list of connections that this connection will listen to.
+Receive forwards a value to each non-nil entry in conn.inbox (GossipConn.Receive).
+Cycles among *Conn nodes are avoided by tracking visited *Conn values in a map;
+Receive starts a fresh propagation (nil visited set). Non-*Conn peers are invoked
+without that tracking. See ReceiveWithVisited for explicit visited reuse.
 */
 func (conn *Conn) Receive(value *primitive.Value) {
+	conn.receiveWithVisited(nil, value)
+}
+
+/*
+ReceiveWithVisited forwards value along conn.inbox like Receive but reuses visited
+so a message is not forwarded twice through the same *Conn (prevents stack overflow
+when inbox wiring forms a cycle). Pass visited == nil to begin a new trace; the
+current Conn is marked in visited before any recursive forwarding to peers.
+*/
+func (conn *Conn) ReceiveWithVisited(visited map[*Conn]struct{}, value *primitive.Value) {
+	conn.receiveWithVisited(visited, value)
+}
+
+func (conn *Conn) receiveWithVisited(visited map[*Conn]struct{}, value *primitive.Value) {
+	if conn == nil {
+		return
+	}
+
+	if visited == nil {
+		visited = make(map[*Conn]struct{})
+	}
+
+	if _, seen := visited[conn]; seen {
+		return
+	}
+
+	visited[conn] = struct{}{}
+
 	for _, inbox := range conn.inbox {
+		if inbox == nil {
+			continue
+		}
+
+		if peer, ok := inbox.(*Conn); ok {
+			peer.receiveWithVisited(visited, value)
+
+			continue
+		}
+
 		inbox.Receive(value)
 	}
 }
 
 /*
-Broadcast broadcasts a value to the list of connections that this connection will listen to.
+Broadcast sends the value to each non-nil peer in conn.outbox (not the inbox list).
+For *Conn peers, the same visited map used for Receive prevents re-entering a node
+already handled in this propagation, so cyclic outbox wiring does not re-broadcast
+indefinitely. Non-*Conn outbox entries get Broadcast(value) without visited tracking.
 */
 func (conn *Conn) Broadcast(value *primitive.Value) {
+	conn.broadcastWithVisited(nil, value)
+}
+
+func (conn *Conn) broadcastWithVisited(visited map[*Conn]struct{}, value *primitive.Value) {
+	if conn == nil {
+		return
+	}
+
+	if visited == nil {
+		visited = make(map[*Conn]struct{})
+	}
+
+	if _, seen := visited[conn]; seen {
+		return
+	}
+
+	visited[conn] = struct{}{}
+
 	for _, outbox := range conn.outbox {
+		if outbox == nil {
+			continue
+		}
+
+		if peer, ok := outbox.(*Conn); ok {
+			peer.broadcastWithVisited(visited, value)
+
+			continue
+		}
+
 		outbox.Broadcast(value)
 	}
 }
@@ -34326,7 +34511,8 @@ func (self *Pool) Submit(task func()) {
 			return
 		} else {
 			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
-			mcall(gosched_m)                             // Use standard runtime.Gosched instead of mcall(gosched_m)
+			// Direct gosched via assembly avoids package init ordering issues; same cooperative yield as runtime.Gosched.
+			mcall(gosched_m)
 		}
 	}
 }
@@ -36581,17 +36767,6 @@ func NewEvent(kind EventKind, source string) Event {
 	}
 }
 
-// newEventWithMaps creates an event stamped with the current time and initializes the maps.
-func newEventWithMaps(kind EventKind, source string) Event {
-	return Event{
-		Kind:      kind,
-		Timestamp: now(),
-		Source:    source,
-		Values:    make(map[string]float64),
-		Meta:      make(map[string]string),
-	}
-}
-
 // subscriber is a non-blocking consumer of events.
 type subscriber struct {
 	ch     chan Event
@@ -36738,16 +36913,16 @@ func ensureMeta(ev *Event) {
 }
 
 func scatter01(key string) float64 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(key))
-	return float64(h.Sum32()) / float64(^uint32(0))
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(key))
+	return float64(hasher.Sum32()) / float64(^uint32(0))
 }
 
 func layoutFromBand(band float64, scatterKey string) (lx, ly float64) {
-	u := scatter01(scatterKey)
-	w := scatter01(scatterKey + "|y")
-	lx = 0.04 + 0.92*u
-	jitter := (w - 0.5) * 0.07
+	xScatter := scatter01(scatterKey)
+	yScatter := scatter01(scatterKey + "|y")
+	lx = 0.04 + 0.92*xScatter
+	jitter := (yScatter - 0.5) * 0.07
 	ly = band + jitter
 
 	if ly < 0.02 {
@@ -37406,6 +37581,7 @@ package viz
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 /*
@@ -37421,42 +37597,42 @@ hook-up happens in cmd/viz.go where we wire observers and callbacks.
 // --- Kadabra / DHT events ---
 
 func NodeCreated(nodeID uint64, label string) Event {
-	ev := newEventWithMaps(EventNodeCreated, fmtNodeID(nodeID))
+	ev := NewEvent(EventNodeCreated, fmtNodeID(nodeID))
 	ev.Label = label
 	applyVizLayout(&ev, "node", vizBandDHT, fmt.Sprintf("node_created|%s|%s", fmtNodeID(nodeID), label))
 	return ev
 }
 
 func NodeUpdated(nodeID uint64, vals map[string]float64) Event {
-	ev := newEventWithMaps(EventNodeUpdated, fmtNodeID(nodeID))
+	ev := NewEvent(EventNodeUpdated, fmtNodeID(nodeID))
 	ev.Values = vals
 	applyVizLayout(&ev, "node", vizBandDHT, fmt.Sprintf("node_updated|%s", fmtNodeID(nodeID)))
 	return ev
 }
 
 func PeerAdded(from, to uint64, bucket int) Event {
-	ev := newEventWithMaps(EventPeerAdded, fmtNodeID(from))
+	ev := NewEvent(EventPeerAdded, fmtNodeID(from))
 	ev.Target = fmtNodeID(to)
 	ev.Values = map[string]float64{"bucket": float64(bucket)}
 	return ev
 }
 
 func PeerLatency(from, to uint64, latencyMs float64) Event {
-	ev := newEventWithMaps(EventPeerLatency, fmtNodeID(from))
+	ev := NewEvent(EventPeerLatency, fmtNodeID(from))
 	ev.Target = fmtNodeID(to)
 	ev.Values = map[string]float64{"latency_ms": latencyMs}
 	return ev
 }
 
 func ValuePublished(nodeID uint64, key uint64, label string) Event {
-	ev := newEventWithMaps(EventValuePublished, fmtNodeID(nodeID))
+	ev := NewEvent(EventValuePublished, fmtNodeID(nodeID))
 	ev.Label = label
 	ev.Meta = map[string]string{"key": strconv.FormatUint(key, 16)}
 	return ev
 }
 
 func ValueReplicated(from, to uint64, key uint64) Event {
-	ev := newEventWithMaps(EventValueReplicated, fmtNodeID(from))
+	ev := NewEvent(EventValueReplicated, fmtNodeID(from))
 	ev.Target = fmtNodeID(to)
 	ev.Meta = map[string]string{"key": strconv.FormatUint(key, 16)}
 	return ev
@@ -37465,20 +37641,20 @@ func ValueReplicated(from, to uint64, key uint64) Event {
 // --- Gossip & Field ---
 
 func GossipSent(from uint64, epoch uint64) Event {
-	ev := newEventWithMaps(EventGossipSent, fmtNodeID(from))
+	ev := NewEvent(EventGossipSent, fmtNodeID(from))
 	ev.Values = map[string]float64{"epoch": float64(epoch)}
 	return ev
 }
 
 func GossipReceived(to uint64, from uint64, epoch uint64) Event {
-	ev := newEventWithMaps(EventGossipReceived, fmtNodeID(to))
+	ev := NewEvent(EventGossipReceived, fmtNodeID(to))
 	ev.Target = fmtNodeID(from)
 	ev.Values = map[string]float64{"epoch": float64(epoch)}
 	return ev
 }
 
 func FieldDigestEvent(nodeID uint64, surprisal, entropy, growth float64) Event {
-	ev := newEventWithMaps(EventFieldDigest, fmtNodeID(nodeID))
+	ev := NewEvent(EventFieldDigest, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"surprisal": surprisal,
 		"entropy":   entropy,
@@ -37488,7 +37664,7 @@ func FieldDigestEvent(nodeID uint64, surprisal, entropy, growth float64) Event {
 }
 
 func EigenmodeDetected(nodeID uint64, modeCount int, dominantEnergy float64) Event {
-	ev := newEventWithMaps(EventEigenmodeDetected, fmtNodeID(nodeID))
+	ev := NewEvent(EventEigenmodeDetected, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"mode_count":      float64(modeCount),
 		"dominant_energy": dominantEnergy,
@@ -37497,7 +37673,7 @@ func EigenmodeDetected(nodeID uint64, modeCount int, dominantEnergy float64) Eve
 }
 
 func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
-	ev := newEventWithMaps(EventFieldPressure, fmtNodeID(nodeID))
+	ev := NewEvent(EventFieldPressure, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"decay":    decay,
 		"learning": learning,
@@ -37509,7 +37685,7 @@ func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
 // --- MarkovTrie ---
 
 func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
-	ev := newEventWithMaps(EventTrieInsert, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieInsert, fmtNodeID(nodeID))
 	ev.Label = label
 
 	if trieIdx >= 0 {
@@ -37524,27 +37700,27 @@ func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
 }
 
 func TriePredictEvent(nodeID uint64, label string, confidence float64) Event {
-	ev := newEventWithMaps(EventTriePredict, fmtNodeID(nodeID))
+	ev := NewEvent(EventTriePredict, fmtNodeID(nodeID))
 	ev.Label = label
 	ev.Values = map[string]float64{"confidence": confidence}
 	return ev
 }
 
 func TrieClassifyEvent(nodeID uint64, scores map[string]float64) Event {
-	ev := newEventWithMaps(EventTrieClassify, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieClassify, fmtNodeID(nodeID))
 	ev.Values = scores
 	return ev
 }
 
 func TrieExperienceEvent(nodeID uint64, surprisal float64, label string) Event {
-	ev := newEventWithMaps(EventTrieExperience, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieExperience, fmtNodeID(nodeID))
 	ev.Label = label
 	ev.Values = map[string]float64{"surprisal": surprisal}
 	return ev
 }
 
 func AdaptiveUpdateEvent(nodeID uint64, vals map[string]float64) Event {
-	ev := newEventWithMaps(EventAdaptiveUpdate, fmtNodeID(nodeID))
+	ev := NewEvent(EventAdaptiveUpdate, fmtNodeID(nodeID))
 	ev.Values = vals
 	return ev
 }
@@ -37552,7 +37728,7 @@ func AdaptiveUpdateEvent(nodeID uint64, vals map[string]float64) Event {
 // --- Intra-node field (trie-to-trie within a single node) ---
 
 func TrieCouplingEvent(nodeID uint64, trieA, trieB int, coupling float64) Event {
-	ev := newEventWithMaps(EventTrieCoupling, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieCoupling, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_a":   float64(trieA),
 		"trie_b":   float64(trieB),
@@ -37563,7 +37739,7 @@ func TrieCouplingEvent(nodeID uint64, trieA, trieB int, coupling float64) Event 
 }
 
 func TrieModeEvent(nodeID uint64, trieIdx int, modeIdx int, aligned bool, energy float64) Event {
-	ev := newEventWithMaps(EventTrieMode, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieMode, fmtNodeID(nodeID))
 
 	alignedVal := 0.0
 	if aligned {
@@ -37581,7 +37757,7 @@ func TrieModeEvent(nodeID uint64, trieIdx int, modeIdx int, aligned bool, energy
 }
 
 func TriePressureEvent(nodeID uint64, trieIdx int, decay, learn, decayMul, learnMul float64) Event {
-	ev := newEventWithMaps(EventTriePressure, fmtNodeID(nodeID))
+	ev := NewEvent(EventTriePressure, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_idx":  float64(trieIdx),
 		"decay":     decay,
@@ -37594,7 +37770,7 @@ func TriePressureEvent(nodeID uint64, trieIdx int, decay, learn, decayMul, learn
 }
 
 func TrieSignalEvent(nodeID uint64, trieIdx int, surprisal, entropy, growth float64) Event {
-	ev := newEventWithMaps(EventTrieSignal, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieSignal, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_idx":  float64(trieIdx),
 		"surprisal": surprisal,
@@ -37613,7 +37789,7 @@ tries before feeding them to the node-level beam. Shows how many tries
 contributed and total candidate count.
 */
 func BeamCollectEvent(nodeID uint64, trieCount, continuationCount int) Event {
-	ev := newEventWithMaps(EventBeamCollect, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamCollect, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_count":         float64(trieCount),
 		"continuation_count": float64(continuationCount),
@@ -37629,7 +37805,7 @@ the collected trie continuations. Shows how many survived and the
 best score.
 */
 func BeamComposeEvent(nodeID uint64, selectedCount, rejectedCount int, bestScore float64) Event {
-	ev := newEventWithMaps(EventBeamCompose, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamCompose, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"selected_count": float64(selectedCount),
 		"rejected_count": float64(rejectedCount),
@@ -37645,7 +37821,7 @@ BeamBreakEvent fires when the node sends a BreakBeam signal to a
 specific trie, resetting its beam so it can re-search.
 */
 func BeamBreakEvent(nodeID uint64, trieID uint64) Event {
-	ev := newEventWithMaps(EventBeamBreak, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamBreak, fmtNodeID(nodeID))
 	ev.Target = fmt.Sprintf("trie_%x", trieID)
 	ev.Values = map[string]float64{
 		"trie_id": float64(trieID),
@@ -37660,7 +37836,7 @@ BeamConvergeEvent fires when the node-level beam produces its final
 output for a prompt.
 */
 func BeamConvergeEvent(nodeID uint64, sequence string, score float64) Event {
-	ev := newEventWithMaps(EventBeamConverge, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamConverge, fmtNodeID(nodeID))
 	ev.Label = truncate(sequence, 128)
 	ev.Values = map[string]float64{
 		"score": score,
@@ -37673,7 +37849,7 @@ func BeamConvergeEvent(nodeID uint64, sequence string, score float64) Event {
 // --- Compute Pool ---
 
 func PoolScheduleEvent(action string, queueSize, workers int, valueID uint64) Event {
-	ev := newEventWithMaps(EventPoolSchedule, "pool")
+	ev := NewEvent(EventPoolSchedule, "pool")
 	ev.Label = action
 	ev.Values = map[string]float64{
 		"queue_size": float64(queueSize),
@@ -37685,7 +37861,7 @@ func PoolScheduleEvent(action string, queueSize, workers int, valueID uint64) Ev
 }
 
 func PoolCompleteEvent(action string, durationMs int, valueID uint64) Event {
-	ev := newEventWithMaps(EventPoolComplete, "pool")
+	ev := NewEvent(EventPoolComplete, "pool")
 	ev.Label = action
 	ev.Values = map[string]float64{"duration_ms": float64(durationMs)}
 	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
@@ -37705,7 +37881,7 @@ func CompilerCompileEvent(
 	batchAffinity bool,
 	finalizerDepth int,
 ) Event {
-	ev := newEventWithMaps(EventCompilerCompile, "compute")
+	ev := NewEvent(EventCompilerCompile, "compute")
 	ev.Label = targetLabel
 
 	batchVal := 0.0
@@ -37735,7 +37911,7 @@ ALUDispatchEvent records substrate execution after the frame opcode is fixed.
 durationMs matches PoolComplete for the same dispatch when both fire.
 */
 func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, durationMs int, valueID uint64) Event {
-	ev := newEventWithMaps(EventALUDispatch, "compute")
+	ev := NewEvent(EventALUDispatch, "compute")
 	ev.Label = substrateName
 	ev.Values = map[string]float64{
 		"opcode":      float64(opcode),
@@ -37756,7 +37932,7 @@ func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, du
 FinalizerRunEvent fires after the compiler finalizer chain (post-execute).
 */
 func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool) Event {
-	ev := newEventWithMaps(EventFinalizerRun, "compute")
+	ev := NewEvent(EventFinalizerRun, "compute")
 	ev.Label = "finalize"
 
 	errVal := 0.0
@@ -37783,14 +37959,14 @@ func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool
 // --- Prompt ---
 
 func PromptEvent(prompt string) Event {
-	ev := newEventWithMaps(EventPrompt, "user")
+	ev := NewEvent(EventPrompt, "user")
 	ev.Meta = map[string]string{"prompt": prompt}
 	applyVizLayout(&ev, "prompt", vizBandPrompt, prompt)
 	return ev
 }
 
 func PromptResultEvent(generation string, scores map[string]float64) Event {
-	ev := newEventWithMaps(EventPromptResult, "system")
+	ev := NewEvent(EventPromptResult, "system")
 	ev.Meta = map[string]string{"generation": truncate(generation, 256)}
 	ev.Values = scores
 	applyVizLayout(&ev, "prompt_result", vizBandPrompt, truncate(generation, 64))
@@ -37802,7 +37978,7 @@ TrieGraphSnapshotEvent ships a JSON graph payload for one markovtrie.Store colum
 The browser lays out vertices and edges to match the live trie (possibly truncated).
 */
 func TrieGraphSnapshotEvent(nodeID uint64, trieIdx int, graphJSON []byte) Event {
-	ev := newEventWithMaps(EventTrieGraphSnapshot, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieGraphSnapshot, fmtNodeID(nodeID))
 	ev.Values["trie_idx"] = float64(trieIdx)
 	ev.Meta["graph"] = string(graphJSON)
 	applyVizLayout(&ev, "trie_graph", vizBandTrie, fmt.Sprintf("%s|%d|%d", fmtNodeID(nodeID), trieIdx, len(graphJSON)))
@@ -37818,7 +37994,7 @@ bytesRead is the number of bytes in this chunk; totalBytes is the
 running total for this ingest session.
 */
 func DatasetReadEvent(datasetName string, bytesRead, totalBytes int64, label string) Event {
-	ev := newEventWithMaps(EventDatasetRead, "dataset")
+	ev := NewEvent(EventDatasetRead, "dataset")
 	ev.Label = label
 	ev.Values = map[string]float64{
 		"bytes_read":  float64(bytesRead),
@@ -37834,7 +38010,7 @@ TokenizerChunkEvent fires when the tokenizer writes raw bytes into its
 ring buffer (ingest side).
 */
 func TokenizerChunkEvent(bytesWritten int) Event {
-	ev := newEventWithMaps(EventTokenizerChunk, "tokenizer")
+	ev := NewEvent(EventTokenizerChunk, "tokenizer")
 	ev.Values = map[string]float64{
 		"bytes_written": float64(bytesWritten),
 	}
@@ -37847,7 +38023,7 @@ TokenizerEmitEvent fires when the tokenizer mints a new Value from a
 drained chunk and publishes it downstream.
 */
 func TokenizerEmitEvent(valueID uint64, label string, tokenContent string) Event {
-	ev := newEventWithMaps(EventTokenizerEmit, "tokenizer")
+	ev := NewEvent(EventTokenizerEmit, "tokenizer")
 	ev.Label = label
 	vidHex := strconv.FormatUint(valueID, 16)
 	ev.Meta = map[string]string{
@@ -37862,7 +38038,7 @@ func TokenizerEmitEvent(valueID uint64, label string, tokenContent string) Event
 QueueSubmitEvent fires when the pool queue accepts a new work item.
 */
 func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content string) Event {
-	ev := newEventWithMaps(EventQueueSubmit, "queue")
+	ev := NewEvent(EventQueueSubmit, "queue")
 	ev.Label = truncate(content, 128)
 	ev.Values["inflight"] = float64(inflight)
 	ev.Meta["value_id"] = strconv.FormatUint(valueID, 16)
@@ -37873,7 +38049,7 @@ func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content st
 }
 
 func CausalHubProbeEvent(valueID uint64, prefixStart, prefixWords int, mask uint64, depth uint64, status string) Event {
-	ev := newEventWithMaps(EventCausalHubProbe, "queue")
+	ev := NewEvent(EventCausalHubProbe, "queue")
 	ev.Label = "causal_hub"
 	ev.Values = map[string]float64{
 		"prefix_start": float64(prefixStart),
@@ -37904,15 +38080,19 @@ func SenseEvent(valueID uint64, amplitude, index int) Event {
 // --- Orchestrator / Community Routing ---
 
 func CommunityCreatedEvent(communityID int, initialAffinity []uint64) Event {
-	ev := newEventWithMaps(EventCommunityCreated, "orchestrator")
+	ev := NewEvent(EventCommunityCreated, "orchestrator")
 	ev.Values = map[string]float64{"community_id": float64(communityID)}
 
 	if len(initialAffinity) > 0 {
-		hexStr := ""
+		var builder strings.Builder
+
+		builder.Grow(len(initialAffinity) * 16)
+
 		for _, word := range initialAffinity {
-			hexStr += fmt.Sprintf("%016x", word)
+			fmt.Fprintf(&builder, "%016x", word)
 		}
-		ev.Meta["initial_affinity"] = hexStr
+
+		ev.Meta["initial_affinity"] = builder.String()
 	}
 
 	applyVizLayoutCommunity(&ev, communityID, "create")
@@ -37921,7 +38101,7 @@ func CommunityCreatedEvent(communityID int, initialAffinity []uint64) Event {
 }
 
 func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Event {
-	ev := newEventWithMaps(EventValueJoinedCommunity, "orchestrator")
+	ev := NewEvent(EventValueJoinedCommunity, "orchestrator")
 	ev.Values = map[string]float64{
 		"community_id": float64(communityID),
 		"distance":     float64(distance),
@@ -37932,7 +38112,7 @@ func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Ev
 }
 
 func CommunitySaturatedEvent(communityID int, saturation float64) Event {
-	ev := newEventWithMaps(EventCommunitySaturated, "orchestrator")
+	ev := NewEvent(EventCommunitySaturated, "orchestrator")
 	ev.Values = map[string]float64{
 		"community_id": float64(communityID),
 		"saturation":   saturation,
@@ -37942,7 +38122,7 @@ func CommunitySaturatedEvent(communityID int, saturation float64) Event {
 }
 
 func CommunityActionEvent(communityID int, actionID uint64, program string, resonance float64) Event {
-	ev := newEventWithMaps(EventCommunityAction, "orchestrator")
+	ev := NewEvent(EventCommunityAction, "orchestrator")
 	ev.Label = program
 	ev.Values = map[string]float64{
 		"community_id": float64(communityID),
@@ -37955,7 +38135,7 @@ func CommunityActionEvent(communityID int, actionID uint64, program string, reso
 }
 
 func CommunityReactionEvent(communityID int, reactionID uint64, program string) Event {
-	ev := newEventWithMaps(EventCommunityReaction, "orchestrator")
+	ev := NewEvent(EventCommunityReaction, "orchestrator")
 	ev.Label = program
 	ev.Values = map[string]float64{"community_id": float64(communityID)}
 	idHex := strconv.FormatUint(reactionID, 16)
@@ -38185,34 +38365,24 @@ func marshalEventPayload(ev Event) []byte {
 	b = appendStringU32(b, ev.Target)
 	b = appendStringU32(b, ev.Label)
 
-	if ev.Values != nil {
-		// Only marshal values if map is not empty
-		if len(ev.Values) > 0 {
-			b = appendU32(b, uint32(len(ev.Values)))
-			for k, v := range ev.Values {
-				b = appendStringU32(b, k)
-				b = appendF64(b, v)
-			}
-		} else {
-			b = appendU32(b, 0)
+	valuesCount := uint32(len(ev.Values))
+	b = appendU32(b, valuesCount)
+
+	if valuesCount > 0 {
+		for key, value := range ev.Values {
+			b = appendStringU32(b, key)
+			b = appendF64(b, value)
 		}
-	} else {
-		b = appendU32(b, 0)
 	}
 
-	if ev.Meta != nil {
-		// Only marshal meta if map is not empty
-		if len(ev.Meta) > 0 {
-			b = appendU32(b, uint32(len(ev.Meta)))
-			for k, v := range ev.Meta {
-				b = appendStringU32(b, k)
-				b = appendStringU32(b, v)
-			}
-		} else {
-			b = appendU32(b, 0)
+	metaCount := uint32(len(ev.Meta))
+	b = appendU32(b, metaCount)
+
+	if metaCount > 0 {
+		for key, valueStr := range ev.Meta {
+			b = appendStringU32(b, key)
+			b = appendStringU32(b, valueStr)
 		}
-	} else {
-		b = appendU32(b, 0)
 	}
 
 	return b
@@ -38614,7 +38784,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"runtime"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -38648,6 +38817,7 @@ type Machine struct {
 	conn         *gossip.Conn
 	field        *geometry.Field
 	orchestrator *Orchestrator
+	programReady chan struct{}
 	remSleep     *time.Ticker
 	remDone      chan struct{}
 }
@@ -38679,7 +38849,9 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue)
+	machine.programReady = make(chan struct{}, 1)
+
+	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue, machine.programReady)
 	if machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -38826,16 +38998,24 @@ func (machine *Machine) Prompt(prompt string, program string) (*primitive.Value,
 		return nil, errnie.Error(err)
 	}
 
+	poll := time.NewTicker(500 * time.Microsecond)
+
+	defer poll.Stop()
+
 	for {
 		select {
 		case <-machine.ctx.Done():
 			return nil, machine.ctx.Err()
-		default:
+
+		case <-machine.programReady:
 			if value[kernel.SchedulingNextProgramWord] == 0 {
 				return value, nil
 			}
 
-			runtime.Gosched()
+		case <-poll.C:
+			if value[kernel.SchedulingNextProgramWord] == 0 {
+				return value, nil
+			}
 		}
 	}
 }
@@ -38848,13 +39028,13 @@ import (
 	"context"
 	"math"
 	"math/bits"
-	"runtime"
-	"sync"
+	"time"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -38865,50 +39045,84 @@ import (
 Orchestrator is a component that orchestrates the different components of the machine.
 */
 type Orchestrator struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	conn    *gossip.Conn
-	queue   *pool.Queue
-	field   *geometry.Field
-	pending []*primitive.Value
-	mu      sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	conn         *gossip.Conn
+	queue        *pool.Queue
+	field        *geometry.Field
+	pendingCh    chan *primitive.Value
+	programReady chan struct{}
 }
 
 /*
 NewOrchestrator creates a new orchestrator.
+
+programReady, when non-nil, receives a coalesced wakeup whenever a cycle
+observes at least one settled value (SchedulingNextProgramWord zeroed) so
+Machine.Prompt can block instead of spinning until the kernel clears scheduling.
 */
-func NewOrchestrator(ctx context.Context, conn *gossip.Conn, queue *pool.Queue) (*Orchestrator, error) {
+func NewOrchestrator(
+	ctx context.Context,
+	conn *gossip.Conn,
+	queue *pool.Queue,
+	programReady chan struct{},
+) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	orchestrator := &Orchestrator{
-		ctx:    ctx,
-		cancel: cancel,
-		conn:   conn,
-		queue:  queue,
-		field:  geometry.NewField(geometry.Mod65537),
+		ctx:          ctx,
+		cancel:       cancel,
+		conn:         conn,
+		queue:        queue,
+		field:        geometry.NewField(geometry.Mod65537),
+		pendingCh:    make(chan *primitive.Value, 262144),
+		programReady: programReady,
 	}
 
-	go orchestrator.run()
-
-	return orchestrator, validate.Require(map[string]any{
+	if err := validate.Require(map[string]any{
 		"ctx":    orchestrator.ctx,
 		"cancel": orchestrator.cancel,
 		"conn":   orchestrator.conn,
 		"queue":  orchestrator.queue,
 		"field":  orchestrator.field,
-	})
+	}); err != nil {
+		cancel()
+
+		return nil, err
+	}
+
+	go orchestrator.run()
+
+	return orchestrator, nil
+}
+
+func (orchestrator *Orchestrator) signalProgramReady() {
+	if orchestrator.programReady == nil {
+		return
+	}
+
+	select {
+	case orchestrator.programReady <- struct{}{}:
+	default:
+	}
 }
 
 func (orchestrator *Orchestrator) run() {
+	idle := time.NewTicker(4 * time.Millisecond)
+
+	defer idle.Stop()
+
 	for {
 		select {
 		case <-orchestrator.ctx.Done():
 			return
-		default:
+
+		case value := <-orchestrator.pendingCh:
+			orchestrator.Cycle(value)
+
+		case <-idle.C:
 			orchestrator.Cycle()
-			// Yield to prevent tight loop if nothing to do
-			runtime.Gosched()
 		}
 	}
 }
@@ -38918,6 +39132,7 @@ Close the orchestrator.
 */
 func (orchestrator *Orchestrator) Close() error {
 	orchestrator.cancel()
+
 	return orchestrator.err
 }
 
@@ -38930,14 +39145,15 @@ func (orchestrator *Orchestrator) Error() error {
 
 /*
 Publish implements the Publishable interface.
-It adds the value to the pending list for the next Cycle.
+It sends the value on the pending queue for the next Cycle.
 */
 func (orchestrator *Orchestrator) Publish(value *primitive.Value, label string) error {
-	orchestrator.mu.Lock()
-	defer orchestrator.mu.Unlock()
-
-	orchestrator.pending = append(orchestrator.pending, value)
-	return nil
+	select {
+	case orchestrator.pendingCh <- value:
+		return nil
+	case <-orchestrator.ctx.Done():
+		return orchestrator.ctx.Err()
+	}
 }
 
 /*
@@ -38946,33 +39162,50 @@ not be seen as "stepping" given that there are no guarantees about the order of
 operations, or predictable consistency timing.
 */
 func (orchestrator *Orchestrator) Cycle(values ...*primitive.Value) error {
-	orchestrator.mu.Lock()
+	var batch []*primitive.Value
 
-	// Add any explicitly passed values
-	if len(values) > 0 {
-		orchestrator.pending = append(orchestrator.pending, values...)
+	batch = append(batch, values...)
+
+	for {
+		select {
+		case value := <-orchestrator.pendingCh:
+			batch = append(batch, value)
+		default:
+			goto drained
+		}
 	}
 
-	// Filter for settled values
+drained:
+
 	var settled []*primitive.Value
 	var stillPending []*primitive.Value
 
-	for _, value := range orchestrator.pending {
+	for _, value := range batch {
 		if value == nil {
 			continue
 		}
 
 		if (*value)[kernel.SchedulingNextProgramWord] == 0 {
 			settled = append(settled, value)
-		} else {
-			stillPending = append(stillPending, value)
+
+			continue
+		}
+
+		stillPending = append(stillPending, value)
+	}
+
+	for _, value := range stillPending {
+		select {
+		case orchestrator.pendingCh <- value:
+		case <-orchestrator.ctx.Done():
+			orchestrator.err = orchestrator.ctx.Err()
+
+			return orchestrator.err
 		}
 	}
 
-	orchestrator.pending = stillPending
-	orchestrator.mu.Unlock()
-
 	if len(settled) > 0 {
+		orchestrator.signalProgramReady()
 		orchestrator.findCommunity(settled)
 	}
 
@@ -38987,7 +39220,7 @@ and provides top-down feedback: rewarding successful compositions with attention
 and breaking unsuccessful ones to avoid local minima.
 */
 func (orchestrator *Orchestrator) emitActions() {
-	for i, community := range orchestrator.field.Fields {
+	for communityIndex, community := range orchestrator.field.Fields {
 		if community == nil || len(community.Values) == 0 {
 			continue
 		}
@@ -38995,76 +39228,110 @@ func (orchestrator *Orchestrator) emitActions() {
 		dominant := community.Dominant()
 		resonance := dominant.Concentration
 
-		// The field provides top-down feedback to the Values (beams)
 		var successful []*primitive.Value
 		var unsuccessful []*primitive.Value
 
-		for _, val := range community.Values {
-			// Calculate alignment of Value's affinity with the community's aggregate affinity
+		for _, valuePointer := range community.Values {
 			distance := 0
-			for j := 0; j < 5; j++ {
-				distance += bits.OnesCount64(community.Affinity[j] ^ (*val)[kernel.AffinityStartWord+j])
+
+			for affinityWordIndex := 0; affinityWordIndex < 5; affinityWordIndex++ {
+				distance += bits.OnesCount64(
+					community.Affinity[affinityWordIndex] ^ (*valuePointer)[kernel.AffinityStartWord+affinityWordIndex],
+				)
 			}
 
-			// If the distance is small, the beam was successfully composed into the field
 			if distance < 32 {
-				successful = append(successful, val)
-			} else {
-				unsuccessful = append(unsuccessful, val)
+				successful = append(successful, valuePointer)
+
+				continue
 			}
+
+			unsuccessful = append(unsuccessful, valuePointer)
 		}
 
-		// Reward successful beams with attention/bias (e.g., boosting TTL or applying affine rotation)
-		for _, val := range successful {
-			ttl := (*val)[kernel.PropertiesTTLWord]
+		for _, valuePointer := range successful {
+			ttl := (*valuePointer)[kernel.PropertiesTTLWord]
+
 			if ttl > 0 && ttl < 255 {
-				val.Set(kernel.PropertiesTTLWord, ttl+1) // Reward
+				valuePointer.Set(kernel.PropertiesTTLWord, ttl+1)
 			}
 
-			// Apply a positive affine rotation as attention mechanism
-			// This rotation is reversible via the phasedial if needed later
 			community.Rotate(2, 1)
 		}
 
-		// Break unsuccessful beams so they don't get stuck in local minima
-		for _, val := range unsuccessful {
-			// Send a top-down break signal by zeroing the TTL, terminating the cascade
-			val.Set(kernel.PropertiesTTLWord, 0)
+		for _, valuePointer := range unsuccessful {
+			valuePointer.Set(kernel.PropertiesTTLWord, 0)
 		}
 
-		if resonance > 0.25 && len(successful) > 0 {
-			// Emit an action based on the successful composition
-			actionBytes := make([]byte, 16)
+		if resonance <= 0.25 || len(successful) == 0 {
+			community.Values = nil
 
-			for j := range 16 {
-				if j < len(community.Fields) && community.Fields[j] != nil {
-					laneVal := community.Fields[j].Dominant().Amplitude
-					actionBytes[j] = byte(laneVal & 0xff)
-				}
-			}
+			continue
+		}
 
-			actionValues, err := primitive.NewValue(actionBytes)
+		actionBytes := make([]byte, 16)
 
-			if err == nil && len(actionValues) > 0 {
-				action := actionValues[0]
-
-				progName := "beam_swarm_step"
-				if dominant.Index%2 == 0 {
-					progName = "active_inference"
-				}
-
-				installer := programmer.Installer{}
-				if err := installer.InstallProgram(action, progName); err == nil {
-					_ = orchestrator.queue.Publish(action, progName)
-
-					if viz.DefaultBus.IsActive() {
-						viz.DefaultBus.Publish(viz.CommunityActionEvent(i, action.ID(), progName, resonance))
-					}
-				}
+		for laneIndex := range 16 {
+			if laneIndex < len(community.Fields) && community.Fields[laneIndex] != nil {
+				laneVal := community.Fields[laneIndex].Dominant().Amplitude
+				actionBytes[laneIndex] = byte(laneVal & 0xff)
 			}
 		}
 
-		// Clear community values after processing this cycle's beams
+		actionValues, newValueErr := primitive.NewValue(actionBytes)
+
+		if newValueErr != nil {
+			errnie.Warn(
+				"vm.orchestrator.emitActions: primitive.NewValue",
+				"err", newValueErr,
+				"community", communityIndex,
+			)
+			community.Values = nil
+
+			continue
+		}
+
+		if len(actionValues) == 0 {
+			community.Values = nil
+
+			continue
+		}
+
+		action := actionValues[0]
+
+		progName := "beam_swarm_step"
+
+		if dominant.Index%2 == 0 {
+			progName = "active_inference"
+		}
+
+		installer := programmer.Installer{}
+
+		if installErr := installer.InstallProgram(action, progName); installErr != nil {
+			errnie.Warn(
+				"vm.orchestrator.emitActions: programmer.Installer.InstallProgram",
+				"err", installErr,
+				"community", communityIndex,
+				"program", progName,
+			)
+			community.Values = nil
+
+			continue
+		}
+
+		if publishErr := orchestrator.queue.Publish(action, progName); publishErr != nil {
+			errnie.Warn(
+				"vm.orchestrator.emitActions: orchestrator.queue.Publish",
+				"err", publishErr,
+				"community", communityIndex,
+				"program", progName,
+			)
+		}
+
+		if viz.DefaultBus.IsActive() {
+			viz.DefaultBus.Publish(viz.CommunityActionEvent(communityIndex, action.ID(), progName, resonance))
+		}
+
 		community.Values = nil
 	}
 }
@@ -39080,40 +39347,41 @@ func (orchestrator *Orchestrator) findCommunity(values []*primitive.Value) {
 
 		valueAffinity := make([]uint64, 5)
 
-		for i := range 5 {
-			valueAffinity[i] = (*value)[kernel.AffinityStartWord+i]
+		for affinityWordIndex := range 5 {
+			valueAffinity[affinityWordIndex] = (*value)[kernel.AffinityStartWord+affinityWordIndex]
 		}
 
 		var bestCommunityIdx int
 		var bestCommunity *geometry.Field
+
 		bestDistance := math.MaxInt32
 
-		// Find the closest non-saturated community
-		for i, community := range orchestrator.field.Fields {
+		for communityIndex, community := range orchestrator.field.Fields {
 			if community == nil {
 				continue
 			}
 
 			if community.AffinitySaturation() >= 0.47 {
 				if viz.DefaultBus.IsActive() {
-					viz.DefaultBus.Publish(viz.CommunitySaturatedEvent(i, community.AffinitySaturation()))
+					viz.DefaultBus.Publish(viz.CommunitySaturatedEvent(communityIndex, community.AffinitySaturation()))
 				}
+
 				continue
 			}
 
 			distance := 0
-			for j := 0; j < 5; j++ {
-				distance += bits.OnesCount64(community.Affinity[j] ^ valueAffinity[j])
+
+			for affinityWordIndex := 0; affinityWordIndex < 5; affinityWordIndex++ {
+				distance += bits.OnesCount64(community.Affinity[affinityWordIndex] ^ valueAffinity[affinityWordIndex])
 			}
 
 			if distance < bestDistance {
 				bestDistance = distance
 				bestCommunity = community
-				bestCommunityIdx = i
+				bestCommunityIdx = communityIndex
 			}
 		}
 
-		// Threshold for joining a community (e.g., 64 bits difference max)
 		if bestCommunity != nil && bestDistance < 64 {
 			bestCommunity.Values = append(bestCommunity.Values, value)
 			bestCommunity.MergeAffinity(valueAffinity)
@@ -39121,22 +39389,37 @@ func (orchestrator *Orchestrator) findCommunity(values []*primitive.Value) {
 			if viz.DefaultBus.IsActive() {
 				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), bestCommunityIdx, bestDistance))
 			}
-		} else {
-			// Spawn a new community in the first available slot
-			for i, slot := range orchestrator.field.Fields {
-				if slot == nil {
-					newCommunity := geometry.NewField(geometry.Mod8191)
-					newCommunity.MergeAffinity(valueAffinity)
-					newCommunity.Values = append(newCommunity.Values, value)
-					orchestrator.field.Fields[i] = newCommunity
 
-					if viz.DefaultBus.IsActive() {
-						viz.DefaultBus.Publish(viz.CommunityCreatedEvent(i, valueAffinity))
-						viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), i, 0))
-					}
-					break
-				}
+			continue
+		}
+
+		placed := false
+
+		for slotIndex, slot := range orchestrator.field.Fields {
+			if slot != nil {
+				continue
 			}
+
+			newCommunity := geometry.NewField(geometry.Mod8191)
+			newCommunity.MergeAffinity(valueAffinity)
+			newCommunity.Values = append(newCommunity.Values, value)
+			orchestrator.field.Fields[slotIndex] = newCommunity
+			placed = true
+
+			if viz.DefaultBus.IsActive() {
+				viz.DefaultBus.Publish(viz.CommunityCreatedEvent(slotIndex, valueAffinity))
+				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), slotIndex, 0))
+			}
+
+			break
+		}
+
+		if !placed {
+			errnie.Warn(
+				"vm.orchestrator.findCommunity: no empty field slot; value not placed in field",
+				"value_id", value.ID(),
+				"best_distance", bestDistance,
+			)
 		}
 	}
 }
@@ -39480,11 +39763,18 @@ func (tokenizer *Tokenizer) IngestReader(
 		errChan <- copyErr
 	}()
 
-	if err = tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee); err != nil {
-		return errnie.Error(err)
+	drainErr := tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee)
+	copyErr := <-errChan
+
+	if drainErr != nil {
+		if copyErr != nil {
+			return errnie.Error(errors.Join(drainErr, copyErr))
+		}
+
+		return errnie.Error(drainErr)
 	}
 
-	if copyErr := <-errChan; copyErr != nil {
+	if copyErr != nil {
 		return errnie.Error(copyErr)
 	}
 

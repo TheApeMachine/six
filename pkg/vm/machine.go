@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"math/bits"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -237,4 +238,91 @@ func (machine *Machine) Prompt(prompt string, program string) (*primitive.Value,
 			}
 		}
 	}
+}
+
+/*
+Nearest finds the closest resident value in the substrate to the given query value,
+using the affinity hash.
+*/
+func (machine *Machine) Nearest(query *primitive.Value) *primitive.Value {
+	if machine == nil || machine.orchestrator == nil || machine.orchestrator.field == nil || query == nil {
+		return nil
+	}
+
+	queryAffinity := make([]uint64, 5)
+	for i := 0; i < 5; i++ {
+		queryAffinity[i] = (*query)[kernel.AffinityStartWord+i]
+	}
+
+	var bestValue *primitive.Value
+	bestDistance := 1000000
+
+	for _, community := range machine.orchestrator.field.Fields {
+		if community == nil {
+			continue
+		}
+
+		for _, candidate := range community.Values {
+			if candidate == query || candidate == nil {
+				continue
+			}
+
+			distance := 0
+			for i := 0; i < 5; i++ {
+				distance += bits.OnesCount64((*candidate)[kernel.AffinityStartWord+i] ^ queryAffinity[i])
+			}
+
+			if distance < bestDistance {
+				bestDistance = distance
+				bestValue = candidate
+			}
+		}
+	}
+
+	return bestValue
+}
+
+/*
+WalkChain walks the chain of values starting from the given value,
+concatenating their String() outputs.
+*/
+func (machine *Machine) WalkChain(start *primitive.Value) string {
+	if start == nil {
+		return ""
+	}
+
+	result := start.String()
+	current := start
+
+	for {
+		nextID := (*current)[kernel.NextStartWord]
+		if nextID == 0 {
+			break
+		}
+
+		var nextValue *primitive.Value
+		for _, community := range machine.orchestrator.field.Fields {
+			if community == nil {
+				continue
+			}
+			for _, candidate := range community.Values {
+				if candidate != nil && candidate.ID() == nextID {
+					nextValue = candidate
+					break
+				}
+			}
+			if nextValue != nil {
+				break
+			}
+		}
+
+		if nextValue == nil {
+			break
+		}
+
+		result += nextValue.String()
+		current = nextValue
+	}
+
+	return result
 }

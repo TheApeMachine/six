@@ -2,6 +2,7 @@ package classification
 
 import (
 	"fmt"
+	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
@@ -110,6 +111,17 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
 			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
 				results.TrueLabel = tools.OptionalLabel(normalized)
+			}
+		}
+	}
+
+	if results.PredLabel == nil && len(results.Classification) > 0 {
+		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
+		fmt.Printf("Classification string: %q\n", normalizedClass)
+		for i, label := range experiment.ClassLabels() {
+			if strings.Contains(normalizedClass, label) {
+				results.PredLabel = tools.OptionalLabel(i)
+				break
 			}
 		}
 	}

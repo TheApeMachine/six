@@ -153,6 +153,7 @@ func TestPipeline(t *testing.T) {
 		scaling.NewSequencerExperiment(),
 		codegen.NewLanguagesExperiment(),
 		classification.NewTextClassificationExperiment(),
+		classification.NewBlindClassificationExperiment(),
 		textgen.NewCompositionalExperiment(),
 		textgen.NewProseChainingExperiment(),
 		textgen.NewOutOfCorpusExperiment(),
@@ -219,6 +220,12 @@ func TestPipeline(t *testing.T) {
 						}
 
 						generation := prediction.String()
+						classification := generation
+
+						nearest := machine.Nearest(prediction)
+						if nearest != nil {
+							classification = machine.WalkChain(nearest)
+						}
 
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.
@@ -228,7 +235,7 @@ func TestPipeline(t *testing.T) {
 							Prefix:         []byte(prompt),
 							Holdout:        holdoutBytes,
 							Generation:     []byte(generation),
-							Classification: []byte(""), // Value doesn't have a Label() method
+							Classification: []byte(classification),
 						})
 
 						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)
