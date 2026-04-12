@@ -89,7 +89,28 @@ func New(opts ...datasetOpts) *Dataset {
 		opt(dataset)
 	}
 
+	dataset.ApplyBabiDefaults()
+
 	return dataset
+}
+
+/*
+ApplyBabiDefaults sets facebook/babi_qa defaults for repo and subset when bAbI story
+mode is enabled and those fields are still empty. Runs after all options so ordering
+of DatasetWithBabiStory relative to DatasetWithRepo/Subset does not matter.
+*/
+func (dataset *Dataset) ApplyBabiDefaults() {
+	if !dataset.babiStory {
+		return
+	}
+
+	if dataset.repo == "" {
+		dataset.repo = "facebook/babi_qa"
+	}
+
+	if dataset.subset == "" {
+		dataset.subset = "en-10k-qa1"
+	}
 }
 
 /*
@@ -1104,20 +1125,12 @@ func DatasetWithContinuousPos() datasetOpts {
 
 /*
 DatasetWithBabiStory parses facebook/babi_qa-style shards (nested story.text / story.answer / story.type).
-Apply after DatasetWithRepo if you rely on empty-repo defaults. When repo and subset are still empty,
-defaults match the upstream dataset: facebook/babi_qa and en-10k-qa1.
+Repo and subset default to facebook/babi_qa and en-10k-qa1 when still empty; that runs in ApplyBabiDefaults
+after all options are applied (see New).
 */
 func DatasetWithBabiStory() datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.babiStory = true
-
-		if dataset.repo == "" {
-			dataset.repo = "facebook/babi_qa"
-		}
-
-		if dataset.subset == "" {
-			dataset.subset = "en-10k-qa1"
-		}
 	}
 }
 

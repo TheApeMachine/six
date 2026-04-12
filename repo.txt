@@ -9,7 +9,7 @@
 ./experiment/artifact_payloads.go
 ./experiment/controller.go
 ./experiment/corpus.go
-./experiment/data/huggingface/babi_qa.go
+./experiment/data/huggingface/babi_story.go
 ./experiment/data/huggingface/dataset.go
 ./experiment/data/huggingface/image_dataset.go
 ./experiment/data/local/dataset.go
@@ -166,6 +166,7 @@
 ./pkg/core/numeric/bitwise.go
 ./pkg/core/numeric/cosine.go
 ./pkg/core/numeric/dynamic.go
+./pkg/core/numeric/fibonacci.go
 ./pkg/core/numeric/geometry/clifford.go
 ./pkg/core/numeric/geometry/eigenmode.go
 ./pkg/core/numeric/geometry/eigenmode_toroidal.go
@@ -207,7 +208,6 @@
 ./pkg/pool/asm_arm64.s
 ./pkg/pool/asm_mips.s
 ./pkg/pool/asm_mips64.s
-./pkg/pool/causal.go
 ./pkg/pool/constants/constants_386.go
 ./pkg/pool/constants/constants_amd64.go
 ./pkg/pool/constants/constants_arm.go
@@ -232,6 +232,7 @@
 ./pkg/transport/pipeline.go
 ./pkg/transport/stream.go
 ./pkg/viz/eventbus.go
+./pkg/viz/layout_meta.go
 ./pkg/viz/remote.go
 ./pkg/viz/server.go
 ./pkg/viz/taps.go
@@ -239,6 +240,7 @@
 ./pkg/viz/wire.go
 ./pkg/vm/errors.go
 ./pkg/vm/machine.go
+./pkg/vm/orchestrator.go
 ./pkg/vm/tokenizer.go
 <<<END>>>
 <<<FILE ./README.md>>>
@@ -255,173 +257,159 @@ This research project started from a simple question: "Can we reject gradient de
 
 ## Architecture
 
-Six has four layers. Each is useful on its own, but the interesting behavior emerges from their interaction.
+Six has three active layers. Values are the atoms of computation. The Queue and Backend execute their programs. The Orchestrator groups settled Values into communities and uses the Field to drive further computation.
 
 ```mermaid
 flowchart TD
 
     subgraph "Layer 3 — Global Field GF(65537)"
         GF["Global Phase Vector"]
-        Gossip["kadabra.Gossip<br/>Digest + NodePhase"]
+        Gossip["gossip.Conn<br/>Digest + NodePhase"]
         GF <--> Gossip
     end
 
-    subgraph "Layer 2 — Node Field GF(8191)"
-        N1["kadabra.Node"]
-        N2["kadabra.Node"]
-        F1["kadabra.Field<br/>Project() → Downward Rotation"]
-        F2["kadabra.Field<br/>Project() → Downward Rotation"]
-        N1 --- F1
-        N2 --- F2
+    subgraph "Layer 2 — Community Field GF(8191)"
+        C1["Community"]
+        C2["Community"]
+        F1["geometry.Field<br/>Affine rotation + PhaseDial"]
+        F2["geometry.Field<br/>Affine rotation + PhaseDial"]
+        C1 --- F1
+        C2 --- F2
     end
 
-    subgraph "Layer 1 — Trie Field GF(257)"
-        S1["markovtrie.Store<br/>LocalPhase"]
-        S2["markovtrie.Store<br/>LocalPhase"]
-        S3["markovtrie.Store<br/>LocalPhase"]
-        S4["markovtrie.Store<br/>LocalPhase"]
+    subgraph "Layer 1 — Value Field GF(257)"
+        V1["primitive.Value<br/>1KB programmable token"]
+        V2["primitive.Value"]
+        V3["primitive.Value"]
+        V4["primitive.Value"]
     end
 
-    subgraph "Algo Stack (phase-gated)"
-        Beam["beam.Search<br/>Rotational bias"]
-        Classify["classify.Classifier<br/>Phase as prior"]
-        Train["train.Online<br/>Phase-gated plasticity"]
-        Surprisal["surprisal.Probability<br/>Contextual novelty"]
-        Causal["causal.Graph<br/>Phase-dependent edges"]
+    subgraph "Execution"
+        Q["pool.Queue<br/>Lock-free work scheduling"]
+        B["compute.Backend<br/>CPU / Metal / CUDA"]
+        O["vm.Orchestrator<br/>Community routing + action emission"]
     end
 
-    subgraph "Primitives GF(2)"
-        V["primitive.Value"]
-    end
+    %% Bottom-up: Values settle, orchestrator groups them
+    V1 --> O
+    V2 --> O
+    V3 --> O
+    V4 --> O
+    O --> C1
+    O --> C2
+    C1 --> GF
+    C2 --> GF
 
-    %% Bottom-up
-    V --> S1
-    V --> S2
-    V --> S3
-    V --> S4
-    S1 --> N1
-    S2 --> N1
-    S3 --> N2
-    S4 --> N2
-    N1 --> GF
-    N2 --> GF
-
-    %% Top-down
+    %% Top-down: field pressure drives new computation
     GF --> F1
     GF --> F2
-    F1 --> S1
-    F1 --> S2
-    F2 --> S3
-    F2 --> S4
-
-    %% Algo stack receives phase via ApplyFieldPressure
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Beam
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Classify
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Train
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Surprisal
-    S1 -. "GlobalPhase signal<br/>via ApplyFieldPressure" .-> Causal
+    F1 --> Q
+    F2 --> Q
+    Q --> B
+    B --> V1
+    B --> V2
+    B --> V3
+    B --> V4
 ```
 
 ```text
-┌────────────────────────────────┐
-│           The Field            │
-│  Emergent eigenmodes project   │
-│  top-down pressure onto tries  │
-└──────────────┬─────────────────┘
-               │ bias
-┌──────────────▼─────────────────┐
-│         Kadabra DHT            │
-│  Affinity-routed mesh of tries │
-│  Gossip propagates field state │
-└──────────────┬─────────────────┘
-               │ store / retrieve
-┌──────────────▼────────────────┐
-│          MarkovTrie           │
-│  Adaptive probabilistic trie  │
-│  Classification + generation  │
-└──────────────┬────────────────┘
-               │ data
-┌──────────────▼────────────────┐
-│           Values              │
-│  1KB programmable tokens      │
-│                               │
-└───────────────────────────────┘
+┌──────────────────────────────────┐
+│       Global Field GF(65537)     │
+│  Aggregates community fields     │
+│  Gossip propagates phase state   │
+└──────────────┬───────────────────┘
+               │ top-down pressure
+┌──────────────▼───────────────────┐
+│     Community Fields GF(8191)    │
+│  Orchestrator groups Values by   │
+│  affinity into communities       │
+└──────────────┬───────────────────┘
+               │ action emission
+┌──────────────▼───────────────────┐
+│    Queue + Compute Backend       │
+│  Lock-free pool, multi-substrate │
+│  CPU / Metal / CUDA execution    │
+└──────────────┬───────────────────┘
+               │ programs run on
+┌──────────────▼───────────────────┐
+│           Values GF(257)         │
+│  1KB programmable tokens         │
+│  Linked via PrevID / NextID      │
+└──────────────────────────────────┘
 ```
 
-### Holographic Field Dynamics
+### Field Hierarchy
 
-The current field path now carries a finite-field phase hierarchy alongside the existing adaptive signals:
+The three finite fields form a phase hierarchy. Each layer aggregates the one below it; gossip carries the vectors peers need to reconstruct the same pressure field.
 
-| Layer        | Field       | Phase state                                            |
-|--------------|-------------|--------------------------------------------------------|
-| MarkovTrie   | `GF(257)`   | Trie-local byte-phase signature                        |
-| Kadabra Node | `GF(8191)`  | Regional chord aggregated from active tries            |
-| Mesh Field   | `GF(65537)` | Global eigenphase aggregated from gossiped node phases |
+| Layer           | Field       | Phase state                                                  |
+|-----------------|-------------|--------------------------------------------------------------|
+| Value           | `GF(257)`   | Per-Value byte-phase, local interference, affine rotation    |
+| Community Field | `GF(8191)`  | Regional aggregate from community members                    |
+| Global Field    | `GF(65537)` | Global eigenphase aggregated across nodes via gossip digests |
 
-Instead of treating attention as an explicit weight matrix, Six can now project a dominant global phase back down the stack. Tries rotate their local phase toward the field, beam search boosts continuations that constructively interfere with that phase, and online learning gates plasticity when incoming context is out of phase with the current mesh-wide mode.
+### Data Flow
 
-### Canonical ingest path (bytes → DHT)
+This is the actual end-to-end path the code implements today:
 
-This is the end-to-end story the code implements today; layer details follow in the next subsection.
+1. **Byte stream arrives** — `vm.Machine.Load` feeds a `data.Provider` into a `transport.Pipeline`.
+2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
+3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
+4. **Program installed** — `programmer.Installer` writes the `"affinity"` program into each Value's program region. This is a compiled frame, not raw words.
+5. **Published to Queue + Orchestrator** — Each minted Value is published to the `pool.Queue` (for backend execution) and the `vm.Orchestrator` (for community routing).
+6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The ALU runs the program region against the token region and writes results to signals/context/gradient.
+7. **Queue cascades** — If word 117 (`SchedulingNextProgramWord`) is non-zero after execution, the Queue re-publishes the referenced Value for another pass. `next self` makes a Value loop.
+8. **Orchestrator groups** — When a Value settles (word 117 = 0), the Orchestrator's `Cycle` picks it up. `findCommunity` computes Hamming distance over the 5 affinity words against existing community fields. Close enough → join; too far or all saturated → spawn a new `GF(8191)` community in the first empty slot.
+9. **Community emits actions** — When a community has ≥ 3 members and its dominant mode's concentration exceeds the resonance threshold, `emitActions` mints a new Value from the community's aggregate state, installs a program (`beam_swarm_step` or `active_inference`), and publishes it back to the Queue. The community's Value list is then cleared.
 
-1. **Mint from a byte stream** — `primitive.NewValue` ingests dataset (or tokenizer) bytes into one or more `Value` segments (`pkg/primitive`, `vm.Tokenizer.adoptChunk`).
-2. **Fill the token region** — Payload bytes are **Morton-coded** into 16-bit slot pairs (position ordinal × geometry slot code) until the configured token slab is full; overflow continues in the **next segment** with Prev/Next IDs (`newValuesFromPayload`).
-3. **Affinity from tokens** — After packing, **`ComputeAffinityLSH`** derives the 257-bit affinity fingerprint from the **token region** (LSH over the Morton slab), then a fresh **Value ID** is stamped.
-4. **Enter Kadabra** — `kadabra.Node.Publish` / `Store` admits the record; routing and replication use Hamming distance on that affinity (`pkg/store/kadabra/replication.go`, `routing.go`).
-5. **No matching home** — If no trie is close enough under `kadabra.clusterThreshold`, **`spawnTrie`** seeds a new Markov trie for that affinity neighborhood (`io.go`).
-6. **Node-level centroid** — Primary ingest blends into **`meshLoad`** (`blendMeshLoadCentroid`): a running centroid affinity with the same **Shannon cap** as trie clusters; when the centroid hits the cap, **`onMeshExpand`** can admit a new mesh peer (`Node.SetMeshExpandHandler`, `vm.Machine` wiring).
-7. **Trie centroid from Values** — Each trie’s **`Affinity`** is updated by **EMA blending** (`primitive.Affinity.Blended`) when an ingested vector lands in that trie under distance threshold (`selectOrSpawnTrie` / scalar path).
-8. **Trie at Shannon limit** — If the **nearest** trie already matches but its centroid **`Popcount()` ≥ `kadabra.shannonLimit`**, ingest cannot blend into that trie; a **new trie** is spawned (`spawnTrie`) so learning can continue.
-9. **Node at Shannon limit** — If the **node mesh-load centroid** is saturated (`Popcount()` ≥ `shannonLimit`) while primary ingest still arrives, **`blendMeshLoadCentroid`** triggers expansion (`onMeshExpand`) instead of unbounded blending; a false return **drops** that primary record (operator-visible via metrics).
-
-**Shannon “saturation” in config** — `kadabra.shannonLimit` is a **set-bit popcount ceiling** on the 257-bit affinity vector (same units as `primitive.Affinity.Popcount()`), not a fractional percentage. Maximum entropy for a binary vector of length 257 is near **50%** ones (~128 bits); a **~47%** design target corresponds to roughly **121** set bits — tighten `shannonLimit` toward that if you want peak-entropy pressure. The stock `cmd/cfg/config.yml` default (`240`) leaves more headroom before prune/spawn pressure.
-
-### Layered fields = layered communication
-
-The three finite fields are not only statistics — they are the **substrates on which phase-aligned state flows**. Higher layers aggregate lower layers; **gossip** carries the vectors peers need to reconstruct the same pressure field.
-
-| Layer      | Field         | Role                                                                                         | Where it lives                                                                                                               |
-|------------|---------------|----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| **Trie**   | **GF(257)**   | Phase mesh across **Values** inside one trie — local interference, beam bias, training gates | `markovtrie.Store.LocalPhase()` (`pkg/core/numeric/gf`), updated as Values are observed                                      |
-| **Node**   | **GF(8191)**  | Phase mesh across **tries** on one node — regional chord                                     | `Field.refreshNodePhase()` projects each trie’s `Vector257` into the node’s `Vector8191` (`field.go`)                        |
-| **Global** | **GF(65537)** | Mesh across **nodes** — eigenphase of the DHT                                                | `Field.refreshGlobalPhase()` folds the local node phase plus **remote digests’ `NodePhase`** into `Vector65537` (`field.go`) |
-
-**Gossip** (`Gossip.Digests`) emits **one digest per local trie**: 257-bit trie affinity, algorithm signals (surprisal, entropy, growth), and a snapshot of the **node GF(8191) phase** so receivers can **`Field.Absorb`** remote state and recompute compatible global modes. That is the hook the protocol uses to stay coherent without centralizing trie data — phase is the shared coordinate system.
+For prompts, `Machine.Prompt` takes the same path but uses `PublishTracked` and spins until the Value's scheduling word clears.
 
 ## Values: Programmable Data
 
 The `Value` type comes from the idea that machine intelligence currently lacks its own distinct "language" and that, to me at least, it seems like a missed opportunity when we force machines to reason using human language. I believe that severely constrains a system, locking it in human-level semantics.
 
-Authoring flows through **`pkg/compute/programmer`**: text under `programs:` in config (or inline source) is parsed into tokens, the **`Compiler`** lowers tokens to one or more **`Frame`** values, and each frame is sized to fit exactly one **`Value` program region** (config: `value.region.program`). If a logical program does not fit in a single region, compilation produces **multiple frames** and **`Executable.Execute`** materializes **one `Value` per frame** (each with that frame written into its program words).
-
 A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
 
 ```text
-┌─────────────┬────────────┬────────────┬────────────┬──────────────┬────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
-│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │    Meta    │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
-│  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │  512 bits  │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
-│ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │ words48-55 │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
-└─────────────┴────────────┴────────────┴────────────┴──────────────┴────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
+┌─────────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
+│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
+│  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │   512 bits   │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
+│ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │  words48-55  │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
+└─────────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
 ```
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
-- **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines where the Value lives in the network.
+- **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines which community the Value joins.
 - **Program region**: Packed bits the compute kernels interpret (e.g. universal bitwise sweep with per-rotation opcodes in the program words). **Authoring** does not hand-edit raw words: you write lines of source (see below), the programmer **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
+- **Properties region** (words 48–55): 512-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Legacy uses (TTL, noise, probe ABI) may still occupy fixed words inside this span until callers migrate.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
-- **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads), not the same field as “which program runs next” (see below).
-- **ID**: 64-bit unique identifier.
-- **Word 117** (`primitive.SchedulerNextProgramWord`): **scheduler next program** — `pkg/compute/programmer` and **`Executable.Execute`** write the **ValueID** that should run **after** this frame completes. Zero means no explicit hop. This sits just before words **118–119** (correlation / residency tags used by `pkg/compute/backend`).
+- **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads) and for maintaining sequence order across tokenizer chunks. Values always know their original ordering.
+- **ID**: 64-bit unique identifier, assigned by atomic counter at mint time.
+- **Word 117** (`SchedulerNextProgramWord`): scheduler next program — `pkg/compute/programmer` and **`Executable.Execute`** write the **ValueID** that should run **after** this frame completes. Zero means settled. `next self` means re-enter the Queue for another ALU pass.
 
-### Program authoring (`pkg/compute/programmer`)
+### Properties
+
+Canonical 512 bit region, spanning words 48 to 55.
+
+- WORD 0: **labels** (4 packed)
+- WORD 1: **confidence**
+- WORD 2: **epoch**
+- WORD 3: **role + programID**
+- WORD 4: **state** (IDLE, READY, BUSY, WAITING, DONE)
+- WORD 5: **temperature**
+- WORD 6: **prediction** expected dominant lane next Value, computed from eigenmode trajectory, XOR predicted vs actual = surprisal score
+- WORD 7: **prediction error** accumulated delta between predictions and outcomes (potentially: high error, raise temperature?)
+
+### Program Authoring (`pkg/compute/programmer`)
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes that text; **`NewProgram(nameOrSource)`** resolves a string against that map when the key exists, otherwise treats the string as full source.
 
 Pipeline in order:
 
 1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
-2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value’s own ID — recursion / re-entry).
+2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value's own ID — recursion / re-entry).
 3. **`NewCompiler(tokens, WithContinuation(cont))`** — holds tokens and the optional continuation; **`Compile(CompilerTarget)`** dispatches to CPU / Metal / CUDA lowering and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
-4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**’s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** writes **word 117** on each Value: **non-final Values** in the batch point to the **following emitted Value’s ID** (implicit chain across a multi-frame compile); the **final** Value uses the parsed **`next`** line when present (**literal ID** anywhere in the system, **`next self`**, or omit for no trailing hop). An optional **finalizer** can emit follow-on Values; **`Finalize`** runs on one post-execution Value.
+4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**'s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** writes **word 117** on each Value: **non-final Values** in the batch point to the **following emitted Value's ID** (implicit chain across a multi-frame compile); the **final** Value uses the parsed **`next`** line when present (**literal ID** anywhere in the system, **`next self`**, or omit for no trailing hop). An optional **finalizer** can emit follow-on Values; **`Finalize`** runs on one post-execution Value.
 
 So: **one compiled frame → one program region on one Value**; **N frames → N Values**; **chaining** is expressed both **within a batch** (frame *i* → frame *i+1*) and **after the last frame** (arbitrary ValueID, including self).
 
@@ -498,83 +486,40 @@ In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{
 
 **The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `ScanSignals` detects all of them, sorts by length, and the longest of each kind becomes the local action. Shorter signals are published for inter-cluster exchange.
 
-## MarkovTrie: Learning Without Gradients
+---
 
-This component quite naturally and very quickly spun out of control. It started at a way to store `Values`.
+## The Field: Feedback, Bias, Attention, Communication Hub
 
-MarkovTrie is a suffix trie that learns from every observation. No training epochs, no loss functions, no weight matrices. It sees data, it updates.
+The field is not one thing. It is simultaneously top-down feedback, compositional bias, an attention mechanism, and the communication substrate for the gossip protocol. Understanding it requires abandoning the idea that attention is a single operation applied to semantic units — the field operates below that level entirely, on the raw population of Values.
 
-**Core loop:**
+**Fields emerge from Values.** A community of Values — say, a group currently running beam search — produces local results. Those beams are passed upward to the GF(8191) community field, which attempts to compose longer beams from the partial beams it receives. Beams that successfully compose reward their contributing Values with amplified attention and bias. Values whose beams did not participate in a successful composition receive a top-down signal that breaks their current beams, preventing them from getting stuck in a local minimum. This is not a metaphor for attention — it is the mechanism. The field rewards productive trajectories and disrupts unproductive ones.
 
-1. **Tokenize** input (character-level, word-level, or BPE).
-2. **Walk** the trie, recording which paths exist and which don't.
-3. **Compute surprisal** — how unexpected this input is given what the trie already knows.
-4. **Learn** by inserting the sequence into the trie with a learning rate modulated by surprisal. Novel inputs are learned aggressively; familiar inputs reinforce gently.
-5. **Decay** all counts by a factor per step, so stale knowledge fades and the trie tracks the current distribution.
-6. **Prune** dead branches when their counts fall below threshold.
+**The affine rotation is the attention mechanism.** Each successful step in a task (text generation, classification, anything that progresses) is a click on the affine rotation in GF(p). These rotations are reversible: if generation drifts in the wrong direction, the rotation clicks backward through history to find the original point of divergence. If a better trajectory is spotted but the current path cannot reach it because of how the sequence started, the system drops one level — from GF(8191) to GF(257) — where the scale is much smaller, rewinds the rotation at the beginning of the generated output, and via backtracking unlocks the better trajectory. The hierarchical field structure makes this practical: coarse corrections at the top, fine-grained rewinding at the bottom.
 
-**Classification** uses Naive Bayes over interpolated n-gram probabilities. The trie maintains per-label counts at every node, and classification is a walk through the trie accumulating log-evidence per label.
+**Eigenmodes sequence without collision.** The co-occurrence matrix over active Values produces eigenmodes — natural clusters of Values that are evolving together. These eigenmodes provide sequencing: they determine which Values should be composed next, which are ready to emit, and which should wait. Crucially, eigenmodes are orthogonal by construction, so multiple sequencing tasks can run in parallel on the same field without interfering with each other.
 
-**Generation** uses beam search with temperature-controlled sampling. The beam width, temperature, and generation length are not hyperparameters — they are derived from the trie's own adaptive state.
+**The PhaseDial aligns perspectives.** Each field carries a PhaseDial — a 512-dimensional complex vector that encodes the structural fingerprint of its Value population. When two fields need to coordinate (across communities, across nodes, across the global mesh), PhaseDial similarity determines whether they are looking at the same problem from compatible angles. Misaligned perspectives are not suppressed — they are rotated toward alignment when the evidence supports it, or left alone when they represent genuinely different aspects of the state.
 
-Each trie edge also carries a transition motor derived from the parent and child `Context` multivectors. Continuation rescoring keeps the GF(257) phase interference pass as the fast Boolean filter, then adds a PGA pass that composes a candidate motor and boosts continuations that steer the current context toward the local attractor.
+**Gossip makes the field a communication substrate.** The gossip protocol does not just propagate statistics — it propagates the field itself. Each digest carries the node's GF(8191) phase snapshot, so remote nodes can reconstruct compatible pressure fields without centralizing data. Phase is the shared coordinate system. This turns the layered field hierarchy into a message-passing network where updates propagate at gossip speed rather than waiting for direct observation. The field is the medium through which the distributed system maintains coherence.
 
-**Adaptive self-tuning** replaces every fixed constant with an online estimator:
+**Values already know their order.** Values are linked via `PrevID` and `NextID`, so the original sequence is always recoverable. The field does not impose ordering on Values — it selects which orderings to amplify, which to break, and which to compose into longer structures. The causal graph is the `PrevID`/`NextID` residency pattern of the live population; the field is what shapes which patterns survive.
 
-| Parameter              | Signal                    | Mechanism                                              |
-|------------------------|---------------------------|--------------------------------------------------------|
-| Decay factor           | Surprisal EMA             | High surprisal = volatile domain = faster decay        |
-| Learning rate          | Per-token surprisal       | Novel tokens learned more aggressively                 |
-| Prune threshold        | Node growth rate          | Fast growth = prune harder to control memory           |
-| Classification context | Classification entropy    | Confused classifier = widen context window             |
-| Temperature            | Surprisal EMA             | Familiar domain = explore more; novel domain = exploit |
-| Beam width             | Classification confidence | Low confidence = wider search                          |
-| Interpolation weights  | Depth hit rate            | Tracks which n-gram depths are most predictive         |
-| Episodic blend         | Episodic match quality    | Useful episodic memory = higher blend weight           |
-| Unsupervised threshold | Classification accuracy   | Maturing label space = require more confidence         |
+### Geometry Library (`pkg/core/numeric/geometry`)
 
-The unified entry point is `Predict(data) -> Prediction` — the caller passes data, the system returns a classification and continuations. Everything else is internal.
+The field hierarchy is backed by a substantial geometry package:
 
-Internally, each layer talks through the same `algo.Prediction` envelope and `algo.Stack` orchestration object, so trie-local inference, node-level composition, and field feedback all reuse one interface instead of accumulating layer-specific management code.
-
-For control, a multimodal coordinator can bind sensory, action, and reward tries while maintaining coactivation-weighted expected reward for each observed `(sensory, action, reward)` triplet. Reward stays the terminal variable; causal regime labels describe the environment where the transition should remain stable, such as field phase, sensory cluster, source, or intervention family. The causal graph tracks `sensory -> action -> reward` path reliability from regime invariance and support, penalizes paths with high reward-affinity residual drift, and policy projection biases action ranking toward the strongest bottleneck edge before projecting ranked continuations upward through the same prediction envelope.
-
-The coordinator also builds an immutable Orthogonal Procrustes alignment from coactivated sensory and action multivectors. Exact sensory matches still dominate, but an unseen sensory `Value` can be projected into the action manifold and scored by nearest aligned action geometry. This gives the policy path a mathematical zero-shot bridge without abandoning the affinity filter.
-
-Episodic memory stores one geometry vector per event. `Buffer.Realign` lets an idle consolidation loop resolve old events against current trie coordinates, run Procrustes, and rotate the whole ring buffer in place so older memories remain coherent as the manifold drifts.
-
-### Kadabra: Distributed Knowledge Routing
-
-Kadabra is a Kademlia-style distributed hash table where logical **peers** host **Markov tries**. It serves two purposes: **distributing knowledge** across tries based on content similarity, and **forming the substrate** from which the field emerges. The **canonical ingest path** (above) is the authoritative lifecycle from raw bytes to stored trie rows.
-
-**Affinity-based routing**: When a Value is published, its 257-bit affinity fingerprint determines which trie stores it (`Node.Publish` → `Store` → `selectOrSpawnTrie`). Values with similar content cluster on the same node. This follows from the LSH property: similar token regions produce similar hashes, so they route to the same place. Each trie naturally specializes in a region of content space.
-
-**Trie vs node saturation**: Two independent caps use the same `kadabra.shannonLimit` popcount ceiling — **trie** centroids (`primitive.Affinity` per `markovtrie.Store`) and the **node** mesh-load centroid (`meshLoadState`). Hitting the cap on a matching trie spawns another trie; hitting it on the node centroid triggers **`onMeshExpand`** (when set) for mesh growth instead of unbounded blending.
-
-**Replication**: Each Value is stored on the `k` closest nodes by affinity distance (Hamming distance over the 257-bit affinity vectors). This provides both redundancy and the ability for multiple tries to learn from the same data.
-
-**Adaptive peer selection**: Each routing bucket tracks peer quality over epochs. Every `EpochQueries` queries, the bucket scores its peers by latency, explores alternatives, and swaps in better candidates. This is the Kadabra algorithm — a multi-armed bandit at the routing layer.
-
-**Zero-affinity rejection**: Values without a computed affinity fingerprint are invalid and rejected. Every Value must know what it is before entering the network.
-
-### The Field: Emergent Attention
-
-The field is the mechanism that binds isolated tries into a coherent system. It is not a data structure that nodes query — it is a force that acts on them.
-
-**Gossip protocol**: `Gossip.Digests()` builds **one compact digest per local trie** (origin ID, trie 257-bit affinity, surprisal / classification entropy / growth, plus the current **node GF(8191) phase** snapshot). Remote nodes **`Field.Absorb`** these digests so `refreshGlobalPhase` can fold peer **NodePhase** vectors into **GF(65537)**. Wire transport may batch the same structure; in-process tests exercise the absorb path directly. Propagation is the mechanism that turns layered fields into a **communication substrate**, not a side channel.
-
-**Eigenmode detection**: When a node absorbs a digest, the field recomputes emergent eigenmodes — clusters of structurally aligned tries. Structural alignment is measured by Jaccard coupling over the 257-bit affinity vectors, with the coupling threshold learned from the observed pairwise distribution. Phase coherence is measured by **surprisal velocity** during pressure projection — whether nodes are rising or falling in surprisal together.
-
-**Top-down projection**: The dominant eigenmode — the cluster with the most collective energy — is what the system is "attending to" right now. The field projects asymmetric pressure onto each trie:
-
-|              | Aligned (in dominant mode)               | Misaligned (outside dominant mode)         |
-|--------------|------------------------------------------|--------------------------------------------|
-| **Decay**    | Suppressed — knowledge retained longer   | Amplified — stale knowledge pruned faster  |
-| **Learning** | Amplified — absorbs related input faster | Suppressed — doesn't waste effort on noise |
-
-This is attention without an attention mechanism. No query-key-value matrices, no softmax — the field *is* the attention. Tries don't decide to check the field. The field decides which tries matter and modulates their behavior accordingly, exactly as a physical field acts on particles within it.
-
-**Phase dynamics**: In-phase nodes (both absorbing novelty or both consolidating) amplify each other's field pressure. Anti-phase nodes (one learning while the other is stable) dampen each other — they're already complementing each other naturally, so the field doesn't interfere.
+| Module              | Purpose                                                                       |
+|---------------------|-------------------------------------------------------------------------------|
+| `field.go`          | `Field` type — GF(p) phase vectors with `Rotate`, `Dominant`, `Dot`, `AccumulateProjected`, `AggregateFromLowerFields` |
+| `eigenmode.go`      | `Eigenmode` detection — greedy clustering via coupling functions, `DetectModes`, `PhaseAlignment` |
+| `eigenmode_toroidal.go` | Toroidal eigenmode variant for wrap-around phase spaces                   |
+| `phasedial.go`      | `PhaseDial` — 512-dimensional complex vector for perspective alignment        |
+| `gf_rotation.go`    | `GFRotation` — uint16 pair in GF(257) for kernel-level affine addressing      |
+| `pga.go`            | Projective Geometric Algebra — multivector products, sandwich, reverse        |
+| `procrustes.go`     | Orthogonal Procrustes alignment between manifolds                             |
+| `clifford.go`       | Clifford algebra primitives                                                   |
+| `scanner.go`        | Signal scanning — longest runs, signal extraction                             |
+| `phase.go`          | Phase utilities                                                               |
 
 ---
 
@@ -584,7 +529,7 @@ Six does not compute answers from inputs. It holds a **believed resolution** and
 
 ### The attractor is the local eigenmode
 
-When a prompt `Value` lands on a node, its affinity has already routed it into a neighbourhood of the DHT. That neighbourhood already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
+When a prompt Value lands on the Orchestrator, its affinity routes it into a community. That community already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
 
 The gap between the prompt's affinity and the eigenmode is the drive. The explore program steps the prompt through Morton-space each pass, and every step closes a little more of that gap. Convergence does two things at once:
 
@@ -621,17 +566,17 @@ Counterfactual reasoning lives inside this rotation space. A "what if the belief
 
 Classical causal modelling treats the counterfactual as a structural equation and falsification as a separate statistical test. Six collapses both into the same mechanism.
 
-**Counterfactuals are perturbations.** A "what if *X* had happened" query is an **ephemeral Value** encoding *X*, published into the DHT under a low TTL. Its explore program runs, it emits descendants, the descendants inherit a decremented TTL through `PrevID`, and after a bounded number of hops the whole cascade self-terminates. The answer to the what-if is the population snapshot at the moment the cascade dies — "this is how the live state would have looked if *X* had landed here." Nothing is mutated; the ephemeral lineage leaves no permanent trace. The same substrate that runs real queries runs counterfactuals — only the initial TTL differs.
+**Counterfactuals are perturbations.** A "what if *X* had happened" query is an **ephemeral Value** encoding *X*, published with a low TTL. Its explore program runs, it emits descendants, the descendants inherit a decremented TTL through `PrevID`, and after a bounded number of hops the whole cascade self-terminates. The answer to the what-if is the population snapshot at the moment the cascade dies — "this is how the live state would have looked if *X* had landed here." Nothing is mutated; the ephemeral lineage leaves no permanent trace. The same substrate that runs real queries runs counterfactuals — only the initial TTL differs.
 
 **Falsification is cancellation with the sign flipped.** The normal cancel signal (`XOR` → longest **zero-run**) rewards agreement: a big shared substring produces a big zero-run and two Values are treated as related. Falsification uses the same `XOR` against a *predicted-absent* pattern. If the hypothesis claims "if *X*, then NOT *Y*," the explore program `XOR`s the downstream Value against the predicted-absent *Y* and looks for a long **one-run** rather than a zero-run. A long one-run confirms disagreement — the claim held. A long zero-run means *Y* appeared where it was predicted absent — the hypothesis is refuted, and the refuting Value is published as evidence.
 
 This gives Popperian falsification a natural substrate. A hypothesis is a Value whose program runs an `XOR` against a predicted-absent successor pattern. **Sharp hypotheses** — narrow, specific claims — produce clean, decisive `XOR` signals when tested. **Vague hypotheses** produce mushy signals and get field-suppressed. Falsifiability becomes a **survival trait in the population**. Popper is not imposed on top of the system; he drops out of the substrate.
 
-**Causal edges are not stored.** They are the `PrevID` / `NextID` residency pattern of the live population itself. When Value *A* reliably precedes Value *B* across many cancel/merge events, that *is* the causal edge from *A* to *B*. Edge weight is how frequently the pair co-occurs in emission lineages. Discovery is emission. Intervention is: drop a Value into the DHT and observe how the downstream population reshapes under the field. A causal graph query is a walk over `PrevID` / `NextID` links in the live state — the same operation used to chain segments of a long payload. **The graph and the data are the same structure.**
+**Causal edges are not stored.** They are the `PrevID` / `NextID` residency pattern of the live population itself. When Value *A* reliably precedes Value *B* across many cancel/merge events, that *is* the causal edge from *A* to *B*. Edge weight is how frequently the pair co-occurs in emission lineages. Discovery is emission. Intervention is: drop a Value into the system and observe how the downstream population reshapes under the field. A causal graph query is a walk over `PrevID` / `NextID` links in the live state — the same operation used to chain segments of a long payload. **The graph and the data are the same structure.**
 
 | Concept                         | Substrate mechanism                                                |
 |---------------------------------|--------------------------------------------------------------------|
-| Believed resolution             | Local eigenmode of the landing neighbourhood                       |
+| Believed resolution             | Local eigenmode of the landing community                           |
 | Gap as drive                    | Affinity + phase distance between prompt and eigenmode             |
 | Perception update               | Prompt converges toward the mode                                   |
 | World update                    | Mode shifts as the new Value joins the cluster                     |
@@ -644,7 +589,7 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 
 ### Ephemerality and TTL
 
-Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the `meta` region. It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
+Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
 
 Because a hypothesis query and a real observation share the same substrate, Six can interleave the two freely. A stream of real observations updates the field. In-between, ephemeral queries probe the field without disturbing it. The field itself cannot tell a query from an observation until the query dies — which means the same dynamics that handle real-world inference handle hypothetical reasoning for free.
 
@@ -693,20 +638,13 @@ value:
     tokens:   { start: 0,   bits: 1024 }
     program:  { start: 16,  bits: 512 }
     signals:  { start: 24,  bits: 512 }
-    context:  { start: 32,  bits: 512 }
-    gradient: { start: 40,  bits: 512 }
-    meta:     { start: 48,  bits: 512 }
+    context:    { start: 32,  bits: 512 }
+    gradient:   { start: 40,  bits: 512 }
+    properties: { start: 48,  bits: 512 }
     prev:     { start: 120, bits: 64 }
     next:     { start: 121, bits: 64 }
     id:       { start: 122, bits: 64 }
     affinity: { start: 123, bits: 257 }
-
-kadabra:
-  bits: 64
-  bucketSize: 20
-  replicationFactor: 3
-  alpha: 3
-  epochQueries: 100
 ```
 
 **`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
@@ -755,42 +693,17 @@ make pprof EXP=Text_Classification
 ## Usage
 
 ```go
-// Create a Kadabra node backed by a MarkovTrie
-node := kadabra.NewKadabraNode(
-    kadabra.NodeIDFromString("node-alpha"),
-    kadabra.WithReplicationFactor(3),
-)
+// Create a machine
+machine, _ := vm.NewMachine(ctx)
+defer machine.Close()
 
-// Create a Value (affinity + ID filled by NewValue), publish to the DHT
-value, _ := primitive.NewValue([]byte("the cat sat on the mat"))
-node.Publish(*value, "Sentence")
-value.Close()
+// Load a dataset — Values are minted, linked, programmed, and
+// published to the queue and orchestrator automatically.
+machine.Load(dataset)
 
-// The trie learns automatically. Query it:
-prediction := node.Store.Predict("the cat sat")
-fmt.Println(prediction.Label)         // "Sentence"
-fmt.Println(prediction.Continuations) // [{Sequence: "on the mat" Score: 0.87} ...]
-```
-
-For distributed operation, connect nodes and let the field emerge:
-
-```go
-nodes := make([]*kadabra.KadabraNode, 10)
-for i := range nodes {
-    nodes[i] = kadabra.NewKadabraNode(kadabra.NodeID(i))
-}
-
-// Connect the mesh
-for i := range nodes {
-    for j := i + 1; j < len(nodes); j++ {
-        kadabra.Connect(nodes[i], nodes[j], 1.0)
-    }
-}
-
-// Publish data — Values route to affinity-similar tries automatically.
-// The field emerges from gossip and biases learning across the network.
-// No central coordinator. No global optimizer. Just local learning
-// shaped by emergent collective dynamics.
+// Prompt — the Value flows through the same pipeline as Load.
+// Spins until the scheduling word clears (Value has settled).
+result, _ := machine.Prompt("the cat sat on the", "beam_swarm_step")
 ```
 
 ---
@@ -802,20 +715,30 @@ six/
 ├── cmd/                    # CLI commands (root, init, paper)
 │   └── cfg/config.yml      # Default configuration
 ├── pkg/
-│   ├── primitive/           # Value type, VSA operations, affinity LSH
+│   ├── primitive/           # Value type, Morton coding, affinity LSH
 │   ├── compute/             # Multi-substrate load balancer
 │   │   ├── programmer/      # Program source → tokens → frames → Values
 │   │   └── kernel/
-│   │       ├── cpu/         # SIMD-optimized bitwise executor
+│   │       ├── cpu/         # SIMD-optimized bitwise executor + ARM64/AMD64 asm
 │   │       ├── cuda/        # NVIDIA GPU kernels
 │   │       └── metal/       # Apple Metal GPU shaders
-│   ├── store/
-│   │   ├── markovtrie/     # Adaptive probabilistic trie
-│   │   └── kadabra/         # Kademlia DHT + field dynamics
+│   ├── core/                # Configuration, data structures
+│   │   └── numeric/
+│   │       └── geometry/    # Field, PhaseDial, eigenmode, PGA, Procrustes
+│   ├── pool/                # Lock-free thread pool + tiered work queue
+│   ├── vm/                  # Machine, Orchestrator, Tokenizer
+│   ├── gossip/              # Gossip protocol types (Conn, Digest)
 │   ├── network/             # QUIC, UDP, IPC transports
-│   ├── vm/                  # Machine orchestrator
-│   ├── core/                # Configuration management
-│   └── errnie/              # Structured logging + Elasticsearch
+│   ├── transport/           # Pipeline, Stream framing
+│   ├── viz/                 # Event bus, WebSocket server, timeline
+│   └── errnie/              # Structured logging + Elasticsearch shipping
+├── experiment/              # Experiment tasks, data loaders, paper generation
+│   ├── data/                # HuggingFace + local data providers
+│   ├── task/                # Classification, codegen, logic, phasedial, scaling, textgen
+│   ├── projector/           # LaTeX/chart templates
+│   └── trialmap/            # Trial visualization
+├── visualizer/              # React/Three.js 3D visualizer
+├── paper/                   # LaTeX paper + generated figures
 ├── docker-compose.yml       # Elasticsearch, Kibana, MinIO, LakeFS
 ├── Makefile                 # Build targets
 └── main.go                  # Entry point
@@ -827,10 +750,10 @@ six/
 
 Six is research software under active development. The core mechanisms work and are tested, but the system is not yet production-ready. Current focus areas:
 
-- Field dynamics and eigenmode-driven attention
-- Multi-node distributed learning across network boundaries
+- Field dynamics: wiring community fields to actually drive Value-level behavior via affine rotation and eigenmode sequencing
+- Gossip integration: connecting the digest protocol to the network transports
+- Multi-node distributed execution across network boundaries
 - GPU acceleration of Value program execution at scale
-- Episodic memory integration with field pressure
 
 ---
 
@@ -974,7 +897,7 @@ value:
     gradient:
       start: 40
       bits: 512
-    meta:
+    properties:
       start: 48
       bits: 512
     reserved:
@@ -1055,63 +978,64 @@ programs:
   # drift away in DHT space, and loops via `next self` so the scheduler
   # keeps spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
-    tokens[0,8]   gradient[0,8]  context[0,8]  xor accumulate
-    tokens[0,8]   context[0,8]   signals[0,8]  xor accumulate
-    signals[0,8]  signals[0,8]   meta[0,1]     xor reduce
-    meta[0,1]     meta[1,1]      meta[0,1]     or  accumulate
-    meta[0,1]     affinity[0,5]  affinity[0,5] xor accumulate
+    tokens[0,8]  gradient[0,8]  context[0,8]  xor accumulate
+    tokens[0,8]  context[0,8]   signals[0,8]  xor accumulate
+    signals[0,8] signals[0,8]   properties[0,1]     xor reduce
+    properties[0,1]    properties[1,1]      properties[0,1]     or  accumulate
+    properties[0,1]    affinity[0,5]  affinity[0,5] xor accumulate
     next self
 
   # Free Energy / Prediction Error: Computes the gap between the incoming
   # tokens and the context (the local eigenmode/attractor).
   surprisal: |
     tokens[0,8]  context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] meta[0,1]    xor reduce
+    signals[0,8] signals[0,8] properties[0,1]    xor reduce
 
   # Popperian Test: XORs tokens against a predicted-absent pattern in context.
-  # A high popcount in meta[1] means the claim held (they differ); a low
-  # popcount refutes it. If refuted, we zero the TTL word (meta[3]).
+  # A high popcount in properties[1] means the claim held (they differ); a low
+  # popcount refutes it. If refuted, we zero the TTL word (properties[3]).
   falsification: |
     tokens[0,8]  context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] meta[1,1]    xor reduce
-    meta[1,1]    meta[3,1]    meta[3,1]    and accumulate
+    signals[0,8] signals[0,8] properties[1,1]    xor reduce
+    properties[1,1]    properties[3,1]    properties[3,1]    and accumulate
 
   # Temperature: Physical noise injected into the Affinity vector during
   # exploration to widen the search space.
   temperature: |
-    meta[4,1] affinity[0,5] affinity[0,5] xor accumulate
+    properties[4,1] affinity[0,5] affinity[0,5] xor accumulate
 
   # Active Inference: Unified cognitive loop that simulates multiple futures,
   # evaluates their expected free energy, and applies the action that minimizes
   # surprisal.
   active_inference: |
-    tokens[0,8] gradient[0,8] reserved[0,8] xor accumulate
-    tokens[0,4] meta[4,2] reserved[8,4] and accumulate
-    tokens[4,4] meta[6,2] reserved[12,4] and accumulate
-    tokens[0,8] context[0,8] reserved[16,8] xor accumulate
-    reserved[0,8] context[0,8] signals[0,8] xor accumulate
-    reserved[8,8] context[0,8] reserved[24,8] xor accumulate
-    reserved[16,8] context[0,8] reserved[32,8] xor accumulate
-    signals[0,8] signals[0,8] signals[0,1] xor reduce
-    reserved[24,8] reserved[24,8] signals[1,1] xor reduce
-    reserved[32,8] reserved[32,8] signals[2,1] xor reduce
+    tokens[0,8]    gradient[0,8]   reserved[0,8]  xor accumulate
+    tokens[0,4]    properties[4,2] reserved[8,4]  and accumulate
+    tokens[4,4]    properties[6,2] reserved[12,4] and accumulate
+    tokens[0,8]    context[0,8]    reserved[16,8] xor accumulate
+    reserved[0,8]  context[0,8]    signals[0,8]   xor accumulate
+    reserved[8,8]  context[0,8]    reserved[24,8] xor accumulate
+    reserved[16,8] context[0,8]    reserved[32,8] xor accumulate
+    signals[0,8]   signals[0,8]    signals[0,1]   xor reduce
+    reserved[24,8] reserved[24,8]  signals[1,1]   xor reduce
+    reserved[32,8] reserved[32,8]  signals[2,1]   xor reduce
     next self
 
   # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
   # Used by phase probes; the field drives parallel population, not one tight loop.
   causal_explore: |
-    tokens[0,8]   context[0,8]   signals[0,8]  xor accumulate
-    gradient[0,8] context[0,8]   reserved[40,8] xor accumulate
-    signals[0,8]  signals[0,8]   meta[0,2]     xor reduce
-    meta[0,2]     meta[2,2]      meta[0,2]     or  accumulate
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
+    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
+    properties[0,2] properties[2,2] properties[0,2] or  accumulate
 
-  # Causal Merge: AND-merge of signals into context/gradient; one ALU frame per probe.
-  causal_merge: |
-    signals[0,8]  context[0,8]   context[0,8]  and accumulate
-    reserved[40,8] gradient[0,8] gradient[0,8] and accumulate
-    context[0,8]  context[0,8]   meta[4,2]     xor reduce
-    meta[4,2]     meta[0,2]      meta[4,2]     or  accumulate
-    context[0,8]  gradient[0,8]  reserved[0,8] xor accumulate
+  # Causal Hub: Iterative causal gap exploration.
+  # Loops via next self until the queue or finalizer breaks the circuit.
+  causal_hub: |
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
+    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
+    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    next self
 <<<END>>>
 <<<FILE ./cmd/init.go>>>
 package cmd
@@ -2219,174 +2143,25 @@ type CorpusRegistrar interface {
 }
 
 <<<END>>>
-<<<FILE ./experiment/data/huggingface/babi_qa.go>>>
+<<<FILE ./experiment/data/huggingface/babi_story.go>>>
 package huggingface
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"iter"
 	"strings"
-	"sync"
 
 	"github.com/parquet-go/parquet-go"
-	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
-BabiQASample holds one bAbI QA sample: Visible (context+question), Answer, and Full (same as Visible).
-Used for entity/location extraction and retrieval evaluation.
+streamBabiParquet reads facebook/babi_qa-style Parquet: each row holds story.{text,answer,type} lists.
+Rows are expanded into QA pairs; maxSamples limits top-level Parquet rows (not individual QAs).
 */
-type BabiQASample struct {
-	Visible string
-	Answer  string
-	Full    string
-}
-
-/*
-BabiQADataset wraps a HuggingFace Dataset configured for bAbI QA.
-Parses the story/answer/type structure into BabiQASamples. Defaults: facebook/babi_qa, en-10k-qa1.
-*/
-type BabiQADataset struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	base   *Dataset
-
-	once    sync.Once
-	samples []BabiQASample
-	err     error
-}
-
-var _ data.PromptProvider = (*BabiQADataset)(nil)
-var _ data.LabeledPromptProvider = (*BabiQADataset)(nil)
-
-/*
-NewBabiQA creates a BabiQADataset. Accepts same opts as Dataset (repo, subset, etc.).
-Defaults repo to facebook/babi_qa, subset to en-10k-qa1.
-*/
-func NewBabiQA(opts ...datasetOpts) *BabiQADataset {
-	base := New(opts...)
-	if base.repo == "" {
-		base.repo = "facebook/babi_qa"
-	}
-	if base.subset == "" {
-		base.subset = "en-10k-qa1"
-	}
-
-	return &BabiQADataset{base: base}
-}
-
-/*
-Generate returns an iterator that emits RawTokens for each byte of Full across all samples.
-Loads and parses the bAbI shard on first use.
-*/
-func (dataset *BabiQADataset) Generate() iter.Seq[byte] {
-	return func(yield func(byte) bool) {
-		samples, err := dataset.Samples()
-		if err != nil {
-			errnie.Error(err, "repo", dataset.base.repo, "subset", dataset.base.subset)
-			return
-		}
-
-		for _, sample := range samples {
-			for _, b := range []byte(sample.Full) {
-				if !yield(b) {
-					return
-				}
-			}
-		}
-	}
-}
-
-func (dataset *BabiQADataset) Read(p []byte) (n int, err error) {
-	return dataset.base.Read(p)
-}
-
-func (dataset *BabiQADataset) Close() error {
-	return dataset.base.Close()
-}
-
-func (dataset *BabiQADataset) HasPromptLabels() bool {
-	return true
-}
-
-/*
-GeneratePrompts emits one Prompt per sample.
-Text is the visible question/context and Label is the expected answer.
-*/
-func (dataset *BabiQADataset) GeneratePrompts() iter.Seq[data.Prompt] {
-	return func(yield func(data.Prompt) bool) {
-		samples, err := dataset.Samples()
-		if err != nil {
-			errnie.Error(err, "repo", dataset.base.repo, "subset", dataset.base.subset)
-			return
-		}
-
-		for sampleIdx, sample := range samples {
-			prompt := data.Prompt{
-				SampleID: uint32(sampleIdx),
-				Text:     extractBabiQuestion(sample.Visible),
-				Label:    sample.Answer,
-				HasLabel: sample.Answer != "",
-			}
-
-			if !yield(prompt) {
-				return
-			}
-		}
-	}
-}
-
-/*
-Samples loads the bAbI shard (once), parses story/answer/type, and returns all BabiQASamples.
-Each sample has Visible (context+question), Answer, Full. Safe to call concurrently.
-*/
-func (dataset *BabiQADataset) Samples() ([]BabiQASample, error) {
-	dataset.once.Do(func() {
-		dataset.err = dataset.load()
-	})
-
-	if dataset.err != nil {
-		return nil, dataset.err
-	}
-
-	out := make([]BabiQASample, len(dataset.samples))
-	copy(out, dataset.samples)
-
-	return out, nil
-}
-
-/*
-load discovers the shard, downloads it, and parses into BabiQASamples.
-Supports both Parquet and JSON formats. Called once via sync.Once.
-*/
-func (dataset *BabiQADataset) load() error {
-	shard, branch, err := dataset.base.discoverShard()
-	if err != nil {
-		return err
-	}
-
-	reader, err := dataset.base.downloadShard(shard, branch)
-	if err != nil {
-		return err
-	}
-
-	if strings.HasSuffix(shard, ".parquet") {
-		return dataset.loadParquet(reader)
-	}
-
-	return dataset.loadJSON(reader)
-}
-
-/*
-loadParquet reads the Parquet shard, extracts story text/answer/type columns,
-and builds BabiQASamples. Stops at maxSamples if configured.
-*/
-func (dataset *BabiQADataset) loadParquet(reader io.Reader) error {
+func (dataset *Dataset) streamBabiParquet(reader io.Reader, fn rowVisitor) error {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return fmt.Errorf("huggingface: read shard: %w", err)
@@ -2409,7 +2184,8 @@ func (dataset *BabiQADataset) loadParquet(reader io.Reader) error {
 	defer pReader.Close()
 
 	rows := make([]parquet.Row, 1)
-	rowCount := 0
+	rowsRead := 0
+	var sampleIdx uint32
 
 	for {
 		n, err := pReader.ReadRows(rows)
@@ -2417,26 +2193,37 @@ func (dataset *BabiQADataset) loadParquet(reader io.Reader) error {
 			break
 		}
 
+		if n == 0 {
+			break
+		}
+
+		if dataset.maxSamples > 0 && rowsRead >= dataset.maxSamples {
+			return nil
+		}
+
 		row := rows[0]
 		texts := parquetStrings(row, textCol)
 		answers := parquetStrings(row, answerCol)
 		types := parquetInts(row, typeCol)
 
-		dataset.samples = append(dataset.samples, buildBabiQASamples(texts, answers, types)...)
-		rowCount++
-		if dataset.base.maxSamples > 0 && rowCount >= dataset.base.maxSamples {
-			return nil
+		for _, qa := range buildBabiQASamples(texts, answers, types) {
+			if !fn(babiQAtoRowSample(qa), sampleIdx) {
+				return nil
+			}
+
+			sampleIdx++
 		}
+
+		rowsRead++
 	}
 
 	return nil
 }
 
 /*
-loadJSON reads the JSON shard, parses story/answer/type, and builds BabiQASamples.
-Handles both top-level arrays and single-object streams.
+streamBabiJSON reads the same structure from JSON / JSONL shards.
 */
-func (dataset *BabiQADataset) loadJSON(reader io.Reader) error {
+func (dataset *Dataset) streamBabiJSON(reader io.Reader, fn rowVisitor) error {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return fmt.Errorf("huggingface: read shard: %w", err)
@@ -2457,7 +2244,8 @@ func (dataset *BabiQADataset) loadJSON(reader io.Reader) error {
 		dec = json.NewDecoder(bytes.NewReader(data))
 	}
 
-	rowCount := 0
+	rowsRead := 0
+	var sampleIdx uint32
 
 	for {
 		if isArray && !dec.More() {
@@ -2468,33 +2256,62 @@ func (dataset *BabiQADataset) loadJSON(reader io.Reader) error {
 		var row map[string]interface{}
 		if err := dec.Decode(&row); err != nil {
 			if err != io.EOF {
-				errnie.Error(err, "msg", "bAbI JSON decode failure", "row", rowCount)
+				errnie.Error(err, "msg", "bAbI JSON decode failure", "row", rowsRead)
 			}
+
 			if err == io.EOF {
 				break
 			}
+
 			continue
 		}
 
-		texts, answers, types := jsonStoryFields(row["story"])
-		dataset.samples = append(dataset.samples, buildBabiQASamples(texts, answers, types)...)
-		rowCount++
-		if dataset.base.maxSamples > 0 && rowCount >= dataset.base.maxSamples {
+		if dataset.maxSamples > 0 && rowsRead >= dataset.maxSamples {
 			return nil
 		}
+
+		texts, answers, types := jsonStoryFields(row["story"])
+		for _, qa := range buildBabiQASamples(texts, answers, types) {
+			if !fn(babiQAtoRowSample(qa), sampleIdx) {
+				return nil
+			}
+
+			sampleIdx++
+		}
+
+		rowsRead++
 	}
 
 	return nil
 }
 
+func babiQAtoRowSample(qa babiQASample) rowSample {
+	return rowSample{
+		streamText:  qa.Full,
+		promptText:  extractBabiQuestion(qa.Visible),
+		labelText:   qa.Answer,
+		hasLabel:    qa.Answer != "",
+		labelIsText: true,
+	}
+}
+
 /*
-buildBabiQASamples converts raw story text/answer/type arrays into BabiQASamples.
+babiQASample is one expanded QA pair from a bAbI story row.
+*/
+type babiQASample struct {
+	Visible string
+	Answer  string
+	Full    string
+}
+
+/*
+buildBabiQASamples converts raw story text/answer/type arrays into QA samples.
 Questions (identified by type or trailing "?") get paired with the next answer;
 context is accumulated from preceding non-question lines.
 */
-func buildBabiQASamples(texts, answers []string, types []int) []BabiQASample {
+func buildBabiQASamples(texts, answers []string, types []int) []babiQASample {
 	context := make([]string, 0, len(texts))
-	samples := make([]BabiQASample, 0)
+	samples := make([]babiQASample, 0)
 	answerIdx := 0
 
 	for i, rawText := range texts {
@@ -2512,17 +2329,19 @@ func buildBabiQASamples(texts, answers []string, types []int) []BabiQASample {
 					break
 				}
 			}
+
 			if answer == "" {
 				continue
 			}
 
 			parts := append(append([]string{}, context...), text)
 			visible := strings.Join(parts, " ")
-			samples = append(samples, BabiQASample{
+			samples = append(samples, babiQASample{
 				Visible: visible,
 				Answer:  answer,
 				Full:    visible + answer,
 			})
+
 			continue
 		}
 
@@ -2542,13 +2361,10 @@ func extractBabiQuestion(visible string) string {
 			return s
 		}
 	}
+
 	return visible
 }
 
-/*
-isBabiQuestion returns true if the line at idx is a question. Uses the types
-array when present; otherwise falls back to trailing "?".
-*/
 func isBabiQuestion(idx int, text string, types []int) bool {
 	if idx < len(types) {
 		return types[idx] != 0
@@ -2559,13 +2375,13 @@ func isBabiQuestion(idx int, text string, types []int) bool {
 
 /*
 findStoryColumn returns the Parquet column index for the story.{leaf} field.
-Returns -1 if not found.
 */
 func findStoryColumn(schema *parquet.Schema, leaf string) int {
 	for i, col := range schema.Columns() {
 		if len(col) == 0 || col[0] != "story" {
 			continue
 		}
+
 		for _, comp := range col[1:] {
 			if comp == leaf {
 				return i
@@ -2576,9 +2392,6 @@ func findStoryColumn(schema *parquet.Schema, leaf string) int {
 	return -1
 }
 
-/*
-parquetStrings extracts string values from a Parquet row for the given column.
-*/
 func parquetStrings(row parquet.Row, column int) []string {
 	if column < 0 {
 		return nil
@@ -2589,6 +2402,7 @@ func parquetStrings(row parquet.Row, column int) []string {
 		if v.Column() != column || v.IsNull() {
 			continue
 		}
+
 		text := strings.TrimSpace(string(v.ByteArray()))
 		values = append(values, text)
 	}
@@ -2596,9 +2410,6 @@ func parquetStrings(row parquet.Row, column int) []string {
 	return values
 }
 
-/*
-parquetInts extracts int values from a Parquet row for the given column.
-*/
 func parquetInts(row parquet.Row, column int) []int {
 	if column < 0 {
 		return nil
@@ -2609,6 +2420,7 @@ func parquetInts(row parquet.Row, column int) []int {
 		if v.Column() != column || v.IsNull() {
 			continue
 		}
+
 		switch v.Kind() {
 		case parquet.Int32:
 			values = append(values, int(v.Int32()))
@@ -2620,9 +2432,6 @@ func parquetInts(row parquet.Row, column int) []int {
 	return values
 }
 
-/*
-jsonStoryFields unpacks the story object into text, answer, and type slices.
-*/
 func jsonStoryFields(raw any) ([]string, []string, []int) {
 	story, ok := raw.(map[string]any)
 	if !ok {
@@ -2632,9 +2441,6 @@ func jsonStoryFields(raw any) ([]string, []string, []int) {
 	return jsonStrings(story["text"]), jsonStrings(story["answer"]), jsonInts(story["type"])
 }
 
-/*
-jsonStrings coerces a JSON array of mixed types into a []string.
-*/
 func jsonStrings(raw any) []string {
 	items, ok := raw.([]any)
 	if !ok {
@@ -2651,9 +2457,6 @@ func jsonStrings(raw any) []string {
 	return values
 }
 
-/*
-jsonInts coerces a JSON array of numbers into a []int.
-*/
 func jsonInts(raw any) []int {
 	items, ok := raw.([]any)
 	if !ok {
@@ -2723,6 +2526,8 @@ type Dataset struct {
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
 	perSamplePos bool
+	// babiStory enables facebook/babi_qa-style rows: nested story.{text,answer,type} exploded into QA pairs.
+	babiStory bool
 
 	mu     sync.RWMutex
 	labels map[uint32]int
@@ -2767,8 +2572,21 @@ func New(opts ...datasetOpts) *Dataset {
 	return dataset
 }
 
-// rowVisitor is called once per sample with the joined text, optional label, and sample index.
-type rowVisitor func(text string, label int, hasLabel bool, sampleIdx uint32) bool
+/*
+rowSample is one logical unit after shard parsing (one classification row, or one exploded bAbI QA pair).
+promptText empty means GeneratePrompts uses streamText. labelIsText selects string answers (bAbI) vs integer labels.
+*/
+type rowSample struct {
+	streamText  string
+	promptText  string
+	labelInt    int
+	labelText   string
+	hasLabel    bool
+	labelIsText bool
+}
+
+// rowVisitor is called once per sample. sampleIdx is monotonic for this shard load.
+type rowVisitor func(sample rowSample, sampleIdx uint32) bool
 
 // textColumns returns the effective list of text columns to read.
 func (dataset *Dataset) effectiveTextColumns() []string {
@@ -2792,7 +2610,7 @@ func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 }
 
 func (dataset *Dataset) HasPromptLabels() bool {
-	return dataset != nil && dataset.labelColumn != ""
+	return dataset != nil && (dataset.labelColumn != "" || dataset.babiStory)
 }
 
 /*
@@ -2829,16 +2647,16 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 		}
 		defer flushLabels()
 
-		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
-			if hasLabel {
-				labelBatch[sampleIdx] = label
+		if err := dataset.streamRows(func(sample rowSample, sampleIdx uint32) bool {
+			if sample.hasLabel && !sample.labelIsText {
+				labelBatch[sampleIdx] = sample.labelInt
 
 				if len(labelBatch) >= labelBatchSize {
 					flushLabels()
 				}
 			}
 
-			for _, b := range []byte(text) {
+			for _, b := range []byte(sample.streamText) {
 				tokens = append(tokens, b)
 
 				if !yield(b) {
@@ -2851,8 +2669,9 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 			// When labelAppend is configured, append " → <label_name>" to the
 			// sample's byte stream so the manifold stores article+label as a
 			// single continuous sequence (classification-as-generation).
-			if hasLabel && len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
-				suffix := " → " + dataset.labelAppend[label]
+			if sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 &&
+				sample.labelInt >= 0 && sample.labelInt < len(dataset.labelAppend) {
+				suffix := " → " + dataset.labelAppend[sample.labelInt]
 
 				for _, b := range []byte(suffix) {
 					tokens = append(tokens, b)
@@ -2960,20 +2779,32 @@ func (dataset *Dataset) GeneratePrompts() iter.Seq[data.Prompt] {
 		}
 		defer flushLabels()
 
-		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
-			if hasLabel {
-				labelBatch[sampleIdx] = label
+		if err := dataset.streamRows(func(sample rowSample, sampleIdx uint32) bool {
+			if sample.hasLabel && !sample.labelIsText {
+				labelBatch[sampleIdx] = sample.labelInt
 
 				if len(labelBatch) >= labelBatchSize {
 					flushLabels()
 				}
 			}
 
+			promptText := sample.promptText
+			if promptText == "" {
+				promptText = sample.streamText
+			}
+
+			var labelStr string
+			if sample.labelIsText {
+				labelStr = sample.labelText
+			} else {
+				labelStr = dataset.labelAsText(sample.labelInt, sample.hasLabel)
+			}
+
 			prompt := data.Prompt{
 				SampleID: sampleIdx,
-				Text:     text,
-				HasLabel: hasLabel,
-				Label:    dataset.labelAsText(label, hasLabel),
+				Text:     promptText,
+				HasLabel: sample.hasLabel,
+				Label:    labelStr,
 			}
 
 			return yield(prompt)
@@ -3094,6 +2925,14 @@ func (dataset *Dataset) streamRows(fn rowVisitor) error {
 		return err
 	}
 
+	if dataset.babiStory {
+		if strings.HasSuffix(shard, ".parquet") {
+			return dataset.streamBabiParquet(reader, fn)
+		}
+
+		return dataset.streamBabiJSON(reader, fn)
+	}
+
 	if strings.HasSuffix(shard, ".parquet") {
 		return dataset.streamParquet(reader, fn)
 	}
@@ -3194,7 +3033,7 @@ func (dataset *Dataset) streamParquet(reader io.Reader, fn rowVisitor) error {
 						return nil
 					}
 
-					if !fn(text, 0, false, uint32(sampleCount)) {
+					if !fn(rowSample{streamText: text}, uint32(sampleCount)) {
 						pages.Close()
 						return nil
 					}
@@ -3316,7 +3155,11 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 			}
 		}
 
-		if !fn(text, label, hasLabel, uint32(sampleCount)) {
+		if !fn(rowSample{
+			streamText: text,
+			labelInt:   label,
+			hasLabel:   hasLabel,
+		}, uint32(sampleCount)) {
 			return nil
 		}
 
@@ -3412,7 +3255,11 @@ func (dataset *Dataset) streamJSON(reader io.Reader, fn rowVisitor) error {
 			}
 		}
 
-		if !fn(text, label, hasLabel, uint32(total)) {
+		if !fn(rowSample{
+			streamText: text,
+			labelInt:   label,
+			hasLabel:   hasLabel,
+		}, uint32(total)) {
 			return nil
 		}
 
@@ -3732,6 +3579,25 @@ Default (perSamplePos=true) resets Pos to 0 per sample.
 func DatasetWithContinuousPos() datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.perSamplePos = false
+	}
+}
+
+/*
+DatasetWithBabiStory parses facebook/babi_qa-style shards (nested story.text / story.answer / story.type).
+Apply after DatasetWithRepo if you rely on empty-repo defaults. When repo and subset are still empty,
+defaults match the upstream dataset: facebook/babi_qa and en-10k-qa1.
+*/
+func DatasetWithBabiStory() datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.babiStory = true
+
+		if dataset.repo == "" {
+			dataset.repo = "facebook/babi_qa"
+		}
+
+		if dataset.subset == "" {
+			dataset.subset = "en-10k-qa1"
+		}
 	}
 }
 
@@ -9048,7 +8914,7 @@ facebook/babi_qa dataset (Task 1: single supporting fact).
 */
 type BabiExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   *huggingface.BabiQADataset
+	dataset   *huggingface.Dataset
 	prompt    []string
 	holdouts  [][]byte
 	evaluator *tools.Evaluator
@@ -9064,11 +8930,11 @@ var samples = 100
 func NewBabiExperiment() *BabiExperiment {
 	experiment := &BabiExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset: huggingface.NewBabiQA(
+		dataset: huggingface.New(
+			huggingface.DatasetWithBabiStory(),
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
 			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
-			huggingface.DatasetWithTextColumn("story"),
 		),
 		// Baseline 0.10: bAbI Task 1 answers are named locations (bathroom,
 		// garden, kitchen, etc.). Random byte output has near-zero chance of
@@ -21034,7 +20900,7 @@ The kernel touches exactly the three regions the caller names: it never
 reads or writes words outside [aStart..aStart+aSpan), [bStart..bStart+bSpan),
 and [dstStart..dstStart+dstSpan). That is what makes the DSL's arbitrary
 region refs safe — running a program on a Value no longer clobbers tokens,
-context, gradient, meta, or any region that is not explicitly the dst.
+context, gradient, properties, or any region that is not explicitly the dst.
 
 mode selects the writeback fold: 0 XOR-accumulates the 8 signature words
 into dst[0..min(8,dstSpan)) so successive program lines can layer state on
@@ -22234,9 +22100,12 @@ const (
 	SignalsStartWord          = 24
 	ContextStartWord          = 32
 	GradientStartWord         = 40
-	MetaStartWord             = 48
-	MetaTTLWord               = 51 // meta[3]
-	MetaNoiseWord             = 52 // meta[4]
+	PropertiesStartWord       = 48
+	PropertiesTTLWord         = 51 // properties[3]
+	PropertiesNoiseWord       = 52 // properties[4]
+	PropertiesProbeStateWord  = 53 // properties[5], explicit runtime probe ABI only
+	PropertiesProbeWindowWord = 54 // properties[6], PackRegionRef over token words
+	PropertiesProbeDepthWord  = 55 // properties[7], final re-stabilization depth
 	ReservedStartWord         = 56
 	SchedulingNextProgramWord = 117
 	PrevStartWord             = 120
@@ -22263,6 +22132,39 @@ const (
 	SignalBestIdxOffset  = 0
 	SignalBestDistOffset = 1
 )
+
+const (
+	CausalProbeKindNone uint8 = iota
+	CausalProbeKindHub
+)
+
+const (
+	CausalProbeStatusInactive uint8 = iota
+	CausalProbeStatusActive
+	CausalProbeStatusSettled
+	CausalProbeStatusCeiling
+)
+
+/*
+PackProbeState encodes probe kind and lifecycle status into one properties word.
+*/
+func PackProbeState(kind uint8, status uint8) uint64 {
+	return uint64(kind) | (uint64(status) << 8)
+}
+
+/*
+ProbeKind returns the encoded probe kind from a probe-state word.
+*/
+func ProbeKind(word uint64) uint8 {
+	return uint8(word & 0xff)
+}
+
+/*
+ProbeStatus returns the encoded probe lifecycle status from a probe-state word.
+*/
+func ProbeStatus(word uint64) uint8 {
+	return uint8((word >> 8) & 0xff)
+}
 
 /*
 Program region wire layout. The DSL compiler packs one line's operand map
@@ -23540,8 +23442,8 @@ type Substrate interface {
 #define AFFINITY_WORDS                           5
 #define AFFINITY_BITS                            257
 #define AFFINITY_LAST_WORD_MASK                  0x0000000000000001ULL
-#define META_START_WORD                          48
-#define META_WORDS                               8
+#define PROPERTIES_START_WORD                    48
+#define PROPERTIES_WORDS                         8
 
 #endif // SUBSTRATE_PRIMITIVES_H
 
@@ -24622,7 +24524,7 @@ func (ref RegionRef) AbsStart() int {
 /*
 regionLayoutByName resolves a DSL region name against the live core.Cfg
 layout. The "reserved" band (words 56..117) is named implicitly because it
-does not have its own offset struct: it is whatever is left between Meta
+does not have its own offset struct: it is whatever is left between Properties
 and the kernel-transport/identity words, which today means 62 words.
 */
 func regionLayoutByName(name string) (regionLayout, error) {
@@ -24643,8 +24545,8 @@ func regionLayoutByName(name string) (regionLayout, error) {
 		return layoutFrom(region.Context), nil
 	case "gradient":
 		return layoutFrom(region.Gradient), nil
-	case "meta":
-		return layoutFrom(region.Meta), nil
+	case "properties":
+		return layoutFrom(region.Properties), nil
 	case "prev":
 		return layoutFrom(region.Prev), nil
 	case "next":
@@ -24690,7 +24592,7 @@ const (
 	SignalsRegion
 	ContextRegion
 	GradientRegion
-	MetaRegion
+	PropertiesRegion
 	ReservedRegion
 	PrevRegion
 	NextRegion
@@ -24922,10 +24824,10 @@ Layout (128 uint64 words = 1 KiB):
 	Tokens:   words  0–15  (1024 bits; 128 B Morton slab, up to 64 × 16-bit codes)
 	Program:  words  16–23  (512 bits)
 	Signals:  words  24–31  (512 bits)
-	Context:  words  32–39  (512 bits)
-	Gradient: words  40–47  (512 bits)
-	Meta:     words  48–55  (512 bits)
-	Reserved: words 56–117
+	Context:    words  32–39  (512 bits)
+	Gradient:   words  40–47  (512 bits)
+	Properties: words  48–55  (512 bits; canonical property / forward-transition band)
+	Reserved:   words 56–117
 	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
 	Next:     word  121
@@ -24933,16 +24835,16 @@ Layout (128 uint64 words = 1 KiB):
 	Affinity: words 123–127 (257 bits, Fermat prime width)
 */
 type ValueRegionConfig struct {
-	Tokens   ValueOffsetConfig `mapstructure:"tokens"`
-	Program  ValueOffsetConfig `mapstructure:"program"`
-	Signals  ValueOffsetConfig `mapstructure:"signals"`
-	Context  ValueOffsetConfig `mapstructure:"context"`
-	Gradient ValueOffsetConfig `mapstructure:"gradient"`
-	Meta     ValueOffsetConfig `mapstructure:"meta"`
-	Prev     ValueOffsetConfig `mapstructure:"prev"`
-	Next     ValueOffsetConfig `mapstructure:"next"`
-	ID       ValueOffsetConfig `mapstructure:"id"`
-	Affinity ValueOffsetConfig `mapstructure:"affinity"`
+	Tokens     ValueOffsetConfig `mapstructure:"tokens"`
+	Program    ValueOffsetConfig `mapstructure:"program"`
+	Signals    ValueOffsetConfig `mapstructure:"signals"`
+	Context    ValueOffsetConfig `mapstructure:"context"`
+	Gradient   ValueOffsetConfig `mapstructure:"gradient"`
+	Properties ValueOffsetConfig `mapstructure:"properties"`
+	Prev       ValueOffsetConfig `mapstructure:"prev"`
+	Next       ValueOffsetConfig `mapstructure:"next"`
+	ID         ValueOffsetConfig `mapstructure:"id"`
+	Affinity   ValueOffsetConfig `mapstructure:"affinity"`
 }
 
 /*
@@ -24997,19 +24899,8 @@ Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
-	System     SystemConfig
-	Value      ValueConfig
-	Kadabra    KadabraConfig
-	MarkovTrie MarkovTrieConfig
-
-	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
-	// Values should write the in-band FirmwareRegister* codes to fw rather than
-	// assuming the host enum ordinals are stable.
-	Firmware [FirmwareTypePrompt + 1][]uint32
-
-	// StepwiseFirmwareSource holds raw programsStepwise.* YAML for hosts that
-	// compile or route stepwise bands (loaded whenever the keys are present).
-	StepwiseFirmwareSource [FirmwareTypePrompt + 1]string
+	System SystemConfig
+	Value  ValueConfig
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
 	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
@@ -25037,143 +24928,6 @@ func NewConfig() *Config {
 			BatchWindow: time.Duration(WithDefault(viper.GetInt("system.batchWindow"), 500)) * time.Microsecond,
 			QueueSize:   WithDefault(viper.GetInt("system.queueSize"), 20000),
 		},
-		Kadabra: KadabraConfig{
-			Bits:              WithDefault(viper.GetInt("kadabra.bits"), 64),
-			BucketSize:        WithDefault(viper.GetInt("kadabra.bucketSize"), 20),
-			ReplicationFactor: WithDefault(viper.GetInt("kadabra.replicationFactor"), 3),
-			MaxMeshPeers:      WithDefault(viper.GetInt("kadabra.maxMeshPeers"), 4096),
-			Alpha:             WithDefault(viper.GetInt("kadabra.alpha"), 3),
-			EpochQueries:      WithDefault(viper.GetInt("kadabra.epochQueries"), 100),
-			Penalty:           WithDefault(viper.GetFloat64("kadabra.penalty"), 0.1),
-			SecurityThreshold: WithDefault(viper.GetFloat64("kadabra.securityThreshold"), 0.5),
-			// ShannonLimit is the maximum popcount (set bits) a cluster
-			// centroid may reach before it is considered full. At 50% set bits
-			// (256/512) a random vector's expected Hamming distance equals that
-			// of any real vector — all discrimination is gone. The useful range
-			// ends well before that. At 47% (~240/512) there is still enough
-			// headroom for incoming vectors to register meaningful distance
-			// differences, while staying clear of the zone where distances
-			// collapse to noise.
-			ShannonLimit: WithDefault(viper.GetInt("kadabra.shannonLimit"), 240),
-			// ClusterThreshold is the maximum affinity Hamming distance at
-			// which a Value is routed to an existing trie cluster. Values further
-			// than this from every existing cluster spawn a new trie.
-			//
-			// 512 total affinity bits. A threshold of 192 (~37%) means two vectors
-			// must share at least 63% of their bits to be considered "same cluster".
-			// This is intentionally generous during bootstrapping — the Field's
-			// eigenmode detection handles finer-grained splitting once enough data
-			// has arrived.
-			ClusterThreshold: WithDefault(viper.GetInt("kadabra.clusterThreshold"), 192),
-		},
-		MarkovTrie: MarkovTrieConfig{
-			DecayFactor:                    WithDefault(viper.GetFloat64("markovtrie.decayFactor"), 0.995),
-			EndToken:                       WithDefault(viper.GetString("markovtrie.endToken"), "$"),
-			MaximumPathLength:              WithDefault(viper.GetInt("markovtrie.maximumPathLength"), 5),
-			InterpolationSuffixDepth:       WithDefault(viper.GetInt("markovtrie.interpolationSuffixDepth"), 4),
-			ClassificationContext:          WithDefault(viper.GetInt("markovtrie.classificationContext"), 3),
-			CoOccurrenceWindow:             WithDefault(viper.GetInt("markovtrie.coOccurrenceWindow"), 2),
-			PruneInterval:                  WithDefault(viper.GetInt("markovtrie.pruneInterval"), 10),
-			PruneMinimumCount:              WithDefault(viper.GetFloat64("markovtrie.pruneMinimumCount"), 0.05),
-			ReplayLength:                   WithDefault(viper.GetInt("markovtrie.replayLength"), 10),
-			ReplayThreshold:                WithDefault(viper.GetFloat64("markovtrie.replayThreshold"), 85),
-			BeamWidth:                      WithDefault(viper.GetInt("markovtrie.beamWidth"), 3),
-			UnknownProbability:             WithDefault(viper.GetFloat64("markovtrie.unknownProbability"), 0.001),
-			AdditiveSmoothing:              WithDefault(viper.GetFloat64("markovtrie.additiveSmoothing"), 0.1),
-			RecentPenalty:                  WithDefault(viper.GetFloat64("markovtrie.recentPenalty"), 0.5),
-			RecentWindow:                   WithDefault(viper.GetInt("markovtrie.recentWindow"), 3),
-			EditDistance:                   WithDefault(viper.GetInt("markovtrie.editDistance"), 1),
-			EditSimilarity:                 WithDefault(viper.GetFloat64("markovtrie.editSimilarity"), 0.95),
-			NgramConfidenceFloor:           WithDefault(viper.GetFloat64("markovtrie.ngramConfidenceFloor"), 0.35),
-			SymbolMinimumTotal:             WithDefault(viper.GetInt("markovtrie.symbolMinimumTotal"), 2),
-			SymbolMinimumScore:             WithDefault(viper.GetFloat64("markovtrie.symbolMinimumScore"), 1.5),
-			SymbolLimit:                    WithDefault(viper.GetInt("markovtrie.symbolLimit"), 50),
-			BaselineLearningRate:           WithDefault(viper.GetFloat64("markovtrie.baselineLearningRate"), 0.1),
-			MaxLearningRate:                WithDefault(viper.GetFloat64("markovtrie.maxLearningRate"), 1.0),
-			SurprisalScaleBits:             WithDefault(viper.GetFloat64("markovtrie.surprisalScaleBits"), 2.0),
-			ConceptLabelPrefix:             WithDefault(viper.GetString("markovtrie.conceptLabelPrefix"), "Concept_"),
-			UnsupervisedConfidence:         WithDefault(viper.GetFloat64("markovtrie.unsupervisedConfidence"), 50.0),
-			ExperienceEmptyLabel:           WithDefault(viper.GetString("markovtrie.experienceEmptyLabel"), "None"),
-			EpisodicCapacity:               WithDefault(viper.GetInt("markovtrie.episodicCapacity"), 1000),
-			EpisodicNeighborLimit:          WithDefault(viper.GetInt("markovtrie.episodicNeighborLimit"), 16),
-			EpisodicRecencyWeight:          WithDefault(viper.GetFloat64("markovtrie.episodicRecencyWeight"), 0.25),
-			EpisodicBlendWeight:            WithDefault(viper.GetFloat64("markovtrie.episodicBlendWeight"), 0.35),
-			InitialConceptCounter:          WithDefault(viper.GetInt("markovtrie.initialConceptCounter"), 1),
-			BPEEndOfWordToken:              WithDefault(viper.GetString("markovtrie.bpeEndOfWordToken"), "</w>"),
-			BPEPairDelimiter:               WithDefault(viper.GetString("markovtrie.bpePairDelimiter"), "\x00"),
-			PredictExperienceSurprisalBits: WithDefault(viper.GetFloat64("markovtrie.predictExperienceSurprisalBits"), 1.0),
-			Temperature:                    WithDefault(viper.GetFloat64("markovtrie.temperature"), 0.7),
-			// AdaptiveEMAAlpha (0.05): the smoothing factor for all exponential
-			// moving averages (surprisal, entropy, episodic quality, growth rate).
-			// At alpha=0.05, the effective window is ~1/0.05 = 20 observations,
-			// meaning the EMA reflects roughly the last 20 tokens' worth of signal.
-			//
-			// This balances responsiveness against stability: the system needs to
-			// detect domain shifts within ~50-100 tokens (a paragraph) but must not
-			// whipsaw on individual high-surprisal tokens (typos, rare words).
-			//
-			// Sensitivity: raising to 0.2 makes all adaptive parameters jittery --
-			// a single outlier surprisal value can swing the decay factor by 0.01,
-			// causing visible oscillation in prediction quality. Lowering below 0.01
-			// makes adaptation so sluggish that domain shifts take hundreds of tokens
-			// to register, defeating the purpose of online tuning.
-			AdaptiveEMAAlpha: WithDefault(viper.GetFloat64("markovtrie.adaptiveEMAAlpha"), 0.05),
-			// AdaptiveMinSamples (50): the minimum number of surprisal observations
-			// before any adaptive parameter is allowed to deviate from its base
-			// value. This is a cold-start guard -- with fewer than 50 samples, the
-			// EMA estimates are dominated by initialization bias and the variance
-			// estimate is unreliable (sqrt of a noisy variance can be off by 2-3x).
-			//
-			// 50 was chosen as ~2.5x the EMA effective window (20). By that point,
-			// the exponential weighting has decayed the initial seed value to <10%
-			// influence, and the variance estimate has seen enough samples for its
-			// own EMA to stabilize.
-			//
-			// Sensitivity: reducing to <20 allows the adaptive decay factor to
-			// activate before the surprisal EMA is calibrated, producing erratic
-			// early decay that can prune useful nodes. Increasing beyond ~200 delays
-			// adaptation so long that the system runs on static defaults for the
-			// first several paragraphs, losing the benefit of early calibration.
-			AdaptiveMinSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMinSamples"), 50),
-			AdaptiveMaxSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxSamples"), 1000),
-			// AdaptiveMaxDepth (8): the maximum suffix depth tracked for adaptive
-			// interpolation weighting. 8 corresponds to 8-gram context, which is the
-			// practical ceiling for Markov models on natural language -- beyond depth
-			// 8, the trie becomes extremely sparse and hit rates drop below noise
-			// levels (~1-2%), so tracking deeper depths wastes memory on counters
-			// that never accumulate meaningful statistics.
-			//
-			// Sensitivity: reducing to 4 blinds the system to long-range patterns
-			// (e.g. repeated phrases, code indentation). Increasing to 16 doubles
-			// the per-node tracking arrays with no measurable prediction improvement,
-			// and the depthDecay factor (0.99) would need to be raised to prevent
-			// deep counters from decaying to zero before accumulating any hits.
-			AdaptiveMaxDepth: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepth"), 8),
-			// AdaptiveMaxDepthDecay (0.99): multiplicative decay applied to all depth-hit
-			// counters on every observation. This creates a soft sliding window
-			// so that the interpolation weights track the RECENT productivity of
-			// each depth rather than lifetime averages.
-			//
-			// At 0.99, the effective half-life is ~69 observations (ln2/0.01),
-			// meaning depth statistics from ~70 tokens ago carry half the weight
-			// of current observations. This matches the typical paragraph length
-			// where context quality shifts (e.g. switching from prose to code).
-			//
-			// Sensitivity: raising to 0.999 (half-life ~693) makes depth weights
-			// nearly static, unable to track intra-document shifts. Lowering to
-			// 0.95 (half-life ~14) makes weights hyper-reactive, thrashing
-			// between depths on every few tokens and preventing stable
-			// interpolation.
-			AdaptiveMaxDepthDecay:           WithDefault(viper.GetFloat64("markovtrie.adaptiveMaxDepthDecay"), 0.99),
-			AdaptiveMaxDepthDecayAlpha:      WithDefault(viper.GetFloat64("markovtrie.adaptiveMaxDepthDecayAlpha"), 0.05),
-			AdaptiveMaxDepthDecayMinSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMinSamples"), 50),
-			AdaptiveMaxDepthDecayMaxSamples: WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMaxSamples"), 1000),
-			AdaptiveMaxDepthDecayMaxDepth:   WithDefault(viper.GetInt("markovtrie.adaptiveMaxDepthDecayMaxDepth"), 8),
-			SurpriseRatioThreshold:          WithDefault(viper.GetFloat64("markovtrie.surpriseRatioThreshold"), 2.0),
-			SustainedBurstsRequired:         WithDefault(viper.GetInt("markovtrie.sustainedBurstsRequired"), 3),
-			MaxCapLen:                       WithDefault(viper.GetInt("markovtrie.maxCapLen"), 8),
-			BurstBoostFactor:                WithDefault(viper.GetFloat64("markovtrie.burstBoostFactor"), 0.12),
-		},
 		Value: ValueConfig{
 			Word:         WithDefault(viper.GetInt("value.word"), 64),
 			Words:        WithDefault(viper.GetInt("value.words"), 128),
@@ -25200,9 +24954,9 @@ func NewConfig() *Config {
 					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 40),
 					Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
 				},
-				Meta: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.meta.start"), 48),
-					Bits:  WithDefault(viper.GetUint64("value.region.meta.bits"), 512),
+				Properties: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.properties.start"), 48),
+					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 512),
 				},
 				Prev: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
@@ -25303,21 +25057,6 @@ func deepCopyConfigSnapshot(src *Config) Config {
 	}
 
 	dst := *src
-
-	for index := range dst.Firmware {
-		if len(src.Firmware[index]) == 0 {
-			dst.Firmware[index] = nil
-
-			continue
-		}
-
-		dst.Firmware[index] = append([]uint32(nil), src.Firmware[index]...)
-	}
-
-	if len(src.Kadabra.BucketSecurityThresholds) > 0 {
-		dst.Kadabra.BucketSecurityThresholds = append(
-			[]float64(nil), src.Kadabra.BucketSecurityThresholds...)
-	}
 
 	// StepwiseFirmwareSource is a fixed [FirmwareTypePrompt+1]string array; the
 	// struct copy already duplicates array storage (string headers only).
@@ -26922,6 +26661,102 @@ func WithDynamics(dynamics ...Dynamic) DerivedOption {
 }
 
 <<<END>>>
+<<<FILE ./pkg/core/numeric/fibonacci.go>>>
+package numeric
+
+import "math"
+
+/*
+FibWindows is the Fibonacci sequence of window sizes used for multi-scale
+co-occurrence and eigen initialization. Small windows (3–8) capture
+fine-grained local correlation; larger windows (13–21) capture longer-range
+coupling. Works for any token stream — text, images, audio — no modality-specific
+assumptions.
+
+Bounds: 3 is the smallest window with non-trivial co-occurrence structure;
+21 is an upper limit before the matrix becomes too sparse for reliable
+eigenvectors.
+*/
+var FibWindows = []int{3, 5, 8, 13, 21}
+
+/*
+FibWeights are the mixing weights for each Fibonacci window, summing to 1.0.
+Derived from FibWindows as 1/window (inverse scale): local correlation is
+denser per byte than long-range; smaller windows get higher weight.
+*/
+var FibWeights []float64
+
+func init() {
+	var sum float64
+
+	for _, w := range FibWindows {
+		sum += 1.0 / float64(w)
+	}
+
+	FibWeights = make([]float64, len(FibWindows))
+
+	for i, w := range FibWindows {
+		FibWeights[i] = (1.0 / float64(w)) / sum
+	}
+}
+
+type Numerics struct {
+	BasisPrimes []int32
+}
+
+func NewNumerics() *Numerics {
+	numerics := &Numerics{
+		BasisPrimes: make([]int32, 512),
+	}
+
+	numerics.SieveOfEratosthenes(4000) // Upper bound for 512 primes is 3671
+	return numerics
+}
+
+func (numerics *Numerics) SumSinCos(phases []float64) (float64, float64) {
+	sinSum := 0.0
+	cosSum := 0.0
+
+	for _, phi := range phases {
+		sinSum += math.Sin(phi)
+		cosSum += math.Cos(phi)
+	}
+
+	return sinSum, cosSum
+}
+
+func (numerics *Numerics) CircularDistance(a, b float64) float64 {
+	d := math.Mod(a-b+math.Pi, 2*math.Pi)
+
+	if d < 0 {
+		d += 2 * math.Pi
+	}
+
+	return d - math.Pi
+}
+
+func (numerics *Numerics) SieveOfEratosthenes(n int) {
+	checked := make([]bool, n)
+	sqrt_n := int(math.Sqrt(float64(n)))
+
+	for i := 2; i <= sqrt_n; i++ {
+		if !checked[i] {
+			for j := i * i; j < n; j += i {
+				checked[j] = true
+			}
+		}
+	}
+
+	idx := 0
+	for i := 2; i < n && idx < 512; i++ {
+		if !checked[i] {
+			numerics.BasisPrimes[idx] = int32(i)
+			idx++
+		}
+	}
+}
+
+<<<END>>>
 <<<FILE ./pkg/core/numeric/geometry/clifford.go>>>
 package geometry
 
@@ -27248,234 +27083,598 @@ func phaseModeFromDominant(dominantPhase PhaseMode) PhaseMode {
 package geometry
 
 import (
+	"context"
+	"fmt"
 	"math"
-	"math/bits"
+	"math/cmplx"
+	"sort"
 
-	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/validate"
+	"github.com/tphakala/simd/f64"
+	"gonum.org/v1/gonum/mat"
 )
 
 /*
-DefaultToroidalClosureRadians is the default maximum angular distance on the
-theta torus for IsGeometricallyClosed when no explicit tolerance is passed.
+FrequencySpread is the number of octaves to spread the frequency across.
 */
-const DefaultToroidalClosureRadians = math.Pi / 32
+var FrequencySpread = math.Log2(float64(512))
 
 /*
-EigenMode maps values to toroidal phase (Theta, Phi) from their 257-bit
-affinity geometry. Analytical: no transition matrices; phase derives from
-set-bit indices as angles 2π·idx/257 and from total affinity popcount.
-
-Theta: circular mean of active lane angles. Phi: 2π·AffinityPopcount/257.
-
-Trained is false until BuildMultiScaleCooccurrence succeeds; that method is
-the single place the API marks a mode as trained (even though the analytical
-path does not learn parameters).
+propertyWords is the number of uint64 words in the canonical 512-bit properties region
+(words 48–55 on the Value layout).
 */
-type EigenMode struct {
-	Trained bool
+const propertyWords = 8
+
+/*
+symbolFromPropertyWord maps one 64-bit lane to a matrix index 0…511. Callers that hold a
+full properties snapshot should fold first (e.g. SymbolFromPropertyBand).
+*/
+func symbolFromPropertyWord(word uint64) int {
+	return int(word & 511)
 }
 
 /*
-eigenModeOpts configures EigenMode at construction.
+SymbolFromPropertyBand folds the eight-word properties region into one 0…511 symbol for
+transition statistics (xor-mix, then low 9 bits). Same symbol used for co-occurrence rows.
 */
-type eigenModeOpts func(*EigenMode)
+func SymbolFromPropertyBand(words []uint64) int {
+	wordCount := len(words)
 
-/*
-NewEigenMode creates a stateless, value-native phase evaluator.
-Trained starts false; call BuildMultiScaleCooccurrence to mark training
-complete for API consumers that gate on Trained.
-*/
-func NewEigenMode(opts ...eigenModeOpts) *EigenMode {
-	eigen := &EigenMode{}
-
-	for _, opt := range opts {
-		opt(eigen)
-	}
-
-	return eigen
-}
-
-/*
-BuildMultiScaleCooccurrence is a no-op; the analytical EigenMode needs no
-transition matrix or eigendecomposition.
-*/
-func (eigen *EigenMode) BuildMultiScaleCooccurrence(values []primitive.Value) error {
-	eigen.Trained = true
-
-	return nil
-}
-
-/*
-PhaseForValue maps a single value to (theta, phi) from its affinity bits.
-*/
-func (eigen *EigenMode) PhaseForValue(value *primitive.Value) (theta, phi float64) {
-	if value == nil {
-		return 0, 0
-	}
-
-	indices := value[core.Cfg.Value.Region.Affinity.Start:]
-
-	var sinSum, cosSum float64
-
-	for _, idx := range indices {
-		angle := 2 * math.Pi * float64(idx) / 257.0
-		sinSum += math.Sin(angle)
-		cosSum += math.Cos(angle)
-	}
-
-	if sinSum == 0 && cosSum == 0 {
-		theta = 0
-	} else {
-		theta = math.Atan2(sinSum, cosSum)
-	}
-
-	phi = 2 * math.Pi * float64(bits.OnesCount64(indices[0])) / 257.0
-
-	return theta, phi
-}
-
-/*
-SeqToroidalMeanPhase returns circular means of intrinsic phases for a sequence.
-*/
-func (eigen *EigenMode) SeqToroidalMeanPhase(values []primitive.Value) (theta, phi float64) {
-	n := len(values)
-
-	if n == 0 {
-		return 0, 0
-	}
-
-	var sinTSum float64
-
-	var cosTSum float64
-
-	var sinPSum float64
-
-	var cosPSum float64
-
-	for i := range values {
-		tTheta, tPhi := eigen.PhaseForValue(&values[i])
-		sinTSum += math.Sin(tTheta)
-		cosTSum += math.Cos(tTheta)
-		sinPSum += math.Sin(tPhi)
-		cosPSum += math.Cos(tPhi)
-	}
-
-	return math.Atan2(sinTSum, cosTSum), math.Atan2(sinPSum, cosPSum)
-}
-
-/*
-WeightedCircularMean returns the circular mean of theta weighted by affinity
-popcount, and a concentration in [0,1] as |R|/wSum.
-*/
-func (eigen *EigenMode) WeightedCircularMean(values []primitive.Value) (phase float64, concentration float64) {
-	if len(values) == 0 {
-		return 0, 0
-	}
-
-	var sinSum float64
-
-	var cosSum float64
-
-	var weightSum float64
-
-	for i := range values {
-		theta, _ := eigen.PhaseForValue(&values[i])
-		aff := values[i][core.Cfg.Value.Region.Affinity.Start:]
-		weight := float64(affinity257Popcount(aff))
-
-		if weight <= 0 {
-			weight = 1
-		}
-
-		sinSum += weight * math.Sin(theta)
-		cosSum += weight * math.Cos(theta)
-		weightSum += weight
-	}
-
-	if weightSum == 0 {
-		return 0, 0
-	}
-
-	phase = math.Atan2(sinSum, cosSum)
-	concentration = math.Sqrt(sinSum*sinSum+cosSum*cosSum) / weightSum
-
-	return phase, concentration
-}
-
-/*
-affinity257Popcount is the Hamming weight of the 257-bit affinity slab
-(four full words plus a single valid bit in the fifth word).
-*/
-func affinity257Popcount(aff []uint64) int {
-	if len(aff) == 0 {
+	if wordCount == 0 {
 		return 0
 	}
 
-	last := len(aff) - 1
-	total := 0
-
-	for wordIdx := 0; wordIdx < last; wordIdx++ {
-		total += bits.OnesCount64(aff[wordIdx])
+	if wordCount > propertyWords {
+		wordCount = propertyWords
 	}
 
-	total += bits.OnesCount64(aff[last] & 1)
+	var mix uint64
 
-	return total
+	for index := 0; index < wordCount; index++ {
+		word := words[index]
+		mix ^= word
+		mix ^= word >> 32
+	}
+
+	return int(mix & 511)
 }
 
 /*
-IsGeometricallyClosed reports whether the weighted mean theta is within
-DefaultToroidalClosureRadians of anchorPhase (shortest arc on the circle).
+EigenModeToroidal
+
+Maps oscillators to an initial phase angle from the forward transition
+statistics of **property symbols** (512×512 Markov matrix), via eigendecomposition.
+Rows/columns index 0…511 — the same width as the properties band (8×64 bits) used
+as discrete tags for forward potential / eigenmode phases (see README “Properties”).
+
+Co-occurrence is computed at every FibWindow scale.
+
+Why this matters:
+  - Phase cannot start at 0 for all degrees of freedom — that collapses the system trivially.
+  - Phase cannot come from sequence index — that pre-imposes structure.
+  - Phase must emerge from observed **what-follows-what** structure in the symbol stream.
+
+The transition matrix T encodes that: T[i][j] counts how often symbol i PRECEDES symbol j
+within a window. Asymmetric — T[i][j] ≠ T[j][i] — the Arrow of Time: leading vs lagging
+phases in the (v2,v3) eigenplane.
+
+Algorithm:
+ 1. Build asymmetric 512×512 forward transition matrix T per FibWindow.
+ 2. Extract top 3 eigenvectors via gonum/mat.Eigen.
+ 3. Skip v1 (all-positive by Perron-Frobenius).
+ 4. Phase[i] = atan2(v3[i], v2[i]). Combine across scales via weighted circular mean.
 */
-func (eigen *EigenMode) IsGeometricallyClosed(values []primitive.Value, anchorPhase float64) bool {
-	return eigen.IsGeometricallyClosedWithEpsilon(values, anchorPhase, DefaultToroidalClosureRadians)
+type EigenModeToroidal struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	phaser    *Phase
+	phase     [512]float64
+	frequency []float64
+	affinity  []uint64
+	err       error
+}
+
+type eigenOpts func(*EigenModeToroidal)
+
+func NewEigenModeToroidal(opts ...eigenOpts) (*EigenModeToroidal, error) {
+	emt := &EigenModeToroidal{
+		phase:     [512]float64{},
+		frequency: []float64{},
+		phaser:    NewPhase(),
+	}
+
+	for _, opt := range opts {
+		opt(emt)
+	}
+
+	if err := validate.Require(map[string]any{
+		"ctx":      emt.ctx,
+		"cancel":   emt.cancel,
+		"affinity": emt.affinity,
+		"phaser":   emt.phaser,
+	}); err != nil {
+		return nil, fmt.Errorf("eigenmode toroidal: %w", err)
+	}
+
+	return emt, nil
 }
 
 /*
-IsGeometricallyClosedWithEpsilon uses an explicit angular tolerance (radians).
+buildMultiScaleCooccurrence superimposes Fibonacci-windowed co-occurrence
+eigen phases. For each window w in fibWindows, it computes the (v2, v3)
+eigenplane and derives Phase[i] and Frequency[i]. The final Phase is the
+weighted circular mean across all scales; Frequency is the weighted sum.
+
+Smaller windows → fine-grained local correlation.
+Larger windows  → longer-range coupling.
+The composite starting state gives every oscillator knowledge of both scales.
 */
-func (eigen *EigenMode) IsGeometricallyClosedWithEpsilon(
-	values []primitive.Value,
-	anchorPhase float64,
-	epsilonRadians float64,
-) bool {
-	if len(values) == 0 {
-		return false
+func (emt *EigenModeToroidal) buildMultiScaleCooccurrence(corpus []uint64) {
+	sinAcc := make([]float64, 512)
+	cosAcc := make([]float64, 512)
+	freqAcc := make([]float64, 512)
+
+	for wi, w := range numeric.FibWindows {
+		weight := numeric.FibWeights[wi]
+
+		var C [512][512]float64
+		emt.buildCooccurrenceInto(&C, corpus, w)
+		_, v2, v3 := emt.top3Eigenvectors(&C)
+
+		// Magnitude in (v2,v3) eigenplane → per-scale frequency contribution.
+		var maxMag float64
+		mags := make([]float64, 512)
+
+		for i := range 512 {
+			mags[i] = math.Sqrt(v2[i]*v2[i] + v3[i]*v3[i])
+
+			if mags[i] > maxMag {
+				maxMag = mags[i]
+			}
+		}
+
+		for i := range 512 {
+			phase := math.Atan2(v3[i], v2[i])
+			sinAcc[i] += weight * math.Sin(phase)
+			cosAcc[i] += weight * math.Cos(phase)
+
+			freq := 1.0
+
+			if maxMag > 0 {
+				freq = 1.0 + (mags[i]/maxMag)*math.Log2(512.0)
+			}
+
+			freqAcc[i] += weight * freq
+		}
 	}
 
-	centerPhase, _ := eigen.WeightedCircularMean(values)
-	phaseDiff := math.Abs(centerPhase - anchorPhase)
-
-	if phaseDiff > math.Pi {
-		phaseDiff = 2*math.Pi - phaseDiff
+	// Circular mean of the weighted phase contributions.
+	for i := range 512 {
+		emt.phase[i] = math.Atan2(sinAcc[i], cosAcc[i])
+		emt.frequency[i] = freqAcc[i]
 	}
-
-	return phaseDiff < epsilonRadians
 }
 
 /*
-EigenError represents legacy eigendecomposition failure.
-Analytical EigenMode does not emit it; kept for API compatibility.
+BuildCooccurrence builds the co-occurrence matrix and computes the top 3 eigenvectors.
+
+Each input byte is mapped to a symbol 0…255 via its numeric value (same index family as
+SeqCircularMeanPhase). For arbitrary uint64 tags per timestep, use BuildCooccurrenceFromWords.
 */
+func (emt *EigenModeToroidal) BuildCooccurrence(corpus []byte, windowSize int) {
+	tags := make([]uint64, len(corpus))
+
+	for index, b := range corpus {
+		tags[index] = uint64(b)
+	}
+
+	emt.BuildCooccurrenceFromWords(tags, windowSize)
+}
+
+/*
+BuildCooccurrenceFromWords is the same Markov lift as BuildCooccurrence, but each timestep is
+already a uint64 tag (e.g. one lane or a pre-mixed property key). Symbols are 0…511 via
+symbolFromPropertyWord.
+*/
+func (emt *EigenModeToroidal) BuildCooccurrenceFromWords(tags []uint64, windowSize int) {
+	if len(emt.frequency) < 512 {
+		emt.frequency = make([]float64, 512)
+	}
+
+	var C [512][512]float64
+
+	emt.buildCooccurrenceInto(&C, tags, windowSize)
+
+	_, v2, v3 := emt.top3Eigenvectors(&C)
+
+	var v2sq, v3sq, mags [512]float64
+
+	f64.Mul(v2sq[:], v2[:], v2[:])
+	f64.Mul(v3sq[:], v3[:], v3[:])
+	f64.Add(mags[:], v2sq[:], v3sq[:])
+	f64.Sqrt(mags[:], mags[:])
+
+	maxMag := f64.Max(mags[:])
+
+	f64.Atan2(emt.phase[:], v3[:], v2[:])
+
+	if maxMag > 0 {
+		f64.Scale(emt.frequency[:], mags[:], FrequencySpread/maxMag)
+		f64.AddScalar(emt.frequency[:], emt.frequency[:], 1.0)
+	} else {
+		for i := range 512 {
+			emt.frequency[i] = 1.0
+		}
+	}
+}
+
+/*
+buildCooccurrenceInto fills C with the asymmetric forward transition matrix.
+T[i][j] counts how often symbol i PRECEDES symbol j within windowSize positions.
+Only forward neighbors (j > pos) are counted, making T asymmetric.
+
+Rows are L1-normalized (sum = 1) so C behaves as a Markov transition matrix.
+*/
+func (emt *EigenModeToroidal) buildCooccurrenceInto(
+	C *[512][512]float64,
+	corpus []uint64,
+	windowSize int,
+) {
+	for i := range 512 {
+		for j := range 512 {
+			C[i][j] = 0
+		}
+	}
+
+	for pos := range corpus {
+		sym := symbolFromPropertyWord(corpus[pos])
+		end := min(len(corpus), pos+windowSize+1)
+
+		for j := pos + 1; j < end; j++ {
+			otherSym := symbolFromPropertyWord(corpus[j])
+			C[sym][otherSym] += 1.0
+		}
+	}
+	// L1-normalize each row → Markov transition matrix (row sums = 1).
+	for i := range 512 {
+		sum := f64.Sum(C[i][:])
+		if sum > 0 {
+			f64.Scale(C[i][:], C[i][:], 1.0/sum)
+		}
+	}
+}
+
+/*
+top3Eigenvectors returns the top 3 eigenvectors of the transition matrix
+using gonum/mat.Eigen. Robust for asymmetric matrices, including those with
+complex conjugate eigenvalue pairs. Only v2 and v3 are used for phase mapping
+— v1 is all-positive (Perron-Frobenius) and carries no angular info.
+*/
+func (emt *EigenModeToroidal) top3Eigenvectors(
+	C *[512][512]float64,
+) (v1, v2, v3 [512]float64) {
+	// Build row-major dense matrix for gonum
+	data := make([]float64, 512*512)
+	for i := range 512 {
+		for j := range 512 {
+			data[i*512+j] = C[i][j]
+		}
+	}
+	dense := mat.NewDense(512, 512, data)
+
+	var eig mat.Eigen
+	if !eig.Factorize(dense, mat.EigenRight) {
+		panic("eigenmode: eig.Factorize failed — degenerate or invalid cooccurrence matrix; no fallback")
+	}
+
+	values := eig.Values(nil)
+	indices := make([]int, 512)
+	for i := range 512 {
+		indices[i] = i
+	}
+	sort.Slice(indices, func(a, b int) bool {
+		modA := cmplx.Abs(values[indices[a]])
+		modB := cmplx.Abs(values[indices[b]])
+		return modA > modB
+	})
+
+	var vecs mat.CDense
+	eig.VectorsTo(&vecs)
+
+	// idx0 ≈ Perron (λ≈1), idx1 and idx2 are next by magnitude
+	idx1, idx2 := indices[1], indices[2]
+	lam1 := values[idx1]
+	lam2 := values[idx2]
+
+	// Extract real vectors for (v2, v3) eigenplane
+	if imag(lam1) != 0 {
+		// idx1 and idx2 are complex conjugates; use real and imag of column idx1
+		for i := range 512 {
+			v := vecs.At(i, idx1)
+			v2[i] = real(v)
+			v3[i] = imag(v)
+		}
+	} else if imag(lam2) != 0 {
+		// idx1 real, idx2 complex: 2D invariant subspace from real/imag of same eigenvector
+		for i := range 512 {
+			v := vecs.At(i, idx2)
+			v2[i] = real(v)
+			v3[i] = imag(v)
+		}
+	} else {
+		// Both real
+		for i := range 512 {
+			v2[i] = real(vecs.At(i, idx1))
+			v3[i] = real(vecs.At(i, idx2))
+		}
+	}
+
+	// v1 from leading (Perron) eigenvector. Sign is arbitrary; flip to all-non-negative.
+	for i := range 512 {
+		v1[i] = real(vecs.At(i, indices[0]))
+	}
+	var v1Sum float64
+	for i := range 512 {
+		v1Sum += v1[i]
+	}
+	if v1Sum < 0 {
+		for i := range 512 {
+			v1[i] = -v1[i]
+		}
+	}
+
+	emt.normalizeVec(&v1)
+	emt.normalizeVec(&v2)
+	emt.normalizeVec(&v3)
+	return v1, v2, v3
+}
+
+/*
+top3EigenvectorsPowerIteration is the legacy power-iteration path, used when
+gonum factorization fails or as a fallback for degenerate matrices.
+*/
+func (emt *EigenModeToroidal) top3EigenvectorsPowerIteration(
+	C *[512][512]float64,
+) (v1, v2, v3 [512]float64) {
+	v1, lam1 := emt.powerIterate(C, emt.uniformStart())
+	u1 := emt.powerIterateLeft(C, emt.uniformStart())
+
+	C2 := emt.deflateBiorthogonal(C, &u1, &v1, lam1)
+	v2, lam2 := emt.powerIterate(&C2, emt.sawtoothStart())
+	u2 := emt.powerIterateLeft(&C2, emt.sawtoothStart())
+
+	C3 := emt.deflateBiorthogonal(&C2, &u2, &v2, lam2)
+	v3, _ = emt.powerIterate(&C3, emt.cosineStart())
+
+	return v1, v2, v3
+}
+
+/*
+powerIterate runs power iteration on M until convergence or maxIter steps.
+Returns the dominant right eigenvector and its eigenvalue (Rayleigh quotient).
+*/
+func (emt *EigenModeToroidal) powerIterate(
+	M *[512][512]float64, v [512]float64,
+) ([512]float64, float64) {
+	const maxIter = 2000
+	const tol = 1e-10
+
+	emt.normalizeVec(&v)
+	var lambda float64
+
+	for range maxIter {
+		var mv [512]float64
+		for i := range 512 {
+			mv[i] = f64.DotProduct(M[i][:], v[:])
+		}
+		newLambda := f64.DotProduct(v[:], mv[:])
+
+		normSq := f64.SumOfSquares(mv[:])
+		if normSq < 1e-24 {
+			break
+		}
+		norm := math.Sqrt(normSq)
+		f64.Scale(mv[:], mv[:], 1.0/norm)
+
+		if math.Abs(newLambda-lambda) < tol {
+			return mv, newLambda
+		}
+		v = mv
+		lambda = newLambda
+	}
+	return v, lambda
+}
+
+/*
+powerIterateLeft runs power iteration on Mᵀ to find the dominant left eigenvector u.
+uᵀ M = λ uᵀ  ⟺  Mᵀ u = λ u. Matrix-vector product: (Mᵀ u)_i = Σ_j M[j][i] u[j].
+*/
+func (emt *EigenModeToroidal) powerIterateLeft(
+	M *[512][512]float64, start [512]float64,
+) [512]float64 {
+	const maxIter = 2000
+	const tol = 1e-10
+
+	u := start
+	emt.normalizeVec(&u)
+	var lambda float64
+
+	for range maxIter {
+		var Mu [512]float64
+		for i := range 512 {
+			var sum float64
+			for j := range 512 {
+				sum += M[j][i] * u[j]
+			}
+			Mu[i] = sum
+		}
+		newLambda := f64.DotProduct(u[:], Mu[:])
+
+		normSq := f64.SumOfSquares(Mu[:])
+		if normSq < 1e-24 {
+			break
+		}
+		norm := math.Sqrt(normSq)
+		f64.Scale(Mu[:], Mu[:], 1.0/norm)
+
+		if math.Abs(newLambda-lambda) < tol {
+			return Mu
+		}
+		u = Mu
+		lambda = newLambda
+	}
+	return u
+}
+
+/*
+deflateBiorthogonal removes the rank-1 component corresponding to right eigenvector v
+and left eigenvector u with eigenvalue λ. For asymmetric M, the correct deflation is
+M_new = M - λ v uᵀ / (uᵀ v). Element: D[i][j] = M[i][j] - λ v[i] u[j] / dot(u,v).
+*/
+func (emt *EigenModeToroidal) deflateBiorthogonal(
+	M *[512][512]float64,
+	u, v *[512]float64,
+	lam float64,
+) [512][512]float64 {
+	uTv := f64.DotProduct(u[:], v[:])
+
+	if math.Abs(uTv) < 1e-10 {
+		// Degenerate: return M unchanged.
+		return *M
+	}
+
+	scale := lam / uTv
+
+	var D [512][512]float64
+
+	for i := range 512 {
+		for j := range 512 {
+			D[i][j] = M[i][j] - scale*v[i]*u[j]
+		}
+	}
+
+	return D
+}
+
+// uniformStart returns a unit-norm vector with all equal components.
+func (emt *EigenModeToroidal) uniformStart() [512]float64 {
+	var v [512]float64
+
+	val := 1.0 / math.Sqrt(float64(512))
+
+	for i := range 512 {
+		v[i] = val
+	}
+
+	return v
+}
+
+// sawtoothStart returns a sawtooth vector for finding the 2nd eigenvector.
+func (emt *EigenModeToroidal) sawtoothStart() [512]float64 {
+	var (
+		v                [512]float64
+		intervalMidpoint = 0.5
+	)
+
+	for i := range 512 {
+		v[i] = float64(i)/float64(512) - intervalMidpoint
+	}
+
+	emt.normalizeVec(&v)
+	return v
+}
+
+// cosineStart returns a cosine-shaped vector for finding the 3rd eigenvector.
+func (emt *EigenModeToroidal) cosineStart() [512]float64 {
+	var v [512]float64
+
+	for i := range 512 {
+		v[i] = 2 * math.Pi * float64(i) / float64(512)
+	}
+
+	f64.Cos(v[:], v[:])
+	emt.normalizeVec(&v)
+
+	return v
+}
+
+/*
+SeqCircularMeanPhase returns the circular mean of the eigen phases of each
+byte in seq. Two sequences sharing common bytes get nearby phases, so contexts
+built from similar characters cluster together in eigen phase space.
+
+For short sequences, uses scalar loop to avoid slice allocations.
+*/
+func (emt *EigenModeToroidal) SeqCircularMeanPhase(seq []byte) (float64, error) {
+	return SeqCircularMeanPhaseFromPhases(&emt.phase, seq)
+}
+
+/*
+SeqCircularMeanPhaseFromPhases returns the circular mean of phases for bytes in seq.
+Consumers that receive PhasesSnapshot from the eigen group use this. Shared logic.
+*/
+func SeqCircularMeanPhaseFromPhases(phase *[512]float64, seq []byte) (float64, error) {
+	n := len(seq)
+	if n == 0 {
+		return 0, EigenErrorEmptySequence
+	}
+	if n <= int(math.Log2(float64(512))) {
+		var sinSum, cosSum float64
+		for _, b := range seq {
+			p := phase[b]
+			sinSum += math.Sin(p)
+			cosSum += math.Cos(p)
+		}
+		return math.Atan2(sinSum, cosSum), nil
+	}
+	phases := make([]float64, n)
+	for i, b := range seq {
+		phases[i] = phase[b]
+	}
+	sinBuf := make([]float64, n)
+	cosBuf := make([]float64, n)
+	f64.SinCos(sinBuf, cosBuf, phases)
+	return math.Atan2(f64.Sum(sinBuf), f64.Sum(cosBuf)), nil
+}
+
+func (emt *EigenModeToroidal) normalizeVec(v *[512]float64) {
+	normSq := f64.SumOfSquares(v[:])
+
+	if normSq < 1e-10 {
+		return
+	}
+
+	norm := math.Sqrt(normSq)
+	f64.Scale(v[:], v[:], 1.0/norm)
+}
+
+func EigenWithContext(ctx context.Context) eigenOpts {
+	return func(emt *EigenModeToroidal) {
+		emt.ctx = ctx
+	}
+}
+
 type EigenError string
 
 const (
-	EigenErrorFactorizeFailed EigenError = "eig.Factorize failed"
+	EigenErrorEmptySequence EigenError = "sequence is empty"
 )
 
-/*
-Error implements the error interface.
-*/
-func (err EigenError) Error() string {
-	return string(err)
+func (e EigenError) Error() string {
+	return string(e)
 }
 
 <<<END>>>
 <<<FILE ./pkg/core/numeric/geometry/field.go>>>
 package geometry
 
-import "math"
+import (
+	"math"
+	"math/bits"
+
+	"github.com/theapemachine/six/pkg/primitive"
+)
 
 /*
 Field is one phase vector over GF(p) for a fixed modulus p. The vector has
@@ -27487,8 +27686,13 @@ interference, and dominant extraction are identical operations at every layer
 — nothing here is trie-only or routing-only.
 */
 type Field struct {
-	modulus uint32
-	lanes   []uint32
+	modulus      uint32
+	Fields       []*Field
+	Values       []*primitive.Value
+	Affinity     []uint64
+	amplitude    uint32
+	Cooccurrence map[int]map[int]uint32
+	lastMode     int
 }
 
 /*
@@ -27527,12 +27731,19 @@ func newFieldLanes(laneCount int, modulus uint32) *Field {
 	}
 
 	if laneCount < 1 {
-		return &Field{modulus: modulus, lanes: nil}
+		return &Field{
+			modulus:      modulus,
+			Fields:       nil,
+			Cooccurrence: make(map[int]map[int]uint32),
+			lastMode:     -1,
+		}
 	}
 
 	return &Field{
-		modulus: modulus,
-		lanes:   make([]uint32, laneCount),
+		modulus:      modulus,
+		Fields:       make([]*Field, laneCount),
+		Cooccurrence: make(map[int]map[int]uint32),
+		lastMode:     -1,
 	}
 }
 
@@ -27562,24 +27773,44 @@ func (field *Field) Modulus() uint32 {
 }
 
 /*
-LaneLen returns the number of lanes (ring width for Alignment).
+MergeAffinity XORs the incoming affinity into the field's Affinity slice.
+If the field's Affinity is empty, it initializes it.
 */
-func (field *Field) LaneLen() int {
-	if field == nil {
-		return 0
+func (field *Field) MergeAffinity(valueAffinity []uint64) {
+	if field == nil || len(valueAffinity) == 0 {
+		return
 	}
 
-	return len(field.lanes)
+	if len(field.Affinity) == 0 {
+		field.Affinity = make([]uint64, len(valueAffinity))
+		copy(field.Affinity, valueAffinity)
+		return
+	}
+
+	minLen := len(field.Affinity)
+	if len(valueAffinity) < minLen {
+		minLen = len(valueAffinity)
+	}
+
+	for i := 0; i < minLen; i++ {
+		field.Affinity[i] ^= valueAffinity[i]
+	}
 }
 
 /*
-Lanes returns the underlying phase vector lanes.
+AffinitySaturation calculates the popcount of the Affinity slice divided by 257.
 */
-func (field *Field) Lanes() []uint32 {
-	if field == nil {
-		return nil
+func (field *Field) AffinitySaturation() float64 {
+	if field == nil || len(field.Affinity) == 0 {
+		return 0
 	}
-	return field.lanes
+
+	var popcount int
+	for _, word := range field.Affinity {
+		popcount += bits.OnesCount64(word)
+	}
+
+	return float64(popcount) / 257.0
 }
 
 /*
@@ -27591,50 +27822,36 @@ func (field *Field) Rotate(multiplier uint32, bias uint32) {
 		return
 	}
 
-	for laneIndex := range field.lanes {
-		laneBias := field.addMod(bias, uint32(laneIndex+1))
-		field.lanes[laneIndex] = field.affineMod(field.lanes[laneIndex], multiplier, laneBias)
-	}
-}
-
-/*
-ObserveByte injects one byte at position into the field: identity, orbit, and
-mirror lanes use the same layout at every modulus.
-*/
-func (field *Field) ObserveByte(token byte, position int) {
-	if field == nil || len(field.lanes) == 0 {
+	if len(field.Fields) == 0 {
+		field.amplitude = field.affineMod(field.amplitude, multiplier, bias)
 		return
 	}
 
-	width := len(field.lanes)
-	positionMod := positiveMod(position, width)
-
-	multiplier := field.reduceU32(uint32(positionMod + 1))
-
-	if multiplier == 0 {
-		multiplier = 1
+	for laneIndex := range field.Fields {
+		laneBias := field.addMod(bias, uint32(laneIndex+1))
+		field.Fields[laneIndex].Rotate(multiplier, laneBias)
 	}
-
-	bias := field.addMod(uint32(token), 1)
-	identityLane := positiveMod(int(token), width)
-	orbitLane := positiveMod(identityLane+position+1, width)
-	mirrorLane := positiveMod(identityLane+positionMod+width/2, width)
-
-	field.lanes[identityLane] = field.affineMod(field.lanes[identityLane], multiplier, bias)
-	field.lanes[orbitLane] = field.addMod(field.lanes[orbitLane], bias)
-	field.lanes[mirrorLane] = field.addMod(field.lanes[mirrorLane], multiplier)
 }
 
 /*
-ObserveBytes folds a full byte sequence into the phase vector.
+Rewind reverses an affine phase rotation. It is the exact inverse of Rotate,
+allowing the field to backtrack and explore alternative trajectories.
 */
-func (field *Field) ObserveBytes(data []byte) {
+func (field *Field) Rewind(multiplier uint32, bias uint32) {
 	if field == nil {
 		return
 	}
 
-	for position, token := range data {
-		field.ObserveByte(token, position)
+	if len(field.Fields) == 0 {
+		inv := field.inverseMod(multiplier)
+		val := field.subMod(field.amplitude, bias)
+		field.amplitude = field.mulMod(val, inv)
+		return
+	}
+
+	for laneIndex := range field.Fields {
+		laneBias := field.addMod(bias, uint32(laneIndex+1))
+		field.Fields[laneIndex].Rewind(multiplier, laneBias)
 	}
 }
 
@@ -27642,8 +27859,16 @@ func (field *Field) ObserveBytes(data []byte) {
 Dominant returns the strongest lane and mass-normalized concentration.
 */
 func (field *Field) Dominant() PhaseMode {
-	if field == nil || len(field.lanes) == 0 {
+	if field == nil {
 		return PhaseMode{Index: -1}
+	}
+
+	if len(field.Fields) == 0 {
+		return PhaseMode{
+			Index:         -1,
+			Amplitude:     field.amplitude,
+			Concentration: 1.0,
+		}
 	}
 
 	var totalMass uint64
@@ -27652,17 +27877,33 @@ func (field *Field) Dominant() PhaseMode {
 
 	var bestSignal uint32
 
-	for laneIndex, laneValue := range field.lanes {
-		totalMass += uint64(laneValue)
+	for laneIndex, laneValue := range field.Fields {
+		if laneValue == nil {
+			continue
+		}
 
-		if laneValue > bestSignal {
+		laneDominant := laneValue.Dominant()
+		totalMass += uint64(laneDominant.Amplitude)
+
+		if laneDominant.Amplitude > bestSignal {
 			bestIndex = laneIndex
-			bestSignal = laneValue
+			bestSignal = laneDominant.Amplitude
 		}
 	}
 
 	if totalMass == 0 {
 		return PhaseMode{Index: -1}
+	}
+
+	if field.lastMode != -1 && bestIndex != -1 && field.lastMode != bestIndex {
+		if field.Cooccurrence[field.lastMode] == nil {
+			field.Cooccurrence[field.lastMode] = make(map[int]uint32)
+		}
+		field.Cooccurrence[field.lastMode][bestIndex]++
+	}
+
+	if bestIndex != -1 {
+		field.lastMode = bestIndex
 	}
 
 	return PhaseMode{
@@ -27681,7 +27922,7 @@ func (field *Field) Alignment(leftIndex int, rightIndex int) float64 {
 		return 0
 	}
 
-	return LaneRingAlignment(leftIndex, rightIndex, len(field.lanes))
+	return LaneRingAlignment(leftIndex, rightIndex, len(field.Fields))
 }
 
 func (field *Field) addMod(left uint32, right uint32) uint32 {
@@ -27690,10 +27931,37 @@ func (field *Field) addMod(left uint32, right uint32) uint32 {
 	return field.reduceU64(sum)
 }
 
+func (field *Field) subMod(left uint32, right uint32) uint32 {
+	if left >= right {
+		return left - right
+	}
+	return field.modulus - ((right - left) % field.modulus)
+}
+
 func (field *Field) mulMod(left uint32, right uint32) uint32 {
 	prod := uint64(left) * uint64(right)
 
 	return field.reduceU64(prod)
+}
+
+func (field *Field) inverseMod(a uint32) uint32 {
+	if a == 0 {
+		return 0
+	}
+
+	res := uint64(1)
+	base := uint64(a)
+	exp := uint64(field.modulus - 2)
+
+	for exp > 0 {
+		if exp%2 == 1 {
+			res = (res * base) % uint64(field.modulus)
+		}
+		base = (base * base) % uint64(field.modulus)
+		exp /= 2
+	}
+
+	return uint32(res)
 }
 
 func (field *Field) affineMod(value uint32, multiplier uint32, bias uint32) uint32 {
@@ -27724,7 +27992,7 @@ alternating sign so bits 0–63 participate in the residue.
 func reduce257Uint64(value uint64) uint32 {
 	var acc int64
 
-	for byteIdx := 0; byteIdx < 8; byteIdx++ {
+	for byteIdx := range 8 {
 		b := int64((value >> (8 * byteIdx)) & 0xff)
 
 		if byteIdx%2 == 0 {
@@ -27800,8 +28068,8 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 		return
 	}
 
-	parentLanes := len(field.lanes)
-	childLanes := len(child.lanes)
+	parentLanes := len(field.Fields)
+	childLanes := len(child.Fields)
 
 	if parentLanes == 0 || childLanes == 0 || childLanes > parentLanes {
 		return
@@ -27824,8 +28092,8 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 		slotMultiplier = 1
 	}
 
-	for laneIndex := 0; laneIndex < childLanes; laneIndex++ {
-		childValue := child.lanes[laneIndex]
+	for laneIndex := range childLanes {
+		childValue := child.Fields[laneIndex].Dominant().Amplitude
 
 		if childValue == 0 {
 			continue
@@ -27833,7 +28101,7 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 
 		laneMultiplier := field.addMod(slotMultiplier, uint32(laneIndex+1))
 		projected := field.mulMod(laneMultiplier, childValue)
-		field.lanes[laneIndex] = field.addMod(field.lanes[laneIndex], projected)
+		field.addMod(field.Fields[laneIndex].Dominant().Amplitude, projected)
 	}
 }
 
@@ -27846,14 +28114,18 @@ func (field *Field) Dot(other *Field) uint32 {
 		return 0
 	}
 
-	if field.modulus != other.modulus || len(field.lanes) != len(other.lanes) {
+	if field.modulus != other.modulus || len(field.Fields) != len(other.Fields) {
 		return 0
 	}
 
 	var accumulator uint32
 
-	for laneIndex := range field.lanes {
-		product := field.mulMod(field.lanes[laneIndex], other.lanes[laneIndex])
+	for laneIndex := range field.Fields {
+		product := field.mulMod(
+			field.Fields[laneIndex].Dominant().Amplitude,
+			other.Fields[laneIndex].Dominant().Amplitude,
+		)
+		
 		accumulator = field.addMod(accumulator, product)
 	}
 
@@ -27868,8 +28140,8 @@ func (field *Field) Clone() *Field {
 		return nil
 	}
 
-	out := newFieldLanes(len(field.lanes), field.modulus)
-	copy(out.lanes, field.lanes)
+	out := newFieldLanes(len(field.Fields), field.modulus)
+	copy(out.Fields, field.Fields)
 
 	return out
 }
@@ -27974,6 +28246,60 @@ func LaneRingAlignment(leftIndex int, rightIndex int, laneCount int) float64 {
 	}
 
 	return 1.0 - (float64(distance) / float64(half))
+}
+
+/*
+Rotation represents a single affine rotation step.
+*/
+type Rotation struct {
+	Multiplier uint32
+	Bias       uint32
+}
+
+/*
+Phasedial acts as a perspective alignment device. It maintains a rotation
+state that can be dialed forward or backward to shift the field's perspective,
+allowing for backtracking and exploring alternative trajectories.
+*/
+type Phasedial struct {
+	field   *Field
+	history []Rotation
+}
+
+/*
+NewPhasedial initializes a new perspective alignment device for a field.
+*/
+func NewPhasedial(field *Field) *Phasedial {
+	return &Phasedial{
+		field:   field,
+		history: make([]Rotation, 0),
+	}
+}
+
+/*
+Dial applies an affine rotation and records it in history.
+*/
+func (pd *Phasedial) Dial(multiplier uint32, bias uint32) {
+	if pd == nil || pd.field == nil {
+		return
+	}
+
+	pd.history = append(pd.history, Rotation{Multiplier: multiplier, Bias: bias})
+	pd.field.Rotate(multiplier, bias)
+}
+
+/*
+Rewind reverses the last affine rotation, popping it from history.
+*/
+func (pd *Phasedial) Rewind() {
+	if pd == nil || pd.field == nil || len(pd.history) == 0 {
+		return
+	}
+
+	last := pd.history[len(pd.history)-1]
+	pd.history = pd.history[:len(pd.history)-1]
+
+	pd.field.Rewind(last.Multiplier, last.Bias)
 }
 
 <<<END>>>
@@ -31162,20 +31488,59 @@ func traceKeyvalsFormatted(keyvals []any) []any {
 <<<FILE ./pkg/gossip/conn.go>>>
 package gossip
 
-type Conn struct {
-	inbox  []*Conn
-	outbox []*Conn
+import "github.com/theapemachine/six/pkg/primitive"
+
+/*
+GossipConn is an interface that must be implemented by any type
+that wants to participate in the gossip protocol.
+*/
+type GossipConn interface {
+	Listen(others ...GossipConn)
+	Receive(value *primitive.Value)
+	Broadcast(value *primitive.Value)
 }
 
-func NewConn(inbox []*Conn, outbox []*Conn) *Conn {
+/*
+Conn is a connection that can be used to participate in the gossip protocol.
+*/
+type Conn struct {
+	inbox  []GossipConn
+	outbox []GossipConn
+}
+
+/*
+NewConn creates a new connection that can be used to participate in the gossip protocol.
+*/
+func NewConn(inbox []GossipConn, outbox []GossipConn) *Conn {
 	return &Conn{
 		inbox:  inbox,
 		outbox: outbox,
 	}
 }
 
-func (conn *Conn) Listen(others ...*Conn) {
+/*
+Listen adds a new connection to the list of connections that this connection will listen to.
+*/
+func (conn *Conn) Listen(others ...GossipConn) {
 	conn.inbox = append(conn.inbox, others...)
+}
+
+/*
+Receive receives a value from the list of connections that this connection will listen to.
+*/
+func (conn *Conn) Receive(value *primitive.Value) {
+	for _, inbox := range conn.inbox {
+		inbox.Receive(value)
+	}
+}
+
+/*
+Broadcast broadcasts a value to the list of connections that this connection will listen to.
+*/
+func (conn *Conn) Broadcast(value *primitive.Value) {
+	for _, outbox := range conn.outbox {
+		outbox.Broadcast(value)
+	}
 }
 
 <<<END>>>
@@ -33330,171 +33695,6 @@ TEXT ·GetG(SB),NOSPLIT,$0-8
     RET
 
 <<<END>>>
-<<<FILE ./pkg/pool/causal.go>>>
-package pool
-
-import (
-	"sync/atomic"
-	"unsafe"
-
-	"github.com/theapemachine/six/pkg/primitive"
-)
-
-const (
-	causalBeamSwarm = 0
-	causalSurprisal = 1
-	causalCoupling  = 2
-	causalNumProgs  = 3
-	causalBuckets   = 3
-)
-
-var causalProgramNames = [causalNumProgs]string{
-	"beam_swarm_step",
-	"surprisal",
-	"coupling",
-}
-
-/*
-CausalModel implements Pearl's backdoor adjustment over the
-program-selection problem. The model IS a Value — its words store
-the observation counts directly. No external lookup tables.
-
-Word layout inside the Value:
-
-	[prog*3 + bucket]            → settled count    (words 0–8)
-	[9 + prog*3 + bucket]        → unsettled count  (words 9–17)
-	[18 + bucket]                → bucket marginal  (words 18–20)
-
-The structural causal model:
-
-	Z (field concentration) ──► X (program choice)
-	Z ──────────────────────► Y (settled / unsettled)
-	X ──────────────────────► Y
-
-Intervene computes P(Y=settled | do(X=prog)) using the backdoor
-adjustment formula to deconfound program selection from field state.
-*/
-type CausalModel struct {
-	evidence *primitive.Value
-}
-
-/*
-NewCausalModel returns a model backed by a Value, initialised with
-Laplace priors (one pseudo-observation per cell).
-*/
-func NewCausalModel() *CausalModel {
-	evidence := &primitive.Value{}
-
-	for prog := range causalNumProgs {
-		for bucket := range causalBuckets {
-			evidence[prog*3+bucket] = 1
-			evidence[9+prog*3+bucket] = 1
-		}
-	}
-
-	for bucket := range causalBuckets {
-		evidence[18+bucket] = causalNumProgs * 2
-	}
-
-	return &CausalModel{evidence: evidence}
-}
-
-/*
-Bucket discretises field concentration into three strata for the
-backdoor adjustment.
-*/
-func (model *CausalModel) Bucket(concentration float64) int {
-	if concentration < 0.2 {
-		return 0
-	}
-
-	if concentration < 0.5 {
-		return 1
-	}
-
-	return 2
-}
-
-/*
-Observe records an intervention outcome directly into the Value's words.
-*/
-func (model *CausalModel) Observe(progIdx int, bucket int, didSettle bool) {
-	if didSettle {
-		atomic.AddUint64((*uint64)(unsafe.Pointer(&model.evidence[progIdx*3+bucket])), 1)
-	} else {
-		atomic.AddUint64((*uint64)(unsafe.Pointer(&model.evidence[9+progIdx*3+bucket])), 1)
-	}
-
-	atomic.AddUint64((*uint64)(unsafe.Pointer(&model.evidence[18+bucket])), 1)
-}
-
-/*
-Intervene computes P(Y=settled | do(X=prog)) for every candidate
-using the backdoor adjustment formula:
-
-	P(settled | do(prog)) = Σ_z P(settled | prog, Z=z) · P(Z=z)
-
-Returns the program index with the highest interventional probability.
-*/
-func (model *CausalModel) Intervene() int {
-	var totalN uint64
-	for bucket := range causalBuckets {
-		totalN += atomic.LoadUint64((*uint64)(unsafe.Pointer(&model.evidence[18+bucket])))
-	}
-
-	if totalN == 0 {
-		return causalBeamSwarm
-	}
-
-	bestProg := 0
-	bestProb := -1.0
-
-	for prog := range causalNumProgs {
-		var adjusted float64
-
-		for bucket := range causalBuckets {
-			successes := float64(atomic.LoadUint64((*uint64)(unsafe.Pointer(&model.evidence[prog*3+bucket]))))
-			failures := float64(atomic.LoadUint64((*uint64)(unsafe.Pointer(&model.evidence[9+prog*3+bucket]))))
-			cellTotal := successes + failures
-
-			if cellTotal == 0 {
-				continue
-			}
-
-			pSettledGivenXZ := successes / cellTotal
-			pZ := float64(atomic.LoadUint64((*uint64)(unsafe.Pointer(&model.evidence[18+bucket])))) / float64(totalN)
-			adjusted += pSettledGivenXZ * pZ
-		}
-
-		if adjusted > bestProb {
-			bestProb = adjusted
-			bestProg = prog
-		}
-	}
-
-	return bestProg
-}
-
-/*
-ProgIdxFromLabel maps a causal child label back to its program index.
-*/
-func ProgIdxFromLabel(label string) (int, bool) {
-	if len(label) < 8 || label[:7] != "causal_" {
-		return 0, false
-	}
-
-	suffix := label[7:]
-
-	for idx, name := range causalProgramNames {
-		if suffix == name {
-			return idx, true
-		}
-	}
-
-	return 0, false
-}
-
-<<<END>>>
 <<<FILE ./pkg/pool/constants/constants_386.go>>>
 package constants
 
@@ -34074,7 +34274,6 @@ const (
 package pool
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -34127,7 +34326,7 @@ func (self *Pool) Submit(task func()) {
 			return
 		} else {
 			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
-			runtime.Gosched()                            // Use standard runtime.Gosched instead of mcall(gosched_m)
+			mcall(gosched_m)                             // Use standard runtime.Gosched instead of mcall(gosched_m)
 		}
 	}
 }
@@ -34164,7 +34363,7 @@ type Node struct {
 }
 
 /*
-pop pops value from the top of the stack
+pop a value from the top of the stack
 */
 func (self *Pool) pop() (value *Slot) {
 	var top, next *Node
@@ -34216,14 +34415,12 @@ package pool
 import (
 	"context"
 	"errors"
-	"math/bits"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -34240,13 +34437,7 @@ circuit breaker that should never fire under normal operation.
 const cascadeSafetyCeiling = uint32(32)
 
 func queueWorkerCount() int {
-	n := runtime.NumCPU() - 1
-
-	if n < 1 {
-		n = 1
-	}
-
-	return n
+	return max(runtime.NumCPU()-1, 1)
 }
 
 /*
@@ -34271,7 +34462,7 @@ type Queue struct {
 	pool      *Pool
 	backend   QueueBackend
 	field     *geometry.Field
-	causal    *CausalModel
+	global    *geometry.Field
 	normal    *data.Ring
 	priority  *data.Ring
 	spill     *data.Ring
@@ -34303,7 +34494,7 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 		cancel: cancel,
 		pool:   NewPool(uint64(queueWorkerCount())),
 		field:  geometry.NewField(geometry.Mod8191),
-		causal: NewCausalModel(),
+		global: geometry.NewField(geometry.Mod65537),
 	}
 
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
@@ -34367,83 +34558,49 @@ func init() {
 	}
 }
 
-func (t *publishTask) execute() {
+func (t *publishTask) execute() error {
 	queue := t.queue
 	frame := t.frame
 	label := t.label
 	tracked := t.tracked
 
-	_ = label
-
-	// SENSE — fold token bytes into the field so the community accumulates.
-	if queue.field != nil {
-		queue.field.ObserveBytes(frame.TokenRegionBytes())
-
-		dominant := queue.field.Dominant()
-		if dominant.Index >= 0 {
-			(*frame)[kernel.ContextStartWord] = uint64(dominant.Amplitude)
-			(*frame)[kernel.ContextStartWord+1] = uint64(dominant.Index)
-			(*frame)[kernel.GradientStartWord] = uint64(dominant.Amplitude) ^ uint64(dominant.Index)
-		}
-	}
-
 	// EXECUTE — run whatever program is installed on this Value.
 	t.ptrs[0] = unsafe.Pointer(frame)
-	_ = queue.backend.Execute(t.ptrs[:])
 
-	// MEASURE — affinity density tells us if this Value has found its
-	// community. Dense affinity (high popcount) = settled. Sparse = the
-	// Value is still unlinked and the system should keep working on it.
-	var affinityDensity int
-	for i := 0; i < 5; i++ {
-		affinityDensity += bits.OnesCount64((*frame)[kernel.AffinityStartWord+i])
-	}
-
-	settled := affinityDensity > 64
-
-	progIdx, isCausalChild := ProgIdxFromLabel(label)
-
-	// CAUSAL MODELLING — do(X) intervention via Pearl's backdoor
-	// adjustment. The model lives in a Value; Intervene reads its words,
-	// computes P(settled | do(prog)) for each candidate, picks the best.
-	if !settled && t.hopsUsed == 0 && !isCausalChild {
-		chosen := queue.causal.Intervene()
-		queue.mintIntervention(frame, chosen)
-	}
-
-	// OBSERVE — when a causal child finishes, feed the outcome back into
-	// the model Value so future Intervene calls reflect real evidence.
-	if isCausalChild && (*frame)[kernel.SchedulingNextProgramWord] == 0 {
-		var concentration float64
-		if queue.field != nil {
-			concentration = queue.field.Dominant().Concentration
-		}
-
-		queue.causal.Observe(progIdx, queue.causal.Bucket(concentration), settled)
-	}
-
-	if queue.field != nil {
-		queue.field.ObserveBytes(frame.TokenRegionBytes())
-	}
-
-	t.hopsUsed++
-
-	if (*frame)[kernel.SchedulingNextProgramWord] != 0 && t.hopsUsed >= cascadeSafetyCeiling {
-		(*frame)[kernel.SchedulingNextProgramWord] = 0
-	}
-
-	if settled {
-		(*frame)[kernel.SchedulingNextProgramWord] = 0
+	if err := queue.backend.Execute(t.ptrs[:]); err != nil {
+		return errnie.Error(err)
 	}
 
 	if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
-		hops := t.hopsUsed
+		hops := t.hopsUsed + 1
 
-		if tracked {
-			queue.republishTracked(frame, label, hops)
+		if hops >= cascadeSafetyCeiling {
+			(*frame)[kernel.SchedulingNextProgramWord] = 0
 		} else {
-			if err := queue.Publish(frame, label); err != nil {
-				errnie.Error(err)
+			if tracked {
+				queue.republishTracked(frame, label, hops)
+			} else {
+				// Re-enqueue without making a copy since we already own the frame
+				inflight := queue.inflight.Add(1)
+
+				if viz.DefaultBus.IsActive() {
+					viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+						inflight,
+						frame.ID(),
+						(*frame)[kernel.PrevStartWord],
+						(*frame)[kernel.NextStartWord],
+						"",
+					))
+				}
+
+				newTask := taskPool.Get().(*publishTask)
+				newTask.queue = queue
+				newTask.frame = frame
+				newTask.label = label
+				newTask.tracked = false
+				newTask.hopsUsed = hops
+
+				queue.pool.Submit(newTask.run)
 			}
 		}
 	}
@@ -34462,42 +34619,7 @@ func (t *publishTask) execute() {
 	}
 
 	taskPool.Put(t)
-}
-
-/*
-mintIntervention creates a single causal child with the program selected
-by the causal model's do-calculus. The child copies the parent's tokens,
-affinity, context, and gradient, then gets the chosen program installed.
-*/
-func (queue *Queue) mintIntervention(parent *primitive.Value, progIdx int) {
-	prog := causalProgramNames[progIdx]
-
-	child := publishFramePool.Get().(*primitive.Value)
-	*child = primitive.Value{}
-
-	for i := kernel.TokensStartWord; i < kernel.TokensStartWord+16; i++ {
-		(*child)[i] = (*parent)[i]
-	}
-
-	for i := 0; i < 5; i++ {
-		(*child)[kernel.AffinityStartWord+i] = (*parent)[kernel.AffinityStartWord+i]
-	}
-
-	(*child)[kernel.ContextStartWord] = (*parent)[kernel.ContextStartWord]
-	(*child)[kernel.ContextStartWord+1] = (*parent)[kernel.ContextStartWord+1]
-	(*child)[kernel.GradientStartWord] = (*parent)[kernel.GradientStartWord]
-	(*child)[kernel.GradientStartWord+1] = (*parent)[kernel.GradientStartWord+1]
-
-	installer := programmer.Installer{}
-
-	if err := installer.InstallProgram(child, prog); err != nil {
-		publishFramePool.Put(child)
-		return
-	}
-
-	if err := queue.Publish(child, "causal_"+prog); err != nil {
-		publishFramePool.Put(child)
-	}
+	return nil
 }
 
 /*
@@ -34506,8 +34628,15 @@ counter so the safety ceiling spans the full cascade lifetime.
 */
 func (queue *Queue) republishTracked(frame *primitive.Value, label string, hopsUsed uint32) {
 	inflight := queue.inflight.Add(1)
+
 	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight, frame.ID(), (*frame)[kernel.PrevStartWord], (*frame)[kernel.NextStartWord], ""))
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			inflight,
+			frame.ID(),
+			(*frame)[kernel.PrevStartWord],
+			(*frame)[kernel.NextStartWord],
+			"",
+		))
 	}
 
 	task := taskPool.Get().(*publishTask)
@@ -34542,8 +34671,15 @@ func (queue *Queue) Publish(value *primitive.Value, label string) error {
 	}
 
 	inflight := queue.inflight.Add(1)
+
 	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight, frame.ID(), (*frame)[kernel.PrevStartWord], (*frame)[kernel.NextStartWord], ""))
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			inflight,
+			frame.ID(),
+			(*frame)[kernel.PrevStartWord],
+			(*frame)[kernel.NextStartWord],
+			"",
+		))
 	}
 
 	task := taskPool.Get().(*publishTask)
@@ -34578,8 +34714,15 @@ func (queue *Queue) PublishTracked(frame *primitive.Value, label string) error {
 	}
 
 	inflight := queue.inflight.Add(1)
+
 	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.QueueSubmitEvent(inflight, frame.ID(), (*frame)[kernel.PrevStartWord], (*frame)[kernel.NextStartWord], ""))
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			inflight,
+			frame.ID(),
+			(*frame)[kernel.PrevStartWord],
+			(*frame)[kernel.NextStartWord],
+			"",
+		))
 	}
 
 	task := taskPool.Get().(*publishTask)
@@ -34842,13 +34985,13 @@ func main() {
 		writeMacro64(&content, "AFFINITY_LAST_WORD_MASK", lastWordMask)
 	}
 
-	if viper.IsSet("value.region.meta.start") {
-		metaStart := viper.GetInt("value.region.meta.start")
-		metaBits := viper.GetInt("value.region.meta.bits")
-		metaWords := (metaBits + 63) / 64
+	if viper.IsSet("value.region.properties.start") {
+		propertiesStart := viper.GetInt("value.region.properties.start")
+		propertiesBits := viper.GetInt("value.region.properties.bits")
+		propertiesWords := (propertiesBits + 63) / 64
 
-		writeMacro(&content, "META_START_WORD", metaStart)
-		writeMacro(&content, "META_WORDS", metaWords)
+		writeMacro(&content, "PROPERTIES_START_WORD", propertiesStart)
+		writeMacro(&content, "PROPERTIES_WORDS", propertiesWords)
 	}
 
 	content.WriteString("\n#endif // SUBSTRATE_PRIMITIVES_H\n")
@@ -35299,12 +35442,12 @@ package primitive
 import (
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 var (
@@ -35429,41 +35572,7 @@ when the Morton slab fills, packing continues in a fresh segment.
 CloseAll closes every non-nil pointer in the slice.
 */
 func NewValue(p []byte) ([]*Value, error) {
-	if len(p) == 0 {
-		return nil, io.ErrShortBuffer
-	}
-
-	mc := NewMorton(2)
-	tokenStart := core.Cfg.Value.Region.Tokens.Start
-	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
-	prevWord := core.Cfg.Value.Region.Prev.Start
-	nextWord := core.Cfg.Value.Region.Next.Start
-
-	var out []*Value
-	idx := 0
-
-	for idx < len(p) {
-		value := valuePool.Get().(*Value)
-		*value = Value{}
-
-		for word := 0; word < tokenWords && idx < len(p); word++ {
-			value[tokenStart+word] = mc.Encode(uint32(p[idx]), uint32(idx))
-			idx++
-		}
-
-		value.stampID()
-		out = append(out, value)
-
-		if len(out) >= 2 {
-			prev := out[len(out)-2]
-			next := out[len(out)-1]
-
-			prev.Set(nextWord, next.ID())
-			next.Set(prevWord, prev.ID())
-		}
-	}
-
-	return out, nil
+	return newValuesFromPayload(p, nil)
 }
 
 /*
@@ -35477,7 +35586,7 @@ func CloseAll(values []*Value) {
 		}
 
 		if err := value.Close(); err != nil {
-			errnie.Error(err)
+			log.Println("error closing value", err)
 		}
 	}
 }
@@ -35506,6 +35615,138 @@ func FirstSegment(values []*Value, err error) (*Value, error) {
 	}
 
 	return values[0], nil
+}
+
+// newValueMaxSlotProbeSteps caps ordinal scans when resolving duplicate
+// Morton slot codes while packing a segment.
+const newValueMaxSlotProbeSteps = 1 << 22
+
+func newValuesFromPayload(
+	p []byte,
+	geometry *geometry,
+) ([]*Value, error) {
+	if len(p) == 0 {
+		return nil, io.ErrShortBuffer
+	}
+
+	tokenBytes := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
+
+	if tokenBytes < 2 {
+		return nil, io.ErrShortBuffer
+	}
+
+	if geometry == nil {
+		geometry = newBalancedGeometry(tokenBytes/2, 2)
+	}
+
+	prevWord := core.Cfg.Value.Region.Prev.Start
+	nextWord := core.Cfg.Value.Region.Next.Start
+
+	idx := 0
+
+	var out []*Value
+
+	for idx < len(p) {
+		buf := make([]byte, tokenBytes)
+		offset := 0
+		positionOrdinal := uint32(0)
+		occupied := make(map[uint16]struct{}, min(len(p)-idx, tokenBytes/2))
+
+		for idx < len(p) {
+			datum := p[idx]
+			probe := positionOrdinal
+
+			var code uint16
+
+			found := false
+
+			for range newValueMaxSlotProbeSteps {
+				slotCode, slotErr := geometry.SlotCode(datum, probe)
+
+				if slotErr != nil {
+					// SlotCode only errors when the geometry is
+					// unusable. Wipe any segments we already minted so
+					// the pool stays clean and bubble the error up.
+					for _, minted := range out {
+						*minted = Value{}
+						valuePool.Put(minted)
+					}
+
+					return nil, slotErr
+				}
+
+				code = slotCode
+
+				if _, taken := occupied[code]; !taken {
+					found = true
+
+					break
+				}
+
+				probe++
+			}
+
+			if !found {
+				break
+			}
+
+			if offset+2 > tokenBytes {
+				break
+			}
+
+			occupied[code] = struct{}{}
+
+			buf[offset] = byte(code)
+			buf[offset+1] = byte(code >> 8)
+			offset += 2
+			positionOrdinal = probe + 1
+			idx++
+		}
+
+		if offset == 0 {
+			for _, v := range out {
+				*v = Value{}
+				valuePool.Put(v)
+			}
+
+			return nil, io.ErrShortBuffer
+		}
+
+		raw := valuePool.Get()
+		value := raw.(*Value)
+		*value = Value{}
+
+		wire := make([]byte, core.Cfg.Value.Bytes)
+		tokenStart := core.Cfg.Value.Region.Tokens.Start * 8
+
+		if tokenStart+offset > len(wire) {
+			*value = Value{}
+			valuePool.Put(value)
+
+			for _, v := range out {
+				*v = Value{}
+				valuePool.Put(v)
+			}
+
+			return nil, io.ErrShortBuffer
+		}
+
+		copy(wire[tokenStart:], buf[:offset])
+		valueFrom(wire, value)
+
+		stamped := value.stampID()
+		out = append(out, stamped)
+
+		if len(out) >= 2 {
+			prev := out[len(out)-2]
+			next := out[len(out)-1]
+
+			prev.Set(nextWord, next.ID())
+			next.Set(prevWord, prev.ID())
+		}
+	}
+
+	return out, nil
 }
 
 /*
@@ -35623,27 +35864,22 @@ func (value *Value) ID() uint64 {
 }
 
 /*
-TokenRegionBytes returns the token slab bytes with trailing complete codes
-trimmed. The token region stores 16-bit Morton keys little-endian, so
-trimming operates on 2-byte boundaries.
+TokenWords returns the populated token words from the token region,
+trimming trailing zero words.
 */
-func (value *Value) TokenRegionBytes() []byte {
+func (value *Value) TokenWords() []uint64 {
 	if value == nil {
 		return nil
 	}
 
-	tokenByteLen := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
-	startByte := core.Cfg.Value.Region.Tokens.Start * 8
+	tokenStart := core.Cfg.Value.Region.Tokens.Start
+	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
 
-	slab := unsafe.Slice(
-		(*byte)(unsafe.Pointer(&value[0])),
-		startByte+tokenByteLen,
-	)[startByte:]
+	slab := (*value)[tokenStart : tokenStart+tokenWords]
 
 	trim := len(slab)
-
-	for trim >= 2 && slab[trim-2] == 0 && slab[trim-1] == 0 {
-		trim -= 2
+	for trim > 0 && slab[trim-1] == 0 {
+		trim--
 	}
 
 	return slab[:trim]
@@ -35652,27 +35888,30 @@ func (value *Value) TokenRegionBytes() []byte {
 /*
 String decodes the Morton-coded token region back to the original
 byte sequence for human-readable output. All algorithmic paths should
-operate on the raw Morton-coded TokenRegionBytes directly.
+operate on the raw Morton-coded TokenWords directly.
 */
 func (value *Value) String() string {
 	if value == nil {
 		return ""
 	}
 
-	mc := NewMorton(2)
-	tokenStart := core.Cfg.Value.Region.Tokens.Start
-	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
+	words := value.TokenWords()
+	if len(words) == 0 {
+		return ""
+	}
 
-	out := make([]byte, 0, tokenWords)
+	out := make([]byte, 0, len(words)*4)
 
-	for word := 0; word < tokenWords; word++ {
-		code := value[tokenStart+word]
-		if code == 0 {
-			continue
+	for _, word := range words {
+		for i := 0; i < 4; i++ {
+			code := uint16(word >> (i * 16))
+			if code == 0 {
+				continue
+			}
+
+			byteVal, _ := DecodeInterleaved8x8(code)
+			out = append(out, byte(byteVal))
 		}
-
-		coords := mc.Decode(code)
-		out = append(out, byte(coords[0]))
 	}
 
 	return string(out)
@@ -36306,6 +36545,14 @@ const (
 	EventQueueSubmit
 	EventHolographicCrossover
 	EventSense
+
+	// Orchestrator / Community Routing.
+	EventCommunityCreated
+	EventValueJoinedCommunity
+	EventCommunitySaturated
+	EventCommunityAction
+	EventCommunityReaction
+	EventCausalHubProbe
 )
 
 // Event is a single visualization datum. All fields are value types so events
@@ -36329,6 +36576,8 @@ func NewEvent(kind EventKind, source string) Event {
 		Kind:      kind,
 		Timestamp: now(),
 		Source:    source,
+		Values:    make(map[string]float64),
+		Meta:      make(map[string]string),
 	}
 }
 
@@ -36439,6 +36688,119 @@ func (b *Bus) Publish(ev Event) {
 // and call viz.DefaultBus.Publish(). When the viz server isn't running,
 // the bus is inactive and Publish is a no-op branch.
 var DefaultBus = NewBus()
+
+<<<END>>>
+<<<FILE ./pkg/viz/layout_meta.go>>>
+package viz
+
+import (
+	"fmt"
+	"hash/fnv"
+	"math"
+	"strconv"
+)
+
+/*
+Layout meta keys (viz_lx, viz_ly, viz_band) let the canvas cluster particles by
+subsystem instead of inferring layout from ids alone. Values are normalized
+[0,1] with origin top-left; the React layer maps them with margin insets.
+
+Bands are nominal vertical anchors; scatterKey spreads horizontally and jitters
+slightly vertically so stacks remain readable.
+*/
+
+const (
+	metaVizLX    = "viz_lx"
+	metaVizLY    = "viz_ly"
+	metaVizBand  = "viz_band"
+	metaVizStage = "viz_stage"
+)
+
+// Nominal vertical anchors (0 top of field, 1 bottom).
+const (
+	vizBandPrompt       = 0.07
+	vizBandIngest       = 0.15
+	vizBandTokenizerVal = 0.28
+	vizBandTrie         = 0.36
+	vizBandBeam         = 0.42
+	vizBandCompute      = 0.50
+	vizBandPool         = 0.56
+	vizBandQueue        = 0.64
+	vizBandOrchestrator = 0.76
+	vizBandProgram      = 0.88
+	vizBandDHT          = 0.22
+)
+
+func ensureMeta(ev *Event) {
+	if ev.Meta == nil {
+		ev.Meta = make(map[string]string)
+	}
+}
+
+func scatter01(key string) float64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return float64(h.Sum32()) / float64(^uint32(0))
+}
+
+func layoutFromBand(band float64, scatterKey string) (lx, ly float64) {
+	u := scatter01(scatterKey)
+	w := scatter01(scatterKey + "|y")
+	lx = 0.04 + 0.92*u
+	jitter := (w - 0.5) * 0.07
+	ly = band + jitter
+
+	if ly < 0.02 {
+		ly = 0.02
+	}
+
+	if ly > 0.98 {
+		ly = 0.98
+	}
+
+	return lx, ly
+}
+
+func formatVizUnit(v float64) string {
+	return strconv.FormatFloat(v, 'f', 5, 64)
+}
+
+/*
+applyVizLayout writes viz_lx, viz_ly, viz_band, and viz_stage into ev.Meta.
+band must be a nominal vertical anchor (use vizBand* constants).
+*/
+func applyVizLayout(ev *Event, stageName string, band float64, scatterKey string) {
+	ensureMeta(ev)
+	lx, ly := layoutFromBand(band, scatterKey)
+	ev.Meta[metaVizLX] = formatVizUnit(lx)
+	ev.Meta[metaVizLY] = formatVizUnit(ly)
+	ev.Meta[metaVizBand] = formatVizUnit(band)
+	ev.Meta[metaVizStage] = stageName
+}
+
+/*
+applyVizLayoutQueue is like applyVizLayout but nudges the band downward slightly
+as inflight work stacks so the queue lane shows load visually.
+*/
+func applyVizLayoutQueue(ev *Event, inflight int64, valueID uint64) {
+	band := vizBandQueue + math.Min(0.09, float64(inflight)*0.0035)
+
+	if band > 0.82 {
+		band = 0.82
+	}
+
+	applyVizLayout(ev, "queue", band, strconv.FormatUint(valueID, 16))
+}
+
+func applyVizLayoutCommunity(ev *Event, communityID int, suffix string) {
+	key := fmt.Sprintf("c%d|%s", communityID, suffix)
+	applyVizLayout(ev, "orchestrator", vizBandOrchestrator, key)
+}
+
+func applyVizLayoutProgram(ev *Event, communityID int, program string, idHex string) {
+	key := fmt.Sprintf("%d|%s|%s", communityID, program, idHex)
+	applyVizLayout(ev, "program", vizBandProgram, key)
+}
 
 <<<END>>>
 <<<FILE ./pkg/viz/remote.go>>>
@@ -37061,12 +37423,14 @@ hook-up happens in cmd/viz.go where we wire observers and callbacks.
 func NodeCreated(nodeID uint64, label string) Event {
 	ev := newEventWithMaps(EventNodeCreated, fmtNodeID(nodeID))
 	ev.Label = label
+	applyVizLayout(&ev, "node", vizBandDHT, fmt.Sprintf("node_created|%s|%s", fmtNodeID(nodeID), label))
 	return ev
 }
 
 func NodeUpdated(nodeID uint64, vals map[string]float64) Event {
 	ev := newEventWithMaps(EventNodeUpdated, fmtNodeID(nodeID))
 	ev.Values = vals
+	applyVizLayout(&ev, "node", vizBandDHT, fmt.Sprintf("node_updated|%s", fmtNodeID(nodeID)))
 	return ev
 }
 
@@ -37154,6 +37518,7 @@ func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
 
 	// Large enough for tokenizer/code rows in paper runs; JSON stays small vs timeline cap.
 	ev.Meta = map[string]string{"sequence": truncate(sequence, 512)}
+	applyVizLayout(&ev, "trie_insert", vizBandTrie, fmt.Sprintf("%s|%d|%s", fmtNodeID(nodeID), trieIdx, label))
 
 	return ev
 }
@@ -37253,6 +37618,7 @@ func BeamCollectEvent(nodeID uint64, trieCount, continuationCount int) Event {
 		"trie_count":         float64(trieCount),
 		"continuation_count": float64(continuationCount),
 	}
+	applyVizLayout(&ev, "beam_collect", vizBandBeam, fmt.Sprintf("%s|%d", fmtNodeID(nodeID), trieCount))
 
 	return ev
 }
@@ -37269,6 +37635,7 @@ func BeamComposeEvent(nodeID uint64, selectedCount, rejectedCount int, bestScore
 		"rejected_count": float64(rejectedCount),
 		"best_score":     bestScore,
 	}
+	applyVizLayout(&ev, "beam_compose", vizBandBeam, fmt.Sprintf("%s|%d", fmtNodeID(nodeID), selectedCount))
 
 	return ev
 }
@@ -37283,6 +37650,7 @@ func BeamBreakEvent(nodeID uint64, trieID uint64) Event {
 	ev.Values = map[string]float64{
 		"trie_id": float64(trieID),
 	}
+	applyVizLayout(&ev, "beam_break", vizBandBeam, fmt.Sprintf("%s|%x", fmtNodeID(nodeID), trieID))
 
 	return ev
 }
@@ -37297,6 +37665,7 @@ func BeamConvergeEvent(nodeID uint64, sequence string, score float64) Event {
 	ev.Values = map[string]float64{
 		"score": score,
 	}
+	applyVizLayout(&ev, "beam_converge", vizBandBeam, fmt.Sprintf("%s|%0.4f", fmtNodeID(nodeID), score))
 
 	return ev
 }
@@ -37311,6 +37680,7 @@ func PoolScheduleEvent(action string, queueSize, workers int, valueID uint64) Ev
 		"workers":    float64(workers),
 	}
 	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	applyVizLayout(&ev, "pool_schedule", vizBandPool, fmt.Sprintf("%s|%s", action, strconv.FormatUint(valueID, 16)))
 	return ev
 }
 
@@ -37319,6 +37689,7 @@ func PoolCompleteEvent(action string, durationMs int, valueID uint64) Event {
 	ev.Label = action
 	ev.Values = map[string]float64{"duration_ms": float64(durationMs)}
 	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	applyVizLayout(&ev, "pool_complete", vizBandPool, fmt.Sprintf("%s|%s|%d", action, strconv.FormatUint(valueID, 16), durationMs))
 	return ev
 }
 
@@ -37354,6 +37725,8 @@ func CompilerCompileEvent(
 		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
 	}
 
+	applyVizLayout(&ev, "compile", vizBandCompute, fmt.Sprintf("%s|%d|%d", targetLabel, operation, compileNanos))
+
 	return ev
 }
 
@@ -37373,6 +37746,8 @@ func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, du
 		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
 	}
 	ev.Meta["value_id"] = strconv.FormatUint(valueID, 16)
+
+	applyVizLayout(&ev, "alu", vizBandCompute, fmt.Sprintf("%s|%d|%s", substrateName, opcode, strconv.FormatUint(valueID, 16)))
 
 	return ev
 }
@@ -37400,6 +37775,8 @@ func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool
 		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
 	}
 
+	applyVizLayout(&ev, "finalizer", vizBandCompute, fmt.Sprintf("%d|%d|%d", depth, emitted, correlation))
+
 	return ev
 }
 
@@ -37408,6 +37785,7 @@ func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool
 func PromptEvent(prompt string) Event {
 	ev := newEventWithMaps(EventPrompt, "user")
 	ev.Meta = map[string]string{"prompt": prompt}
+	applyVizLayout(&ev, "prompt", vizBandPrompt, prompt)
 	return ev
 }
 
@@ -37415,6 +37793,7 @@ func PromptResultEvent(generation string, scores map[string]float64) Event {
 	ev := newEventWithMaps(EventPromptResult, "system")
 	ev.Meta = map[string]string{"generation": truncate(generation, 256)}
 	ev.Values = scores
+	applyVizLayout(&ev, "prompt_result", vizBandPrompt, truncate(generation, 64))
 	return ev
 }
 
@@ -37426,6 +37805,7 @@ func TrieGraphSnapshotEvent(nodeID uint64, trieIdx int, graphJSON []byte) Event 
 	ev := newEventWithMaps(EventTrieGraphSnapshot, fmtNodeID(nodeID))
 	ev.Values["trie_idx"] = float64(trieIdx)
 	ev.Meta["graph"] = string(graphJSON)
+	applyVizLayout(&ev, "trie_graph", vizBandTrie, fmt.Sprintf("%s|%d|%d", fmtNodeID(nodeID), trieIdx, len(graphJSON)))
 
 	return ev
 }
@@ -37445,6 +37825,7 @@ func DatasetReadEvent(datasetName string, bytesRead, totalBytes int64, label str
 		"total_bytes": float64(totalBytes),
 	}
 	ev.Meta = map[string]string{"dataset": datasetName}
+	applyVizLayout(&ev, "dataset", vizBandIngest, fmt.Sprintf("%s|%s|%d", datasetName, label, bytesRead))
 	return ev
 }
 
@@ -37457,6 +37838,7 @@ func TokenizerChunkEvent(bytesWritten int) Event {
 	ev.Values = map[string]float64{
 		"bytes_written": float64(bytesWritten),
 	}
+	applyVizLayout(&ev, "tokenizer_chunk", vizBandIngest, strconv.Itoa(bytesWritten))
 	return ev
 }
 
@@ -37464,10 +37846,15 @@ func TokenizerChunkEvent(bytesWritten int) Event {
 TokenizerEmitEvent fires when the tokenizer mints a new Value from a
 drained chunk and publishes it downstream.
 */
-func TokenizerEmitEvent(valueID uint64, label string) Event {
+func TokenizerEmitEvent(valueID uint64, label string, tokenContent string) Event {
 	ev := newEventWithMaps(EventTokenizerEmit, "tokenizer")
 	ev.Label = label
-	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	vidHex := strconv.FormatUint(valueID, 16)
+	ev.Meta = map[string]string{
+		"value_id": vidHex,
+		"content":  truncate(tokenContent, 128),
+	}
+	applyVizLayout(&ev, "tokenizer_emit", vizBandTokenizerVal, fmt.Sprintf("%s|%s", vidHex, label))
 	return ev
 }
 
@@ -37475,17 +37862,105 @@ func TokenizerEmitEvent(valueID uint64, label string) Event {
 QueueSubmitEvent fires when the pool queue accepts a new work item.
 */
 func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content string) Event {
-	ev := NewEvent(EventQueueSubmit, "queue")
+	ev := newEventWithMaps(EventQueueSubmit, "queue")
+	ev.Label = truncate(content, 128)
+	ev.Values["inflight"] = float64(inflight)
+	ev.Meta["value_id"] = strconv.FormatUint(valueID, 16)
+	ev.Meta["prev_id"] = strconv.FormatUint(prevID, 16)
+	ev.Meta["next_id"] = strconv.FormatUint(nextID, 16)
+	applyVizLayoutQueue(&ev, inflight, valueID)
+	return ev
+}
+
+func CausalHubProbeEvent(valueID uint64, prefixStart, prefixWords int, mask uint64, depth uint64, status string) Event {
+	ev := newEventWithMaps(EventCausalHubProbe, "queue")
+	ev.Label = "causal_hub"
+	ev.Values = map[string]float64{
+		"prefix_start": float64(prefixStart),
+		"prefix_words": float64(prefixWords),
+		"depth":        float64(depth),
+	}
+	ev.Meta = map[string]string{
+		"value_id": strconv.FormatUint(valueID, 16),
+		"mask":     strconv.FormatUint(mask, 16),
+		"status":   status,
+	}
+	applyVizLayout(&ev, "causal_hub", vizBandQueue, fmt.Sprintf("%s|%d|%s", strconv.FormatUint(valueID, 16), depth, status))
 	return ev
 }
 
 func HolographicCrossoverEvent(valueID uint64) Event {
 	ev := NewEvent(EventHolographicCrossover, "queue")
+	applyVizLayout(&ev, "crossover", vizBandQueue, strconv.FormatUint(valueID, 16))
 	return ev
 }
 
 func SenseEvent(valueID uint64, amplitude, index int) Event {
 	ev := NewEvent(EventSense, "queue")
+	applyVizLayout(&ev, "sense", vizBandQueue, fmt.Sprintf("%s|%d|%d", strconv.FormatUint(valueID, 16), amplitude, index))
+	return ev
+}
+
+// --- Orchestrator / Community Routing ---
+
+func CommunityCreatedEvent(communityID int, initialAffinity []uint64) Event {
+	ev := newEventWithMaps(EventCommunityCreated, "orchestrator")
+	ev.Values = map[string]float64{"community_id": float64(communityID)}
+
+	if len(initialAffinity) > 0 {
+		hexStr := ""
+		for _, word := range initialAffinity {
+			hexStr += fmt.Sprintf("%016x", word)
+		}
+		ev.Meta["initial_affinity"] = hexStr
+	}
+
+	applyVizLayoutCommunity(&ev, communityID, "create")
+
+	return ev
+}
+
+func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Event {
+	ev := newEventWithMaps(EventValueJoinedCommunity, "orchestrator")
+	ev.Values = map[string]float64{
+		"community_id": float64(communityID),
+		"distance":     float64(distance),
+	}
+	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("join|%s", strconv.FormatUint(valueID, 16)))
+	return ev
+}
+
+func CommunitySaturatedEvent(communityID int, saturation float64) Event {
+	ev := newEventWithMaps(EventCommunitySaturated, "orchestrator")
+	ev.Values = map[string]float64{
+		"community_id": float64(communityID),
+		"saturation":   saturation,
+	}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("sat|%0.3f", saturation))
+	return ev
+}
+
+func CommunityActionEvent(communityID int, actionID uint64, program string, resonance float64) Event {
+	ev := newEventWithMaps(EventCommunityAction, "orchestrator")
+	ev.Label = program
+	ev.Values = map[string]float64{
+		"community_id": float64(communityID),
+		"resonance":    resonance,
+	}
+	idHex := strconv.FormatUint(actionID, 16)
+	ev.Meta = map[string]string{"action_id": idHex}
+	applyVizLayoutProgram(&ev, communityID, program, idHex)
+	return ev
+}
+
+func CommunityReactionEvent(communityID int, reactionID uint64, program string) Event {
+	ev := newEventWithMaps(EventCommunityReaction, "orchestrator")
+	ev.Label = program
+	ev.Values = map[string]float64{"community_id": float64(communityID)}
+	idHex := strconv.FormatUint(reactionID, 16)
+	ev.Meta = map[string]string{"reaction_id": idHex}
+	applyVizLayoutProgram(&ev, communityID, program, idHex)
 	return ev
 }
 
@@ -38154,6 +38629,7 @@ import (
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/transport"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -38162,17 +38638,18 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	host      *network.Host
-	queue     *pool.Queue
-	backend   *compute.Backend
-	tokenizer *Tokenizer
-	conn      *gossip.Conn
-	field     *geometry.Field
-	remSleep  *time.Ticker
-	remDone   chan struct{}
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	host         *network.Host
+	queue        *pool.Queue
+	backend      *compute.Backend
+	tokenizer    *Tokenizer
+	conn         *gossip.Conn
+	field        *geometry.Field
+	orchestrator *Orchestrator
+	remSleep     *time.Ticker
+	remDone      chan struct{}
 }
 
 type machineOpts func(*Machine)
@@ -38186,6 +38663,8 @@ func NewMachine(
 		ctx:     ctx,
 		cancel:  cancel,
 		remDone: make(chan struct{}),
+		field:   geometry.NewField(geometry.Mod65537),
+		conn:    gossip.NewConn(nil, nil),
 	}
 
 	for _, opt := range opts {
@@ -38200,14 +38679,16 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
+	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue)
+	if machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
 	machine.backend = compute.NewBackend(
 		ctx,
 		machine.queue,
 		compute.WithExploreEvery(128),
 	)
-
-	machine.conn = gossip.NewConn(nil, nil)
-	machine.field = geometry.NewField(geometry.Mod8191)
 
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx, machine.queue,
@@ -38292,6 +38773,7 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		false,
 		machine.tokenizer,
 		machine.queue,
+		machine.orchestrator,
 	)
 
 	if err != nil {
@@ -38311,7 +38793,7 @@ scheduling word is zeroed (meaning it has settled), then return it.
 Causal children the queue spawns are irrelevant — they keep running in
 the background and their traces accumulate in the field.
 */
-func (machine *Machine) Prompt(prompt string) (*primitive.Value, error) {
+func (machine *Machine) Prompt(prompt string, program string) (*primitive.Value, error) {
 	if err := validate.Require(map[string]any{
 		"queue": machine.queue,
 	}); err != nil {
@@ -38327,11 +38809,20 @@ func (machine *Machine) Prompt(prompt string) (*primitive.Value, error) {
 	value := values[len(values)-1]
 
 	installer := programmer.Installer{}
-	if installErr := installer.InstallProgram(value, "affinity"); installErr != nil {
+
+	if installErr := installer.InstallProgram(value, program); installErr != nil {
 		return nil, errnie.Error(installErr)
 	}
 
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PromptEvent(prompt))
+	}
+
 	if err = machine.queue.PublishTracked(value, "prompt"); err != nil {
+		return nil, errnie.Error(err)
+	}
+
+	if err = machine.orchestrator.Publish(value, "prompt"); err != nil {
 		return nil, errnie.Error(err)
 	}
 
@@ -38345,6 +38836,307 @@ func (machine *Machine) Prompt(prompt string) (*primitive.Value, error) {
 			}
 
 			runtime.Gosched()
+		}
+	}
+}
+
+<<<END>>>
+<<<FILE ./pkg/vm/orchestrator.go>>>
+package vm
+
+import (
+	"context"
+	"math"
+	"math/bits"
+	"runtime"
+	"sync"
+
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
+	"github.com/theapemachine/six/pkg/core/validate"
+	"github.com/theapemachine/six/pkg/gossip"
+	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
+)
+
+/*
+Orchestrator is a component that orchestrates the different components of the machine.
+*/
+type Orchestrator struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	conn    *gossip.Conn
+	queue   *pool.Queue
+	field   *geometry.Field
+	pending []*primitive.Value
+	mu      sync.Mutex
+}
+
+/*
+NewOrchestrator creates a new orchestrator.
+*/
+func NewOrchestrator(ctx context.Context, conn *gossip.Conn, queue *pool.Queue) (*Orchestrator, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	orchestrator := &Orchestrator{
+		ctx:    ctx,
+		cancel: cancel,
+		conn:   conn,
+		queue:  queue,
+		field:  geometry.NewField(geometry.Mod65537),
+	}
+
+	go orchestrator.run()
+
+	return orchestrator, validate.Require(map[string]any{
+		"ctx":    orchestrator.ctx,
+		"cancel": orchestrator.cancel,
+		"conn":   orchestrator.conn,
+		"queue":  orchestrator.queue,
+		"field":  orchestrator.field,
+	})
+}
+
+func (orchestrator *Orchestrator) run() {
+	for {
+		select {
+		case <-orchestrator.ctx.Done():
+			return
+		default:
+			orchestrator.Cycle()
+			// Yield to prevent tight loop if nothing to do
+			runtime.Gosched()
+		}
+	}
+}
+
+/*
+Close the orchestrator.
+*/
+func (orchestrator *Orchestrator) Close() error {
+	orchestrator.cancel()
+	return orchestrator.err
+}
+
+/*
+Error returns the error of the orchestrator.
+*/
+func (orchestrator *Orchestrator) Error() error {
+	return orchestrator.err
+}
+
+/*
+Publish implements the Publishable interface.
+It adds the value to the pending list for the next Cycle.
+*/
+func (orchestrator *Orchestrator) Publish(value *primitive.Value, label string) error {
+	orchestrator.mu.Lock()
+	defer orchestrator.mu.Unlock()
+
+	orchestrator.pending = append(orchestrator.pending, value)
+	return nil
+}
+
+/*
+Cycle the system so everything goes through another cycle of processing. This should
+not be seen as "stepping" given that there are no guarantees about the order of
+operations, or predictable consistency timing.
+*/
+func (orchestrator *Orchestrator) Cycle(values ...*primitive.Value) error {
+	orchestrator.mu.Lock()
+
+	// Add any explicitly passed values
+	if len(values) > 0 {
+		orchestrator.pending = append(orchestrator.pending, values...)
+	}
+
+	// Filter for settled values
+	var settled []*primitive.Value
+	var stillPending []*primitive.Value
+
+	for _, value := range orchestrator.pending {
+		if value == nil {
+			continue
+		}
+
+		if (*value)[kernel.SchedulingNextProgramWord] == 0 {
+			settled = append(settled, value)
+		} else {
+			stillPending = append(stillPending, value)
+		}
+	}
+
+	orchestrator.pending = stillPending
+	orchestrator.mu.Unlock()
+
+	if len(settled) > 0 {
+		orchestrator.findCommunity(settled)
+	}
+
+	orchestrator.emitActions()
+
+	return orchestrator.err
+}
+
+/*
+emitActions iterates over communities, evaluates the beams (Values) they passed up,
+and provides top-down feedback: rewarding successful compositions with attention/bias,
+and breaking unsuccessful ones to avoid local minima.
+*/
+func (orchestrator *Orchestrator) emitActions() {
+	for i, community := range orchestrator.field.Fields {
+		if community == nil || len(community.Values) == 0 {
+			continue
+		}
+
+		dominant := community.Dominant()
+		resonance := dominant.Concentration
+
+		// The field provides top-down feedback to the Values (beams)
+		var successful []*primitive.Value
+		var unsuccessful []*primitive.Value
+
+		for _, val := range community.Values {
+			// Calculate alignment of Value's affinity with the community's aggregate affinity
+			distance := 0
+			for j := 0; j < 5; j++ {
+				distance += bits.OnesCount64(community.Affinity[j] ^ (*val)[kernel.AffinityStartWord+j])
+			}
+
+			// If the distance is small, the beam was successfully composed into the field
+			if distance < 32 {
+				successful = append(successful, val)
+			} else {
+				unsuccessful = append(unsuccessful, val)
+			}
+		}
+
+		// Reward successful beams with attention/bias (e.g., boosting TTL or applying affine rotation)
+		for _, val := range successful {
+			ttl := (*val)[kernel.PropertiesTTLWord]
+			if ttl > 0 && ttl < 255 {
+				val.Set(kernel.PropertiesTTLWord, ttl+1) // Reward
+			}
+
+			// Apply a positive affine rotation as attention mechanism
+			// This rotation is reversible via the phasedial if needed later
+			community.Rotate(2, 1)
+		}
+
+		// Break unsuccessful beams so they don't get stuck in local minima
+		for _, val := range unsuccessful {
+			// Send a top-down break signal by zeroing the TTL, terminating the cascade
+			val.Set(kernel.PropertiesTTLWord, 0)
+		}
+
+		if resonance > 0.25 && len(successful) > 0 {
+			// Emit an action based on the successful composition
+			actionBytes := make([]byte, 16)
+
+			for j := range 16 {
+				if j < len(community.Fields) && community.Fields[j] != nil {
+					laneVal := community.Fields[j].Dominant().Amplitude
+					actionBytes[j] = byte(laneVal & 0xff)
+				}
+			}
+
+			actionValues, err := primitive.NewValue(actionBytes)
+
+			if err == nil && len(actionValues) > 0 {
+				action := actionValues[0]
+
+				progName := "beam_swarm_step"
+				if dominant.Index%2 == 0 {
+					progName = "active_inference"
+				}
+
+				installer := programmer.Installer{}
+				if err := installer.InstallProgram(action, progName); err == nil {
+					_ = orchestrator.queue.Publish(action, progName)
+
+					if viz.DefaultBus.IsActive() {
+						viz.DefaultBus.Publish(viz.CommunityActionEvent(i, action.ID(), progName, resonance))
+					}
+				}
+			}
+		}
+
+		// Clear community values after processing this cycle's beams
+		community.Values = nil
+	}
+}
+
+/*
+findCommunity finds the community that a value belongs to.
+*/
+func (orchestrator *Orchestrator) findCommunity(values []*primitive.Value) {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		valueAffinity := make([]uint64, 5)
+
+		for i := range 5 {
+			valueAffinity[i] = (*value)[kernel.AffinityStartWord+i]
+		}
+
+		var bestCommunityIdx int
+		var bestCommunity *geometry.Field
+		bestDistance := math.MaxInt32
+
+		// Find the closest non-saturated community
+		for i, community := range orchestrator.field.Fields {
+			if community == nil {
+				continue
+			}
+
+			if community.AffinitySaturation() >= 0.47 {
+				if viz.DefaultBus.IsActive() {
+					viz.DefaultBus.Publish(viz.CommunitySaturatedEvent(i, community.AffinitySaturation()))
+				}
+				continue
+			}
+
+			distance := 0
+			for j := 0; j < 5; j++ {
+				distance += bits.OnesCount64(community.Affinity[j] ^ valueAffinity[j])
+			}
+
+			if distance < bestDistance {
+				bestDistance = distance
+				bestCommunity = community
+				bestCommunityIdx = i
+			}
+		}
+
+		// Threshold for joining a community (e.g., 64 bits difference max)
+		if bestCommunity != nil && bestDistance < 64 {
+			bestCommunity.Values = append(bestCommunity.Values, value)
+			bestCommunity.MergeAffinity(valueAffinity)
+
+			if viz.DefaultBus.IsActive() {
+				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), bestCommunityIdx, bestDistance))
+			}
+		} else {
+			// Spawn a new community in the first available slot
+			for i, slot := range orchestrator.field.Fields {
+				if slot == nil {
+					newCommunity := geometry.NewField(geometry.Mod8191)
+					newCommunity.MergeAffinity(valueAffinity)
+					newCommunity.Values = append(newCommunity.Values, value)
+					orchestrator.field.Fields[i] = newCommunity
+
+					if viz.DefaultBus.IsActive() {
+						viz.DefaultBus.Publish(viz.CommunityCreatedEvent(i, valueAffinity))
+						viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), i, 0))
+					}
+					break
+				}
+			}
 		}
 	}
 }
@@ -38589,7 +39381,7 @@ func (tokenizer *Tokenizer) DrainPublishedValues(
 			}
 
 			for _, seg := range minted {
-				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), label))
+				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), label, seg.String()))
 
 				installer := programmer.Installer{}
 				if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {

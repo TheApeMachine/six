@@ -335,11 +335,18 @@ func (tokenizer *Tokenizer) IngestReader(
 		errChan <- copyErr
 	}()
 
-	if err = tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee); err != nil {
-		return errnie.Error(err)
+	drainErr := tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee)
+	copyErr := <-errChan
+
+	if drainErr != nil {
+		if copyErr != nil {
+			return errnie.Error(errors.Join(drainErr, copyErr))
+		}
+
+		return errnie.Error(drainErr)
 	}
 
-	if copyErr := <-errChan; copyErr != nil {
+	if copyErr != nil {
 		return errnie.Error(copyErr)
 	}
 

@@ -25,14 +25,14 @@ var FibWeights []float64
 func init() {
 	var sum float64
 
-	for _, w := range FibWindows {
-		sum += 1.0 / float64(w)
+	for _, window := range FibWindows {
+		sum += 1.0 / float64(window)
 	}
 
 	FibWeights = make([]float64, len(FibWindows))
 
-	for i, w := range FibWindows {
-		FibWeights[i] = (1.0 / float64(w)) / sum
+	for idx, window := range FibWindows {
+		FibWeights[idx] = (1.0 / float64(window)) / sum
 	}
 }
 
@@ -45,7 +45,7 @@ func NewNumerics() *Numerics {
 		BasisPrimes: make([]int32, 512),
 	}
 
-	numerics.SieveOfEratosthenes(4000) // Upper bound for 512 primes is 3671
+	numerics.SieveOfEratosthenes(4000) // Upper bound for len(BasisPrimes) primes is 3671
 	return numerics
 }
 
@@ -53,40 +53,42 @@ func (numerics *Numerics) SumSinCos(phases []float64) (float64, float64) {
 	sinSum := 0.0
 	cosSum := 0.0
 
-	for _, phi := range phases {
-		sinSum += math.Sin(phi)
-		cosSum += math.Cos(phi)
+	for _, phase := range phases {
+		sinSum += math.Sin(phase)
+		cosSum += math.Cos(phase)
 	}
 
 	return sinSum, cosSum
 }
 
-func (numerics *Numerics) CircularDistance(a, b float64) float64 {
-	d := math.Mod(a-b+math.Pi, 2*math.Pi)
+func (numerics *Numerics) CircularDistance(angleA, angleB float64) float64 {
+	delta := math.Mod(angleA-angleB+math.Pi, 2*math.Pi)
 
-	if d < 0 {
-		d += 2 * math.Pi
+	if delta < 0 {
+		delta += 2 * math.Pi
 	}
 
-	return d - math.Pi
+	return delta - math.Pi
 }
 
-func (numerics *Numerics) SieveOfEratosthenes(n int) {
-	checked := make([]bool, n)
-	sqrt_n := int(math.Sqrt(float64(n)))
+func (numerics *Numerics) SieveOfEratosthenes(limit int) {
+	checked := make([]bool, limit)
+	sqrtLimit := int(math.Sqrt(float64(limit)))
 
-	for i := 2; i <= sqrt_n; i++ {
-		if !checked[i] {
-			for j := i * i; j < n; j += i {
-				checked[j] = true
+	for p := 2; p <= sqrtLimit; p++ {
+		if !checked[p] {
+			for multiple := p * p; multiple < limit; multiple += p {
+				checked[multiple] = true
 			}
 		}
 	}
 
+	basisCap := len(numerics.BasisPrimes)
 	idx := 0
-	for i := 2; i < n && idx < 512; i++ {
-		if !checked[i] {
-			numerics.BasisPrimes[idx] = int32(i)
+
+	for candidate := 2; candidate < limit && idx < basisCap; candidate++ {
+		if !checked[candidate] {
+			numerics.BasisPrimes[idx] = int32(candidate)
 			idx++
 		}
 	}

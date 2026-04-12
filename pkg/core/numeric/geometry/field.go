@@ -275,24 +275,24 @@ func (field *Field) mulMod(left uint32, right uint32) uint32 {
 	return field.reduceU64(prod)
 }
 
-func (field *Field) inverseMod(a uint32) uint32 {
-	if a == 0 {
+func (field *Field) inverseMod(value uint32) uint32 {
+	if value == 0 {
 		return 0
 	}
 
-	res := uint64(1)
-	base := uint64(a)
-	exp := uint64(field.modulus - 2)
+	result := uint64(1)
+	basePow := uint64(value)
+	exponent := uint64(field.modulus - 2)
 
-	for exp > 0 {
-		if exp%2 == 1 {
-			res = (res * base) % uint64(field.modulus)
+	for exponent > 0 {
+		if exponent%2 == 1 {
+			result = (result * basePow) % uint64(field.modulus)
 		}
-		base = (base * base) % uint64(field.modulus)
-		exp /= 2
+		basePow = (basePow * basePow) % uint64(field.modulus)
+		exponent /= 2
 	}
 
-	return uint32(res)
+	return uint32(result)
 }
 
 func (field *Field) affineMod(value uint32, multiplier uint32, bias uint32) uint32 {
@@ -452,11 +452,21 @@ func (field *Field) Dot(other *Field) uint32 {
 	var accumulator uint32
 
 	for laneIndex := range field.Fields {
-		product := field.mulMod(
-			field.Fields[laneIndex].Dominant().Amplitude,
-			other.Fields[laneIndex].Dominant().Amplitude,
-		)
-		
+		receiverLane := field.Fields[laneIndex]
+		otherLane := other.Fields[laneIndex]
+
+		var ampReceiver uint32
+		var ampOther uint32
+
+		if receiverLane != nil {
+			ampReceiver = receiverLane.Dominant().Amplitude
+		}
+
+		if otherLane != nil {
+			ampOther = otherLane.Dominant().Amplitude
+		}
+
+		product := field.mulMod(ampReceiver, ampOther)
 		accumulator = field.addMod(accumulator, product)
 	}
 

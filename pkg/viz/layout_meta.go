@@ -45,16 +45,16 @@ func ensureMeta(ev *Event) {
 }
 
 func scatter01(key string) float64 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(key))
-	return float64(h.Sum32()) / float64(^uint32(0))
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(key))
+	return float64(hasher.Sum32()) / float64(^uint32(0))
 }
 
 func layoutFromBand(band float64, scatterKey string) (lx, ly float64) {
-	u := scatter01(scatterKey)
-	w := scatter01(scatterKey + "|y")
-	lx = 0.04 + 0.92*u
-	jitter := (w - 0.5) * 0.07
+	xScatter := scatter01(scatterKey)
+	yScatter := scatter01(scatterKey + "|y")
+	lx = 0.04 + 0.92*xScatter
+	jitter := (yScatter - 0.5) * 0.07
 	ly = band + jitter
 
 	if ly < 0.02 {

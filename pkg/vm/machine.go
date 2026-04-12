@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"runtime"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -37,6 +36,7 @@ type Machine struct {
 	conn         *gossip.Conn
 	field        *geometry.Field
 	orchestrator *Orchestrator
+	programReady chan struct{}
 	remSleep     *time.Ticker
 	remDone      chan struct{}
 }
@@ -68,7 +68,9 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue)
+	machine.programReady = make(chan struct{}, 1)
+
+	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue, machine.programReady)
 	if machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -215,16 +217,24 @@ func (machine *Machine) Prompt(prompt string, program string) (*primitive.Value,
 		return nil, errnie.Error(err)
 	}
 
+	poll := time.NewTicker(500 * time.Microsecond)
+
+	defer poll.Stop()
+
 	for {
 		select {
 		case <-machine.ctx.Done():
 			return nil, machine.ctx.Err()
-		default:
+
+		case <-machine.programReady:
 			if value[kernel.SchedulingNextProgramWord] == 0 {
 				return value, nil
 			}
 
-			runtime.Gosched()
+		case <-poll.C:
+			if value[kernel.SchedulingNextProgramWord] == 0 {
+				return value, nil
+			}
 		}
 	}
 }

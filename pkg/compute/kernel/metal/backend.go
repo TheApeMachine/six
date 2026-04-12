@@ -111,7 +111,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 	metalMu.Lock()
 	defer metalMu.Unlock()
 
-	var unifiedBatch []unsafe.Pointer
+	unifiedBatch := make([]unsafe.Pointer, 0, len(frames))
 	var unifiedBatchCount int
 
 	flushUnified := func() error {

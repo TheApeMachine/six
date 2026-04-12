@@ -53,7 +53,8 @@ func (self *Pool) Submit(task func()) {
 			return
 		} else {
 			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
-			mcall(gosched_m)                             // Use standard runtime.Gosched instead of mcall(gosched_m)
+			// Direct gosched via assembly avoids package init ordering issues; same cooperative yield as runtime.Gosched.
+			mcall(gosched_m)
 		}
 	}
 }

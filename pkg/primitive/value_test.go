@@ -468,7 +468,7 @@ func TestValue_TokenWords(t *testing.T) {
 	Convey("Given a zero Value", t, func() {
 		value := &Value{}
 
-		Convey("TokenWords should return an empty slice", func() {
+		Convey("It should return an empty slice", func() {
 			So(value.TokenWords(), ShouldBeEmpty)
 		})
 	})

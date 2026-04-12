@@ -611,8 +611,11 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
     ws.onmessage = (msg) => {
       if (isDestroyed) return;
       if (!(msg.data instanceof ArrayBuffer)) return;
+
+      let buf: Uint8Array | undefined;
+
       try {
-        const buf = new Uint8Array(msg.data);
+        buf = new Uint8Array(msg.data);
 
         for (const frame of decodeVizFrames(buf)) {
           if (frame.frameType === "event") {
@@ -660,7 +663,21 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
             addLog("json", summary);
           }
         }
-      } catch (_) { /* malformed frame */ }
+      } catch (err) {
+        const msgText = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error && err.stack ? err.stack : "";
+        const preview =
+          buf && buf.length > 0
+            ? Array.from(buf.subarray(0, Math.min(24, buf.length)))
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join(" ")
+            : "";
+
+        addLog(
+          "error",
+          `malformed frame: ${msgText}${stack ? ` | ${stack}` : ""}${preview ? ` | first_bytes=${preview}` : ""}`,
+        );
+      }
     };
 
     ws.onclose = () => {

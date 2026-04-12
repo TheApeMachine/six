@@ -1,6 +1,8 @@
 package programmer
 
 import (
+	"fmt"
+
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -57,13 +59,26 @@ func (i Installer) installCached(value *primitive.Value, frames []Frame, cont *C
 	}
 
 	if len(frames) > 1 {
+		const (
+			wordsPerRegionFrame    = 6
+			reservedProgramWords   = 60
+			maxRegionProgramFrames = reservedProgramWords / wordsPerRegionFrame
+		)
+
+		if len(frames) > maxRegionProgramFrames {
+			return fmt.Errorf(
+				"programmer: install program has %d frames; reserved region program table holds at most %d frames (%d words, %d words per entry)",
+				len(frames),
+				maxRegionProgramFrames,
+				reservedProgramWords,
+				wordsPerRegionFrame,
+			)
+		}
+
 		// Install multi-line program into the Reserved region
 		for idx, frame := range frames {
-			if idx*6 >= 60 { // Max 10 instructions in 64-word Reserved region
-				break
-			}
-			for j := 0; j < 6; j++ {
-				(*value)[kernel.ReservedStartWord+idx*6+j] = frame.Program[j]
+			for wordOffset := 0; wordOffset < wordsPerRegionFrame; wordOffset++ {
+				(*value)[kernel.ReservedStartWord+idx*wordsPerRegionFrame+wordOffset] = frame.Program[wordOffset]
 			}
 		}
 		// Set OpcodeRegionProgram to trigger execution from Reserved region

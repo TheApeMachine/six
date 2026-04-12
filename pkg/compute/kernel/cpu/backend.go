@@ -33,6 +33,12 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
+const (
+	regionEntryWords = 6
+	maxRegionEntries = 10
+	regionTableWords = regionEntryWords * maxRegionEntries
+)
+
 /*
 Execute walks each Value frame and routes it through the right substrate
 path: geometric opcodes go to the PGA wordblock, OpcodeXOR with a positive
@@ -73,7 +79,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		if rawOpcode == kernel.OpcodeRegionProgram {
-			for offset := 0; offset < 60; offset += 6 {
+			for offset := 0; offset < regionTableWords; offset += regionEntryWords {
 				op := frameWords[kernel.ReservedStartWord+offset]
 				if op == 0 && offset > 0 {
 					break

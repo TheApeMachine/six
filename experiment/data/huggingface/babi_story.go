@@ -3,6 +3,7 @@ package huggingface
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -43,12 +44,12 @@ func (dataset *Dataset) streamBabiParquet(reader io.Reader, fn rowVisitor) error
 
 	for {
 		n, err := pReader.ReadRows(rows)
-		if n == 0 && err != nil {
-			break
-		}
-
 		if n == 0 {
-			break
+			if err == nil || errors.Is(err, io.EOF) {
+				break
+			}
+
+			return fmt.Errorf("huggingface: read parquet rows: %w", err)
 		}
 
 		if dataset.maxSamples > 0 && rowsRead >= dataset.maxSamples {

@@ -113,17 +113,6 @@ func NewEvent(kind EventKind, source string) Event {
 	}
 }
 
-// newEventWithMaps creates an event stamped with the current time and initializes the maps.
-func newEventWithMaps(kind EventKind, source string) Event {
-	return Event{
-		Kind:      kind,
-		Timestamp: now(),
-		Source:    source,
-		Values:    make(map[string]float64),
-		Meta:      make(map[string]string),
-	}
-}
-
 // subscriber is a non-blocking consumer of events.
 type subscriber struct {
 	ch     chan Event

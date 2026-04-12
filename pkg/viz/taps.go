@@ -3,6 +3,7 @@ package viz
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 /*
@@ -18,42 +19,42 @@ hook-up happens in cmd/viz.go where we wire observers and callbacks.
 // --- Kadabra / DHT events ---
 
 func NodeCreated(nodeID uint64, label string) Event {
-	ev := newEventWithMaps(EventNodeCreated, fmtNodeID(nodeID))
+	ev := NewEvent(EventNodeCreated, fmtNodeID(nodeID))
 	ev.Label = label
 	applyVizLayout(&ev, "node", vizBandDHT, fmt.Sprintf("node_created|%s|%s", fmtNodeID(nodeID), label))
 	return ev
 }
 
 func NodeUpdated(nodeID uint64, vals map[string]float64) Event {
-	ev := newEventWithMaps(EventNodeUpdated, fmtNodeID(nodeID))
+	ev := NewEvent(EventNodeUpdated, fmtNodeID(nodeID))
 	ev.Values = vals
 	applyVizLayout(&ev, "node", vizBandDHT, fmt.Sprintf("node_updated|%s", fmtNodeID(nodeID)))
 	return ev
 }
 
 func PeerAdded(from, to uint64, bucket int) Event {
-	ev := newEventWithMaps(EventPeerAdded, fmtNodeID(from))
+	ev := NewEvent(EventPeerAdded, fmtNodeID(from))
 	ev.Target = fmtNodeID(to)
 	ev.Values = map[string]float64{"bucket": float64(bucket)}
 	return ev
 }
 
 func PeerLatency(from, to uint64, latencyMs float64) Event {
-	ev := newEventWithMaps(EventPeerLatency, fmtNodeID(from))
+	ev := NewEvent(EventPeerLatency, fmtNodeID(from))
 	ev.Target = fmtNodeID(to)
 	ev.Values = map[string]float64{"latency_ms": latencyMs}
 	return ev
 }
 
 func ValuePublished(nodeID uint64, key uint64, label string) Event {
-	ev := newEventWithMaps(EventValuePublished, fmtNodeID(nodeID))
+	ev := NewEvent(EventValuePublished, fmtNodeID(nodeID))
 	ev.Label = label
 	ev.Meta = map[string]string{"key": strconv.FormatUint(key, 16)}
 	return ev
 }
 
 func ValueReplicated(from, to uint64, key uint64) Event {
-	ev := newEventWithMaps(EventValueReplicated, fmtNodeID(from))
+	ev := NewEvent(EventValueReplicated, fmtNodeID(from))
 	ev.Target = fmtNodeID(to)
 	ev.Meta = map[string]string{"key": strconv.FormatUint(key, 16)}
 	return ev
@@ -62,20 +63,20 @@ func ValueReplicated(from, to uint64, key uint64) Event {
 // --- Gossip & Field ---
 
 func GossipSent(from uint64, epoch uint64) Event {
-	ev := newEventWithMaps(EventGossipSent, fmtNodeID(from))
+	ev := NewEvent(EventGossipSent, fmtNodeID(from))
 	ev.Values = map[string]float64{"epoch": float64(epoch)}
 	return ev
 }
 
 func GossipReceived(to uint64, from uint64, epoch uint64) Event {
-	ev := newEventWithMaps(EventGossipReceived, fmtNodeID(to))
+	ev := NewEvent(EventGossipReceived, fmtNodeID(to))
 	ev.Target = fmtNodeID(from)
 	ev.Values = map[string]float64{"epoch": float64(epoch)}
 	return ev
 }
 
 func FieldDigestEvent(nodeID uint64, surprisal, entropy, growth float64) Event {
-	ev := newEventWithMaps(EventFieldDigest, fmtNodeID(nodeID))
+	ev := NewEvent(EventFieldDigest, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"surprisal": surprisal,
 		"entropy":   entropy,
@@ -85,7 +86,7 @@ func FieldDigestEvent(nodeID uint64, surprisal, entropy, growth float64) Event {
 }
 
 func EigenmodeDetected(nodeID uint64, modeCount int, dominantEnergy float64) Event {
-	ev := newEventWithMaps(EventEigenmodeDetected, fmtNodeID(nodeID))
+	ev := NewEvent(EventEigenmodeDetected, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"mode_count":      float64(modeCount),
 		"dominant_energy": dominantEnergy,
@@ -94,7 +95,7 @@ func EigenmodeDetected(nodeID uint64, modeCount int, dominantEnergy float64) Eve
 }
 
 func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
-	ev := newEventWithMaps(EventFieldPressure, fmtNodeID(nodeID))
+	ev := NewEvent(EventFieldPressure, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"decay":    decay,
 		"learning": learning,
@@ -106,7 +107,7 @@ func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
 // --- MarkovTrie ---
 
 func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
-	ev := newEventWithMaps(EventTrieInsert, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieInsert, fmtNodeID(nodeID))
 	ev.Label = label
 
 	if trieIdx >= 0 {
@@ -121,27 +122,27 @@ func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
 }
 
 func TriePredictEvent(nodeID uint64, label string, confidence float64) Event {
-	ev := newEventWithMaps(EventTriePredict, fmtNodeID(nodeID))
+	ev := NewEvent(EventTriePredict, fmtNodeID(nodeID))
 	ev.Label = label
 	ev.Values = map[string]float64{"confidence": confidence}
 	return ev
 }
 
 func TrieClassifyEvent(nodeID uint64, scores map[string]float64) Event {
-	ev := newEventWithMaps(EventTrieClassify, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieClassify, fmtNodeID(nodeID))
 	ev.Values = scores
 	return ev
 }
 
 func TrieExperienceEvent(nodeID uint64, surprisal float64, label string) Event {
-	ev := newEventWithMaps(EventTrieExperience, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieExperience, fmtNodeID(nodeID))
 	ev.Label = label
 	ev.Values = map[string]float64{"surprisal": surprisal}
 	return ev
 }
 
 func AdaptiveUpdateEvent(nodeID uint64, vals map[string]float64) Event {
-	ev := newEventWithMaps(EventAdaptiveUpdate, fmtNodeID(nodeID))
+	ev := NewEvent(EventAdaptiveUpdate, fmtNodeID(nodeID))
 	ev.Values = vals
 	return ev
 }
@@ -149,7 +150,7 @@ func AdaptiveUpdateEvent(nodeID uint64, vals map[string]float64) Event {
 // --- Intra-node field (trie-to-trie within a single node) ---
 
 func TrieCouplingEvent(nodeID uint64, trieA, trieB int, coupling float64) Event {
-	ev := newEventWithMaps(EventTrieCoupling, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieCoupling, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_a":   float64(trieA),
 		"trie_b":   float64(trieB),
@@ -160,7 +161,7 @@ func TrieCouplingEvent(nodeID uint64, trieA, trieB int, coupling float64) Event 
 }
 
 func TrieModeEvent(nodeID uint64, trieIdx int, modeIdx int, aligned bool, energy float64) Event {
-	ev := newEventWithMaps(EventTrieMode, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieMode, fmtNodeID(nodeID))
 
 	alignedVal := 0.0
 	if aligned {
@@ -178,7 +179,7 @@ func TrieModeEvent(nodeID uint64, trieIdx int, modeIdx int, aligned bool, energy
 }
 
 func TriePressureEvent(nodeID uint64, trieIdx int, decay, learn, decayMul, learnMul float64) Event {
-	ev := newEventWithMaps(EventTriePressure, fmtNodeID(nodeID))
+	ev := NewEvent(EventTriePressure, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_idx":  float64(trieIdx),
 		"decay":     decay,
@@ -191,7 +192,7 @@ func TriePressureEvent(nodeID uint64, trieIdx int, decay, learn, decayMul, learn
 }
 
 func TrieSignalEvent(nodeID uint64, trieIdx int, surprisal, entropy, growth float64) Event {
-	ev := newEventWithMaps(EventTrieSignal, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieSignal, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_idx":  float64(trieIdx),
 		"surprisal": surprisal,
@@ -210,7 +211,7 @@ tries before feeding them to the node-level beam. Shows how many tries
 contributed and total candidate count.
 */
 func BeamCollectEvent(nodeID uint64, trieCount, continuationCount int) Event {
-	ev := newEventWithMaps(EventBeamCollect, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamCollect, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"trie_count":         float64(trieCount),
 		"continuation_count": float64(continuationCount),
@@ -226,7 +227,7 @@ the collected trie continuations. Shows how many survived and the
 best score.
 */
 func BeamComposeEvent(nodeID uint64, selectedCount, rejectedCount int, bestScore float64) Event {
-	ev := newEventWithMaps(EventBeamCompose, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamCompose, fmtNodeID(nodeID))
 	ev.Values = map[string]float64{
 		"selected_count": float64(selectedCount),
 		"rejected_count": float64(rejectedCount),
@@ -242,7 +243,7 @@ BeamBreakEvent fires when the node sends a BreakBeam signal to a
 specific trie, resetting its beam so it can re-search.
 */
 func BeamBreakEvent(nodeID uint64, trieID uint64) Event {
-	ev := newEventWithMaps(EventBeamBreak, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamBreak, fmtNodeID(nodeID))
 	ev.Target = fmt.Sprintf("trie_%x", trieID)
 	ev.Values = map[string]float64{
 		"trie_id": float64(trieID),
@@ -257,7 +258,7 @@ BeamConvergeEvent fires when the node-level beam produces its final
 output for a prompt.
 */
 func BeamConvergeEvent(nodeID uint64, sequence string, score float64) Event {
-	ev := newEventWithMaps(EventBeamConverge, fmtNodeID(nodeID))
+	ev := NewEvent(EventBeamConverge, fmtNodeID(nodeID))
 	ev.Label = truncate(sequence, 128)
 	ev.Values = map[string]float64{
 		"score": score,
@@ -270,7 +271,7 @@ func BeamConvergeEvent(nodeID uint64, sequence string, score float64) Event {
 // --- Compute Pool ---
 
 func PoolScheduleEvent(action string, queueSize, workers int, valueID uint64) Event {
-	ev := newEventWithMaps(EventPoolSchedule, "pool")
+	ev := NewEvent(EventPoolSchedule, "pool")
 	ev.Label = action
 	ev.Values = map[string]float64{
 		"queue_size": float64(queueSize),
@@ -282,7 +283,7 @@ func PoolScheduleEvent(action string, queueSize, workers int, valueID uint64) Ev
 }
 
 func PoolCompleteEvent(action string, durationMs int, valueID uint64) Event {
-	ev := newEventWithMaps(EventPoolComplete, "pool")
+	ev := NewEvent(EventPoolComplete, "pool")
 	ev.Label = action
 	ev.Values = map[string]float64{"duration_ms": float64(durationMs)}
 	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
@@ -302,7 +303,7 @@ func CompilerCompileEvent(
 	batchAffinity bool,
 	finalizerDepth int,
 ) Event {
-	ev := newEventWithMaps(EventCompilerCompile, "compute")
+	ev := NewEvent(EventCompilerCompile, "compute")
 	ev.Label = targetLabel
 
 	batchVal := 0.0
@@ -332,7 +333,7 @@ ALUDispatchEvent records substrate execution after the frame opcode is fixed.
 durationMs matches PoolComplete for the same dispatch when both fire.
 */
 func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, durationMs int, valueID uint64) Event {
-	ev := newEventWithMaps(EventALUDispatch, "compute")
+	ev := NewEvent(EventALUDispatch, "compute")
 	ev.Label = substrateName
 	ev.Values = map[string]float64{
 		"opcode":      float64(opcode),
@@ -353,7 +354,7 @@ func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, du
 FinalizerRunEvent fires after the compiler finalizer chain (post-execute).
 */
 func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool) Event {
-	ev := newEventWithMaps(EventFinalizerRun, "compute")
+	ev := NewEvent(EventFinalizerRun, "compute")
 	ev.Label = "finalize"
 
 	errVal := 0.0
@@ -380,14 +381,14 @@ func FinalizerRunEvent(correlation uint64, depth int, emitted int, hadError bool
 // --- Prompt ---
 
 func PromptEvent(prompt string) Event {
-	ev := newEventWithMaps(EventPrompt, "user")
+	ev := NewEvent(EventPrompt, "user")
 	ev.Meta = map[string]string{"prompt": prompt}
 	applyVizLayout(&ev, "prompt", vizBandPrompt, prompt)
 	return ev
 }
 
 func PromptResultEvent(generation string, scores map[string]float64) Event {
-	ev := newEventWithMaps(EventPromptResult, "system")
+	ev := NewEvent(EventPromptResult, "system")
 	ev.Meta = map[string]string{"generation": truncate(generation, 256)}
 	ev.Values = scores
 	applyVizLayout(&ev, "prompt_result", vizBandPrompt, truncate(generation, 64))
@@ -399,7 +400,7 @@ TrieGraphSnapshotEvent ships a JSON graph payload for one markovtrie.Store colum
 The browser lays out vertices and edges to match the live trie (possibly truncated).
 */
 func TrieGraphSnapshotEvent(nodeID uint64, trieIdx int, graphJSON []byte) Event {
-	ev := newEventWithMaps(EventTrieGraphSnapshot, fmtNodeID(nodeID))
+	ev := NewEvent(EventTrieGraphSnapshot, fmtNodeID(nodeID))
 	ev.Values["trie_idx"] = float64(trieIdx)
 	ev.Meta["graph"] = string(graphJSON)
 	applyVizLayout(&ev, "trie_graph", vizBandTrie, fmt.Sprintf("%s|%d|%d", fmtNodeID(nodeID), trieIdx, len(graphJSON)))
@@ -415,7 +416,7 @@ bytesRead is the number of bytes in this chunk; totalBytes is the
 running total for this ingest session.
 */
 func DatasetReadEvent(datasetName string, bytesRead, totalBytes int64, label string) Event {
-	ev := newEventWithMaps(EventDatasetRead, "dataset")
+	ev := NewEvent(EventDatasetRead, "dataset")
 	ev.Label = label
 	ev.Values = map[string]float64{
 		"bytes_read":  float64(bytesRead),
@@ -431,7 +432,7 @@ TokenizerChunkEvent fires when the tokenizer writes raw bytes into its
 ring buffer (ingest side).
 */
 func TokenizerChunkEvent(bytesWritten int) Event {
-	ev := newEventWithMaps(EventTokenizerChunk, "tokenizer")
+	ev := NewEvent(EventTokenizerChunk, "tokenizer")
 	ev.Values = map[string]float64{
 		"bytes_written": float64(bytesWritten),
 	}
@@ -444,7 +445,7 @@ TokenizerEmitEvent fires when the tokenizer mints a new Value from a
 drained chunk and publishes it downstream.
 */
 func TokenizerEmitEvent(valueID uint64, label string, tokenContent string) Event {
-	ev := newEventWithMaps(EventTokenizerEmit, "tokenizer")
+	ev := NewEvent(EventTokenizerEmit, "tokenizer")
 	ev.Label = label
 	vidHex := strconv.FormatUint(valueID, 16)
 	ev.Meta = map[string]string{
@@ -459,7 +460,7 @@ func TokenizerEmitEvent(valueID uint64, label string, tokenContent string) Event
 QueueSubmitEvent fires when the pool queue accepts a new work item.
 */
 func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content string) Event {
-	ev := newEventWithMaps(EventQueueSubmit, "queue")
+	ev := NewEvent(EventQueueSubmit, "queue")
 	ev.Label = truncate(content, 128)
 	ev.Values["inflight"] = float64(inflight)
 	ev.Meta["value_id"] = strconv.FormatUint(valueID, 16)
@@ -470,7 +471,7 @@ func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content st
 }
 
 func CausalHubProbeEvent(valueID uint64, prefixStart, prefixWords int, mask uint64, depth uint64, status string) Event {
-	ev := newEventWithMaps(EventCausalHubProbe, "queue")
+	ev := NewEvent(EventCausalHubProbe, "queue")
 	ev.Label = "causal_hub"
 	ev.Values = map[string]float64{
 		"prefix_start": float64(prefixStart),
@@ -501,15 +502,19 @@ func SenseEvent(valueID uint64, amplitude, index int) Event {
 // --- Orchestrator / Community Routing ---
 
 func CommunityCreatedEvent(communityID int, initialAffinity []uint64) Event {
-	ev := newEventWithMaps(EventCommunityCreated, "orchestrator")
+	ev := NewEvent(EventCommunityCreated, "orchestrator")
 	ev.Values = map[string]float64{"community_id": float64(communityID)}
 
 	if len(initialAffinity) > 0 {
-		hexStr := ""
+		var builder strings.Builder
+
+		builder.Grow(len(initialAffinity) * 16)
+
 		for _, word := range initialAffinity {
-			hexStr += fmt.Sprintf("%016x", word)
+			fmt.Fprintf(&builder, "%016x", word)
 		}
-		ev.Meta["initial_affinity"] = hexStr
+
+		ev.Meta["initial_affinity"] = builder.String()
 	}
 
 	applyVizLayoutCommunity(&ev, communityID, "create")
@@ -518,7 +523,7 @@ func CommunityCreatedEvent(communityID int, initialAffinity []uint64) Event {
 }
 
 func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Event {
-	ev := newEventWithMaps(EventValueJoinedCommunity, "orchestrator")
+	ev := NewEvent(EventValueJoinedCommunity, "orchestrator")
 	ev.Values = map[string]float64{
 		"community_id": float64(communityID),
 		"distance":     float64(distance),
@@ -529,7 +534,7 @@ func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Ev
 }
 
 func CommunitySaturatedEvent(communityID int, saturation float64) Event {
-	ev := newEventWithMaps(EventCommunitySaturated, "orchestrator")
+	ev := NewEvent(EventCommunitySaturated, "orchestrator")
 	ev.Values = map[string]float64{
 		"community_id": float64(communityID),
 		"saturation":   saturation,
@@ -539,7 +544,7 @@ func CommunitySaturatedEvent(communityID int, saturation float64) Event {
 }
 
 func CommunityActionEvent(communityID int, actionID uint64, program string, resonance float64) Event {
-	ev := newEventWithMaps(EventCommunityAction, "orchestrator")
+	ev := NewEvent(EventCommunityAction, "orchestrator")
 	ev.Label = program
 	ev.Values = map[string]float64{
 		"community_id": float64(communityID),
@@ -552,7 +557,7 @@ func CommunityActionEvent(communityID int, actionID uint64, program string, reso
 }
 
 func CommunityReactionEvent(communityID int, reactionID uint64, program string) Event {
-	ev := newEventWithMaps(EventCommunityReaction, "orchestrator")
+	ev := NewEvent(EventCommunityReaction, "orchestrator")
 	ev.Label = program
 	ev.Values = map[string]float64{"community_id": float64(communityID)}
 	idHex := strconv.FormatUint(reactionID, 16)

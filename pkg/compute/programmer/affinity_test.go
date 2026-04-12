@@ -170,7 +170,7 @@ func BenchmarkAffinityProgram_Run(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for iterationIndex := 0; iterationIndex < b.N; iterationIndex++ {
 		input := *value
 		executable.WithInputs([]*primitive.Value{&input})
 		_, runErr := executable.Run(CPU, backend)

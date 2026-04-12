@@ -165,8 +165,7 @@ export interface ValueGraphNode {
 }
 
 /*
-ProcessEntry is one structured entry in the live process feed.
-Each kind maps to a distinct rendering style in the UI.
+SixValue is live visualizer state for one logical value (particle / beam).
 */
 export interface SixValue {
   id: string;
@@ -181,15 +180,10 @@ export interface SixValue {
   meshIndex: number; // For instanced rendering
 }
 
-export interface Community {
-  id: number;
-  members: string[]; // Value IDs
-  center: THREE.Vector3;
-  resonanceLevel: number;
-  saturated: boolean;
-  affinity: string; // Hex string of initial affinity
-}
-
+/*
+ProcessEntry is one structured entry in the live process feed.
+Each kind maps to a distinct rendering style in the UI.
+*/
 export interface ProcessEntry {
   ts: number;
   kind: 'beam_compose' | 'beam_converge' | 'beam_break' | 'value_submit' | 'classify' | 'experience' | 'alu_reasoning' | 'sense' | 'surprisal' | 'causal_hub';
@@ -198,4 +192,13 @@ export interface ProcessEntry {
   content: string;
   score?: number;
   hypotheses?: Array<{ tokens: string; score: number }>;
+}
+
+export interface Community {
+  id: number;
+  members: string[]; // Value IDs
+  center: THREE.Vector3;
+  resonanceLevel: number;
+  saturated: boolean;
+  affinity: string; // Hex string of initial affinity
 }

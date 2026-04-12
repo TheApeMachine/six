@@ -172,7 +172,19 @@ export const decodeVizFrames = (input: Uint8Array | ArrayBuffer): DecodedFrame[]
                     if (off + 4 > arr.length) throw new Error('wire: scrub chunk len');
                     const chunkLen = dv.getUint32(off, true);
                     off += 4;
-                    const { event } = decodeEventPayload(arr.subarray(off, off + chunkLen), 0);
+                    if (off + chunkLen > arr.length) throw new Error('wire: scrub chunk truncated');
+
+                    const chunk = arr.subarray(off, off + chunkLen);
+                    const payloadStart = 0;
+                    const { event, nextOff } = decodeEventPayload(chunk, payloadStart);
+                    const decodedLen = nextOff - payloadStart;
+
+                    if (decodedLen !== chunkLen) {
+                        throw new Error(
+                            `wire: scrub chunk length mismatch: declared ${chunkLen} decoded ${decodedLen}`,
+                        );
+                    }
+
                     events.push(event);
                     off += chunkLen;
                 }
@@ -193,7 +205,18 @@ export const decodeVizFrames = (input: Uint8Array | ArrayBuffer): DecodedFrame[]
                 i = off + jlen;
                 continue;
             }
-        } catch {
+        } catch (err) {
+            if (import.meta.env?.DEV) {
+                const hint =
+                    i + 5 <= arr.length
+                        ? Array.from(arr.subarray(i, Math.min(i + 16, arr.length)))
+                              .map((b) => b.toString(16).padStart(2, '0'))
+                              .join(' ')
+                        : '';
+
+                console.debug('wire: decodeVizFrames frame error', { err, i, frameType, hint });
+            }
+
             i++;
             continue;
         }

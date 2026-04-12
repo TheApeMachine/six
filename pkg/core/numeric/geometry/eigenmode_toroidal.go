@@ -25,6 +25,12 @@ propertyWords is the number of uint64 words in the canonical 512-bit properties 
 const propertyWords = 8
 
 /*
+phaseScalarSumThresholdLog2 is the inclusive byte-count ceiling for the allocation-free
+scalar sin/cos accumulation path in SeqCircularMeanPhaseFromPhases (matches log2(512)).
+*/
+const phaseScalarSumThresholdLog2 = 9
+
+/*
 symbolFromPropertyWord maps one 64-bit lane to a matrix index 0…511. Callers that hold a
 full properties snapshot should fold first (e.g. SymbolFromPropertyBand).
 */
@@ -274,16 +280,17 @@ func (emt *EigenModeToroidal) top3Eigenvectors(
 ) (v1, v2, v3 [512]float64) {
 	// Build row-major dense matrix for gonum
 	data := make([]float64, 512*512)
-	for i := range 512 {
-		for j := range 512 {
-			data[i*512+j] = C[i][j]
+	for rowIdx := range 512 {
+		for colIdx := range 512 {
+			data[rowIdx*512+colIdx] = C[rowIdx][colIdx]
 		}
 	}
 	dense := mat.NewDense(512, 512, data)
 
 	var eig mat.Eigen
 	if !eig.Factorize(dense, mat.EigenRight) {
-		panic("eigenmode: eig.Factorize failed — degenerate or invalid cooccurrence matrix; no fallback")
+		v1, v2, v3 = emt.top3EigenvectorsPowerIteration(C)
+		return emt.alignAndNormalizeTop3(&v1, &v2, &v3)
 	}
 
 	values := eig.Values(nil)
@@ -308,44 +315,56 @@ func (emt *EigenModeToroidal) top3Eigenvectors(
 	// Extract real vectors for (v2, v3) eigenplane
 	if imag(lam1) != 0 {
 		// idx1 and idx2 are complex conjugates; use real and imag of column idx1
-		for i := range 512 {
-			v := vecs.At(i, idx1)
-			v2[i] = real(v)
-			v3[i] = imag(v)
+		for rowIdx := range 512 {
+			eigenComponent := vecs.At(rowIdx, idx1)
+			v2[rowIdx] = real(eigenComponent)
+			v3[rowIdx] = imag(eigenComponent)
 		}
 	} else if imag(lam2) != 0 {
 		// idx1 real, idx2 complex: 2D invariant subspace from real/imag of same eigenvector
-		for i := range 512 {
-			v := vecs.At(i, idx2)
-			v2[i] = real(v)
-			v3[i] = imag(v)
+		for rowIdx := range 512 {
+			eigenComponent := vecs.At(rowIdx, idx2)
+			v2[rowIdx] = real(eigenComponent)
+			v3[rowIdx] = imag(eigenComponent)
 		}
 	} else {
 		// Both real
-		for i := range 512 {
-			v2[i] = real(vecs.At(i, idx1))
-			v3[i] = real(vecs.At(i, idx2))
+		for rowIdx := range 512 {
+			v2[rowIdx] = real(vecs.At(rowIdx, idx1))
+			v3[rowIdx] = real(vecs.At(rowIdx, idx2))
 		}
 	}
 
 	// v1 from leading (Perron) eigenvector. Sign is arbitrary; flip to all-non-negative.
-	for i := range 512 {
-		v1[i] = real(vecs.At(i, indices[0]))
+	for rowIdx := range 512 {
+		v1[rowIdx] = real(vecs.At(rowIdx, indices[0]))
 	}
+
+	return emt.alignAndNormalizeTop3(&v1, &v2, &v3)
+}
+
+/*
+alignAndNormalizeTop3 flips the leading eigenvector sign to nonnegative sum, then L2-normalizes
+all three vectors returned for phase mapping.
+*/
+func (emt *EigenModeToroidal) alignAndNormalizeTop3(v1, v2, v3 *[512]float64) (v1out, v2out, v3out [512]float64) {
 	var v1Sum float64
-	for i := range 512 {
-		v1Sum += v1[i]
+
+	for rowIdx := range 512 {
+		v1Sum += v1[rowIdx]
 	}
+
 	if v1Sum < 0 {
-		for i := range 512 {
-			v1[i] = -v1[i]
+		for rowIdx := range 512 {
+			v1[rowIdx] = -v1[rowIdx]
 		}
 	}
 
-	emt.normalizeVec(&v1)
-	emt.normalizeVec(&v2)
-	emt.normalizeVec(&v3)
-	return v1, v2, v3
+	emt.normalizeVec(v1)
+	emt.normalizeVec(v2)
+	emt.normalizeVec(v3)
+
+	return *v1, *v2, *v3
 }
 
 /*
@@ -537,7 +556,7 @@ func SeqCircularMeanPhaseFromPhases(phase *[512]float64, seq []byte) (float64, e
 	if n == 0 {
 		return 0, EigenErrorEmptySequence
 	}
-	if n <= int(math.Log2(float64(512))) {
+	if n <= phaseScalarSumThresholdLog2 {
 		var sinSum, cosSum float64
 		for _, b := range seq {
 			p := phase[b]

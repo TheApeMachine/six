@@ -358,6 +358,15 @@ func TestCausalHubProbeEvent(t *testing.T) {
 	})
 }
 
+func BenchmarkCausalHubProbeEvent(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = CausalHubProbeEvent(0xbeef, 0, 2, 0x40, 7, "settled")
+	}
+}
+
 func TestTrieGraphSnapshotEvent(t *testing.T) {
 	t.Parallel()
 
