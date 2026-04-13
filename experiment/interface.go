@@ -16,17 +16,40 @@ type Scores struct {
 }
 
 type ExperimentalData struct {
-	Idx            int
-	Name           string
-	Prefix         []byte
-	Holdout        []byte
-	Generation     []byte
-	Classification []byte
-	ErrorRatio     []byte
-	Scores         Scores
-	WeightedTotal  float64
-	TrueLabel      *int
-	PredLabel      *int
+	Idx               int
+	Name              string
+	Prefix            []byte
+	Holdout           []byte
+	Generation        []byte
+	Classification    []byte
+	ErrorRatio        []byte
+	PropertiesWord    uint64
+	ProbeState        uint64
+	ProbeDepth        uint64
+	ExecutionSettled  bool
+	ReasoningResolved bool
+	HaltedByCeiling   bool
+	Scores            Scores
+	WeightedTotal     float64
+	TrueLabel         *int
+	PredLabel         *int
+}
+
+func (data ExperimentalData) HasResolutionMetadata() bool {
+	return data.ExecutionSettled ||
+		data.ReasoningResolved ||
+		data.HaltedByCeiling ||
+		data.PropertiesWord != 0 ||
+		data.ProbeState != 0 ||
+		data.ProbeDepth != 0
+}
+
+func (data ExperimentalData) SemanticResolutionReady() bool {
+	if !data.HasResolutionMetadata() {
+		return true
+	}
+
+	return data.ReasoningResolved
 }
 
 type ScoreWeights struct {

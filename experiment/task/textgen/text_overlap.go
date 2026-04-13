@@ -60,22 +60,22 @@ func (experiment *TextOverlapExperiment) Dataset() data.Provider { return experi
 func (experiment *TextOverlapExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
-	pp, ok := experiment.dataset.(data.PromptProvider)
-	if !ok {
-		return experiment.prompt
-	}
-	for p := range pp.GeneratePrompts() {
-		if len(p.Text) < 8 {
+	for sample := range experiment.dataset.Generate() {
+		task := string(sample.TaskPrompt())
+		if len(task) < 8 {
 			continue
 		}
+
 		// 40% right holdout → 60% left prefix.
-		prefix, hold := tools.BytePrefixFraction(p.Text, 0.6)
+		prefix, hold := tools.BytePrefixFraction(task, 0.6)
 		if hold == "" {
 			continue
 		}
+
 		experiment.prompt = append(experiment.prompt, prefix)
 		experiment.holdouts = append(experiment.holdouts, []byte(hold))
 	}
+
 	return experiment.prompt
 }
 

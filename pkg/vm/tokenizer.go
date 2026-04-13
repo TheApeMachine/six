@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 
 	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -46,6 +48,8 @@ type Tokenizer struct {
 	pipeWriterClosed uint32
 	queue            *pool.Queue
 	current          *primitive.Value
+	mintGoldClass    int
+	mintGoldOK       bool
 }
 
 type tokenizerOption func(*Tokenizer)
@@ -156,6 +160,14 @@ func (tokenizer *Tokenizer) adoptChunk(chunk []byte) ([]*primitive.Value, error)
 		return nil, errnie.Error(err)
 	}
 
+	if tokenizer.mintGoldOK {
+		word := kernel.GoldLabelWord(tokenizer.mintGoldClass)
+
+		for _, seg := range segments {
+			seg.Set(kernel.PropertiesStartWord, word)
+		}
+	}
+
 	old := tokenizer.current
 	first := segments[0]
 	last := segments[len(segments)-1]
@@ -177,6 +189,121 @@ func (tokenizer *Tokenizer) adoptChunk(chunk []byte) ([]*primitive.Value, error)
 	tokenizer.current = last
 
 	return segments, nil
+}
+
+/*
+AdoptLabeledSample runs adoptChunk for one dataset row and, when goldOK is true,
+stamps kernel.PropertiesStartWord with kernel.GoldLabelWord(goldClass) on every
+minted segment before Prev/Next chaining.
+
+This is the ingest path for discrete supervision: the ring-buffer Copy path cannot
+attach a per-sample class without chunk straddling, so Machine.Load calls this
+synchronously when the provider implements data.LabeledIngestFeed.
+*/
+func (tokenizer *Tokenizer) AdoptLabeledSample(payload []byte, goldClass int, goldOK bool) ([]*primitive.Value, error) {
+	tokenizer.mintGoldClass = goldClass
+	tokenizer.mintGoldOK = goldOK
+
+	defer func() {
+		tokenizer.mintGoldOK = false
+		tokenizer.mintGoldClass = 0
+	}()
+
+	return tokenizer.adoptChunk(payload)
+}
+
+/*
+IngestSample mints Values from sample.Text with primitive.NewValue (Morton-coded
+token slabs). When Label is non-empty, every minted segment receives the same
+Properties word from kernel.LabelPropertiesWord. Segments chain into the
+tokenizer’s Prev/Next list; each is affinity-installed and published like
+DrainPublishedValues, without using the ring buffer.
+*/
+func (tokenizer *Tokenizer) IngestSample(
+	ctx context.Context,
+	sample data.Sample,
+	publishers []transport.Publishable,
+) error {
+	if tokenizer == nil {
+		return errnie.Error(errors.New("vm.Tokenizer.IngestSample: nil Tokenizer"))
+	}
+
+	if len(publishers) == 0 {
+		return errnie.Error(errors.New("vm.Tokenizer.IngestSample: need at least one Publishable"))
+	}
+
+	if ctx != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+	}
+
+	if len(sample.Text) == 0 {
+		return nil
+	}
+
+	segments, err := primitive.NewValue(sample.Text)
+
+	if err != nil {
+		tokenizer.err = err
+
+		return errnie.Error(err)
+	}
+
+	if len(sample.Label) > 0 {
+		word := kernel.LabelPropertiesWord(sample.Label)
+
+		for _, seg := range segments {
+			seg.Set(kernel.PropertiesStartWord, word)
+		}
+	}
+
+	old := tokenizer.current
+	first := segments[0]
+	last := segments[len(segments)-1]
+
+	if old != nil {
+		first.Set(
+			core.Cfg.Value.Region.Prev.Start,
+			old.ID(),
+		)
+
+		old.Set(
+			core.Cfg.Value.Region.Next.Start,
+			first.ID(),
+		)
+
+		_ = old.Close()
+	}
+
+	tokenizer.current = last
+
+	traceLabel := ""
+
+	for _, seg := range segments {
+		viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg.ID(), traceLabel, seg.String()))
+
+		installer := programmer.Installer{}
+		if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {
+			return errnie.Error(installErr)
+		}
+
+		for _, publisher := range publishers {
+			var pubErr error
+
+			if labeling, ok := publisher.(transport.LabelingPublishable); ok {
+				_, pubErr = labeling.PublishLabeled(traceLabel, seg)
+			} else {
+				_, pubErr = publisher.Publish(seg)
+			}
+
+			if pubErr != nil {
+				return pubErr
+			}
+		}
+	}
+
+	return nil
 }
 
 /*
@@ -244,7 +371,15 @@ func (tokenizer *Tokenizer) DrainPublishedValues(
 				}
 
 				for _, publisher := range publishers {
-					if pubErr := publisher.Publish(seg, label); pubErr != nil {
+					var pubErr error
+
+					if labeling, ok := publisher.(transport.LabelingPublishable); ok {
+						_, pubErr = labeling.PublishLabeled(label, seg)
+					} else {
+						_, pubErr = publisher.Publish(seg)
+					}
+
+					if pubErr != nil {
 						return pubErr
 					}
 				}

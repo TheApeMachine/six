@@ -21,16 +21,13 @@ is $\arg\max(K_A, K_B)$.
 \paragraph{Results.}
 Figure~\ref{fig:ruleshift_trajectory} shows the full adaptation
 trajectory.  The shift boundary is at step 25 (the first index governed by Rule B).  Rule B
-stabilised at step 25 (0 steps after the shift).  Phase A had $25$ of
+did not stabilise within the observation window.  Phase A had $24$ of
 $25$ steps won by Rule A
-(100\,\%); Phase B had $25$ of
-$25$ steps won by Rule B (100\,\%).
+(96\,\%); Phase B had $0$ of
+$25$ steps won by Rule B (0\,\%).
 
 \paragraph{Assessment.}
-The substrate successfully adapted to the rule shift: after an initial
-transient the retrieval field re-aligned with Rule B's attractor basin
-without any parameter update or explicit domain signal.  This demonstrates
-that the value manifold reorganises spontaneously in response to
-distributional change, consistent with the Holographic BVP framing in
-which the field settles to the lowest-energy configuration compatible
-with the current input boundary conditions.
+The substrate did not complete the transition within the available window.
+At this scale, Rules A and B produce similar value cosine similarities;
+longer samples or larger \textit{N} would widen the attractor gap and make
+the shift detectable.

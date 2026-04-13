@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -32,6 +33,14 @@ var vizCmd = &cobra.Command{
 		defer cancel()
 
 		server := viz.NewServer(viz.DefaultBus, vizAddr)
+
+		viz.SetProgramsProvider(func() map[string]string {
+			if core.Cfg == nil {
+				return map[string]string{}
+			}
+
+			return core.Cfg.Programs
+		})
 
 		if vizDemo {
 			go runDemo(ctx)
@@ -108,7 +117,7 @@ func runDemo(ctx context.Context) {
 		}
 
 		for _, value := range values {
-			publishErr := queue.Publish(value, entry.label)
+			_, publishErr := queue.PublishLabeled(entry.label, value)
 			if publishErr != nil {
 				errnie.Warn(
 					fmt.Sprintf(

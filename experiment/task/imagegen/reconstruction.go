@@ -83,8 +83,8 @@ pixels only for figure export.
 func (e *ReconstructionExperiment) Prompts() []string {
 	var raw []byte
 
-	for b := range e.dataset.Generate() {
-		raw = append(raw, b)
+	for sample := range e.dataset.Generate() {
+		raw = append(raw, sample.Text...)
 	}
 
 	if len(raw) < cifarSize {
@@ -126,8 +126,8 @@ func (e *ReconstructionExperiment) Prompts() []string {
 func (e *ReconstructionExperiment) cifarImagesForArtifacts() [][]byte {
 	var raw []byte
 
-	for b := range e.dataset.Generate() {
-		raw = append(raw, b)
+	for sample := range e.dataset.Generate() {
+		raw = append(raw, sample.Text...)
 	}
 
 	if len(raw) < cifarSize {

@@ -16,7 +16,7 @@ This file provides helper constructors for common event patterns. The actual
 hook-up happens in cmd/viz.go where we wire observers and callbacks.
 */
 
-// --- Kadabra / DHT events ---
+// --- Node / routing visualization ---
 
 func NodeCreated(nodeID uint64, label string) Event {
 	ev := NewEvent(EventNodeCreated, fmtNodeID(nodeID))
@@ -104,7 +104,7 @@ func FieldPressureEvent(nodeID uint64, decay, learning, prune float64) Event {
 	return ev
 }
 
-// --- MarkovTrie ---
+// --- Sequence / beam viz (legacy names: Trie*) ---
 
 func TrieInsertEvent(nodeID uint64, trieIdx int, sequence, label string) Event {
 	ev := NewEvent(EventTrieInsert, fmtNodeID(nodeID))
@@ -396,8 +396,8 @@ func PromptResultEvent(generation string, scores map[string]float64) Event {
 }
 
 /*
-TrieGraphSnapshotEvent ships a JSON graph payload for one markovtrie.Store column.
-The browser lays out vertices and edges to match the live trie (possibly truncated).
+TrieGraphSnapshotEvent ships a JSON graph payload for debugging Value linkage /
+sequence layout in the browser (possibly truncated).
 */
 func TrieGraphSnapshotEvent(nodeID uint64, trieIdx int, graphJSON []byte) Event {
 	ev := NewEvent(EventTrieGraphSnapshot, fmtNodeID(nodeID))
@@ -563,6 +563,42 @@ func CommunityReactionEvent(communityID int, reactionID uint64, program string) 
 	idHex := strconv.FormatUint(reactionID, 16)
 	ev.Meta = map[string]string{"reaction_id": idHex}
 	applyVizLayoutProgram(&ev, communityID, program, idHex)
+	return ev
+}
+
+// --- Belief Gap Closure ---
+
+func BeliefGapEvaluatedEvent(valueID uint64, communityID int, gap float64) Event {
+	ev := NewEvent(EventBeliefGapEvaluated, "orchestrator")
+	ev.Values = map[string]float64{
+		"community_id": float64(communityID),
+		"gap":          gap,
+	}
+	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("gap|%s|%0.4f", strconv.FormatUint(valueID, 16), gap))
+	return ev
+}
+
+func ValueResolvedEvent(valueID uint64, communityID int, gap float64) Event {
+	ev := NewEvent(EventValueResolved, "orchestrator")
+	ev.Label = "resolved"
+	ev.Values = map[string]float64{
+		"community_id": float64(communityID),
+		"gap":          gap,
+	}
+	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("resolved|%s", strconv.FormatUint(valueID, 16)))
+	return ev
+}
+
+func CommunityEmissionEvent(communityID int, memberCount int, concentration float64) Event {
+	ev := NewEvent(EventCommunityEmission, "orchestrator")
+	ev.Values = map[string]float64{
+		"community_id":  float64(communityID),
+		"member_count":  float64(memberCount),
+		"concentration": concentration,
+	}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("emit|%d|%0.3f", memberCount, concentration))
 	return ev
 }
 

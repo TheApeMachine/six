@@ -32,6 +32,9 @@ export const EK = {
     CommunityAction: 45,
     CommunityReaction: 46,
     CausalHubProbe: 47,
+    BeliefGapEvaluated: 48,
+    ValueResolved: 49,
+    CommunityEmission: 50,
 } as const;
 
 export const KIND_NAMES: Record<number, string> = Object.fromEntries(

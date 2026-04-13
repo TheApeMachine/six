@@ -30,8 +30,8 @@ const labelBatchSize = 64
 /*
 Dataset streams raw bytes from a HuggingFace dataset (Parquet or JSON).
 Discovers the first train-split shard via API, downloads it, caches to temp,
-and emits (SampleID, Symbol, Pos) via Generate(). Supports label extraction,
-multi-column join, and optional transform (e.g. DecodeImageBytes).
+and emits one data.Sample per logical row via Generate(). Supports label
+extraction, multi-column join, and optional transform (e.g. DecodeImageBytes).
 */
 type Dataset struct {
 	ctx          context.Context
@@ -52,11 +52,12 @@ type Dataset struct {
 	mu     sync.RWMutex
 	labels map[uint32]int
 
-	cacheMu      sync.Mutex
-	cacheCond    *sync.Cond
-	cacheReady   bool
-	cacheLoading bool
-	cachedTokens []byte
+	cacheMu       sync.Mutex
+	cacheCond     *sync.Cond
+	cacheReady    bool
+	cacheLoading  bool
+	cachedTokens  []byte
+	cachedSamples []data.Sample
 
 	readMu        sync.Mutex
 	readBuf       []byte
@@ -67,8 +68,6 @@ type Dataset struct {
 }
 
 var _ data.Provider = (*Dataset)(nil)
-var _ data.PromptProvider = (*Dataset)(nil)
-var _ data.LabeledPromptProvider = (*Dataset)(nil)
 var _ io.Reader = (*Dataset)(nil)
 
 type datasetOpts func(*Dataset)
@@ -115,7 +114,8 @@ func (dataset *Dataset) ApplyBabiDefaults() {
 
 /*
 rowSample is one logical unit after shard parsing (one classification row, or one exploded bAbI QA pair).
-promptText empty means GeneratePrompts uses streamText. labelIsText selects string answers (bAbI) vs integer labels.
+promptText, when set, becomes Sample.Prompt (task string); ingest bytes remain in Sample.Text. labelIsText
+selects string answers (bAbI) vs integer labels.
 */
 type rowSample struct {
 	streamText  string
@@ -150,28 +150,25 @@ func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 	return v, ok
 }
 
-func (dataset *Dataset) HasPromptLabels() bool {
-	return dataset != nil && (dataset.labelColumn != "" || dataset.babiStory)
-}
-
 /*
-Generate streams the column as (byte, position) pairs.
+Generate streams one Sample per row. Text holds the tokenizer ingest bytes; Prompt
+is set when the task string differs (bAbI question, classification article without suffix).
 */
-func (dataset *Dataset) Generate() iter.Seq[byte] {
-	return func(yield func(byte) bool) {
-		if cached, ok := dataset.snapshotCachedTokens(); ok {
-			dataset.replayCachedTokens(yield, cached)
+func (dataset *Dataset) Generate() iter.Seq[data.Sample] {
+	return func(yield func(data.Sample) bool) {
+		if cached, ok := dataset.snapshotCachedSamples(); ok {
+			dataset.replayCachedSamples(yield, cached)
 			return
 		}
 
 		if !dataset.tryStartCacheLoad() {
-			dataset.replayCachedTokens(yield, dataset.waitForCachedTokens())
+			dataset.replayCachedSamples(yield, dataset.waitForCachedSamples())
 			return
 		}
 
-		var pos uint32
 		labelBatch := make(map[uint32]int, labelBatchSize)
 		tokens := make([]byte, 0, 4096)
+		samples := make([]data.Sample, 0, 256)
 		flushLabels := func() {
 			if len(labelBatch) == 0 {
 				return
@@ -197,46 +194,64 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 				}
 			}
 
-			for _, b := range []byte(sample.streamText) {
-				tokens = append(tokens, b)
+			out := dataset.materializeSample(sample, sampleIdx)
+			samples = append(samples, out)
+			tokens = append(tokens, out.Text...)
 
-				if !yield(b) {
-					return false
-				}
-
-				pos++
-			}
-
-			// When labelAppend is configured, append " → <label_name>" to the
-			// sample's byte stream so the manifold stores article+label as a
-			// single continuous sequence (classification-as-generation).
-			if sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 &&
-				sample.labelInt >= 0 && sample.labelInt < len(dataset.labelAppend) {
-				suffix := " → " + dataset.labelAppend[sample.labelInt]
-
-				for _, b := range []byte(suffix) {
-					tokens = append(tokens, b)
-
-					if !yield(b) {
-						return false
-					}
-
-					pos++
-				}
-			}
-
-			if dataset.perSamplePos {
-				pos = 0
-			}
-
-			return true
+			return yield(out)
 		}); err != nil {
-			dataset.finishCacheLoad(nil, false)
+			dataset.finishCacheLoad(nil, nil, false)
 			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 			return
 		}
 
-		dataset.finishCacheLoad(tokens, true)
+		dataset.finishCacheLoad(tokens, samples, true)
+	}
+}
+
+/*
+materializeSample maps a parsed row to a single ingest Sample. Text always matches
+what Read() exposes for this row’s bytes in order; Prompt is set when experiments
+should surface a different string than the raw ingest line.
+*/
+func (dataset *Dataset) materializeSample(sample rowSample, sampleIdx uint32) data.Sample {
+	var full strings.Builder
+
+	full.WriteString(sample.streamText)
+
+	if sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 &&
+		sample.labelInt >= 0 && sample.labelInt < len(dataset.labelAppend) {
+		full.WriteString(" → ")
+		full.WriteString(dataset.labelAppend[sample.labelInt])
+	}
+
+	var prompt []byte
+
+	if sample.promptText != "" {
+		prompt = []byte(sample.promptText)
+	}
+
+	if len(prompt) == 0 && sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 {
+		prompt = []byte(sample.streamText)
+	}
+
+	var label []byte
+
+	if sample.hasLabel {
+		if sample.labelIsText {
+			label = []byte(strings.TrimSpace(sample.labelText))
+		} else {
+			label = []byte(dataset.labelAsText(sample.labelInt, true))
+		}
+	}
+
+	textBytes := []byte(full.String())
+
+	return data.Sample{
+		SampleID: sampleIdx,
+		Text:     textBytes,
+		Label:    label,
+		Prompt:   prompt,
 	}
 }
 
@@ -294,66 +309,6 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 
 func (dataset *Dataset) Close() error {
 	return nil
-}
-
-/*
-GeneratePrompts emits each dataset row as a structured Prompt.
-It keeps sample boundaries intact, and preserves discovered labels.
-*/
-func (dataset *Dataset) GeneratePrompts() iter.Seq[data.Prompt] {
-	return func(yield func(data.Prompt) bool) {
-		labelBatch := make(map[uint32]int, labelBatchSize)
-
-		flushLabels := func() {
-			if len(labelBatch) == 0 {
-				return
-			}
-
-			dataset.mu.Lock()
-
-			for sampleIdx, label := range labelBatch {
-				dataset.labels[sampleIdx] = label
-			}
-
-			dataset.mu.Unlock()
-			clear(labelBatch)
-		}
-		defer flushLabels()
-
-		if err := dataset.streamRows(func(sample rowSample, sampleIdx uint32) bool {
-			if sample.hasLabel && !sample.labelIsText {
-				labelBatch[sampleIdx] = sample.labelInt
-
-				if len(labelBatch) >= labelBatchSize {
-					flushLabels()
-				}
-			}
-
-			promptText := sample.promptText
-			if promptText == "" {
-				promptText = sample.streamText
-			}
-
-			var labelStr string
-			if sample.labelIsText {
-				labelStr = sample.labelText
-			} else {
-				labelStr = dataset.labelAsText(sample.labelInt, sample.hasLabel)
-			}
-
-			prompt := data.Prompt{
-				SampleID: sampleIdx,
-				Text:     promptText,
-				HasLabel: sample.hasLabel,
-				Label:    labelStr,
-			}
-
-			return yield(prompt)
-		}); err != nil {
-			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
-			return
-		}
-	}
 }
 
 func (dataset *Dataset) labelAsText(label int, hasLabel bool) string {
@@ -415,12 +370,13 @@ func (dataset *Dataset) waitForCachedTokens() []byte {
 	return cached
 }
 
-func (dataset *Dataset) finishCacheLoad(tokens []byte, ok bool) {
+func (dataset *Dataset) finishCacheLoad(tokens []byte, samples []data.Sample, ok bool) {
 	dataset.cacheMu.Lock()
 	defer dataset.cacheMu.Unlock()
 
 	if ok {
 		dataset.cachedTokens = tokens
+		dataset.cachedSamples = cloneSampleSlice(samples)
 		dataset.cacheReady = true
 	}
 
@@ -429,11 +385,60 @@ func (dataset *Dataset) finishCacheLoad(tokens []byte, ok bool) {
 	dataset.cacheCond.Broadcast()
 }
 
-func (dataset *Dataset) replayCachedTokens(
-	yield func(byte) bool, tokens []byte,
+func cloneSampleSlice(samples []data.Sample) []data.Sample {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	out := make([]data.Sample, len(samples))
+
+	for index := range samples {
+		out[index] = data.Sample{
+			SampleID: samples[index].SampleID,
+			Text:     append([]byte(nil), samples[index].Text...),
+			Label:    append([]byte(nil), samples[index].Label...),
+			Prompt:   append([]byte(nil), samples[index].Prompt...),
+		}
+	}
+
+	return out
+}
+
+func (dataset *Dataset) snapshotCachedSamples() ([]data.Sample, bool) {
+	dataset.cacheMu.Lock()
+	defer dataset.cacheMu.Unlock()
+
+	if !dataset.cacheReady {
+		return nil, false
+	}
+
+	return cloneSampleSlice(dataset.cachedSamples), true
+}
+
+func (dataset *Dataset) waitForCachedSamples() []data.Sample {
+	dataset.cacheMu.Lock()
+	defer dataset.cacheMu.Unlock()
+
+	for dataset.cacheLoading {
+		dataset.cacheCond.Wait()
+	}
+
+	if !dataset.cacheReady {
+		return nil
+	}
+
+	return cloneSampleSlice(dataset.cachedSamples)
+}
+
+func (dataset *Dataset) replayCachedSamples(
+	yield func(data.Sample) bool, samples []data.Sample,
 ) {
-	for _, token := range tokens {
-		if !yield(token) {
+	if len(samples) == 0 {
+		return
+	}
+
+	for index := range samples {
+		if !yield(samples[index]) {
 			return
 		}
 	}

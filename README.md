@@ -116,7 +116,7 @@ This is the actual end-to-end path the code implements today:
 8. **Orchestrator groups** — When a Value settles (word 117 = 0), the Orchestrator's `Cycle` picks it up. `findCommunity` computes Hamming distance over the 5 affinity words against existing community fields. Close enough → join; too far or all saturated → spawn a new `GF(8191)` community in the first empty slot.
 9. **Community emits actions** — When a community has ≥ 3 members and its dominant mode's concentration exceeds the resonance threshold, `emitActions` mints a new Value from the community's aggregate state, installs a program (`beam_swarm_step` or `active_inference`), and publishes it back to the Queue. The community's Value list is then cleared.
 
-For prompts, `Machine.Prompt` takes the same path but uses `PublishTracked` and spins until the Value's scheduling word clears.
+For prompts, `Machine.Prompt` takes the same path but uses `PublishTracked` and spins until the Value's scheduling word clears. That low-level halt is only **execution settled**. Experiment code should prefer `Machine.PromptWithResolution`, which returns the settled `Value` plus a semantic resolution snapshot (readout, properties word, probe state/depth, and whether a cascade ceiling forced the stop) so prompt scoring can distinguish "scheduler stopped" from "reasoning resolved."
 
 ## Values: Programmable Data
 
@@ -143,16 +143,18 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 ### Properties
 
-Canonical 512 bit region, spanning words 48 to 55.
+Canonical 512 bit region, spanning words 48 to 55. The constants below are defined in `pkg/compute/kernel/layout.go` and are the authoritative word map.
 
-- WORD 0: **labels** (4 packed)
-- WORD 1: **confidence**
-- WORD 2: **epoch**
-- WORD 3: **role + programID**
-- WORD 4: **state** (IDLE, READY, BUSY, WAITING, DONE)
-- WORD 5: **temperature**
-- WORD 6: **prediction** expected dominant lane next Value, computed from eigenmode trajectory, XOR predicted vs actual = surprisal score
-- WORD 7: **prediction error** accumulated delta between predictions and outcomes (potentially: high error, raise temperature?)
+| Word (absolute) | Region offset | Name | Notes |
+|-----------------|---------------|------|-------|
+| 48 | 0 | **labels** | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63 |
+| 49 | 1 | **confidence** | Reserved for future use |
+| 50 | 2 | **epoch** | Reserved for future use |
+| 51 | 3 | **TTL** (`PropertiesTTLWord`) | Time-to-live for ephemeral Values; zero means dissolve |
+| 52 | 4 | **noise** (`PropertiesNoiseWord`) | Physical noise injected into affinity by the `temperature` program |
+| 53 | 5 | **probe state** (`PropertiesProbeStateWord`) | Packed probe kind + lifecycle status (see `kernel.PackProbeState`) |
+| 54 | 6 | **probe window** (`PropertiesProbeWindowWord`) | `PackRegionRef` over token words for causal probes |
+| 55 | 7 | **probe depth** (`PropertiesProbeDepthWord`) | Re-stabilisation depth for causal hub probes |
 
 ### Program Authoring (`pkg/compute/programmer`)
 
@@ -238,7 +240,127 @@ AND produces ones only where both Values agree. The longest contiguous one-run r
 
 In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both Values agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
 
-**The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `ScanSignals` detects all of them, sorts by length, and the longest of each kind becomes the local action. Shorter signals are published for inter-cluster exchange.
+**The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `geometry.ScanZeroRun` and `geometry.ScanOneRun` detect the longest zero-run and one-run respectively over the 8 signal words; `geometry.RunLabel` maps the winning run's start position to a deterministic 16-bit label hash. Shorter runs are available for inter-cluster exchange.
+
+---
+
+## Firmware
+
+> The "programmable Value" story has weight only if the system's autonomous behaviors — self-labeling, community crystallization, unsupervised learning — are expressed as **programs that run inside Values**, not as Go code that operates on Values from outside. The programs here are authored in the same five-column source that any user program uses, compiled by `pkg/compute/programmer`, and executed on the same ALU. Where the ALU's rotation-sweep contract makes a computation inexpressible as firmware (see "ALU constraint" note below), the orchestrator performs the operation directly — that is not a retreat from the principle; it is honesty about what the sweep engine can and cannot encode.
+
+### Label Packing (w48)
+
+Word 48 of the Properties region is the **label word**. It holds four 16-bit label slots packed into a single `uint64`:
+
+```text
+┌─────────────────┬─────────────────┬─────────────────┬─────────────────┐
+│     slot 3      │     slot 2      │     slot 1      │     slot 0      │
+│   bits 63–48    │   bits 47–32    │   bits 31–16    │   bits 15–0     │
+│  soft label 3   │  soft label 2   │  soft label 1   │  dataset label  │
+│  (UL round 3)   │  (UL round 2)   │  (UL round 1)   │  (mint time)    │
+└─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+```
+
+Slots are packed **low-to-high**: slot 0 occupies bits 0–15 (the lowest 16 bits), slot 3 occupies bits 48–63 (the highest). `kernel.PackClassificationLabelSlots` and `kernel.UnpackClassificationLabelSlots` are the canonical accessors. Slot 0 is reserved for the dataset-provided label (written by the tokenizer when the data provider supplies one). Slots 1–3 are written by the unsupervised learning pass. Zero means unlabeled.
+
+**ALU constraint — label injection:** Inserting a 16-bit value into a specific bit-lane of a 64-bit word requires a clean full-word OR operation. The ALU kernel (`universalBitwiseV2`) is a 16-rotation LSH sweep that produces a byte-level signature — not a clean word-level bitwise operation. The byte-lane packing means the kernel's output is an LSH artifact, not the expected slot value. Until a word-level write instruction is added to the ALU, label injection is performed by the orchestrator directly on `properties[0]` (`Unsupervised.injectLabel`).
+
+### Field Crystallization
+
+Each community field maintains a **crystallization score** measured by `vm.measureCrystallization`. The score is composed from three metrics computed by iterating the live Value population:
+
+| Metric | Semantics | Computation |
+|--------|-----------|-------------|
+| `Coverage` | Fraction of members with ≥ 1 non-zero label slot | `labeled / total` |
+| `Consensus` | `1 − normalized_Shannon_entropy` of label distribution | Over all non-zero slot values across members |
+| `LabelDensity` | Mean fraction of the four available slots that are filled | `slotSum / (total × 4)` |
+
+```
+Crystallization.Score = Coverage × Consensus × LabelDensity
+```
+
+When a community's `Coverage` is below `crystallizationFloor` (0.35), `Unsupervised.Cycle` runs a labeling pass on it.
+
+**`measure_field` (firmware resident):** In parallel, a permanent resident Value running the `measure_field` program provides an LSH-based label-energy signal. The orchestrator stages up to 8 member label words (w48) into `reserved[0,8]` before each dispatch. The program runs an OR sweep over those staged words and writes a popcount of the resulting 64-byte LSH signature into `signals[7]`. Higher popcount = more label bits set across the community = higher crystallisation energy. The field's `Cycle` reads `signals[7]` to steer the GF(8191) eigenmode.
+
+```yaml
+measure_field: |
+  reserved[0,8]  reserved[0,8]  signals[7,1]  or  reduce
+  next self
+```
+
+### Global Crystallization and the Spawn Trigger
+
+The orchestrator's `Unsupervised.Cycle` iterates every community in the root field and runs a labeling pass on any community whose `Coverage` is below the floor. This is the **single Go-side trigger** for the unsupervised learning pipeline. Everything the pipeline does to a Value — XOR comparison, label candidate extraction, label injection — happens in `Unsupervised` methods that the orchestrator calls after `field.Cycle()` completes.
+
+When `Coverage >= crystallizationFloor` across all communities, `Cycle` returns without spawning anything. The system is quiescent.
+
+### Firmware Programs
+
+The following named programs are defined under `programs:` in `config.yml`. Programs that manipulate full 64-bit words cleanly (LSH fingerprinting, signal accumulation, reductions) are implemented as firmware. Operations that require word-level writes outside the LSH sweep (label injection) are implemented by the orchestrator directly and are documented here as constraints.
+
+#### `affinity`
+
+Computes the 5-word LSH fingerprint over the token region and XOR-accumulates the rotation-sweep signature into the affinity words. This is the routing primitive — the affinity fingerprint determines which community a Value joins.
+
+```
+tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
+```
+
+#### `unsupervised_learn`
+
+XOR-compare two peer token regions staged by the orchestrator. Before each dispatch the orchestrator copies peer A's tokens (words 0–15) into `reserved[0,16]` and peer B's tokens into `reserved[16,16]` (absolute words 56–71 and 72–87 respectively). The ALU runs the XOR sweep across the two 16-word spans, accumulating the 64-byte LSH signature into `signals[0,8]`. After execution, `geometry.ScanZeroRun` finds the longest zero-run in the 8 signal words; `geometry.RunLabel` maps the run's start position to a deterministic 16-bit label candidate.
+
+```
+reserved[0,16]  reserved[16,16]  signals[0,8]  xor  accumulate
+```
+
+#### `measure_field`
+
+Permanent community resident. See **Field Crystallization** above.
+
+#### `inject_labels` (orchestrator-side)
+
+Not implemented as a rotation-sweep program. `Unsupervised.injectLabel` writes the winning label hash directly into the first available slot (1–3) of `properties[0]`. This is documented here to acknowledge the constraint and to mark it as the target for a future ALU word-write extension.
+
+### How Programs See Peer Data — the Reserved Scratchpad
+
+The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data enters through the **Reserved region (words 56–119)**, which the orchestrator uses as a staging scratchpad before dispatch.
+
+```text
+peer A tokens[0,15]  → executing Value's reserved[0,16]   (words 56–71)
+peer B tokens[0,15]  → executing Value's reserved[16,16]  (words 72–87)
+```
+
+The program then runs against those staged words with existing instructions — no new opcodes. The orchestrator selects peers and performs the copy; the ALU stays stateless and single-Value.
+
+### Unsupervised Learning Pipeline
+
+```text
+orchestrator.Cycle() calls Unsupervised.Cycle(root) after field.Cycle()
+│
+▼
+For each community with Coverage < 0.35:
+├─ labelCommunity(community)
+│    │
+│    ├─ compareTokens(peerA, peerB) for all pairs
+│    │    orchestrator stages peerA[0:15] → worker.reserved[0,16]
+│    │                        peerB[0:15] → worker.reserved[16,16]
+│    │    ALU runs: unsupervised_learn program
+│    │    geometry.ScanZeroRun(signals[0,8]) → (start, length)
+│    │    geometry.RunLabel(start, length)   → 16-bit label candidate
+│    │
+│    ├─ votes[label]++ per pair
+│    │
+│    └─ winner = mode(votes) if votes[winner] >= labelQuorum
+│         │
+│         └─ injectLabel(value, winner) for all unlabeled members
+│              orchestrator writes directly to properties[0] (word 48)
+│              (rotation-sweep ALU cannot do clean 64-bit word OR)
+│
+▼
+measure_field residents update signals[7] in parallel via next-self loop
+```
 
 ---
 
@@ -252,6 +374,8 @@ The field is not one thing. It is simultaneously top-down feedback, compositiona
 
 **Eigenmodes sequence without collision.** The co-occurrence matrix over active Values produces eigenmodes — natural clusters of Values that are evolving together. These eigenmodes provide sequencing: they determine which Values should be composed next, which are ready to emit, and which should wait. Crucially, eigenmodes are orthogonal by construction, so multiple sequencing tasks can run in parallel on the same field without interfering with each other.
 
+> The eigenmodes also have an alternative implementation, which can be found and considered in `pkg/core/numeric/geometry/eigenmode_toroidal.go`.
+
 **The PhaseDial aligns perspectives.** Each field carries a PhaseDial — a 512-dimensional complex vector that encodes the structural fingerprint of its Value population. When two fields need to coordinate (across communities, across nodes, across the global mesh), PhaseDial similarity determines whether they are looking at the same problem from compatible angles. Misaligned perspectives are not suppressed — they are rotated toward alignment when the evidence supports it, or left alone when they represent genuinely different aspects of the state.
 
 **Gossip makes the field a communication substrate.** The gossip protocol does not just propagate statistics — it propagates the field itself. Each digest carries the node's GF(8191) phase snapshot, so remote nodes can reconstruct compatible pressure fields without centralizing data. Phase is the shared coordinate system. This turns the layered field hierarchy into a message-passing network where updates propagate at gossip speed rather than waiting for direct observation. The field is the medium through which the distributed system maintains coherence.
@@ -262,18 +386,18 @@ The field is not one thing. It is simultaneously top-down feedback, compositiona
 
 The field hierarchy is backed by a substantial geometry package:
 
-| Module              | Purpose                                                                       |
-|---------------------|-------------------------------------------------------------------------------|
-| `field.go`          | `Field` type — GF(p) phase vectors with `Rotate`, `Dominant`, `Dot`, `AccumulateProjected`, `AggregateFromLowerFields` |
-| `eigenmode.go`      | `Eigenmode` detection — greedy clustering via coupling functions, `DetectModes`, `PhaseAlignment` |
-| `eigenmode_toroidal.go` | Toroidal eigenmode variant for wrap-around phase spaces                   |
-| `phasedial.go`      | `PhaseDial` — 512-dimensional complex vector for perspective alignment        |
-| `gf_rotation.go`    | `GFRotation` — uint16 pair in GF(257) for kernel-level affine addressing      |
-| `pga.go`            | Projective Geometric Algebra — multivector products, sandwich, reverse        |
-| `procrustes.go`     | Orthogonal Procrustes alignment between manifolds                             |
-| `clifford.go`       | Clifford algebra primitives                                                   |
-| `scanner.go`        | Signal scanning — longest runs, signal extraction                             |
-| `phase.go`          | Phase utilities                                                               |
+| Module                  | Purpose                                                                                                                |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `field.go`              | `Field` type — GF(p) phase vectors with `Rotate`, `Dominant`, `Dot`, `AccumulateProjected`, `AggregateFromLowerFields` |
+| `eigenmode.go`          | `Eigenmode` detection — greedy clustering via coupling functions, `DetectModes`, `PhaseAlignment`                      |
+| `eigenmode_toroidal.go` | Toroidal eigenmode variant for wrap-around phase spaces                                                                |
+| `phasedial.go`          | `PhaseDial` — 512-dimensional complex vector for perspective alignment                                                 |
+| `gf_rotation.go`        | `GFRotation` — uint16 pair in GF(257) for kernel-level affine addressing                                               |
+| `pga.go`                | Projective Geometric Algebra — multivector products, sandwich, reverse                                                 |
+| `procrustes.go`         | Orthogonal Procrustes alignment between manifolds                                                                      |
+| `clifford.go`           | Clifford algebra primitives                                                                                            |
+| `scanner.go`            | Signal scanning — longest runs, signal extraction                                                                      |
+| `phase.go`              | Phase utilities                                                                                                        |
 
 ---
 
@@ -346,6 +470,116 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
 
 Because a hypothesis query and a real observation share the same substrate, Six can interleave the two freely. A stream of real observations updates the field. In-between, ephemeral queries probe the field without disturbing it. The field itself cannot tell a query from an observation until the query dies — which means the same dynamics that handle real-world inference handle hypothetical reasoning for free.
+
+---
+
+## Composable I/O — Value, Field, and Conn as `io.ReadWriteCloser`
+
+`primitive.Value`, `geometry.Field`, and `gossip.Conn` all implement `io.ReadWriteCloser`. This is not a serialization convenience — it is the **routing substrate**. Because every participant in the system speaks the same interface, the entire Go standard library's I/O combinators become first-class routing primitives with no additional glue.
+
+### The Ring Buffer as Transport
+
+The lock-free `data.Ring` (Vyukov MPMC, `RingCapacity = 65536` slots) already stores `[128]uint64` frames — the exact stride of a `primitive.Value`. Every `io.ReadWriteCloser` implementation sits on top of one or two `data.Ring` instances: an intake ring (written by `Write`) and an emission ring (drained by `Read`). No goroutines are allocated — `Read` and `Write` are pure atomic operations on head and tail pointers. All goroutine allocation is centralized in `pool.Queue`.
+
+```text
+Write(p []byte) → deserialize into [128]uint64 → Ring.Push(ptr)
+Read(p []byte)  → Ring.Pop() → serialize [128]uint64 into p
+Close()         → cancel intake ring context
+```
+
+### Routing as I/O Composition
+
+Because every node is an `io.ReadWriteCloser`, routing is pure stdlib composition:
+
+```go
+// Field emits to local queue and two remote fields simultaneously
+route := io.MultiWriter(localQueue, remoteField1, remoteField2)
+
+// ALU output is consumed locally and propagated to gossip at the same time
+tee := io.TeeReader(emittedValue, gossipConn)
+io.Copy(localQueue, tee)
+
+// Directed Value-to-Value handoff: message output → target Reserved (pre-staged before ALU dispatch)
+pr, pw := io.Pipe()
+io.Copy(pw, messageValue)    // message writes its Signals bytes
+io.Copy(targetReserved, pr)  // target reads into Reserved before dispatch
+```
+
+No routing tables. No special-cased dispatch paths. The topology is expressed entirely in which `io.ReadWriteCloser` values are passed to which stdlib combinators at connection time.
+
+### Affinity as Address — the `AffinityFilter`
+
+Targeting a specific community or node does not require a routing table. The affinity words (123–127) of each Value are its address. An `AffinityFilter` is a thin `io.Writer` wrapper that inspects those words before forwarding:
+
+```go
+type AffinityFilter struct {
+    dst    io.Writer
+    target [5]uint64
+    budget int       // max Hamming distance to forward
+}
+
+func (f *AffinityFilter) Write(p []byte) (int, error) {
+    if geometry.AffinityHammingDistance(affinityFrom(p), f.target) > f.budget {
+        return len(p), nil  // not for us — drop cleanly, not an error
+    }
+    return f.dst.Write(p)
+}
+```
+
+Gossip flood reduces naturally to affinity-filtered forwarding: a `Conn` wraps each of its remote peers in an `AffinityFilter` and writes to `io.MultiWriter` over them. Values addressed to a distant community propagate hop-by-hop through peers whose affinity is progressively closer to the target. No DHT, no routing table update protocol.
+
+### Plasticity — the Peer List as Learnable Weights
+
+Each `Field` and `Conn` maintains a `PriorityRoute`: a slice of `io.ReadWriteCloser` peers paired with a floating-point success score. The score is updated on each emission cycle using an exponential moving average over a `successSignal` derived from downstream crystallization improvement.
+
+```go
+type ScoredPeer struct {
+    dst   io.ReadWriteCloser
+    score float64  // EMA of downstream crystallization delta
+}
+
+type PriorityRoute []ScoredPeer
+```
+
+After each `Cycle`, the slice is re-sorted descending by score. Writes go to all peers; reads prefer the highest-scoring path. Peers whose score drops below a floor are pruned. New peers are admitted when gossip delivers a Value whose source affinity is within budget and whose source field has high crystallization.
+
+**The peer list IS the weight matrix.** Re-sorting IS learning. The communication topology and the computational topology converge without a separate training phase: communities that consistently produce successful emissions become more connected to each other, forming fast paths. Communities that produce nothing become isolated and eventually pruned. This is Hebbian learning at the infrastructure layer — connections that fire together wire together — falling out of the I/O composition model with no additional mechanism.
+
+### Fast Paths
+
+A fast path between two `Field`s is not a special object. It is two `Field`s that have each other at index 0 of their `PriorityRoute` because their shared history of successful emissions has pushed their scores to the top. The fast path emerges from the score dynamics. Removing it is automatic: if the emission success stops, the score decays and the peer slides down the sort order.
+
+### `gossip.Conn` as `io.ReadWriteCloser`
+
+```go
+type Conn struct {
+    intake   *data.Ring      // lock-free MPMC, no goroutine
+    affinity [5]uint64       // this node's fingerprint
+    peers    PriorityRoute   // sorted by emission success, reordered each Cycle
+}
+
+func (conn *Conn) Write(p []byte) (int, error)  // push into intake ring
+func (conn *Conn) Read(p []byte) (int, error)   // pop from intake ring
+func (conn *Conn) Close() error
+```
+
+`GossipConn` interface collapses to `io.ReadWriteCloser`. The `receiveWithVisited` cycle-detection map is eliminated — cycles cannot form when forwarding is affinity-filtered, because a Value arriving back at its origin has affinity too similar to be forwarded outward again (it falls below the budget floor and is dropped cleanly).
+
+### `geometry.Field` as `io.ReadWriteCloser`
+
+```go
+func (field *Field) Write(p []byte) (int, error)
+// Deserialize p into a Value, push into the intake ring.
+// The next Cycle drains the ring into community routing.
+
+func (field *Field) Read(p []byte) (int, error)
+// Pop the next emission from the output ring.
+// Community emissions (emitFromCommunity) push into the output ring after Cycle.
+
+func (field *Field) Close() error
+```
+
+Fields can now be wired directly into any I/O pipeline. `emitFromCommunity` writes into both the local `pool.Queue` and the field's `PriorityRoute` in one `io.MultiWriter` call. The global field drives community fields the same way — it writes its pressure downward through `io.MultiWriter(community0, community1, ...)`, and each community's `Write` method receives that pressure as a Value that enters its intake ring.
 
 ---
 
@@ -458,6 +692,12 @@ machine.Load(dataset)
 // Prompt — the Value flows through the same pipeline as Load.
 // Spins until the scheduling word clears (Value has settled).
 result, _ := machine.Prompt("the cat sat on the", "beam_swarm_step")
+
+// PromptWithResolution exposes the semantic completion snapshot used by
+// experiment/task gating. Unresolved prompts score as unresolved even if the
+// scheduler halted.
+resolution, _ := machine.PromptWithResolution("the cat sat on the", "beam_swarm_step")
+_ = resolution.ReasoningResolved
 ```
 
 ---

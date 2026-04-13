@@ -9,14 +9,6 @@ import (
 )
 
 /*
-FrameEmit receives one reassembled frame. The slice is valid only until the
-function returns; callers must copy if they retain data beyond that.
-*/
-type Publishable interface {
-	Publish(value *primitive.Value, label string) error
-}
-
-/*
 PublishedValueDrainer is a FramedBytePipe that can push whole *primitive.Value
 records straight to Publishable sinks without serializing through Value.Bytes
 and ValueFromWireFrame (see vm.Tokenizer).
@@ -90,45 +82,41 @@ func (stream *Stream) SetFrameTee(tee io.Writer) {
 	stream.frameTee = tee
 }
 
-func (stream *Stream) dispatchFrame(frame []byte) error {
+/*
+dispatchFrame tees the raw frame when configured, then fans out to each
+publisher with a fresh ValueFromWireFrame so every sink can Read the full wire
+record independently (Value.Read is single-shot per instance).
+*/
+func (stream *Stream) dispatchFrame(frame []byte) ([]*primitive.Value, error) {
 	if stream.frameTee != nil {
 		if _, err := stream.frameTee.Write(frame); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	if len(stream.publishers) == 1 {
+	var lastOut []*primitive.Value
+
+	for _, publisher := range stream.publishers {
 		value, err := primitive.ValueFromWireFrame(frame)
 
 		if err != nil {
-			return err
+			return lastOut, err
 		}
 
-		pubErr := stream.publishers[0].Publish(value, "")
-		_ = value.Close()
+		out, pubErr := publisher.Publish(value)
 
-		return pubErr
-	}
+		if closeErr := value.Close(); closeErr != nil && pubErr == nil {
+			pubErr = closeErr
+		}
 
-	value, err := primitive.ValueFromWireFrame(frame)
-
-	if err != nil {
-		return err
-	}
-
-	for _, publisher := range stream.publishers {
-		pubErr := publisher.Publish(value, "")
+		lastOut = out
 
 		if pubErr != nil {
-			_ = value.Close()
-
-			return pubErr
+			return lastOut, pubErr
 		}
 	}
 
-	_ = value.Close()
-
-	return nil
+	return lastOut, nil
 }
 
 /*
@@ -151,7 +139,7 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 			frame := p[:stream.frameSize]
 			p = p[stream.frameSize:]
 
-			if err := stream.dispatchFrame(frame); err != nil {
+			if _, err := stream.dispatchFrame(frame); err != nil {
 				return 0, err
 			}
 		}
@@ -169,7 +157,7 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 		frame := stream.spare[:stream.frameSize]
 		stream.spare = stream.spare[stream.frameSize:]
 
-		if err := stream.dispatchFrame(frame); err != nil {
+		if _, err := stream.dispatchFrame(frame); err != nil {
 			return 0, err
 		}
 	}

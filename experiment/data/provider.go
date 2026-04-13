@@ -7,33 +7,32 @@ import (
 
 type Provider interface {
 	io.ReadCloser
-	Generate() iter.Seq[byte]
+	Generate() iter.Seq[Sample]
 }
 
 /*
-Prompt is a unit of supervised or unsupervised work for an experiment.
-Text is one sample payload; Label is optional supervision metadata.
+Sample is a unit of supervised or unsupervised work for an experiment.
+
+Text is the byte stream fed to the tokenizer for this row (training line,
+including any staged suffix the dataset adds). Label is optional supervision
+metadata. Prompt, when non-empty, is the task-facing string harnesses should
+use in Prompts() (question-only, article without a classification suffix, etc.);
+when empty, TaskPrompt falls back to Text.
 */
-type Prompt struct {
+type Sample struct {
 	SampleID uint32
-	Text     string
-	Label    string
-	HasLabel bool
+	Text     []byte
+	Label    []byte
+	Prompt   []byte
 }
 
 /*
-PromptProvider emits structured samples without lossy byte concatenation.
-It is useful when experiments need prompt boundaries and optional labels.
+TaskPrompt returns the experiment prompt bytes: Prompt when set, otherwise Text.
 */
-type PromptProvider interface {
-	GeneratePrompts() iter.Seq[Prompt]
-}
+func (sample Sample) TaskPrompt() []byte {
+	if len(sample.Prompt) > 0 {
+		return sample.Prompt
+	}
 
-/*
-LabeledPromptProvider marks PromptProvider implementations whose prompts carry
-supervision labels that should be preserved during machine ingest.
-*/
-type LabeledPromptProvider interface {
-	PromptProvider
-	HasPromptLabels() bool
+	return sample.Text
 }

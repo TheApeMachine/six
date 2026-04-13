@@ -66,10 +66,11 @@ func (experiment *BabiExperiment) Prompts() []string {
 		return experiment.prompt
 	}
 
-	for p := range experiment.dataset.GeneratePrompts() {
-		experiment.prompt = append(experiment.prompt, p.Text)
-		if p.HasLabel && strings.TrimSpace(p.Label) != "" {
-			experiment.holdouts = append(experiment.holdouts, []byte(strings.TrimSpace(p.Label)))
+	for sample := range experiment.dataset.Generate() {
+		experiment.prompt = append(experiment.prompt, string(sample.TaskPrompt()))
+
+		if len(strings.TrimSpace(string(sample.Label))) > 0 {
+			experiment.holdouts = append(experiment.holdouts, []byte(strings.TrimSpace(string(sample.Label))))
 		} else {
 			experiment.holdouts = append(experiment.holdouts, nil)
 		}

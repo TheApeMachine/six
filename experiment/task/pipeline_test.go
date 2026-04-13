@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -85,6 +84,48 @@ func pipelineExperimentRowCount(experiment tools.PipelineExperiment) (int, bool)
 	}
 
 	return len(rows), true
+}
+
+func promptResolutionRow(
+	idx int,
+	prompt string,
+	holdout []byte,
+	resolution *vm.PromptResolution,
+	classLabels []string,
+) tools.ExperimentalData {
+	row := tools.ExperimentalData{
+		Idx:               idx,
+		Name:              fmt.Sprintf("prompt_%d", idx),
+		Prefix:            []byte(prompt),
+		Holdout:           append([]byte(nil), holdout...),
+		PropertiesWord:    resolution.PropertiesWord,
+		ProbeState:        resolution.ProbeState,
+		ProbeDepth:        resolution.ProbeDepth,
+		ExecutionSettled:  resolution.ExecutionSettled,
+		ReasoningResolved: resolution.ReasoningResolved,
+		HaltedByCeiling:   resolution.HaltedByCeiling,
+	}
+
+	if resolution != nil {
+		row.Generation = []byte(resolution.Generation)
+	}
+
+	if len(classLabels) == 0 || resolution == nil {
+		return row
+	}
+
+	classIdx, ok := kernel.PrimaryClassFromPropertiesWord(
+		resolution.PropertiesWord,
+		len(classLabels),
+	)
+	if !ok {
+		return row
+	}
+
+	row.PredLabel = tools.OptionalLabel(classIdx)
+	row.Classification = []byte(classLabels[classIdx])
+
+	return row
 }
 
 func tryLoadConfigForTaskTests() error {
@@ -211,46 +252,28 @@ func TestPipeline(t *testing.T) {
 					for idx, prompt := range experiment.Prompts() {
 						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
 						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
-						prediction, promptErr := machine.Prompt(prompt, "affinity")
+						// Same ingress program as corpus load (affinity fold). Scores use Properties plus
+						// Morton chain readout (README: Values carry state; PrevID/NextID encode structure).
+						resolution, promptErr := machine.PromptWithResolution(prompt, "affinity")
 
 						if promptErr != nil {
 							t.Fatalf("prompt %d: %v", idx, promptErr)
 						}
 
-						if prediction == nil {
-							t.Fatalf("prompt %d: nil prediction", idx)
+						if resolution == nil || resolution.Value == nil {
+							t.Fatalf("prompt %d: nil resolution", idx)
 						}
 
-						generation := prediction.String()
-
-						// Read the classification label from the properties region
-						// The substrate is expected to write the predicted category index to PropertiesStartWord
-						predLabelInt := (*prediction)[kernel.PropertiesStartWord]
-						classification := fmt.Sprintf("%d", predLabelInt)
-
-						// Temporary workaround for zeroes issue: if the label is 0, we can check if the
-						// generation matches any of the labels to simulate the actual classification
-						// until the properties region is properly wired in the substrate.
-						if predLabelInt == 0 && len(generation) > 0 {
-							normalizedClass := strings.ToLower(strings.TrimSpace(generation))
-							for i, label := range []string{"world", "sports", "business", "sci_tech"} {
-								if strings.Contains(normalizedClass, label) {
-									classification = fmt.Sprintf("%d", i)
-									break
-								}
-							}
+						classLabels := []string(nil)
+						if labeledExperiment, ok := experiment.(interface{ ClassLabels() []string }); ok {
+							classLabels = labeledExperiment.ClassLabels()
 						}
 
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.
-						pipeline.experiment.AddResult(tools.ExperimentalData{
-							Idx:            idx,
-							Name:           fmt.Sprintf("prompt_%d", idx),
-							Prefix:         []byte(prompt),
-							Holdout:        holdoutBytes,
-							Generation:     []byte(generation),
-							Classification: []byte(classification),
-						})
+						pipeline.experiment.AddResult(
+							promptResolutionRow(idx, prompt, holdoutBytes, resolution, classLabels),
+						)
 
 						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)
 

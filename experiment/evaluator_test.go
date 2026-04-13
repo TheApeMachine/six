@@ -6,6 +6,33 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 )
 
+func TestEvaluatorMetricsIgnoresUnresolvedPredictions(t *testing.T) {
+	Convey("Classification metrics count unresolved rows as misses rather than predictions", t, func() {
+		evaluator := NewEvaluator(EvalWithLabels([]string{"world", "sports"}))
+
+		rows := []ExperimentalData{
+			{
+				TrueLabel:         OptionalLabel(0),
+				PredLabel:         OptionalLabel(0),
+				ExecutionSettled:  true,
+				ReasoningResolved: true,
+			},
+			{
+				TrueLabel:         OptionalLabel(1),
+				PredLabel:         OptionalLabel(0),
+				ExecutionSettled:  true,
+				ReasoningResolved: false,
+			},
+		}
+
+		metrics := evaluator.Metrics(rows, len(rows))
+
+		So(metrics.Accuracy, ShouldAlmostEqual, 0.5, 1e-12)
+		So(metrics.BalancedAcc, ShouldAlmostEqual, 0.5, 1e-12)
+		So(metrics.MacroF1, ShouldAlmostEqual, 0.5, 1e-12)
+	})
+}
+
 func TestEvalWithExpectationUsesLegacyDynamicBaseline(t *testing.T) {
 	Convey("EvalWithExpectation rewrites the legacy magic baselines and keeps baseline gating", t, func() {
 		evaluator := NewEvaluator(

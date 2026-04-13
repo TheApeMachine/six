@@ -5,11 +5,12 @@ import (
 	"io"
 	"iter"
 	"sync"
+
+	"github.com/theapemachine/six/experiment/data"
 )
 
 /*
-Dataset streams in-memory corpus bytes as RawTokens. Each sample is a []byte;
-bytes are emitted with incrementing Pos per sample.
+Dataset exposes an in-memory corpus: each row is one data.Sample (Text only).
 */
 type Dataset struct {
 	ctx    context.Context
@@ -37,16 +38,16 @@ func New(opts ...datasetOpts) *Dataset {
 }
 
 /*
-Generate returns an iterator of RawTokens for each byte in the corpus.
-Pos resets per sample.
+Generate yields one Sample per corpus row.
 */
-func (ds *Dataset) Generate() iter.Seq[byte] {
-	return func(yield func(byte) bool) {
-		for _, data := range ds.corpus {
-			for _, symbol := range data {
-				if !yield(symbol) {
-					return
-				}
+func (ds *Dataset) Generate() iter.Seq[data.Sample] {
+	return func(yield func(data.Sample) bool) {
+		for index, row := range ds.corpus {
+			if !yield(data.Sample{
+				SampleID: uint32(index),
+				Text:     row,
+			}) {
+				return
 			}
 		}
 	}

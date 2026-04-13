@@ -59,82 +59,13 @@ const (
 	FirmwareTypePrompt
 )
 
-type KadabraConfig struct {
-	Bits                     int       `mapstructure:"bits"`
-	BucketSize               int       `mapstructure:"bucketSize"`
-	ReplicationFactor        int       `mapstructure:"replicationFactor"`
-	MaxMeshPeers             int       `mapstructure:"maxMeshPeers"`
-	Alpha                    int       `mapstructure:"alpha"`
-	EpochQueries             int       `mapstructure:"epochQueries"`
-	Penalty                  float64   `mapstructure:"penalty"`
-	SecurityThreshold        float64   `mapstructure:"securityThreshold"`
-	BucketSecurityThresholds []float64 `mapstructure:"bucketSecurityThresholds"`
-	ShannonLimit             int       `mapstructure:"shannonLimit"`
-	ClusterThreshold         int       `mapstructure:"clusterThreshold"`
-}
-
-type MarkovTrieConfig struct {
-	DecayFactor                     float64 `mapstructure:"decayFactor"`
-	EndToken                        string  `mapstructure:"endToken"`
-	MaximumPathLength               int     `mapstructure:"maximumPathLength"`
-	InterpolationSuffixDepth        int     `mapstructure:"interpolationSuffixDepth"`
-	ClassificationContext           int     `mapstructure:"classificationContext"`
-	CoOccurrenceWindow              int     `mapstructure:"coOccurrenceWindow"`
-	PruneInterval                   int     `mapstructure:"pruneInterval"`
-	PruneMinimumCount               float64 `mapstructure:"pruneMinimumCount"`
-	ReplayLength                    int     `mapstructure:"replayLength"`
-	ReplayThreshold                 float64 `mapstructure:"replayThreshold"`
-	BeamWidth                       int     `mapstructure:"beamWidth"`
-	UnknownProbability              float64 `mapstructure:"unknownProbability"`
-	AdditiveSmoothing               float64 `mapstructure:"additiveSmoothing"`
-	RecentPenalty                   float64 `mapstructure:"recentPenalty"`
-	RecentWindow                    int     `mapstructure:"recentWindow"`
-	EditDistance                    int     `mapstructure:"editDistance"`
-	EditSimilarity                  float64 `mapstructure:"editSimilarity"`
-	NgramConfidenceFloor            float64 `mapstructure:"ngramConfidenceFloor"`
-	SymbolMinimumTotal              int     `mapstructure:"symbolMinimumTotal"`
-	SymbolMinimumScore              float64 `mapstructure:"symbolMinimumScore"`
-	SymbolLimit                     int     `mapstructure:"symbolLimit"`
-	BaselineLearningRate            float64 `mapstructure:"baselineLearningRate"`
-	MaxLearningRate                 float64 `mapstructure:"maxLearningRate"`
-	SurprisalScaleBits              float64 `mapstructure:"surprisalScaleBits"`
-	ConceptLabelPrefix              string  `mapstructure:"conceptLabelPrefix"`
-	UnsupervisedConfidence          float64 `mapstructure:"unsupervisedConfidence"`
-	ExperienceEmptyLabel            string  `mapstructure:"experienceEmptyLabel"`
-	EpisodicCapacity                int     `mapstructure:"episodicCapacity"`
-	EpisodicNeighborLimit           int     `mapstructure:"episodicNeighborLimit"`
-	EpisodicRecencyWeight           float64 `mapstructure:"episodicRecencyWeight"`
-	EpisodicBlendWeight             float64 `mapstructure:"episodicBlendWeight"`
-	InitialConceptCounter           int     `mapstructure:"initialConceptCounter"`
-	BPEEndOfWordToken               string  `mapstructure:"bpeEndOfWordToken"`
-	BPEPairDelimiter                string  `mapstructure:"bpePairDelimiter"`
-	PredictExperienceSurprisalBits  float64 `mapstructure:"predictExperienceSurprisalBits"`
-	Temperature                     float64 `mapstructure:"temperature"`
-	AdaptiveEMAAlpha                float64 `mapstructure:"adaptiveEMAAlpha"`
-	AdaptiveMinSamples              int     `mapstructure:"adaptiveMinSamples"`
-	AdaptiveMaxSamples              int     `mapstructure:"adaptiveMaxSamples"`
-	AdaptiveMaxDepth                int     `mapstructure:"adaptiveMaxDepth"`
-	AdaptiveMaxDepthDecay           float64 `mapstructure:"adaptiveMaxDepthDecay"`
-	AdaptiveMaxDepthDecayAlpha      float64 `mapstructure:"adaptiveMaxDepthDecayAlpha"`
-	AdaptiveMaxDepthDecayMinSamples int     `mapstructure:"adaptiveMaxDepthDecayMinSamples"`
-	AdaptiveMaxDepthDecayMaxSamples int     `mapstructure:"adaptiveMaxDepthDecayMaxSamples"`
-	AdaptiveMaxDepthDecayMaxDepth   int     `mapstructure:"adaptiveMaxDepthDecayMaxDepth"`
-	// SurpriseRatioThreshold is the multiplicative factor above the surprisal EMA
-	// that counts as a sustained novelty burst for plasticity boosting.
-	SurpriseRatioThreshold float64 `mapstructure:"surpriseRatioThreshold"`
-	// SustainedBurstsRequired is how many consecutive above-threshold observations
-	// must occur before the burst boost starts accumulating.
-	SustainedBurstsRequired int `mapstructure:"sustainedBurstsRequired"`
-	// MaxCapLen limits how many excess burst steps contribute linear boost growth.
-	MaxCapLen int `mapstructure:"maxCapLen"`
-	// BurstBoostFactor scales the per-step plasticity multiplier once capped.
-	BurstBoostFactor float64 `mapstructure:"burstBoostFactor"`
-}
-
 type SystemConfig struct {
-	BatchSize   int           `mapstructure:"batchSize"`
-	BatchWindow time.Duration `mapstructure:"batchWindow"`
-	QueueSize   int           `mapstructure:"queueSize"`
+	BatchSize          int           `mapstructure:"batchSize"`
+	BatchWindow        time.Duration `mapstructure:"batchWindow"`
+	QueueSize          int           `mapstructure:"queueSize"`
+	ShannonLimit       float64       `mapstructure:"shannonLimit"`
+	ResonanceThreshold float64       `mapstructure:"resonanceThreshold"`
+	BeliefEpsilon      float64       `mapstructure:"beliefEpsilon"`
 }
 
 /*
@@ -257,9 +188,12 @@ type Config struct {
 func NewConfig() *Config {
 	Cfg = &Config{
 		System: SystemConfig{
-			BatchSize:   WithDefault(viper.GetInt("system.batchSize"), 10000),
-			BatchWindow: time.Duration(WithDefault(viper.GetInt("system.batchWindow"), 500)) * time.Microsecond,
-			QueueSize:   WithDefault(viper.GetInt("system.queueSize"), 20000),
+			BatchSize:          WithDefault(viper.GetInt("system.batchSize"), 10000),
+			BatchWindow:        time.Duration(WithDefault(viper.GetInt("system.batchWindow"), 500)) * time.Microsecond,
+			QueueSize:          WithDefault(viper.GetInt("system.queueSize"), 20000),
+			ShannonLimit:       WithDefault(viper.GetFloat64("system.shannonLimit"), 0.47),
+			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
+			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
 		},
 		Value: ValueConfig{
 			Word:         WithDefault(viper.GetInt("value.word"), 64),

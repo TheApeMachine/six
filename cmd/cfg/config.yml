@@ -41,74 +41,8 @@ system:
   batchWindow: 500
   queueSize: 20000
   shannonLimit: 0.47
-
-# Kadabra DHT: affinity-routed tries, replication, and Shannon-capped centroids.
-# See README "Canonical ingest path" and "Layered fields = layered communication".
-kadabra:
-  bits: 64
-  bucketSize: 20
-  replicationFactor: 3
-  # Max Hamming distance for "same neighborhood" trie selection (see selectOrSpawnTrie).
-  clusterThreshold: 192
-  maxMeshPeers: 4096
-  # Max set-bit popcount on the 257-bit affinity before blending prunes / spawns.
-  # ~47% of 257 bits ≈ 121 (entropy-peak region); default 240 leaves more headroom.
-  shannonLimit: 240
-  alpha: 3
-  epochQueries: 100
-  penalty: 0.1
-  securityThreshold: 0.5
-  bucketSecurityThresholds:
-    - 0.1
-    - 0.2
-    - 0.3
-    - 0.4
-    - 0.5
-
-markovtrie:
-  decayFactor: 0.995
-  endToken: "$"
-  maximumPathLength: 5
-  interpolationSuffixDepth: 4
-  classificationContext: 3
-  coOccurrenceWindow: 2
-  pruneInterval: 10
-  pruneMinimumCount: 0.05
-  replayLength: 10
-  replayThreshold: 85
-  unknownProbability: 0.001
-  additiveSmoothing: 0.1
-  recentPenalty: 0.5
-  recentWindow: 3
-  editDistance: 1
-  editSimilarity: 0.95
-  symbolMinimumTotal: 2
-  symbolMinimumScore: 1.5
-  symbolLimit: 50
-  baselineLearningRate: 0.1
-  maxLearningRate: 1.0
-  surprisalScaleBits: 2.0
-  conceptLabelPrefix: "Concept_"
-  unsupervisedConfidence: 50.0
-  experienceEmptyLabel: "None"
-  episodicCapacity: 1000
-  episodicNeighborLimit: 16
-  episodicRecencyWeight: 0.25
-  episodicBlendWeight: 0.35
-  initialConceptCounter: 1
-  bpeEndOfWordToken: "</w>"
-  bpePairDelimiter: "\x00"
-  predictExperienceSurprisalBits: 1.0
-  temperature: 0.7
-  adaptiveEMAAlpha: 0.05
-  adaptiveMinSamples: 50
-  adaptiveMaxSamples: 1000
-  adaptiveMaxDepth: 8
-  adaptiveMaxDepthDecay: 0.99
-  adaptiveMaxDepthDecayAlpha: 0.05
-  adaptiveMaxDepthDecayMinSamples: 50
-  adaptiveMaxDepthDecayMaxSamples: 1000
-  adaptiveMaxDepthDecayMaxDepth: 8
+  resonanceThreshold: 0.6
+  beliefEpsilon: 0.05
 
 value:
   word: 64
@@ -185,8 +119,7 @@ programs:
   # word through the substrate's 16-rotation sweep, then accumulate the
   # resulting 64-byte LSH signature across the five affinity words. Pure
   # XOR keeps the fold linear so merging two Values' affinities commutes
-  # with merging their tokens — required for Kadabra node/trie merging as
-  # clusters approach the Shannon saturation limit.
+  # with merging their tokens as clusters approach the Shannon saturation limit.
   affinity: |
     tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
 
@@ -270,4 +203,25 @@ programs:
     gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    next self
+
+  # Unsupervised learning: XOR two token spans that the orchestrator has staged
+  # into reserved[0,16] (peer A, tokens 0-15) and reserved[16,16] (peer B,
+  # tokens 0-15). Zero bits in signals[0,8] mark positions shared by both
+  # Values — the raw material for soft-label extraction via ScanZeroRun.
+  # The kernel XOR-folds the 16-word srcA into 4 lanes, then sweeps 16
+  # rotations against the cyclic srcB span; the 64-byte LSH result is
+  # XOR-accumulated into signals[0,8].
+  unsupervised_learn: |
+    reserved[0,16]  reserved[16,16]  signals[0,8]  xor  accumulate
+
+  # Community label-energy fingerprint: the orchestrator stages up to 8
+  # community member label words (w48) into reserved[0,8] before dispatch.
+  # The OR sweep produces a 64-byte LSH signature; reduce writes its
+  # popcount into signals[7]. Higher popcount → more label bits set across
+  # the community → more crystallisation energy. The resident loops via
+  # next self; the orchestrator reads signals[7] each cycle to steer the
+  # community eigenmode and check the global crystallisation floor.
+  measure_field: |
+    reserved[0,8]  reserved[0,8]  signals[7,1]  or  reduce
     next self

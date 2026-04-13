@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-589 & Rust & 0.0000 & 0.5800 & 0.5577 & 0.2596 \\
-272 & Java & 0.0000 & 0.4600 & 0.4510 & 0.2075 \\
-236 & Java & 0.0000 & 0.4200 & 0.4118 & 0.1894 \\
+259 & Java & 0.0000 & 0.2800 & 0.2800 & 0.1273 \\
+399 & Go & 0.0000 & 0.2400 & 0.1875 & 0.0995 \\
+55 & Python & 0.0000 & 0.2000 & 0.1923 & 0.0895 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-306 & Go & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-307 & Go & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+246 & Java & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 597 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{c.to\_string();·        \}·    \}··    retu\ldots}} & \multicolumn{2}{l}{\texttt{].to\_string();·        \} else \{·        \ldots}} \\
-\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{j -= 1;·        \}·        return true;· \ldots}} & \multicolumn{2}{l}{\texttt{n false;·            \}·            i += \ldots}} \\
-\multicolumn{2}{l}{\texttt{import (·    "math"·    "strings"·)··// \ldots}} & \multicolumn{2}{l}{\texttt{parse\_paren\_group(x))·    \}·    return r\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{import (·    "strings"·)··// Filter an i\ldots}} & \multicolumn{2}{l}{\texttt{d(result, x)·        \}·    \}·    return \ldots}} & \multicolumn{2}{l}{\texttt{n}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{\}·        \}·        return largest;·    \ldots}} & \multicolumn{2}{l}{\texttt{\}·}} \\
+\multicolumn{2}{l}{\texttt{import (·    "math"·    "strconv"·    "s\ldots}} & \multicolumn{2}{l}{\texttt{e \{·        res = 0·    \}··    return in\ldots}} & \multicolumn{2}{l}{\texttt{import (·    "math"·    "strconv"·    "s\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{;·        \}·        return results.get(3\ldots}} & \multicolumn{2}{l}{\texttt{get}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0371} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.2596} \\
+\multicolumn{3}{l}{Mean score: 0.0196} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1273} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

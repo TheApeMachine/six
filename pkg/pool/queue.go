@@ -60,9 +60,9 @@ type Queue struct {
 }
 
 /*
-publishFramePool gives Queue.Publish ownership of the frame handed to backend
-workers; tokenizers may close and recycle the original Value before async ALU
-work runs.
+publishFramePool gives Queue.publishLabeledFrame ownership of the frame handed
+to backend workers; tokenizers may close and recycle the original Value before
+async ALU work runs.
 */
 var publishFramePool = sync.Pool{
 	New: func() any {
@@ -122,7 +122,7 @@ func (queue *Queue) Error() error {
 }
 
 /*
-publishTask avoids closure allocations in Publish and PublishTracked.
+publishTask avoids closure allocations in PublishLabeled and PublishTracked.
 */
 type publishTask struct {
 	queue    *Queue
@@ -160,9 +160,22 @@ func (t *publishTask) execute() error {
 	}
 
 	if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
+		if kernel.ProbeStatus((*frame)[kernel.PropertiesProbeStateWord]) == kernel.CausalProbeStatusSettled {
+			(*frame)[kernel.SchedulingNextProgramWord] = 0
+		}
+	}
+
+	if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
 		hops := t.hopsUsed + 1
 
 		if hops >= cascadeSafetyCeiling {
+			probeState := (*frame)[kernel.PropertiesProbeStateWord]
+			probeKind := kernel.ProbeKind(probeState)
+
+			(*frame)[kernel.PropertiesProbeStateWord] = kernel.PackProbeState(
+				probeKind,
+				kernel.CausalProbeStatusCeiling,
+			)
 			(*frame)[kernel.SchedulingNextProgramWord] = 0
 		} else {
 			if tracked {
@@ -238,18 +251,36 @@ func (queue *Queue) republishTracked(frame *primitive.Value, label string, hopsU
 }
 
 /*
-Publish enqueues a task to the normal-priority ring buffer.
-It implement the Publishable interface.
+Publish implements transport.Publishable with an empty label.
 */
-func (queue *Queue) Publish(value *primitive.Value, label string) error {
+func (queue *Queue) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
+	return queue.PublishLabeled("", values...)
+}
+
+/*
+PublishLabeled enqueues one task per value to the normal-priority ring buffer.
+It implements transport.LabelingPublishable for tokenizer paths that thread a
+sample label into publishTask.
+*/
+func (queue *Queue) PublishLabeled(label string, values ...*primitive.Value) ([]*primitive.Value, error) {
 	if queue == nil {
-		return errors.New("queue: nil")
+		return nil, errors.New("queue: nil")
 	}
 
 	if queue.backend == nil {
-		return errors.New("queue: no backend")
+		return nil, errors.New("queue: no backend")
 	}
 
+	for _, value := range values {
+		if err := queue.publishLabeledFrame(value, label); err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, nil
+}
+
+func (queue *Queue) publishLabeledFrame(value *primitive.Value, label string) error {
 	frame := publishFramePool.Get().(*primitive.Value)
 
 	if value == nil {
@@ -363,6 +394,21 @@ SetBackend wires the compute backend into the queue for Publish.
 */
 func (queue *Queue) SetBackend(backend QueueBackend) {
 	queue.backend = backend
+}
+
+/*
+ExecuteInline runs the backend synchronously on the provided frames without
+copying or scheduling. The caller retains full ownership of the frames.
+This lets subsystems (e.g. the orchestrator) materialize a Value's installed
+program before inspecting the result — essential when program output (such as
+affinity words) must be available before routing.
+*/
+func (queue *Queue) ExecuteInline(frames []unsafe.Pointer) error {
+	if queue == nil || queue.backend == nil {
+		return nil
+	}
+
+	return queue.backend.Execute(frames)
 }
 
 /*

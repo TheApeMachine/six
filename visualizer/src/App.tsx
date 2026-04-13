@@ -1,5 +1,10 @@
-import Scene from "./components/Scene";
+import { FieldViewer } from "@/components/field-viewer/FieldViewer";
+import { FieldProvider } from "@/context/field-context";
 
 export default function App() {
-	return <Scene />;
+	return (
+		<FieldProvider>
+			<FieldViewer />
+		</FieldProvider>
+	);
 }

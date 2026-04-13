@@ -31,7 +31,7 @@ const (
 	EventEigenmodeDetected
 	EventFieldPressure
 
-	// MarkovTrie.
+	// Value-graph / sequence instrumentation (legacy identifiers: Trie*).
 	EventTrieInsert
 	EventTrieDecay
 	EventTriePrune
@@ -62,7 +62,7 @@ const (
 	EventPrompt
 	EventPromptResult
 
-	// Exact Markov trie topology (bounded snapshot for debugging).
+	// Bounded graph snapshot for debugging (legacy name: trie graph).
 	EventTrieGraphSnapshot
 
 	// Compiler → ALU → finalizer pipeline (pkg/compute/programmer, backend.Execute).
@@ -85,6 +85,11 @@ const (
 	EventCommunityAction
 	EventCommunityReaction
 	EventCausalHubProbe
+
+	// Belief gap closure cycle.
+	EventBeliefGapEvaluated
+	EventValueResolved
+	EventCommunityEmission
 )
 
 // Event is a single visualization datum. All fields are value types so events

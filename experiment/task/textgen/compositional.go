@@ -52,21 +52,21 @@ func (experiment *CompositionalExperiment) Dataset() data.Provider { return expe
 func (experiment *CompositionalExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
-	pp, ok := experiment.dataset.(data.PromptProvider)
-	if !ok {
-		return experiment.prompt
-	}
-	for p := range pp.GeneratePrompts() {
-		if len(p.Text) < 8 {
+	for sample := range experiment.dataset.Generate() {
+		task := string(sample.TaskPrompt())
+		if len(task) < 8 {
 			continue
 		}
-		prefix, hold := tools.BytePrefixFraction(p.Text, 0.7)
+
+		prefix, hold := tools.BytePrefixFraction(task, 0.7)
 		if hold == "" {
 			continue
 		}
+
 		experiment.prompt = append(experiment.prompt, prefix)
 		experiment.holdouts = append(experiment.holdouts, []byte(hold))
 	}
+
 	return experiment.prompt
 }
 

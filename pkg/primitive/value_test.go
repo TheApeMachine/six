@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -557,6 +558,20 @@ func TestCloseAll(t *testing.T) {
 BenchmarkNewValue measures the end-to-end mint path on a short payload so
 regressions in Morton packing or pool churn show up immediately.
 */
+func TestStampGoldClassificationClass(t *testing.T) {
+	Convey("Given a minted Value", t, func() {
+		values, err := NewValue([]byte("x"))
+
+		So(err, ShouldBeNil)
+		So(len(values), ShouldBeGreaterThan, 0)
+
+		head := values[0]
+		StampGoldClassificationClass(head, 2)
+
+		So((*head)[kernel.PropertiesStartWord], ShouldEqual, kernel.GoldLabelWord(2))
+	})
+}
+
 func BenchmarkNewValue(b *testing.B) {
 	payload := []byte("hello world")
 

@@ -32,6 +32,9 @@ export const EK = {
   CommunityAction: 45,
   CommunityReaction: 46,
   CausalHubProbe: 47,
+  BeliefGapEvaluated: 48,
+  ValueResolved: 49,
+  CommunityEmission: 50,
 };
 
 export const KIND_NAMES = Object.fromEntries(Object.entries(EK).map(([k, v]) => [v, k]));

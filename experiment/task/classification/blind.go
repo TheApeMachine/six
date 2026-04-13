@@ -71,21 +71,22 @@ func (experiment *BlindClassificationExperiment) Dataset() data.Provider {
 func (experiment *BlindClassificationExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
-	pp, ok := experiment.dataset.(data.PromptProvider)
-	if !ok {
-		return experiment.prompt
-	}
-	for p := range pp.GeneratePrompts() {
-		if p.Text == "" {
+	for sample := range experiment.dataset.Generate() {
+		task := string(sample.TaskPrompt())
+		if task == "" {
 			continue
 		}
-		experiment.prompt = append(experiment.prompt, p.Text)
+
+		experiment.prompt = append(experiment.prompt, task)
+
 		var ho []byte
-		if p.HasLabel && p.Label != "" {
-			ho = []byte(p.Label)
+		if len(sample.Label) > 0 {
+			ho = sample.Label
 		}
+
 		experiment.holdouts = append(experiment.holdouts, ho)
 	}
+
 	return experiment.prompt
 }
 
@@ -107,7 +108,7 @@ func (experiment *BlindClassificationExperiment) AddResult(results tools.Experim
 
 	if results.PredLabel == nil && len(results.Classification) > 0 {
 		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
-		
+
 		if idx, err := strconv.Atoi(normalizedClass); err == nil {
 			if idx >= 0 && idx < len(experiment.ClassLabels()) {
 				results.PredLabel = tools.OptionalLabel(idx)

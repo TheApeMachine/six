@@ -5,6 +5,8 @@ import (
 	"iter"
 	"math/rand"
 	"sync"
+
+	"github.com/theapemachine/six/experiment/data"
 )
 
 /*
@@ -35,18 +37,24 @@ func NewSyntheticDataset(sampleSize, maxSamples int, seed int64) *SyntheticDatas
 }
 
 /*
-Generate emits RawTokens for all samples. Printable ASCII (0x20-0x7E).
+Generate emits one Sample per synthetic row. Printable ASCII (0x20-0x7E).
 */
-func (ds *SyntheticDataset) Generate() iter.Seq[byte] {
+func (ds *SyntheticDataset) Generate() iter.Seq[data.Sample] {
 	rng := rand.New(rand.NewSource(ds.seed))
 
-	return func(yield func(byte) bool) {
+	return func(yield func(data.Sample) bool) {
+		buf := make([]byte, ds.sampleSize)
+
 		for sampleID := 0; sampleID < ds.maxSamples; sampleID++ {
-			for pos := 0; pos < ds.sampleSize; pos++ {
-				b := byte(0x20 + rng.Intn(95))
-				if !yield(b) {
-					return
-				}
+			for pos := range buf {
+				buf[pos] = byte(0x20 + rng.Intn(95))
+			}
+
+			if !yield(data.Sample{
+				SampleID: uint32(sampleID),
+				Text:     append([]byte(nil), buf...),
+			}) {
+				return
 			}
 		}
 	}

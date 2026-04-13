@@ -75,28 +75,28 @@ func (experiment *TextClassificationExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
-// Prompts builds one prompt per structured sample: article text without the
-// classification suffix (GeneratePrompts.Text). Holdout keeps the exact gold
-// label string on the scoring side; prompt-time observation must recover that
-// label from staged corpus evidence rather than from byte overlap shortcuts.
+// Prompts builds one prompt per structured sample: TaskPrompt is the article
+// (no classification suffix in the prompt string). Holdout keeps the gold
+// label bytes for scoring.
 func (experiment *TextClassificationExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
-	pp, ok := experiment.dataset.(data.PromptProvider)
-	if !ok {
-		return experiment.prompt
-	}
-	for p := range pp.GeneratePrompts() {
-		if p.Text == "" {
+	for sample := range experiment.dataset.Generate() {
+		task := string(sample.TaskPrompt())
+		if task == "" {
 			continue
 		}
-		experiment.prompt = append(experiment.prompt, p.Text)
+
+		experiment.prompt = append(experiment.prompt, task)
+
 		var ho []byte
-		if p.HasLabel && p.Label != "" {
-			ho = []byte(p.Label)
+		if len(sample.Label) > 0 {
+			ho = sample.Label
 		}
+
 		experiment.holdouts = append(experiment.holdouts, ho)
 	}
+
 	return experiment.prompt
 }
 
@@ -118,7 +118,7 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 
 	if results.PredLabel == nil && len(results.Classification) > 0 {
 		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
-		
+
 		if idx, err := strconv.Atoi(normalizedClass); err == nil {
 			if idx >= 0 && idx < len(experiment.ClassLabels()) {
 				results.PredLabel = tools.OptionalLabel(idx)

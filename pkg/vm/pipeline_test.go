@@ -16,14 +16,16 @@ type countingPublishable struct {
 	n int
 }
 
-func (counter *countingPublishable) Publish(value *primitive.Value, _ string) error {
-	if value == nil {
-		return nil
+func (counter *countingPublishable) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		counter.n++
 	}
 
-	counter.n++
-
-	return nil
+	return nil, nil
 }
 
 func TestPipeline(t *testing.T) {

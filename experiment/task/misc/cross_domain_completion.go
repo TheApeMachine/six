@@ -116,14 +116,17 @@ func (experiment *CrossDomainCompletionExperiment) Dataset() data.Provider {
 func (experiment *CrossDomainCompletionExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
-	for p := range experiment.mds.GeneratePrompts() {
-		if p.Text == "" {
+	for sample := range experiment.mds.Generate() {
+		task := string(sample.TaskPrompt())
+		if task == "" {
 			continue
 		}
-		pr, ho := tools.ByteSuffixLastN(p.Text, 50)
+
+		pr, ho := tools.ByteSuffixLastN(task, 50)
 		if pr == "" || ho == "" {
 			continue
 		}
+
 		experiment.prompt = append(experiment.prompt, pr)
 		experiment.holdouts = append(experiment.holdouts, []byte(ho))
 	}
@@ -351,11 +354,16 @@ type multiDomainDataset struct {
 	current     int
 }
 
-func (m *multiDomainDataset) Generate() iter.Seq[byte] {
-	return func(yield func(byte) bool) {
-		for _, dataset := range m.datasets {
-			for token := range dataset.Generate() {
-				if !yield(token) {
+func (m *multiDomainDataset) Generate() iter.Seq[data.Sample] {
+	return func(yield func(data.Sample) bool) {
+		var globalID uint32
+
+		for _, ds := range m.datasets {
+			for sample := range ds.Generate() {
+				sample.SampleID = globalID
+				globalID++
+
+				if !yield(sample) {
 					return
 				}
 			}
@@ -370,6 +378,9 @@ func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
 
 		if readErr == io.EOF {
 			m.current++
+			if n > 0 {
+				return n, nil
+			}
 			continue
 		}
 
@@ -391,26 +402,4 @@ func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
 
 func (m *multiDomainDataset) Close() error {
 	return nil
-}
-
-func (m *multiDomainDataset) GeneratePrompts() iter.Seq[data.Prompt] {
-	return func(yield func(data.Prompt) bool) {
-		// globalID assigns stable SampleIDs across domains. uint32 limits distinct IDs to
-		// ~4.29e9; increment wraps to 0 on overflow. Use uint64 here if combined prompt
-		// counts can exceed that in the future.
-		var globalID uint32
-		for _, ds := range m.datasets {
-			pp, ok := ds.(data.PromptProvider)
-			if !ok {
-				continue
-			}
-			for p := range pp.GeneratePrompts() {
-				p.SampleID = globalID
-				globalID++
-				if !yield(p) {
-					return
-				}
-			}
-		}
-	}
 }

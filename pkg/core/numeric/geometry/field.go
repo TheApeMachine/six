@@ -1,9 +1,12 @@
 package geometry
 
 import (
+	"io"
 	"math"
 	"math/bits"
+	"sync"
 
+	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -24,6 +27,11 @@ type Field struct {
 	amplitude    uint32
 	Cooccurrence map[int]map[int]uint32
 	lastMode     int
+
+	intake *data.Ring
+	output *data.Ring
+	peers  []io.ReadWriteCloser
+	initIO sync.Once
 }
 
 /*
@@ -56,6 +64,214 @@ func NewField(modulus uint32) *Field {
 	return newFieldLanes(LaneCountForModulus(modulus), modulus)
 }
 
+const (
+	valueIDWord        = 122
+	valueAffinityStart = 123
+	valueAffinityWords = 5
+
+	resonanceMinMembers    = 3
+	resonanceConcentration = 0.6
+)
+
+/*
+Cycle runs one physics step on the field and returns every Value the field
+has processed. Leaf fields (communities with no lanes) run eigenmode detection
+over their Value population and apply rotational pressure toward the dominant
+cluster. Root fields cycle each community child, then aggregate upward and
+apply top-down corrective pressure on misaligned communities.
+*/
+func (field *Field) Cycle() ([]*primitive.Value, error) {
+	if field == nil {
+		return nil, nil
+	}
+
+	if len(field.Fields) == 0 {
+		return field.cycleLeaf()
+	}
+
+	return field.cycleRoot()
+}
+
+/*
+cycleLeaf handles a community (leaf field with Values, no sub-lanes).
+It detects eigenmodes from the population's affinity coupling, tracks the
+dominant cluster's energy, and applies an affine rotation so the community's
+phase state drifts toward its strongest internal agreement.
+*/
+func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
+	field.DrainIntake()
+
+	if len(field.Values) == 0 {
+		return nil, nil
+	}
+
+	affinityMap := make(map[uint64][]uint64, len(field.Values))
+	participants := make([]ModeParticipant, 0, len(field.Values))
+
+	for _, value := range field.Values {
+		if value == nil {
+			continue
+		}
+
+		id := (*value)[valueIDWord]
+		aff := valueAffinity(value)
+		affinityMap[id] = aff
+
+		gap := field.BeliefGap(aff)
+		energy := 1.0 - gap
+
+		if energy < 0.01 {
+			energy = 0.01
+		}
+
+		participants = append(participants, ModeParticipant{
+			Origin: id,
+			Energy: energy,
+		})
+	}
+
+	if len(participants) == 0 {
+		return field.Values, nil
+	}
+
+	modes, dominantIdx := DetectModes(
+		participants,
+		0.3,
+		func(originA, originB uint64) float64 {
+			affA := affinityMap[originA]
+			affB := affinityMap[originB]
+
+			if len(affA) == 0 || len(affB) == 0 {
+				return 0
+			}
+
+			distance := AffinityHammingDistance(affA, affB)
+			return 1.0 - float64(distance)/257.0
+		},
+	)
+
+	if dominantIdx >= 0 && len(modes) > 0 {
+		dominant := modes[dominantIdx]
+		memberCount := uint32(len(dominant.Members()))
+
+		multiplier := field.reduceU32(memberCount + 2)
+
+		if multiplier == 0 {
+			multiplier = 1
+		}
+
+		field.amplitude = field.affineMod(field.amplitude, multiplier, memberCount)
+	}
+
+	return field.Values, nil
+}
+
+/*
+cycleRoot handles a root or intermediate field that owns community children.
+Each community is cycled for its local physics, then the root aggregates:
+Dominant() over all populated children yields the global mode. Communities
+whose slot alignment with the global dominant falls below 0.5 receive a
+corrective rotation — the top-down pressure that steers divergent pockets
+back toward global coherence.
+*/
+func (field *Field) cycleRoot() ([]*primitive.Value, error) {
+	var processed []*primitive.Value
+
+	for _, community := range field.Fields {
+		if community == nil {
+			continue
+		}
+
+		values, err := community.Cycle()
+		if err != nil {
+			return nil, err
+		}
+
+		processed = append(processed, values...)
+	}
+
+	globalDominant := field.Dominant()
+
+	if globalDominant.Index < 0 || globalDominant.Concentration <= 0.3 {
+		return processed, nil
+	}
+
+	for slotIndex, community := range field.Fields {
+		if community == nil || len(community.Values) == 0 {
+			continue
+		}
+
+		alignment := field.Alignment(slotIndex, globalDominant.Index)
+
+		if alignment >= 0.5 {
+			continue
+		}
+
+		multiplier := field.reduceU32(uint32(globalDominant.Index + 1))
+
+		if multiplier == 0 {
+			multiplier = 1
+		}
+
+		community.amplitude = community.affineMod(community.amplitude, multiplier, 1)
+	}
+
+	return processed, nil
+}
+
+/*
+BeliefGap measures the normalised Hamming distance between the field's
+current aggregate affinity and a target affinity vector. Returns [0, 1]
+where 0 means the field's belief perfectly matches the target.
+*/
+func (field *Field) BeliefGap(targetAffinity []uint64) float64 {
+	if field == nil {
+		return 1.0
+	}
+
+	distance := AffinityHammingDistance(field.Affinity, targetAffinity)
+	return float64(distance) / 257.0
+}
+
+/*
+EmissionReady reports whether this community has accumulated enough
+members with sufficient phase concentration to emit an action Value.
+*/
+func (field *Field) EmissionReady() bool {
+	if field == nil || len(field.Values) < resonanceMinMembers {
+		return false
+	}
+
+	dominant := field.Dominant()
+	return dominant.Concentration >= resonanceConcentration
+}
+
+/*
+MemberCount returns the number of Values currently held by this field.
+*/
+func (field *Field) MemberCount() int {
+	if field == nil {
+		return 0
+	}
+
+	return len(field.Values)
+}
+
+/*
+valueAffinity extracts the 5-word affinity region directly from the wire frame.
+Uses the fixed Value layout (words 123–127) so the geometry package stays
+free of config imports.
+*/
+func valueAffinity(value *primitive.Value) []uint64 {
+	out := make([]uint64, valueAffinityWords)
+
+	for wordIndex := range out {
+		out[wordIndex] = (*value)[valueAffinityStart+wordIndex]
+	}
+
+	return out
+}
+
 func newFieldLanes(laneCount int, modulus uint32) *Field {
 	if laneCount < 1 {
 		laneCount = LaneCountForModulus(modulus)
@@ -76,20 +292,6 @@ func newFieldLanes(laneCount int, modulus uint32) *Field {
 		Cooccurrence: make(map[int]map[int]uint32),
 		lastMode:     -1,
 	}
-}
-
-func positiveMod(value int, modulus int) int {
-	if modulus < 1 {
-		return 0
-	}
-
-	remainder := value % modulus
-
-	if remainder < 0 {
-		remainder += modulus
-	}
-
-	return remainder
 }
 
 /*
@@ -132,16 +334,156 @@ func (field *Field) MergeAffinity(valueAffinity []uint64) {
 AffinitySaturation calculates the popcount of the Affinity slice divided by 257.
 */
 func (field *Field) AffinitySaturation() float64 {
-	if field == nil || len(field.Affinity) == 0 {
+	if field == nil {
+		return 0
+	}
+
+	return AffinitySaturationOfWords(field.Affinity)
+}
+
+/*
+AffinitySaturationOfWords is the same normalization as AffinitySaturation for an
+arbitrary affinity word slice (ingest routing, hypothetical merges).
+*/
+func AffinitySaturationOfWords(words []uint64) float64 {
+	if len(words) == 0 {
 		return 0
 	}
 
 	var popcount int
-	for _, word := range field.Affinity {
+
+	for _, word := range words {
 		popcount += bits.OnesCount64(word)
 	}
 
 	return float64(popcount) / 257.0
+}
+
+/*
+SimulatedMergedAffinity returns the XOR aggregate MergeAffinity would produce
+without mutating either operand. Empty existing behaves like the first merge
+(copy incoming).
+*/
+func SimulatedMergedAffinity(existing []uint64, incoming []uint64) []uint64 {
+	if len(incoming) == 0 {
+		if len(existing) == 0 {
+			return nil
+		}
+
+		out := make([]uint64, len(existing))
+		copy(out, existing)
+
+		return out
+	}
+
+	if len(existing) == 0 {
+		out := make([]uint64, len(incoming))
+		copy(out, incoming)
+
+		return out
+	}
+
+	minLen := len(existing)
+	if len(incoming) < minLen {
+		minLen = len(incoming)
+	}
+
+	out := make([]uint64, len(existing))
+	copy(out, existing)
+
+	for wordIndex := 0; wordIndex < minLen; wordIndex++ {
+		out[wordIndex] ^= incoming[wordIndex]
+	}
+
+	return out
+}
+
+/*
+PredictAffinitySaturationAfterMerge reports AffinitySaturation after MergeAffinity
+with valueAffinity, without modifying the field.
+*/
+func (field *Field) PredictAffinitySaturationAfterMerge(valueAffinity []uint64) float64 {
+	if field == nil {
+		return 0
+	}
+
+	merged := SimulatedMergedAffinity(field.Affinity, valueAffinity)
+
+	return AffinitySaturationOfWords(merged)
+}
+
+/*
+AffinityHammingDistance counts differing bits between two affinity word slices.
+Extra words are XORed against zero (length mismatch still contributes distance).
+*/
+func AffinityHammingDistance(left []uint64, right []uint64) int {
+	var distance int
+
+	shared := len(left)
+	if len(right) < shared {
+		shared = len(right)
+	}
+
+	for wordIndex := 0; wordIndex < shared; wordIndex++ {
+		distance += bits.OnesCount64(left[wordIndex] ^ right[wordIndex])
+	}
+
+	for wordIndex := shared; wordIndex < len(left); wordIndex++ {
+		distance += bits.OnesCount64(left[wordIndex])
+	}
+
+	for wordIndex := shared; wordIndex < len(right); wordIndex++ {
+		distance += bits.OnesCount64(right[wordIndex])
+	}
+
+	return distance
+}
+
+/*
+NewCommunityField allocates an empty leaf Field used as an orchestrator
+community bucket (Values + Affinity only; no phase-vector lanes).
+*/
+func NewCommunityField(modulus uint32) *Field {
+	return &Field{
+		modulus:      modulus,
+		Fields:       nil,
+		Cooccurrence: make(map[int]map[int]uint32),
+		lastMode:     -1,
+	}
+}
+
+/*
+ResetLanes clears the current phase population while preserving the field shape.
+It is used when the caller wants a fresh population snapshot for the next cycle.
+*/
+func (field *Field) ResetLanes() {
+	if field == nil || len(field.Fields) == 0 {
+		return
+	}
+
+	clear(field.Fields)
+}
+
+/*
+Observe adds one weighted observation into the requested phase lane.
+*/
+func (field *Field) Observe(index int, weight uint32) {
+	if field == nil || len(field.Fields) == 0 || weight == 0 {
+		return
+	}
+
+	if index < 0 || index >= len(field.Fields) {
+		return
+	}
+
+	lane := field.Fields[index]
+
+	if lane == nil {
+		lane = &Field{modulus: field.modulus}
+		field.Fields[index] = lane
+	}
+
+	lane.amplitude = lane.amplitude + weight
 }
 
 /*

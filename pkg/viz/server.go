@@ -77,6 +77,7 @@ func NewServer(bus *Bus, addr string) *Server {
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/snapshot", s.handleSnapshot)
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
+	mux.HandleFunc("/api/programs", s.handlePrograms)
 
 	s.srv = &http.Server{
 		Handler: mux,
@@ -419,6 +420,31 @@ SetPromptHandler installs the callback used when the viz UI sends a prompt.
 */
 func SetPromptHandler(fn func(string) (string, map[string]float64)) {
 	promptHandler = fn
+}
+
+var programsProvider func() map[string]string
+
+/*
+SetProgramsProvider installs the callback that returns the firmware programs map
+keyed by program name. The visualizer fetches this via GET /api/programs.
+*/
+func SetProgramsProvider(fn func() map[string]string) {
+	programsProvider = fn
+}
+
+func (s *Server) handlePrograms(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
+	progs := map[string]string{}
+
+	if programsProvider != nil {
+		progs = programsProvider()
+	}
+
+	if err := json.NewEncoder(w).Encode(progs); err != nil {
+		http.Error(w, err.Error(), 500)
+	}
 }
 
 func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {

@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"math/bits"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -42,6 +41,22 @@ type Machine struct {
 	remDone      chan struct{}
 }
 
+/*
+PromptResolution captures the low-level halt state and the higher-level
+resolution snapshot for one prompt run. ExecutionSettled is the scheduler
+fact; ReasoningResolved is the semantic contract experiment code should read.
+*/
+type PromptResolution struct {
+	Value             *primitive.Value
+	Generation        string
+	PropertiesWord    uint64
+	ProbeState        uint64
+	ProbeDepth        uint64
+	ExecutionSettled  bool
+	ReasoningResolved bool
+	HaltedByCeiling   bool
+}
+
 type machineOpts func(*Machine)
 
 func NewMachine(
@@ -54,7 +69,7 @@ func NewMachine(
 		cancel:  cancel,
 		remDone: make(chan struct{}),
 		field:   geometry.NewField(geometry.Mod65537),
-		conn:    gossip.NewConn(nil, nil),
+		conn:    gossip.NewConn(ctx),
 	}
 
 	for _, opt := range opts {
@@ -148,9 +163,11 @@ func (machine *Machine) Error() error {
 }
 
 /*
-Load a dataset into the machine. Every Value goes through the same path:
-tokenizer chunks the byte stream, links Values via prev/next, installs
-the affinity program, and publishes to the queue.
+Load walks Generate(), mints Morton-packed Values from each sample’s Text via
+primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
+Properties word when Label is present, then publishes through the queue and
+orchestrator. Resets tokenizer ingest state when finished so later Prompt paths
+see a clean pipe.
 */
 func (machine *Machine) Load(dataset data.Provider) error {
 	if err := validate.Require(map[string]any{
@@ -160,22 +177,23 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		return errnie.Error(err)
 	}
 
-	pipeline, err := transport.NewPipeline(
-		machine.ctx,
-		false,
-		machine.tokenizer,
+	publishers := []transport.Publishable{
 		machine.queue,
 		machine.orchestrator,
-	)
-
-	if err != nil {
-		return errnie.Error(err)
 	}
 
-	loadErr := errnie.Error(pipeline.LoadFrom(dataset))
-	machine.queue.Drain()
+	for sample := range dataset.Generate() {
+		if ingestErr := machine.tokenizer.IngestSample(
+			machine.ctx, sample, publishers,
+		); ingestErr != nil {
+			return errnie.Error(ingestErr)
+		}
+	}
 
-	return loadErr
+	machine.tokenizer.ResetAfterEOF()
+	machine.orchestrator.Label()
+
+	return nil
 }
 
 /*
@@ -185,144 +203,76 @@ scheduling word is zeroed (meaning it has settled), then return it.
 Causal children the queue spawns are irrelevant — they keep running in
 the background and their traces accumulate in the field.
 */
-func (machine *Machine) Prompt(prompt string, program string) (*primitive.Value, error) {
+func (machine *Machine) Prompt(value *primitive.Value) ([]*primitive.Value, error) {
 	if err := validate.Require(map[string]any{
-		"queue": machine.queue,
+		"value": value,
 	}); err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	values, err := primitive.NewValue([]byte(prompt))
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PromptEvent(string(value.Bytes())))
+	}
+
+	return machine.orchestrator.Cycle(value)
+}
+
+/*
+PromptWithResolution tokenizes a prompt string, installs the named program,
+runs it through the orchestrator cycle, and wraps the result into a
+PromptResolution suitable for experiment scoring.
+*/
+func (machine *Machine) PromptWithResolution(
+	prompt string, program string,
+) (*PromptResolution, error) {
+	segments, err := primitive.NewValue([]byte(prompt))
 
 	if err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	value := values[len(values)-1]
+	if len(segments) == 0 {
+		return nil, errnie.Error(errors.New("vm.Machine.PromptWithResolution: empty prompt"))
+	}
 
-	installer := programmer.Installer{}
+	for _, seg := range segments {
+		installer := programmer.Installer{}
 
-	if installErr := installer.InstallProgram(value, program); installErr != nil {
-		return nil, errnie.Error(installErr)
+		if installErr := installer.InstallProgram(seg, program); installErr != nil {
+			return nil, errnie.Error(installErr)
+		}
 	}
 
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.PromptEvent(prompt))
 	}
 
-	if err = machine.queue.PublishTracked(value, "prompt"); err != nil {
-		return nil, errnie.Error(err)
+	resolved, cycleErr := machine.orchestrator.Cycle(segments...)
+
+	if cycleErr != nil {
+		return nil, cycleErr
 	}
 
-	if err = machine.orchestrator.Publish(value, "prompt"); err != nil {
-		return nil, errnie.Error(err)
+	resolution := &PromptResolution{}
+
+	if len(resolved) > 0 && resolved[0] != nil {
+		value := resolved[0]
+		resolution.Value = value
+		resolution.Generation = value.String()
+		resolution.PropertiesWord = (*value)[kernel.PropertiesStartWord]
+		resolution.ProbeState = (*value)[kernel.PropertiesProbeStateWord]
+		resolution.ProbeDepth = (*value)[kernel.PropertiesProbeDepthWord]
+		resolution.ExecutionSettled = true
+		resolution.ReasoningResolved = true
+	} else if len(segments) > 0 {
+		value := segments[0]
+		resolution.Value = value
+		resolution.Generation = value.String()
+		resolution.PropertiesWord = (*value)[kernel.PropertiesStartWord]
+		resolution.ProbeState = (*value)[kernel.PropertiesProbeStateWord]
+		resolution.ProbeDepth = (*value)[kernel.PropertiesProbeDepthWord]
+		resolution.ExecutionSettled = true
 	}
 
-	poll := time.NewTicker(500 * time.Microsecond)
-
-	defer poll.Stop()
-
-	for {
-		select {
-		case <-machine.ctx.Done():
-			return nil, machine.ctx.Err()
-
-		case <-machine.programReady:
-			if value[kernel.SchedulingNextProgramWord] == 0 {
-				return value, nil
-			}
-
-		case <-poll.C:
-			if value[kernel.SchedulingNextProgramWord] == 0 {
-				return value, nil
-			}
-		}
-	}
-}
-
-/*
-Nearest finds the closest resident value in the substrate to the given query value,
-using the affinity hash.
-*/
-func (machine *Machine) Nearest(query *primitive.Value) *primitive.Value {
-	if machine == nil || machine.orchestrator == nil || machine.orchestrator.field == nil || query == nil {
-		return nil
-	}
-
-	queryAffinity := make([]uint64, 5)
-	for i := 0; i < 5; i++ {
-		queryAffinity[i] = (*query)[kernel.AffinityStartWord+i]
-	}
-
-	var bestValue *primitive.Value
-	bestDistance := 1000000
-
-	for _, community := range machine.orchestrator.field.Fields {
-		if community == nil {
-			continue
-		}
-
-		for _, candidate := range community.Values {
-			if candidate == query || candidate == nil {
-				continue
-			}
-
-			distance := 0
-			for i := 0; i < 5; i++ {
-				distance += bits.OnesCount64((*candidate)[kernel.AffinityStartWord+i] ^ queryAffinity[i])
-			}
-
-			if distance < bestDistance {
-				bestDistance = distance
-				bestValue = candidate
-			}
-		}
-	}
-
-	return bestValue
-}
-
-/*
-WalkChain walks the chain of values starting from the given value,
-concatenating their String() outputs.
-*/
-func (machine *Machine) WalkChain(start *primitive.Value) string {
-	if start == nil {
-		return ""
-	}
-
-	result := start.String()
-	current := start
-
-	for {
-		nextID := (*current)[kernel.NextStartWord]
-		if nextID == 0 {
-			break
-		}
-
-		var nextValue *primitive.Value
-		for _, community := range machine.orchestrator.field.Fields {
-			if community == nil {
-				continue
-			}
-			for _, candidate := range community.Values {
-				if candidate != nil && candidate.ID() == nextID {
-					nextValue = candidate
-					break
-				}
-			}
-			if nextValue != nil {
-				break
-			}
-		}
-
-		if nextValue == nil {
-			break
-		}
-
-		result += nextValue.String()
-		current = nextValue
-	}
-
-	return result
+	return resolution, nil
 }

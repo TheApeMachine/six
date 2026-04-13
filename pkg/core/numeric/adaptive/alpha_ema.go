@@ -4,9 +4,7 @@ import "fmt"
 
 /*
 AlphaEMA is a plain exponential moving average with an explicit smoothing
-coefficient supplied per update. Markov trie adaptive hooks still thread
-core.Cfg.MarkovTrie.AdaptiveEMAAlpha through their observers; this type
-keeps that contract while the self-tuning EMA remains separate machinery.
+coefficient supplied per update.
 */
 type AlphaEMA struct {
 	value   float64

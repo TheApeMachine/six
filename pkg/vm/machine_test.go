@@ -10,11 +10,12 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
-bytesProvider is a minimal data.Provider for tests: Load only reads, Generate
-is a pass-through over the same bytes for API completeness.
+bytesProvider is a minimal data.Provider for tests: Read streams payload;
+Generate yields a single Sample carrying the same bytes for Load.
 */
 type bytesProvider struct {
 	payload []byte
@@ -48,44 +49,31 @@ func (provider *bytesProvider) Reset() {
 	provider.offset = 0
 }
 
-func (provider *bytesProvider) Generate() iter.Seq[byte] {
-	return func(yield func(byte) bool) {
-		for index := range provider.payload {
-			if !yield(provider.payload[index]) {
-				return
-			}
+func (provider *bytesProvider) Generate() iter.Seq[data.Sample] {
+	return func(yield func(data.Sample) bool) {
+		if len(provider.payload) == 0 {
+			return
 		}
+
+		_ = yield(data.Sample{Text: provider.payload})
 	}
 }
 
 /*
-staticPromptProvider drives LoadPrompts tests without external datasets.
+staticSampleProvider drives Load tests with explicit data.Sample sequences.
 */
-type staticPromptProvider struct {
-	seq             iter.Seq[data.Prompt]
-	hasPromptLabels bool
-	readErr         error
+type staticSampleProvider struct {
+	seq     iter.Seq[data.Sample]
+	readErr error
 }
 
-var _ data.Provider = (*staticPromptProvider)(nil)
-var _ data.PromptProvider = (*staticPromptProvider)(nil)
-var _ data.LabeledPromptProvider = (*staticPromptProvider)(nil)
+var _ data.Provider = (*staticSampleProvider)(nil)
 
-func newStaticPromptProvider(seq iter.Seq[data.Prompt]) *staticPromptProvider {
-	return newStaticPromptProviderWithLabels(seq, true)
+func newStaticSampleProvider(seq iter.Seq[data.Sample]) *staticSampleProvider {
+	return &staticSampleProvider{seq: seq}
 }
 
-func newStaticPromptProviderWithLabels(
-	seq iter.Seq[data.Prompt],
-	hasPromptLabels bool,
-) *staticPromptProvider {
-	return &staticPromptProvider{
-		seq:             seq,
-		hasPromptLabels: hasPromptLabels,
-	}
-}
-
-func (provider *staticPromptProvider) Read(destination []byte) (n int, err error) {
+func (provider *staticSampleProvider) Read(destination []byte) (n int, err error) {
 	_ = destination
 
 	if provider.readErr != nil {
@@ -95,26 +83,16 @@ func (provider *staticPromptProvider) Read(destination []byte) (n int, err error
 	return 0, io.EOF
 }
 
-func (provider *staticPromptProvider) Close() error {
+func (provider *staticSampleProvider) Close() error {
 	return nil
 }
 
-func (provider *staticPromptProvider) HasPromptLabels() bool {
-	return provider.hasPromptLabels
-}
-
-func (provider *staticPromptProvider) Generate() iter.Seq[byte] {
-	return func(yield func(byte) bool) {
-		_ = yield
-	}
-}
-
-func (provider *staticPromptProvider) GeneratePrompts() iter.Seq[data.Prompt] {
+func (provider *staticSampleProvider) Generate() iter.Seq[data.Sample] {
 	return provider.seq
 }
 
 func TestNewMachine(t *testing.T) {
-	Convey("NewMachine wires host, queue, backend, kadabra, and tokenizer", t, func() {
+	Convey("NewMachine wires host, queue, backend, and tokenizer", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -146,7 +124,7 @@ func TestMachineClose(t *testing.T) {
 func TestMachineLoad(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
-	Convey("Load ingests raw bytes through tokenizer into kadabra", t, func() {
+	Convey("Load ingests samples through tokenizer IngestSample", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -163,7 +141,7 @@ func TestMachineLoad(t *testing.T) {
 		So(machine.Load(provider), ShouldBeNil)
 	})
 
-	Convey("Load preserves PromptProvider labels when available", t, func() {
+	Convey("Load ingests labeled samples", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -173,23 +151,25 @@ func TestMachineLoad(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		provider := newStaticPromptProvider(func(yield func(data.Prompt) bool) {
-			_ = yield(data.Prompt{
-				Text:     "orbital launch telemetry",
-				Label:    "space",
-				HasLabel: true,
+		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
+			_ = yield(data.Sample{
+				Text:  []byte("orbital launch telemetry"),
+				Label: []byte("space"),
 			})
 		})
 
 		So(machine.Load(provider), ShouldBeNil)
 
-		promptValue, promptErr := machine.Prompt("orbital launch telemetry", "affinity")
+		segments, segErr := primitive.NewValue([]byte("orbital launch telemetry"))
+		So(segErr, ShouldBeNil)
+
+		promptValues, promptErr := machine.Prompt(segments[len(segments)-1])
 
 		So(promptErr, ShouldBeNil)
-		So(promptValue, ShouldNotBeNil)
+		So(promptValues, ShouldBeNil)
 	})
 
-	Convey("Load accepts PromptProvider without labels", t, func() {
+	Convey("Load accepts unlabeled samples", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -199,11 +179,11 @@ func TestMachineLoad(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		provider := newStaticPromptProviderWithLabels(func(yield func(data.Prompt) bool) {
-			_ = yield(data.Prompt{
-				Text: "boundary-preserved prompt",
+		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
+			_ = yield(data.Sample{
+				Text: []byte("boundary-preserved prompt"),
 			})
-		}, false)
+		})
 
 		So(machine.Load(provider), ShouldBeNil)
 	})
@@ -212,7 +192,7 @@ func TestMachineLoad(t *testing.T) {
 func TestMachineLoadPrompts(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
-	Convey("Load ingests PromptProvider datasets through the same byte-stream path", t, func() {
+	Convey("Load ingests multiple samples in order", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -226,15 +206,15 @@ func TestMachineLoadPrompts(t *testing.T) {
 		textA := string(bytes.Repeat([]byte{'a'}, chunkBytes*2))
 		textB := string(bytes.Repeat([]byte{'b'}, chunkBytes))
 
-		provider := newStaticPromptProvider(func(yield func(data.Prompt) bool) {
-			if !yield(data.Prompt{
-				Text: textA, Label: "L1", HasLabel: true,
+		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
+			if !yield(data.Sample{
+				Text: []byte(textA), Label: []byte("L1"),
 			}) {
 				return
 			}
 
-			_ = yield(data.Prompt{
-				Text: textB, Label: "L2", HasLabel: true,
+			_ = yield(data.Sample{
+				Text: []byte(textB), Label: []byte("L2"),
 			})
 		})
 
@@ -245,7 +225,7 @@ func TestMachineLoadPrompts(t *testing.T) {
 func TestMachinePrompt(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
-	Convey("Prompt returns a prediction structure for a short query", t, func() {
+	Convey("Prompt delegates to the orchestrator Cycle", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -255,10 +235,13 @@ func TestMachinePrompt(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		promptValue, promptErr := machine.Prompt("prompt", "affinity")
+		segments, segErr := primitive.NewValue([]byte("prompt"))
+		So(segErr, ShouldBeNil)
+
+		promptValues, promptErr := machine.Prompt(segments[len(segments)-1])
 
 		So(promptErr, ShouldBeNil)
-		So(promptValue, ShouldNotBeNil)
+		So(promptValues, ShouldBeNil)
 	})
 }
 

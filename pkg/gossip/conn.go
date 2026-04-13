@@ -1,128 +1,172 @@
 package gossip
 
-import "github.com/theapemachine/six/pkg/primitive"
+import (
+	"context"
+	"io"
+	"runtime"
+	"unsafe"
+
+	"github.com/theapemachine/six/pkg/core/data"
+	"github.com/theapemachine/six/pkg/primitive"
+)
 
 /*
-GossipConn is an interface that must be implemented by any type
-that wants to participate in the gossip protocol.
+connFrameSize matches the primitive.Value wire stride: [128]uint64 × 8 bytes.
 */
-type GossipConn interface {
-	Listen(others ...GossipConn)
-	Receive(value *primitive.Value)
-	Broadcast(value *primitive.Value)
-}
+const connFrameSize = 128 * 8
 
 /*
-Conn is a connection that can be used to participate in the gossip protocol.
+Conn is a lock-free gossip participant. It implements io.ReadWriteCloser so it
+composes directly with stdlib I/O combinators (io.TeeReader, io.MultiWriter,
+io.Pipe, etc.) without goroutines or mutexes.
+
+Write pushes an incoming Value frame into the lock-free intake ring.
+Read pops the next available frame for local consumption.
+Outbound fan-out is handled by the PriorityRoute peer list: callers write to
+io.MultiWriter(conn.Route()) to reach all peers, or use AffinityFilter to
+address a specific community by affinity proximity.
 */
 type Conn struct {
-	inbox  []GossipConn
-	outbox []GossipConn
+	intake   *data.Ring
+	affinity [5]uint64
+	route    PriorityRoute
 }
 
 /*
-NewConn creates a new connection that can be used to participate in the gossip protocol.
+NewConn allocates a Conn with a data.RingCapacity-slot lock-free intake ring.
+Peers can be added after construction via AddPeer.
 */
-func NewConn(inbox []GossipConn, outbox []GossipConn) *Conn {
-	return &Conn{
-		inbox:  inbox,
-		outbox: outbox,
+func NewConn(ctx context.Context) *Conn {
+	ring, _ := data.NewRing(ctx, data.RingCapacity)
+
+	return &Conn{intake: ring}
+}
+
+/*
+Write implements io.Writer. Accepts exactly connFrameSize bytes (one Value
+wire frame), copies them into a heap-allocated Value, and pushes the pointer
+into the intake ring. Spins with runtime.Gosched if the ring is momentarily
+full — identical to the pool.Queue push contract, no goroutine allocated.
+*/
+func (conn *Conn) Write(p []byte) (int, error) {
+	if len(p) < connFrameSize {
+		return 0, io.ErrShortBuffer
 	}
+
+	value := new(primitive.Value)
+
+	copy(
+		unsafe.Slice((*byte)(unsafe.Pointer(&(*value)[0])), connFrameSize),
+		p[:connFrameSize],
+	)
+
+	for !conn.intake.Push(unsafe.Pointer(value)) {
+		runtime.Gosched()
+	}
+
+	return connFrameSize, nil
 }
 
 /*
-Listen adds a new connection to the list of connections that this connection will listen to.
+Read implements io.Reader. Pops the next Value frame from the intake ring and
+serialises it into p. Returns io.EOF when no frame is available — non-blocking
+by design; callers drive consumption from a pool.Queue worker.
 */
-func (conn *Conn) Listen(others ...GossipConn) {
-	conn.inbox = append(conn.inbox, others...)
+func (conn *Conn) Read(p []byte) (int, error) {
+	if len(p) < connFrameSize {
+		return 0, io.ErrShortBuffer
+	}
+
+	ptr := conn.intake.Pop()
+	if ptr == nil {
+		return 0, io.EOF
+	}
+
+	value := (*primitive.Value)(ptr)
+
+	copy(
+		p[:connFrameSize],
+		unsafe.Slice((*byte)(unsafe.Pointer(&(*value)[0])), connFrameSize),
+	)
+
+	return connFrameSize, nil
 }
 
 /*
-Receive forwards a value to each non-nil entry in conn.inbox (GossipConn.Receive).
-Cycles among *Conn nodes are avoided by tracking visited *Conn values in a map;
-Receive starts a fresh propagation (nil visited set). Non-*Conn peers are invoked
-without that tracking. See ReceiveWithVisited for explicit visited reuse.
+Close implements io.Closer. Shuts down the intake ring.
+*/
+func (conn *Conn) Close() error {
+	if conn.intake != nil {
+		return conn.intake.Close()
+	}
+
+	return nil
+}
+
+/*
+Affinity returns this node's 5-word affinity fingerprint, used by
+AffinityFilter to decide whether to forward a received Value.
+*/
+func (conn *Conn) Affinity() [5]uint64 {
+	return conn.affinity
+}
+
+/*
+SetAffinity updates the node's affinity fingerprint. Called once at startup
+after the node's identity Value has been minted and its affinity region
+computed.
+*/
+func (conn *Conn) SetAffinity(words [5]uint64) {
+	conn.affinity = words
+}
+
+/*
+Route returns the outbound PriorityRoute. Callers compose it with stdlib:
+
+	io.MultiWriter(conn.Route(), localField)
+
+to fan out a frame to all peers in priority order.
+*/
+func (conn *Conn) Route() *PriorityRoute {
+	return &conn.route
+}
+
+/*
+AddPeer registers an outbound io.ReadWriteCloser peer. The peer's affinity is
+used by AffinityFilter wrappers to decide whether a given Value frame should
+be forwarded to it.
+*/
+func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity [5]uint64) {
+	conn.route = append(conn.route, ScoredPeer{
+		dst:      peer,
+		affinity: affinity,
+	})
+}
+
+/*
+Broadcast writes p to all outbound peers via the PriorityRoute. It is a
+convenience wrapper around conn.Route().Write(p) for callers that do not need
+the full io.MultiWriter composition.
+*/
+func (conn *Conn) Broadcast(p []byte) (int, error) {
+	return conn.route.Write(p)
+}
+
+/*
+Receive is a compatibility shim for existing callers that pass a *primitive.Value
+rather than raw bytes. It serialises the Value and calls Write.
 */
 func (conn *Conn) Receive(value *primitive.Value) {
-	conn.receiveWithVisited(nil, value)
-}
-
-/*
-ReceiveWithVisited forwards value along conn.inbox like Receive but reuses visited
-so a message is not forwarded twice through the same *Conn (prevents stack overflow
-when inbox wiring forms a cycle). Pass visited == nil to begin a new trace; the
-current Conn is marked in visited before any recursive forwarding to peers.
-*/
-func (conn *Conn) ReceiveWithVisited(visited map[*Conn]struct{}, value *primitive.Value) {
-	conn.receiveWithVisited(visited, value)
-}
-
-func (conn *Conn) receiveWithVisited(visited map[*Conn]struct{}, value *primitive.Value) {
-	if conn == nil {
+	if value == nil {
 		return
 	}
 
-	if visited == nil {
-		visited = make(map[*Conn]struct{})
-	}
+	var buf [connFrameSize]byte
 
-	if _, seen := visited[conn]; seen {
-		return
-	}
+	copy(
+		buf[:],
+		unsafe.Slice((*byte)(unsafe.Pointer(&(*value)[0])), connFrameSize),
+	)
 
-	visited[conn] = struct{}{}
-
-	for _, inbox := range conn.inbox {
-		if inbox == nil {
-			continue
-		}
-
-		if peer, ok := inbox.(*Conn); ok {
-			peer.receiveWithVisited(visited, value)
-
-			continue
-		}
-
-		inbox.Receive(value)
-	}
-}
-
-/*
-Broadcast sends the value to each non-nil peer in conn.outbox (not the inbox list).
-For *Conn peers, the same visited map used for Receive prevents re-entering a node
-already handled in this propagation, so cyclic outbox wiring does not re-broadcast
-indefinitely. Non-*Conn outbox entries get Broadcast(value) without visited tracking.
-*/
-func (conn *Conn) Broadcast(value *primitive.Value) {
-	conn.broadcastWithVisited(nil, value)
-}
-
-func (conn *Conn) broadcastWithVisited(visited map[*Conn]struct{}, value *primitive.Value) {
-	if conn == nil {
-		return
-	}
-
-	if visited == nil {
-		visited = make(map[*Conn]struct{})
-	}
-
-	if _, seen := visited[conn]; seen {
-		return
-	}
-
-	visited[conn] = struct{}{}
-
-	for _, outbox := range conn.outbox {
-		if outbox == nil {
-			continue
-		}
-
-		if peer, ok := outbox.(*Conn); ok {
-			peer.broadcastWithVisited(visited, value)
-
-			continue
-		}
-
-		outbox.Broadcast(value)
-	}
+	conn.Write(buf[:]) //nolint:errcheck
 }

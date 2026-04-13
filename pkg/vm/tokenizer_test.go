@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -16,14 +18,41 @@ type labelCapturePublishable struct {
 	labels []string
 }
 
-func (capture *labelCapturePublishable) Publish(value *primitive.Value, label string) error {
-	if value != nil {
-		_ = value.Close()
+func (capture *labelCapturePublishable) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
+	return capture.PublishLabeled("", values...)
+}
+
+func (capture *labelCapturePublishable) PublishLabeled(
+	label string,
+	values ...*primitive.Value,
+) ([]*primitive.Value, error) {
+	for _, value := range values {
+		if value != nil {
+			_ = value.Close()
+		}
 	}
 
 	capture.labels = append(capture.labels, label)
 
-	return nil
+	return nil, nil
+}
+
+/*
+propertiesWordCapture records kernel.PropertiesStartWord for each published Value.
+*/
+type propertiesWordCapture struct {
+	words []uint64
+}
+
+func (capture *propertiesWordCapture) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
+	for _, value := range values {
+		if value != nil {
+			capture.words = append(capture.words, (*value)[kernel.PropertiesStartWord])
+			_ = value.Close()
+		}
+	}
+
+	return nil, nil
 }
 
 func mustTestQueue(tb testing.TB) *pool.Queue {
@@ -136,6 +165,39 @@ func TestTokenizerDrainPublishedValues(t *testing.T) {
 
 		So(tokenizer.DrainPublishedValues(t.Context(), "", publishers, nil), ShouldBeNil)
 		So(counter.n, ShouldEqual, chunks)
+
+		tokenizer.ResetAfterEOF()
+	})
+}
+
+func TestTokenizerIngestSample(t *testing.T) {
+	setupTokenizerValueConfig(t)
+
+	Convey("IngestSample stamps the same Properties word on every Morton segment", t, func() {
+		tokenizer, err := NewTokenizer(t.Context(), mustTestQueue(t))
+
+		So(err, ShouldBeNil)
+
+		payload := bytes.Repeat([]byte{'m'}, 400)
+
+		segments, segErr := primitive.NewValue(payload)
+		So(segErr, ShouldBeNil)
+		So(len(segments), ShouldBeGreaterThan, 1)
+
+		capture := &propertiesWordCapture{}
+		sample := data.Sample{
+			Text:  payload,
+			Label: []byte("9"),
+		}
+
+		So(tokenizer.IngestSample(t.Context(), sample, []transport.Publishable{capture}), ShouldBeNil)
+
+		expected := kernel.LabelPropertiesWord(sample.Label)
+		So(len(capture.words), ShouldEqual, len(segments))
+
+		for _, word := range capture.words {
+			So(word, ShouldEqual, expected)
+		}
 
 		tokenizer.ResetAfterEOF()
 	})

@@ -13,29 +13,31 @@ import (
 
 type noopPublishable struct{}
 
-func (noopPublishable) Publish(*primitive.Value, string) error {
-	return nil
+func (noopPublishable) Publish(...*primitive.Value) ([]*primitive.Value, error) {
+	return nil, nil
 }
 
 type captureFramesPublishable struct {
 	frames [][]byte
 }
 
-func (capture *captureFramesPublishable) Publish(value *primitive.Value, _ string) error {
-	if value == nil {
-		return errors.New("nil value")
+func (capture *captureFramesPublishable) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
+	if len(values) == 0 || values[0] == nil {
+		return nil, errors.New("nil value")
 	}
+
+	value := values[0]
 
 	buf := make([]byte, core.Cfg.Value.Bytes)
 	_, err := value.Read(buf)
 
 	if err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return nil, err
 	}
 
 	capture.frames = append(capture.frames, bytes.Clone(buf))
 
-	return nil
+	return nil, nil
 }
 
 func setupStreamWireConfig(tb testing.TB) {

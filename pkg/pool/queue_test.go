@@ -55,6 +55,27 @@ func (stub *clearingSchedulerExecutor) Execute(frames []unsafe.Pointer) error {
 	return nil
 }
 
+type settledProbeExecutor struct {
+	calls atomic.Int32
+}
+
+func (stub *settledProbeExecutor) Execute(frames []unsafe.Pointer) error {
+	stub.calls.Add(1)
+
+	if len(frames) == 0 || frames[0] == nil {
+		return nil
+	}
+
+	frameWords := (*[128]uint64)(frames[0])
+	frameWords[kernel.SchedulingNextProgramWord] = frameWords[kernel.IDStartWord]
+	frameWords[kernel.PropertiesProbeStateWord] = kernel.PackProbeState(
+		kernel.CausalProbeKindHub,
+		kernel.CausalProbeStatusSettled,
+	)
+
+	return nil
+}
+
 func TestNewQueue(t *testing.T) {
 	t.Parallel()
 
@@ -172,7 +193,7 @@ func TestQueueSetBackend(t *testing.T) {
 		stub := &stubQueueExecutor{}
 
 		queue.SetBackend(stub)
-		queue.Publish(nil, "")
+		queue.Publish(nil)
 		queue.Drain()
 
 		So(stub.calls.Load(), ShouldEqual, 1)
@@ -196,7 +217,9 @@ func TestQueuePublish(t *testing.T) {
 		value := &primitive.Value{}
 		value.Set(0, 7)
 
-		So(queue.Publish(value, ""), ShouldBeNil)
+		_, pubErr := queue.Publish(value)
+
+		So(pubErr, ShouldBeNil)
 
 		value.Set(0, 99)
 		close(stub.release)
@@ -208,19 +231,46 @@ func TestQueuePublish(t *testing.T) {
 	})
 }
 
+func TestQueueSettledProbeStopsCascade(t *testing.T) {
+	Convey("PublishTracked clears scheduler loops once the probe settles", t, func() {
+		queue, err := NewQueue(context.Background())
+
+		So(err, ShouldBeNil)
+
+		stub := &settledProbeExecutor{}
+		queue.SetBackend(stub)
+
+		value := &primitive.Value{}
+		value.Set(kernel.IDStartWord, 41)
+		value.Set(
+			kernel.PropertiesProbeStateWord,
+			kernel.PackProbeState(kernel.CausalProbeKindHub, kernel.CausalProbeStatusActive),
+		)
+
+		So(queue.PublishTracked(value, "prompt"), ShouldBeNil)
+		queue.Drain()
+
+		So(stub.calls.Load(), ShouldEqual, 1)
+		So(value[kernel.SchedulingNextProgramWord], ShouldEqual, uint64(0))
+		So(queue.Close(), ShouldBeNil)
+	})
+}
+
 func TestQueueExecuteNil(t *testing.T) {
 	t.Parallel()
 
 	Convey("Publish with nil queue or backend returns early", t, func() {
 		var queue *Queue
 
-		queue.Publish(nil, "")
+		queue.Publish(nil)
 
 		realQueue, err := NewQueue(context.Background())
 
 		So(err, ShouldBeNil)
 
-		So(realQueue.Publish(nil, ""), ShouldNotBeNil)
+		_, pubErr := realQueue.Publish(nil)
+
+		So(pubErr, ShouldNotBeNil)
 		So(realQueue.Close(), ShouldBeNil)
 	})
 }
