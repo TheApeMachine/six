@@ -147,7 +147,10 @@ func NewBackend(
 		return nil
 	}
 
+	// Retained so callers share one pool.Queue with other subsystems; Execute
+	// runs substrate work on the calling goroutine and does not enqueue here.
 	backend.queue = queue
+
 	return backend
 }
 

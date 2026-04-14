@@ -28,7 +28,7 @@ address a specific community by affinity proximity.
 */
 type Conn struct {
 	intake   *data.Ring
-	affinity [5]uint64
+	affinity []uint64
 	route    PriorityRoute
 }
 
@@ -107,7 +107,7 @@ func (conn *Conn) Close() error {
 Affinity returns this node's 5-word affinity fingerprint, used by
 AffinityFilter to decide whether to forward a received Value.
 */
-func (conn *Conn) Affinity() [5]uint64 {
+func (conn *Conn) Affinity() []uint64 {
 	return conn.affinity
 }
 
@@ -116,7 +116,7 @@ SetAffinity updates the node's affinity fingerprint. Called once at startup
 after the node's identity Value has been minted and its affinity region
 computed.
 */
-func (conn *Conn) SetAffinity(words [5]uint64) {
+func (conn *Conn) SetAffinity(words []uint64) {
 	conn.affinity = words
 }
 
@@ -136,7 +136,7 @@ AddPeer registers an outbound io.ReadWriteCloser peer. The peer's affinity is
 used by AffinityFilter wrappers to decide whether a given Value frame should
 be forwarded to it.
 */
-func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity [5]uint64) {
+func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity []uint64) {
 	conn.route.AddPeer(peer, affinity)
 }
 

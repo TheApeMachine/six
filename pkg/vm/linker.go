@@ -73,6 +73,9 @@ func (linker *Linker) Flush() (*primitive.Value, []*programmer.Asset) {
 
 	linker.lastID = value.ID()
 	linker.values = linker.values[1:]
+	if len(linker.values) == 0 {
+		linker.values = nil
+	}
 
 	return value, assets
 }
@@ -106,6 +109,9 @@ func (linker *Linker) Pop() (*primitive.Value, []*programmer.Asset) {
 
 	linker.lastID = value.ID()
 	linker.values = linker.values[1:]
+	if len(linker.values) == 0 {
+		linker.values = nil
+	}
 
 	return value, assets
 }

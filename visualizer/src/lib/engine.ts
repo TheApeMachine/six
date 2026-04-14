@@ -1111,6 +1111,10 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 					const targetY = c.center.y + off.dy;
 
 					// Animate the routing fast-path
+					const MAX_ROUTING_BEAMS = 500;
+					if (routingBeams.length >= MAX_ROUTING_BEAMS) {
+						routingBeams.shift();
+					}
 					routingBeams.push({
 						x: v.pos.x,
 						y: v.pos.y,

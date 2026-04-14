@@ -3,58 +3,23 @@
   "data": {
     "series": [
       {
-        "data": [
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
+        "data": [],
         "name": "Exact"
       },
       {
-        "data": [
-          0.063200,
-          0.052200,
-          0.053400,
-          0.061200,
-          0.034600,
-          0.017600
-        ],
+        "data": [],
         "name": "Partial"
       },
       {
-        "data": [
-          0.049954,
-          0.040825,
-          0.042725,
-          0.047900,
-          0.027206,
-          0.014013
-        ],
+        "data": [],
         "name": "Fuzzy"
       },
       {
-        "data": [
-          0.026319,
-          0.021659,
-          0.022332,
-          0.025400,
-          0.014383,
-          0.007348
-        ],
+        "data": [],
         "name": "Weighted"
       }
     ],
-    "x_axis": [
-      "Python",
-      "JavaScript",
-      "Java",
-      "Go",
-      "C++",
-      "Rust"
-    ]
+    "x_axis": []
   },
   "file_name": "languages_scores",
   "label": "fig:languages_scores",

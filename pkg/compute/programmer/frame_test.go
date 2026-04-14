@@ -26,7 +26,7 @@ func TestFrame_writeIntoProgramRegion(t *testing.T) {
 		frame.Program[0] = mark
 
 		Convey("writeIntoProgramRegion should copy into the configured program words", func() {
-			frame.writeIntoProgramRegion(value)
+			frame.WriteIntoProgramRegion(value)
 
 			start := core.Cfg.Value.Region.Program.Start
 
@@ -44,8 +44,8 @@ func TestFrame_writeIntoProgramRegion(t *testing.T) {
 		var frame Frame
 
 		Convey("writeIntoProgramRegion should not panic", func() {
-			nilFrame.writeIntoProgramRegion(&primitive.Value{})
-			frame.writeIntoProgramRegion(nilValue)
+			nilFrame.WriteIntoProgramRegion(&primitive.Value{})
+			frame.WriteIntoProgramRegion(nilValue)
 		})
 	})
 }
@@ -67,6 +67,6 @@ func BenchmarkFrame_writeIntoProgramRegion(b *testing.B) {
 	b.ResetTimer()
 
 	for iteration := 0; iteration < b.N; iteration++ {
-		frame.writeIntoProgramRegion(value)
+		frame.WriteIntoProgramRegion(value)
 	}
 }

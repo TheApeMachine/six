@@ -10,7 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
-func affinityFrame(words [5]uint64) []byte {
+func affinityFrame(words []uint64) []byte {
 	value := new(primitive.Value)
 
 	for idx, word := range words {
@@ -26,8 +26,8 @@ func TestPriorityRouteWrite(t *testing.T) {
 		peerB := NewConn(context.Background())
 
 		route := PriorityRoute{
-			{Dst: peerA, Affinity: [5]uint64{}, Score: 0.8},
-			{Dst: peerB, Affinity: [5]uint64{}, Score: 0.5},
+			{dst: peerA, affinity: []uint64{}, score: 0.8},
+			{dst: peerB, affinity: []uint64{}, score: 0.5},
 		}
 
 		frame := makeFrame(0x99)
@@ -51,13 +51,13 @@ func TestPriorityRouteWrite(t *testing.T) {
 		})
 
 		Convey("Write should nudge scores upward for peers that accepted the frame", func() {
-			initialA := route[0].Score
-			initialB := route[1].Score
+			initialA := route[0].score
+			initialB := route[1].score
 
 			route.Write(frame) //nolint:errcheck
 
-			So(route[0].Score, ShouldBeGreaterThan, initialA)
-			So(route[1].Score, ShouldBeGreaterThan, initialB)
+			So(route[0].score, ShouldBeGreaterThan, initialA)
+			So(route[1].score, ShouldBeGreaterThan, initialB)
 		})
 	})
 
@@ -75,7 +75,7 @@ func TestPriorityRouteWrite(t *testing.T) {
 
 func TestPriorityRouteRead(t *testing.T) {
 	Convey("Given a PriorityRoute", t, func() {
-		route := PriorityRoute{{Dst: NewConn(context.Background())}}
+		route := PriorityRoute{{dst: NewConn(context.Background())}}
 
 		Convey("Read should return ErrClosedPipe because PriorityRoute is outbound-only", func() {
 			n, err := route.Read(make([]byte, connFrameSize))
@@ -94,33 +94,33 @@ func TestPriorityRouteReorder(t *testing.T) {
 		peerDead := NewConn(context.Background())
 
 		route := PriorityRoute{
-			{Dst: peerMid, Score: 0.5},
-			{Dst: peerLow, Score: 0.1},
-			{Dst: peerHigh, Score: 0.9},
-			{Dst: peerDead, Score: 0.01},
+			{dst: peerMid, score: 0.5},
+			{dst: peerLow, score: 0.1},
+			{dst: peerHigh, score: 0.9},
+			{dst: peerDead, score: 0.01},
 		}
 
 		Convey("Reorder should sort peers descending by score", func() {
 			route.Reorder()
 
-			So(route[0].Dst, ShouldEqual, peerHigh)
-			So(route[1].Dst, ShouldEqual, peerMid)
-			So(route[2].Dst, ShouldEqual, peerLow)
+			So(route[0].dst, ShouldEqual, peerHigh)
+			So(route[1].dst, ShouldEqual, peerMid)
+			So(route[2].dst, ShouldEqual, peerLow)
 		})
 
 		Convey("Reorder should prune peers whose score is below scorePruneFloor", func() {
 			route.Reorder()
 
 			for _, peer := range route {
-				So(peer.Score, ShouldBeGreaterThanOrEqualTo, scorePruneFloor)
+				So(peer.score, ShouldBeGreaterThanOrEqualTo, scorePruneFloor)
 			}
 		})
 	})
 
 	Convey("Given a PriorityRoute with all zero-score peers", t, func() {
 		route := PriorityRoute{
-			{Dst: NewConn(context.Background()), Score: 0},
-			{Dst: NewConn(context.Background()), Score: 0},
+			{dst: NewConn(context.Background()), score: 0},
+			{dst: NewConn(context.Background()), score: 0},
 		}
 
 		Convey("Reorder should keep zero-score peers (they have not yet been evaluated)", func() {
@@ -137,8 +137,8 @@ func TestPriorityRouteClose(t *testing.T) {
 		peerB := NewConn(context.Background())
 
 		route := PriorityRoute{
-			{Dst: peerA},
-			{Dst: peerB},
+			{dst: peerA},
+			{dst: peerB},
 		}
 
 		Convey("Close should close all peers without error", func() {
@@ -149,7 +149,7 @@ func TestPriorityRouteClose(t *testing.T) {
 
 func TestAffinityFilterWrite(t *testing.T) {
 	Convey("Given an AffinityFilter targeting a specific affinity", t, func() {
-		target := [5]uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+		target := []uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 		budget := 10
 
 		sink := NewConn(context.Background())
@@ -170,7 +170,7 @@ func TestAffinityFilterWrite(t *testing.T) {
 		})
 
 		Convey("Write should drop frames whose affinity exceeds the Hamming budget", func() {
-			distantAffinity := [5]uint64{0, 0, 0, 0, 0}
+			distantAffinity := []uint64{0, 0, 0, 0, 0}
 			distantFrame := affinityFrame(distantAffinity)
 
 			n, err := filter.Write(distantFrame)
@@ -203,7 +203,7 @@ func BenchmarkPriorityRouteWrite(b *testing.B) {
 	route := make(PriorityRoute, len(peers))
 
 	for idx, peer := range peers {
-		route[idx] = ScoredPeer{Dst: peer, Score: float64(idx) * 0.25}
+		route[idx] = ScoredPeer{dst: peer, score: float64(idx) * 0.25}
 	}
 
 	frame := makeFrame(1)
@@ -221,7 +221,7 @@ func BenchmarkPriorityRouteWrite(b *testing.B) {
 }
 
 func BenchmarkAffinityFilterWrite(b *testing.B) {
-	target := [5]uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	target := []uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	sink := NewConn(context.Background())
 	filter := NewAffinityFilter(sink, target, 10)
 
@@ -237,11 +237,11 @@ func BenchmarkAffinityFilterWrite(b *testing.B) {
 }
 
 func BenchmarkAffinityFilterDrop(b *testing.B) {
-	target := [5]uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	target := []uint64{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	sink := NewConn(context.Background())
 	filter := NewAffinityFilter(sink, target, 10)
 
-	distantFrame := affinityFrame([5]uint64{})
+	distantFrame := affinityFrame([]uint64{0, 0, 0, 0, 0})
 
 	b.ReportAllocs()
 	b.ResetTimer()

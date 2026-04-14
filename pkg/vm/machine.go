@@ -34,7 +34,6 @@ type Machine struct {
 	conn         *gossip.Conn
 	field        *geometry.Field
 	orchestrator *Orchestrator
-	programReady chan struct{}
 	remSleep     *time.Ticker
 	remDone      chan struct{}
 }
@@ -66,18 +65,17 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	machine.programReady = make(chan struct{}, 1)
-
-	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue, machine.programReady)
-	if machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
-
 	machine.backend = compute.NewBackend(
 		ctx,
 		machine.queue,
 		compute.WithExploreEvery(128),
 	)
+
+	if machine.orchestrator, machine.err = NewOrchestrator(
+		ctx, machine.conn, machine.queue, machine.backend.Execute,
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
 
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx,
@@ -98,16 +96,11 @@ func NewMachine(
 /*
 Close the machine.
 
-Outstanding queue work (trie/replica tasks scheduled from Publish) is
-allowed to finish before contexts are cancelled so shutdown matches the
-post-Load guarantee as closely as practical for a shared Queue.
+Cancels the shared pool.Queue (owned here for Backend construction) once host
+and tokenizer are closed so goroutine-pool work does not outlive dependents.
 */
 func (machine *Machine) Close() error {
 	var errs []error
-
-	if machine.queue != nil {
-		machine.queue.Close()
-	}
 
 	if machine.remSleep != nil {
 		machine.remSleep.Stop()
@@ -147,8 +140,8 @@ func (machine *Machine) Error() error {
 /*
 Load walks Generate(), mints Morton-packed Values from each sample’s Text via
 primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
-Properties word when Label is present, then publishes through the queue and
-orchestrator. Resets tokenizer ingest state when finished so later Prompt paths
+Properties word when Label is present, then runs orchestrator.Publish per
+segment. Resets tokenizer ingest state when finished so later Prompt paths
 see a clean pipe.
 */
 func (machine *Machine) Load(dataset data.Provider) (err error) {
@@ -173,8 +166,6 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 	}
 
-	machine.orchestrator.Flush()
-
 	return nil
 }
 
@@ -198,7 +189,6 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 	}
 
 	machine.orchestrator.Publish(values...)
-	machine.orchestrator.Flush()
 
 	// Clear values so we don't push them again
 	values = nil
@@ -228,7 +218,9 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 	}
 
 	if viz.DefaultBus.IsActive() && len(resolved) > 0 {
-		viz.DefaultBus.Publish(viz.PromptResultEvent(string(resolved[0].Bytes()), nil))
+		for _, res := range resolved {
+			viz.DefaultBus.Publish(viz.PromptResultEvent(string(res.Bytes()), nil))
+		}
 	}
 
 	return resolved, nil

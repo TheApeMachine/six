@@ -32,9 +32,21 @@ most productive path is tried first, creating emergent fast paths without
 explicit configuration.
 */
 type ScoredPeer struct {
-	Dst      io.ReadWriteCloser
-	Affinity [5]uint64
-	Score    float64
+	dst      io.ReadWriteCloser
+	affinity []uint64
+	score    float64
+}
+
+func (sp *ScoredPeer) Dst() io.ReadWriteCloser {
+	return sp.dst
+}
+
+func (sp *ScoredPeer) Affinity() []uint64 {
+	return sp.affinity
+}
+
+func (sp *ScoredPeer) Score() float64 {
+	return sp.score
 }
 
 /*
@@ -54,10 +66,10 @@ AddPeer registers an outbound io.ReadWriteCloser peer. The peer's affinity is
 used by AffinityFilter wrappers to decide whether a given Value frame should
 be forwarded to it.
 */
-func (route *PriorityRoute) AddPeer(peer io.ReadWriteCloser, affinity [5]uint64) {
+func (route *PriorityRoute) AddPeer(peer io.ReadWriteCloser, affinity []uint64) {
 	*route = append(*route, ScoredPeer{
-		Dst:      peer,
-		Affinity: affinity,
+		dst:      peer,
+		affinity: affinity,
 	})
 }
 
@@ -74,13 +86,13 @@ func (route PriorityRoute) Write(p []byte) (int, error) {
 	)
 
 	for idx := range route {
-		n, err := route[idx].Dst.Write(p)
+		n, err := route[idx].dst.Write(p)
 
 		if err == nil {
-			route[idx].Score += scoreAlpha * (1.0 - route[idx].Score)
+			route[idx].score += scoreAlpha * (1.0 - route[idx].score)
 			written = n
 		} else {
-			route[idx].Score += scoreAlpha * (0.0 - route[idx].Score)
+			route[idx].score += scoreAlpha * (0.0 - route[idx].score)
 			lastErr = err
 		}
 	}
@@ -104,8 +116,8 @@ Close closes all peers in the route.
 */
 func (route PriorityRoute) Close() error {
 	for _, peer := range route {
-		if peer.Dst != nil {
-			peer.Dst.Close()
+		if peer.dst != nil {
+			peer.dst.Close()
 		}
 	}
 
@@ -121,7 +133,7 @@ func (route *PriorityRoute) Reorder() {
 	filtered := (*route)[:0]
 
 	for _, peer := range *route {
-		if peer.Score >= scorePruneFloor || peer.Score == 0 {
+		if peer.score >= scorePruneFloor || peer.score == 0 {
 			filtered = append(filtered, peer)
 		}
 	}
@@ -129,7 +141,7 @@ func (route *PriorityRoute) Reorder() {
 	*route = filtered
 
 	sort.Slice(*route, func(i, j int) bool {
-		return (*route)[i].Score > (*route)[j].Score
+		return (*route)[i].score > (*route)[j].score
 	})
 }
 
@@ -144,7 +156,7 @@ Affinity words live at a fixed offset (words 123–127, bytes 984–1024) in the
 */
 type AffinityFilter struct {
 	dst           io.Writer
-	target        [5]uint64
+	target        []uint64
 	hammingBudget int
 }
 
@@ -152,7 +164,7 @@ type AffinityFilter struct {
 NewAffinityFilter wraps dst so only frames addressed to target (within
 hammingBudget bits Hamming distance) are forwarded.
 */
-func NewAffinityFilter(dst io.Writer, target [5]uint64, hammingBudget int) *AffinityFilter {
+func NewAffinityFilter(dst io.Writer, target []uint64, hammingBudget int) *AffinityFilter {
 	return &AffinityFilter{
 		dst:           dst,
 		target:        target,
@@ -178,7 +190,7 @@ func (filter *AffinityFilter) Write(p []byte) (int, error) {
 		return 0, io.ErrShortBuffer
 	}
 
-	var frameAffinity [5]uint64
+	var frameAffinity []uint64
 
 	src := (*primitive.Value)(unsafe.Pointer(&p[0]))
 

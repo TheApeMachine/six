@@ -112,7 +112,7 @@ func TestConnSetAffinity(t *testing.T) {
 		conn := NewConn(context.Background())
 
 		Convey("SetAffinity then Affinity should round-trip the 5 words", func() {
-			target := [5]uint64{1, 2, 3, 4, 5}
+			target := []uint64{1, 2, 3, 4, 5}
 			conn.SetAffinity(target)
 
 			So(conn.Affinity(), ShouldResemble, target)
@@ -126,10 +126,10 @@ func TestConnAddPeer(t *testing.T) {
 
 		Convey("AddPeer should register the peer in the PriorityRoute", func() {
 			peer := NewConn(context.Background())
-			conn.AddPeer(peer, [5]uint64{0xFF, 0, 0, 0, 0})
+			conn.AddPeer(peer, []uint64{0xFF, 0, 0, 0, 0})
 
 			So(len(conn.route), ShouldEqual, 1)
-			So(conn.route[0].Dst, ShouldEqual, peer)
+			So(conn.route[0].Dst(), ShouldEqual, peer)
 		})
 	})
 }
@@ -140,8 +140,8 @@ func TestConnBroadcast(t *testing.T) {
 		peerA := NewConn(context.Background())
 		peerB := NewConn(context.Background())
 
-		conn.AddPeer(peerA, [5]uint64{})
-		conn.AddPeer(peerB, [5]uint64{})
+		conn.AddPeer(peerA, []uint64{})
+		conn.AddPeer(peerB, []uint64{})
 
 		frame := makeFrame(0x1234)
 
@@ -229,7 +229,7 @@ func BenchmarkConnBroadcast(b *testing.B) {
 
 	for idx := range peers {
 		peers[idx] = NewConn(context.Background())
-		conn.AddPeer(peers[idx], [5]uint64{})
+		conn.AddPeer(peers[idx], []uint64{})
 	}
 
 	frame := makeFrame(42)

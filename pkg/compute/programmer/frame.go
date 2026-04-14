@@ -16,10 +16,10 @@ type Frame struct {
 }
 
 /*
-writeIntoProgramRegion copies Program words into the Value program region
+WriteIntoProgramRegion copies Program words into the Value program region
 (value.region.program start and bit span from config).
 */
-func (frame *Frame) writeIntoProgramRegion(value *primitive.Value) {
+func (frame *Frame) WriteIntoProgramRegion(value *primitive.Value) {
 	if frame == nil || value == nil {
 		return
 	}
