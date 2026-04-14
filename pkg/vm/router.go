@@ -14,8 +14,8 @@ import (
 Router is a component that routes Values to the most appropriate community field.
 */
 type Router struct {
-	field *geometry.Field
-	route gossip.PriorityRoute
+	field          *geometry.Field
+	route          gossip.PriorityRoute
 	distanceBudget int
 }
 
@@ -71,7 +71,7 @@ func (router *Router) FindCommunity(value *primitive.Value) *geometry.Field {
 
 			// Value implements io.Reader, so we can use io.Copy.
 			// However, io.Copy will consume the Value's reader.
-			// Since we only want to write it once, and value.Read 
+			// Since we only want to write it once, and value.Read
 			// returns EOF after one frame, this is perfect.
 			if _, err := io.Copy(filter, value); err != nil {
 				errnie.Error(err)
@@ -83,8 +83,7 @@ func (router *Router) FindCommunity(value *primitive.Value) *geometry.Field {
 				communityField.MergeAffinity(frameAffinity[:])
 			}
 
-			if viz.DefaultBus.IsActive() {
-				// Find the community ID for the visualizer
+			if viz.DefaultBus.IsActive() && router.field != nil {
 				communityID := -1
 
 				for i, fieldValue := range router.field.Fields {
