@@ -2,6 +2,7 @@ package programmer
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/theapemachine/six/pkg/primitive"
@@ -16,6 +17,7 @@ strings.
 type Parser struct {
 	program *Program
 	tokens  []Token
+	err     error
 }
 
 type parserOption func(*Parser)
@@ -49,6 +51,18 @@ func (*Parser) validateOperationMnemonic(mnemonic string) error {
 }
 
 /*
+Err returns the first parse error. Parse keeps the existing one-return API so
+callers that only need tokens stay simple.
+*/
+func (parser *Parser) Err() error {
+	if parser == nil {
+		return nil
+	}
+
+	return parser.err
+}
+
+/*
 Parse turns loaded source lines into op tokens and an optional trailing
 continuation. Operation lines are five fields:
 
@@ -66,6 +80,8 @@ intermix explanatory prose with executable lines.
 */
 func (parser *Parser) Parse() (tokens []Token) {
 	parser.tokens = parser.tokens[:0]
+	parser.err = nil
+
 	lines := parser.program.Load()
 
 	for _, fields := range lines {
@@ -84,19 +100,98 @@ func (parser *Parser) Parse() (tokens []Token) {
 		}
 
 		if len(fields) < 5 {
-			continue
+			parser.err = fmt.Errorf("programmer: expected five fields, got %d", len(fields))
+			return parser.tokens
+		}
+
+		srcA, ok := parser.parseRegionRef(fields[0])
+		if !ok {
+			return parser.tokens
+		}
+
+		srcB, ok := parser.parseRegionRef(fields[1])
+		if !ok {
+			return parser.tokens
+		}
+
+		dst, ok := parser.parseRegionRef(fields[2])
+		if !ok {
+			return parser.tokens
 		}
 
 		parser.tokens = append(parser.tokens, Token{
-			SrcA: primitive.RegionNames[strings.ToLower(strings.TrimSpace(fields[0]))],
-			SrcB: primitive.RegionNames[strings.ToLower(strings.TrimSpace(fields[1]))],
-			Dst:  primitive.RegionNames[strings.ToLower(strings.TrimSpace(fields[2]))],
+			SrcA: srcA,
+			SrcB: srcB,
+			Dst:  dst,
 			Op:   parser.parseOperationType(fields[3]),
 			Mode: parser.parseExecutionMode(fields[4]),
 		})
 	}
 
 	return parser.tokens
+}
+
+/*
+parseRegionRef accepts bare region names, region[index], and
+region[index,span]. Offsets are relative to that named region.
+*/
+func (parser *Parser) parseRegionRef(raw string) (RegionRef, bool) {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	name := text
+	offset := 0
+	span := -1
+
+	if open := strings.IndexByte(text, '['); open >= 0 {
+		if !strings.HasSuffix(text, "]") {
+			parser.err = fmt.Errorf("programmer: malformed region ref %q", raw)
+			return RegionRef{}, false
+		}
+
+		name = strings.TrimSpace(text[:open])
+		body := strings.TrimSpace(text[open+1 : len(text)-1])
+		left, right, hasSpan := strings.Cut(body, ",")
+
+		parsedOffset, err := strconv.Atoi(strings.TrimSpace(left))
+		if err != nil || parsedOffset < 0 {
+			parser.err = fmt.Errorf("programmer: invalid region offset %q", raw)
+			return RegionRef{}, false
+		}
+
+		offset = parsedOffset
+		span = 1
+
+		if hasSpan {
+			parsedSpan, err := strconv.Atoi(strings.TrimSpace(right))
+			if err != nil || parsedSpan <= 0 {
+				parser.err = fmt.Errorf("programmer: invalid region span %q", raw)
+				return RegionRef{}, false
+			}
+
+			span = parsedSpan
+		}
+	}
+
+	region, ok := primitive.RegionNames[name]
+	if !ok {
+		parser.err = fmt.Errorf("programmer: unknown region %q", raw)
+		return RegionRef{}, false
+	}
+
+	start, words := region.WordExtent()
+	if span < 0 {
+		span = words
+	}
+
+	if offset+span > words {
+		parser.err = fmt.Errorf("programmer: region ref %q exceeds %d words", raw, words)
+		return RegionRef{}, false
+	}
+
+	return RegionRef{
+		Region: region,
+		Start:  start + offset,
+		Span:   span,
+	}, true
 }
 
 /*

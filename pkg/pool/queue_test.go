@@ -9,6 +9,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 )
 
 type stubQueueExecutor struct {
@@ -134,9 +135,11 @@ func TestQueueSubmit(t *testing.T) {
 
 		wait.Add(1)
 
-		queue.Submit(func() {
+		queue.Submit(func() *programmer.Executable {
 			ran.Store(true)
 			wait.Done()
+
+			return nil
 		})
 
 		wait.Wait()
@@ -153,6 +156,8 @@ func TestQueueSubmitNil(t *testing.T) {
 	Convey("Submit on nil is a no-op", t, func() {
 		var queue *Queue
 
-		queue.Submit(func() {})
+		queue.Submit(func() *programmer.Executable {
+			return nil
+		})
 	})
 }

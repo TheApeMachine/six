@@ -37,12 +37,49 @@ const (
 )
 
 /*
+RegionRef is one absolute word span inside a Value. Source uses region-local
+refs like tokens[0,16]; the parser resolves them before lowering.
+*/
+type RegionRef struct {
+	Region primitive.RegionType
+	Start  int
+	Span   int
+}
+
+/*
+NewRegionRef returns a ref covering the whole configured region.
+*/
+func NewRegionRef(region primitive.RegionType) RegionRef {
+	start, span := region.WordExtent()
+
+	return RegionRef{
+		Region: region,
+		Start:  start,
+		Span:   span,
+	}
+}
+
+/*
+FullRegionRef is kept as the shorter test/helper spelling.
+*/
+func FullRegionRef(region primitive.RegionType) RegionRef {
+	return NewRegionRef(region)
+}
+
+/*
+WordExtent returns the absolute span consumed by kernel.PackRegionRef.
+*/
+func (ref RegionRef) WordExtent() (start int, span int) {
+	return ref.Start, ref.Span
+}
+
+/*
 Token is one parsed source line: region refs, op mnemonic, execution mode.
 */
 type Token struct {
-	SrcA primitive.RegionType
-	SrcB primitive.RegionType
-	Dst  primitive.RegionType
+	SrcA RegionRef
+	SrcB RegionRef
+	Dst  RegionRef
 	Op   OperationType
 	Mode ExecutionMode
 }

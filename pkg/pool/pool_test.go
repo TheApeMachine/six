@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 )
 
 func TestNewPool(t *testing.T) {
@@ -26,9 +27,10 @@ func TestPoolSubmit(t *testing.T) {
 		for range 64 {
 			wait.Add(1)
 
-			workerPool.Submit(func() {
+			workerPool.Submit(func() *programmer.Executable {
 				counter.Add(1)
 				wait.Done()
+				return nil
 			})
 		}
 
@@ -78,8 +80,9 @@ func BenchmarkPoolSubmit(b *testing.B) {
 	for b.Loop() {
 		wait.Add(1)
 
-		workerPool.Submit(func() {
+		workerPool.Submit(func() *programmer.Executable {
 			wait.Done()
+			return nil
 		})
 	}
 

@@ -391,7 +391,6 @@ func (value *Value) stampID() *Value {
 		return nil
 	}
 
-	// One full uint64 lane at Region.ID — never truncated; viz string forms use %016x.
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
 	return value
 }

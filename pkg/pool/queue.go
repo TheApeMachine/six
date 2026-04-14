@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -29,15 +30,18 @@ type Queue struct {
 
 /*
 NewQueue constructs a Queue that owns its own goroutine pool sized to
-the available CPU cores minus one (leaving the main thread free).
+the available CPU cores minus one (leaving the main thread free). The
+optional dispatch handler is called by pool workers whenever a task
+returns a non-nil Executable — this is how the compute Backend receives
+work.
 */
-func NewQueue(ctx context.Context) (*Queue, error) {
+func NewQueue(ctx context.Context, dispatch ...func(*programmer.Executable)) (*Queue, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	queue := &Queue{
 		ctx:    ctx,
 		cancel: cancel,
-		pool:   NewPool(uint64(runtime.NumCPU() - 1)),
+		pool:   NewPool(uint64(runtime.NumCPU()-1), dispatch...),
 	}
 
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
@@ -77,7 +81,7 @@ func (queue *Queue) Error() error {
 Submit dispatches a task to the goroutine pool for immediate execution.
 This is the fast path for CPU-bound work that should not queue.
 */
-func (queue *Queue) Submit(task func()) {
+func (queue *Queue) Submit(task func() *programmer.Executable) {
 	if queue == nil {
 		return
 	}
@@ -90,7 +94,7 @@ Schedule enqueues work onto the normal-priority ring buffer.
 Returns false when the ring is full.
 */
 func (queue *Queue) Schedule(
-	ctx context.Context, task func(),
+	ctx context.Context, task func() *programmer.Executable,
 ) bool {
 	if queue == nil {
 		return false

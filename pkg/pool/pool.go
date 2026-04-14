@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/compute/programmer"
 )
 
 /*
@@ -11,7 +13,7 @@ Slot is a single slot for a worker in Pool.
 */
 type Slot struct {
 	threadPtr unsafe.Pointer
-	task      func()
+	task      func() *programmer.Executable
 }
 
 /*
@@ -24,13 +26,24 @@ type Pool struct {
 	maxSize  uint64
 	_p2      [cacheLinePadSize - unsafe.Sizeof(uint64(0))]byte
 	// using a stack keeps cpu caches warm based on FILO property
-	top atomic.Pointer[Node]
-	_p3 [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[Node]{})]byte
+	top      atomic.Pointer[Node]
+	_p3      [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[Node]{})]byte
+	dispatch func(*programmer.Executable)
 }
 
-// NewPool returns a new thread pool
-func NewPool(size uint64) *Pool {
-	return &Pool{maxSize: size}
+/*
+NewPool returns a new thread pool. The optional dispatch handler receives
+every non-nil Executable returned by a task — this is how the compute
+Backend picks up work without the task closure knowing about substrates.
+*/
+func NewPool(size uint64, dispatch ...func(*programmer.Executable)) *Pool {
+	pool := &Pool{maxSize: size}
+
+	if len(dispatch) > 0 {
+		pool.dispatch = dispatch[0]
+	}
+
+	return pool
 }
 
 // Submit submits a new task to the pool
@@ -39,7 +52,7 @@ func NewPool(size uint64) *Pool {
 // new goroutine to the pool if the pool capacity is not exceeded
 // in case the pool capacity hit its maximum limit, this function yields the processor to other
 // goroutines and loops again for finding available workers
-func (self *Pool) Submit(task func()) {
+func (self *Pool) Submit(task func() *programmer.Executable) {
 	var slot *Slot
 
 	for {
@@ -59,16 +72,15 @@ func (self *Pool) Submit(task func()) {
 	}
 }
 
-// loopQ is the looping function for every worker goroutine
 func (self *Pool) loopQ(slot *Slot) {
-	// store self goroutine pointer
 	slot.threadPtr = GetG()
+
 	for {
-		// exec task
-		slot.task()
-		// notify availability by pushing self reference into stack
+		if executable := slot.task(); executable != nil && self.dispatch != nil {
+			self.dispatch(executable)
+		}
+
 		self.push(slot)
-		// park and wait for call
 		mcall(fast_park)
 	}
 }

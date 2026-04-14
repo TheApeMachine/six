@@ -190,7 +190,7 @@ func (filter *AffinityFilter) Write(p []byte) (int, error) {
 		return 0, io.ErrShortBuffer
 	}
 
-	var frameAffinity []uint64
+	var frameAffinity [affinityWordCount]uint64
 
 	src := (*primitive.Value)(unsafe.Pointer(&p[0]))
 

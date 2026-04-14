@@ -18,7 +18,7 @@ import {
 	IconLoader2,
 	IconX,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { VizEvent } from "@/lib/wire";
 import { EK } from "@/lib/wire";
@@ -214,16 +214,17 @@ function ScoreBar({ score, label }: { score: number; label?: string }) {
 export function PromptInspector({ events, className }: PromptInspectorProps) {
 	const [expanded, setExpanded] = useState(true);
 	const [dismissed, setDismissed] = useState(false);
-	const [prevPromptTs, setPrevPromptTs] = useState<number | null>(null);
+	const prevPromptTsRef = useRef<number | null>(null);
 
 	const lifecycle = useMemo(() => deriveLifecycle(events), [events]);
 
-	// Auto-show when a new prompt arrives.
-	if (lifecycle && lifecycle.promptTs !== prevPromptTs) {
-		setPrevPromptTs(lifecycle.promptTs);
-		setDismissed(false);
-		setExpanded(true);
-	}
+	useEffect(() => {
+		if (lifecycle && lifecycle.promptTs !== prevPromptTsRef.current) {
+			prevPromptTsRef.current = lifecycle.promptTs;
+			setDismissed(false);
+			setExpanded(true);
+		}
+	}, [lifecycle]);
 
 	if (!lifecycle || dismissed) return null;
 

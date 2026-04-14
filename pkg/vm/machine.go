@@ -61,18 +61,19 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	if machine.queue, machine.err = pool.NewQueue(ctx); machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
-
 	machine.backend = compute.NewBackend(
 		ctx,
-		machine.queue,
 		compute.WithExploreEvery(128),
 	)
 
+	if machine.queue, machine.err = pool.NewQueue(
+		ctx, machine.backend.Dispatch,
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
 	if machine.orchestrator, machine.err = NewOrchestrator(
-		ctx, machine.conn, machine.queue, machine.backend.Execute,
+		ctx, machine.conn, machine.queue,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}

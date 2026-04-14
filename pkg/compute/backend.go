@@ -10,9 +10,9 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -24,6 +24,7 @@ updated from the dispatch hot path.
 type substrateState struct {
 	idx       int
 	substrate kernel.Substrate
+	target    programmer.CompilerTarget
 	inflight  atomic.Int64
 	emaNanos  atomic.Int64
 }
@@ -44,7 +45,6 @@ type Backend struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	states          []*substrateState
-	queue           *pool.Queue
 	transferPenalty int64
 	// exploreEvery, when non-zero, zeros the transfer penalty on every Nth
 	// pick so the router empirically re-samples a faster substrate instead of
@@ -88,7 +88,6 @@ pressure tracker so dispatch stays lock-free.
 */
 func NewBackend(
 	ctx context.Context,
-	queue *pool.Queue,
 	opts ...BackendOption,
 ) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
@@ -119,6 +118,7 @@ func NewBackend(
 		backend.states = append(backend.states, &substrateState{
 			idx:       idx,
 			substrate: cuda.NewBackend(device),
+			target:    programmer.CUDA,
 		})
 
 		idx++
@@ -129,6 +129,7 @@ func NewBackend(
 		backend.states = append(backend.states, &substrateState{
 			idx:       idx,
 			substrate: metal.NewBackend(device),
+			target:    programmer.Metal,
 		})
 
 		idx++
@@ -138,6 +139,7 @@ func NewBackend(
 	backend.states = append(backend.states, &substrateState{
 		idx:       idx,
 		substrate: cpu.NewBackend(backend.ctx),
+		target:    programmer.CPU,
 	})
 
 	if err := validate.Require(map[string]any{
@@ -146,10 +148,6 @@ func NewBackend(
 		errnie.Error(err)
 		return nil
 	}
-
-	// Retained so callers share one pool.Queue with other subsystems; Execute
-	// runs substrate work on the calling goroutine and does not enqueue here.
-	backend.queue = queue
 
 	return backend
 }
@@ -321,6 +319,83 @@ func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.P
 		elapsed.Nanoseconds(),
 		valID,
 	))
+}
+
+/*
+Dispatch is the pool handler: it receives an Executable from a worker,
+picks the best substrate, compiles for the matching target, writes the
+frames into the Value, executes, and then calls the Finalizer so the
+orchestrator can re-evaluate firmware or route to a community.
+*/
+func (backend *Backend) Dispatch(executable *programmer.Executable) {
+	value := executable.Value()
+
+	if value == nil {
+		return
+	}
+
+	frames, err := executable.Compile(programmer.CPU)
+
+	if err != nil {
+		errnie.Error(err)
+		return
+	}
+
+	if len(frames) == 0 {
+		executable.Finalize()
+		return
+	}
+
+	framePtr := unsafe.Pointer(&value[0])
+	ptrs := []unsafe.Pointer{framePtr}
+
+	st := backend.pick(ptrs)
+
+	if st.target != programmer.CPU {
+		recompiled, err := executable.Compile(st.target)
+
+		if err == nil {
+			frames = recompiled
+		}
+	}
+
+	st.inflight.Add(1)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+			st.substrate.Name(),
+			int(st.inflight.Load()),
+			len(backend.states),
+			value.ID(),
+		))
+	}
+
+	start := time.Now()
+
+	for idx := range frames {
+		frames[idx].WriteIntoProgramRegion(value)
+
+		if err := st.substrate.Execute(ptrs); err != nil {
+			errnie.Error(err)
+			break
+		}
+	}
+
+	elapsed := time.Since(start)
+	st.inflight.Add(-1)
+	st.observe(elapsed)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+			st.substrate.Name(),
+			elapsed.Nanoseconds(),
+			value.ID(),
+		))
+	}
+
+	backend.publishALUDispatch(st, ptrs, elapsed)
+
+	executable.Finalize()
 }
 
 /*

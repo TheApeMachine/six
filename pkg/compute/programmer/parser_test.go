@@ -37,11 +37,34 @@ func TestParser_Parse(t *testing.T) {
 			tokens := parser.Parse()
 
 			So(len(tokens), ShouldEqual, 1)
-			So(tokens[0].SrcA, ShouldEqual, primitive.TokenRegion)
-			So(tokens[0].SrcB, ShouldEqual, primitive.TokenRegion)
-			So(tokens[0].Dst, ShouldEqual, primitive.SignalsRegion)
+			So(tokens[0].SrcA.Region, ShouldEqual, primitive.TokenRegion)
+			So(tokens[0].SrcB.Region, ShouldEqual, primitive.TokenRegion)
+			So(tokens[0].Dst.Region, ShouldEqual, primitive.SignalsRegion)
 			So(tokens[0].Op, ShouldEqual, XOR)
 			So(tokens[0].Mode, ShouldEqual, ModeAccumulate)
+		})
+	})
+
+	Convey("Given a program with region-local word spans", t, func() {
+		source := "tokens[2,4] affinity[1,2] signals[3] xor reduce\n"
+		program := NewProgram(source)
+		parser := NewParser(program)
+
+		Convey("Parse should resolve them to absolute frame spans", func() {
+			tokens := parser.Parse()
+
+			tokenStart, _ := primitive.TokenRegion.WordExtent()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			signalsStart, _ := primitive.SignalsRegion.WordExtent()
+
+			So(parser.Err(), ShouldBeNil)
+			So(len(tokens), ShouldEqual, 1)
+			So(tokens[0].SrcA.Start, ShouldEqual, tokenStart+2)
+			So(tokens[0].SrcA.Span, ShouldEqual, 4)
+			So(tokens[0].SrcB.Start, ShouldEqual, affinityStart+1)
+			So(tokens[0].SrcB.Span, ShouldEqual, 2)
+			So(tokens[0].Dst.Start, ShouldEqual, signalsStart+3)
+			So(tokens[0].Dst.Span, ShouldEqual, 1)
 		})
 	})
 

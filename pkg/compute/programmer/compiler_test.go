@@ -14,7 +14,7 @@ TestNewCompiler verifies the compiler wires the builder over the token slice.
 func TestNewCompiler(t *testing.T) {
 	Convey("Given parsed tokens", t, func() {
 		tokens := []Token{
-			{SrcA: primitive.TokenRegion, SrcB: primitive.TokenRegion, Dst: primitive.SignalsRegion, Op: AND, Mode: ModeAccumulate},
+			{SrcA: FullRegionRef(primitive.TokenRegion), SrcB: FullRegionRef(primitive.TokenRegion), Dst: FullRegionRef(primitive.SignalsRegion), Op: AND, Mode: ModeAccumulate},
 		}
 
 		compiler := NewCompiler(tokens)
@@ -34,9 +34,9 @@ func TestCompiler_Compile(t *testing.T) {
 	Convey("Given a compiler built from xor tokens", t, func() {
 		tokens := []Token{
 			{
-				SrcA: primitive.TokenRegion,
-				SrcB: primitive.TokenRegion,
-				Dst:  primitive.SignalsRegion,
+				SrcA: FullRegionRef(primitive.TokenRegion),
+				SrcB: FullRegionRef(primitive.TokenRegion),
+				Dst:  FullRegionRef(primitive.SignalsRegion),
 				Op:   XOR,
 				Mode: ModeAccumulate,
 			},
@@ -63,7 +63,7 @@ func TestCompiler_Compile(t *testing.T) {
 
 func BenchmarkNewCompiler(b *testing.B) {
 	tokens := []Token{
-		{SrcA: primitive.TokenRegion, SrcB: primitive.TokenRegion, Dst: primitive.SignalsRegion, Op: XOR, Mode: ModeAccumulate},
+		{SrcA: FullRegionRef(primitive.TokenRegion), SrcB: FullRegionRef(primitive.TokenRegion), Dst: FullRegionRef(primitive.SignalsRegion), Op: XOR, Mode: ModeAccumulate},
 	}
 
 	b.ReportAllocs()
@@ -77,9 +77,9 @@ func BenchmarkNewCompiler(b *testing.B) {
 func BenchmarkCompiler_Compile(b *testing.B) {
 	tokens := []Token{
 		{
-			SrcA: primitive.TokenRegion,
-			SrcB: primitive.TokenRegion,
-			Dst:  primitive.SignalsRegion,
+			SrcA: FullRegionRef(primitive.TokenRegion),
+			SrcB: FullRegionRef(primitive.TokenRegion),
+			Dst:  FullRegionRef(primitive.SignalsRegion),
 			Op:   XOR,
 			Mode: ModeAccumulate,
 		},

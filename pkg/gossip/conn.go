@@ -4,10 +4,12 @@ import (
 	"context"
 	"io"
 	"runtime"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -30,6 +32,8 @@ type Conn struct {
 	intake   *data.Ring
 	affinity []uint64
 	route    PriorityRoute
+	nodeID   uint64
+	epoch    atomic.Uint64
 }
 
 /*
@@ -141,11 +145,23 @@ func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity []uint64) {
 }
 
 /*
+SetNodeID assigns the node identity used for viz events.
+*/
+func (conn *Conn) SetNodeID(id uint64) {
+	conn.nodeID = id
+}
+
+/*
 Broadcast writes p to all outbound peers via the PriorityRoute. It is a
 convenience wrapper around conn.Route().Write(p) for callers that do not need
 the full io.MultiWriter composition.
 */
 func (conn *Conn) Broadcast(p []byte) (int, error) {
+	if viz.DefaultBus.IsActive() {
+		epoch := conn.epoch.Add(1)
+		viz.DefaultBus.Publish(viz.GossipSent(conn.nodeID, epoch))
+	}
+
 	return conn.route.Write(p)
 }
 
@@ -156,6 +172,11 @@ rather than raw bytes. It serialises the Value and calls Write.
 func (conn *Conn) Receive(value *primitive.Value) {
 	if value == nil {
 		return
+	}
+
+	if viz.DefaultBus.IsActive() {
+		epoch := conn.epoch.Load()
+		viz.DefaultBus.Publish(viz.GossipReceived(conn.nodeID, value.ID(), epoch))
 	}
 
 	var buf [connFrameSize]byte

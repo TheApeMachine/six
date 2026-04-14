@@ -11,20 +11,24 @@ import (
 )
 
 /*
-Router is a component that routes Values to the most appropriate community field.
+Router routes Values to the most appropriate community field using affinity
+distance as the metric. Communities are tracked by sequential ID so the
+visualization layer can display them as discrete clusters.
 */
 type Router struct {
-	field          *geometry.Field
 	route          gossip.PriorityRoute
+	communityIDs   map[io.ReadWriteCloser]int
+	nextID         int
 	distanceBudget int
 }
 
 /*
-NewRouter creates a new router.
+NewRouter creates a new router with an empty community registry.
 */
 func NewRouter() *Router {
 	return &Router{
-		distanceBudget: 10,
+		communityIDs:   make(map[io.ReadWriteCloser]int),
+		distanceBudget: 60,
 	}
 }
 
@@ -35,16 +39,11 @@ AffinityFilter and copies the Value. If no community accepts the Value,
 a new community is spawned and added to the route.
 */
 func (router *Router) Route(values ...*primitive.Value) {
-	const distanceBudget = 10
-
 	for _, value := range values {
-		community := router.FindCommunity(value)
+		community := router.findCommunity(value)
 
 		if community == nil {
-			newCommunity := geometry.NewField(geometry.Mod8191)
-			newCommunity.MergeAffinity(value.Get(primitive.AffinityRegion))
-			router.route.AddPeer(newCommunity, value.Get(primitive.AffinityRegion)[:])
-			community = newCommunity
+			community = router.spawnCommunity(value)
 		}
 
 		community.Values = append(community.Values, value)
@@ -52,58 +51,69 @@ func (router *Router) Route(values ...*primitive.Value) {
 }
 
 /*
-FindCommunity finds the most appropriate community for a Value.
+spawnCommunity creates a new community field from the Value's affinity,
+registers it in the route, assigns a stable ID, and emits the viz event.
 */
-func (router *Router) FindCommunity(value *primitive.Value) *geometry.Field {
+func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
+	community := geometry.NewField(geometry.Mod8191)
+	affinity := value.Get(primitive.AffinityRegion)
+	community.MergeAffinity(affinity)
+
+	router.route.AddPeer(community, affinity[:])
+
+	cid := router.nextID
+	router.communityIDs[community] = cid
+	router.nextID++
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.CommunityCreatedEvent(cid, affinity[:]))
+		viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), cid, 0))
+	}
+
+	return community
+}
+
+/*
+findCommunity finds the most appropriate community for a Value within the
+distance budget, writes the Value into it via AffinityFilter, and emits
+routing viz events.
+*/
+func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
 	var frameAffinity [5]uint64
 	copy(frameAffinity[:], value.Get(primitive.AffinityRegion))
 
-	// Try to route to an existing community in priority order
 	for _, peer := range router.route {
 		peerAffinity := peer.Affinity()
 		dist := geometry.AffinityHammingDistance(frameAffinity[:], peerAffinity[:])
 
-		if dist <= router.distanceBudget {
-			// We found a community within budget. Use AffinityFilter to write it.
-			// Since we already checked the distance, we could just write directly to peer.Dst(),
-			// but we'll use AffinityFilter to follow the proposal's composable I/O pattern.
-			filter := gossip.NewAffinityFilter(peer.Dst(), peerAffinity, router.distanceBudget)
+		if dist > router.distanceBudget {
+			continue
+		}
 
-			// Value implements io.Reader, so we can use io.Copy.
-			// However, io.Copy will consume the Value's reader.
-			// Since we only want to write it once, and value.Read
-			// returns EOF after one frame, this is perfect.
-			if _, err := io.Copy(filter, value); err != nil {
-				errnie.Error(err)
+		filter := gossip.NewAffinityFilter(peer.Dst(), peerAffinity, router.distanceBudget)
 
-				return nil
-			}
-
-			if communityField, ok := peer.Dst().(*geometry.Field); ok {
-				communityField.MergeAffinity(frameAffinity[:])
-			}
-
-			if viz.DefaultBus.IsActive() && router.field != nil {
-				communityID := -1
-
-				for i, fieldValue := range router.field.Fields {
-					if fieldValue == peer.Dst() {
-						communityID = i
-						break
-					}
-				}
-
-				if communityID != -1 {
-					viz.DefaultBus.Publish(
-						viz.ValueJoinedCommunityEvent(
-							value.ID(), communityID, dist,
-						),
-					)
-				}
-			}
-
+		if _, err := io.Copy(filter, value); err != nil {
+			errnie.Error(err)
 			return nil
 		}
+
+		communityField, ok := peer.Dst().(*geometry.Field)
+		if !ok {
+			return nil
+		}
+
+		communityField.MergeAffinity(frameAffinity[:])
+
+		if viz.DefaultBus.IsActive() {
+			cid, known := router.communityIDs[peer.Dst()]
+			if known {
+				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(
+					value.ID(), cid, dist,
+				))
+			}
+		}
+
+		return communityField
 	}
 
 	return nil

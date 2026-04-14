@@ -15,7 +15,7 @@ TestNewBuilder checks that the builder holds the token slice reference for lower
 func TestNewBuilder(t *testing.T) {
 	Convey("Given a non-empty token slice", t, func() {
 		tokens := []Token{
-			{SrcA: primitive.TokenRegion, SrcB: primitive.TokenRegion, Dst: primitive.SignalsRegion, Op: XOR, Mode: ModeAccumulate},
+			{SrcA: FullRegionRef(primitive.TokenRegion), SrcB: FullRegionRef(primitive.TokenRegion), Dst: FullRegionRef(primitive.SignalsRegion), Op: XOR, Mode: ModeAccumulate},
 		}
 
 		builder := NewBuilder(tokens)
@@ -35,9 +35,9 @@ func TestBuilder_build(t *testing.T) {
 	Convey("Given tokens for xor over token lanes into signals", t, func() {
 		tokens := []Token{
 			{
-				SrcA: primitive.TokenRegion,
-				SrcB: primitive.TokenRegion,
-				Dst:  primitive.SignalsRegion,
+				SrcA: FullRegionRef(primitive.TokenRegion),
+				SrcB: FullRegionRef(primitive.TokenRegion),
+				Dst:  FullRegionRef(primitive.SignalsRegion),
 				Op:   XOR,
 				Mode: ModeAccumulate,
 			},
@@ -76,9 +76,9 @@ func TestBuilder_packTruth(t *testing.T) {
 	Convey("Given a builder and xor token", t, func() {
 		builder := NewBuilder(nil)
 		tok := Token{
-			SrcA: primitive.TokenRegion,
-			SrcB: primitive.ContextRegion,
-			Dst:  primitive.GradientRegion,
+			SrcA: FullRegionRef(primitive.TokenRegion),
+			SrcB: FullRegionRef(primitive.ContextRegion),
+			Dst:  FullRegionRef(primitive.GradientRegion),
 			Op:   XOR,
 			Mode: ModeReduce,
 		}
@@ -107,9 +107,9 @@ func TestBuilder_packTruth(t *testing.T) {
 func BenchmarkBuilder_build(b *testing.B) {
 	tokens := []Token{
 		{
-			SrcA: primitive.TokenRegion,
-			SrcB: primitive.TokenRegion,
-			Dst:  primitive.SignalsRegion,
+			SrcA: FullRegionRef(primitive.TokenRegion),
+			SrcB: FullRegionRef(primitive.TokenRegion),
+			Dst:  FullRegionRef(primitive.SignalsRegion),
 			Op:   XOR,
 			Mode: ModeAccumulate,
 		},
@@ -128,9 +128,9 @@ func BenchmarkBuilder_build(b *testing.B) {
 func BenchmarkBuilder_packTruth(b *testing.B) {
 	builder := NewBuilder(nil)
 	tok := Token{
-		SrcA: primitive.TokenRegion,
-		SrcB: primitive.TokenRegion,
-		Dst:  primitive.SignalsRegion,
+		SrcA: FullRegionRef(primitive.TokenRegion),
+		SrcB: FullRegionRef(primitive.TokenRegion),
+		Dst:  FullRegionRef(primitive.SignalsRegion),
 		Op:   XOR,
 		Mode: ModeAccumulate,
 	}
