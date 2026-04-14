@@ -529,6 +529,8 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 	let compilerLastProg = "";
 	let finalizerTotal = 0;
 
+	const routingBeams: { x: number; y: number; tx: number; ty: number; life: number; dist: number; cid: number }[] = [];
+
 	let frameCount = 0;
 	let isDestroyed = false;
 	let ws: WebSocket | null = null;
@@ -1105,10 +1107,25 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 					v.telemetry = mergeTelemetry(v.telemetry, ev);
 
 					const off = spiralOffset(v.memberIndex);
-					v.pos.x = c.center.x + off.dx;
-					v.pos.y = c.center.y + off.dy;
-					v.vel.x = 0;
-					v.vel.y = 0;
+					const targetX = c.center.x + off.dx;
+					const targetY = c.center.y + off.dy;
+
+					// Animate the routing fast-path
+					routingBeams.push({
+						x: v.pos.x,
+						y: v.pos.y,
+						tx: targetX,
+						ty: targetY,
+						life: 1.0,
+						dist: distance,
+						cid: cid,
+					});
+
+					// Let the physics engine pull it to the community instead of snapping
+					// v.pos.x = targetX;
+					// v.pos.y = targetY;
+					// v.vel.x = 0;
+					// v.vel.y = 0;
 				}
 			}
 
@@ -1570,6 +1587,37 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		return [100, 180, 255];
 	}
 
+	function drawRoutingBeams() {
+		for (let i = routingBeams.length - 1; i >= 0; i--) {
+			const b = routingBeams[i];
+			b.life -= 0.02; // Fade out
+
+			if (b.life <= 0) {
+				routingBeams.splice(i, 1);
+				continue;
+			}
+
+			ctx.beginPath();
+			ctx.moveTo(b.x, b.y);
+			ctx.lineTo(b.tx, b.ty);
+			
+			// Color based on distance: green for close, red for far
+			const hue = Math.max(0, 120 - b.dist * 12);
+			ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${b.life * 0.8})`;
+			ctx.lineWidth = 2 + b.life * 2;
+			ctx.stroke();
+
+			// Draw distance text
+			if (b.life > 0.5) {
+				ctx.fillStyle = `hsla(${hue}, 100%, 70%, ${b.life})`;
+				ctx.font = "10px monospace";
+				const mx = (b.x + b.tx) / 2;
+				const my = (b.y + b.ty) / 2;
+				ctx.fillText(`dist:${b.dist}`, mx, my - 5);
+			}
+		}
+	}
+
 	function drawValues() {
 		const invZoom = 1 / camZoom;
 
@@ -2023,6 +2071,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 
 		beginWorldDraw();
 		drawEdges();
+		drawRoutingBeams();
 		drawCommunities();
 		drawValues();
 		drawPrompts();

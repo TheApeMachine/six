@@ -7,6 +7,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 type Tokenizer struct {
@@ -47,10 +48,20 @@ func (tokenizer *Tokenizer) IngestSample(
 		return nil, nil
 	}
 
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.TokenizerChunkEvent(len(sample.Text)))
+	}
+
 	segments, err := primitive.NewValue(sample.Text, sample.Label)
 
 	if err != nil {
 		return nil, errnie.Error(err)
+	}
+
+	if viz.DefaultBus.IsActive() {
+		for _, segment := range segments {
+			viz.DefaultBus.Publish(viz.TokenizerEmitEvent(segment, string(sample.Label)))
+		}
 	}
 
 	return segments, nil

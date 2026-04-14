@@ -137,10 +137,7 @@ used by AffinityFilter wrappers to decide whether a given Value frame should
 be forwarded to it.
 */
 func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity [5]uint64) {
-	conn.route = append(conn.route, ScoredPeer{
-		dst:      peer,
-		affinity: affinity,
-	})
+	conn.route.AddPeer(peer, affinity)
 }
 
 /*

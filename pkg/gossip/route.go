@@ -32,9 +32,9 @@ most productive path is tried first, creating emergent fast paths without
 explicit configuration.
 */
 type ScoredPeer struct {
-	dst      io.ReadWriteCloser
-	affinity [5]uint64
-	score    float64
+	Dst      io.ReadWriteCloser
+	Affinity [5]uint64
+	Score    float64
 }
 
 /*
@@ -50,6 +50,18 @@ successful write.
 type PriorityRoute []ScoredPeer
 
 /*
+AddPeer registers an outbound io.ReadWriteCloser peer. The peer's affinity is
+used by AffinityFilter wrappers to decide whether a given Value frame should
+be forwarded to it.
+*/
+func (route *PriorityRoute) AddPeer(peer io.ReadWriteCloser, affinity [5]uint64) {
+	*route = append(*route, ScoredPeer{
+		Dst:      peer,
+		Affinity: affinity,
+	})
+}
+
+/*
 Write serialises p to every peer in priority order. Each peer's score is
 updated after the write: success nudges the score up toward 1.0, error
 nudges it down toward 0.0. Returns the byte count of the last successful
@@ -62,13 +74,13 @@ func (route PriorityRoute) Write(p []byte) (int, error) {
 	)
 
 	for idx := range route {
-		n, err := route[idx].dst.Write(p)
+		n, err := route[idx].Dst.Write(p)
 
 		if err == nil {
-			route[idx].score += scoreAlpha * (1.0 - route[idx].score)
+			route[idx].Score += scoreAlpha * (1.0 - route[idx].Score)
 			written = n
 		} else {
-			route[idx].score += scoreAlpha * (0.0 - route[idx].score)
+			route[idx].Score += scoreAlpha * (0.0 - route[idx].Score)
 			lastErr = err
 		}
 	}
@@ -92,8 +104,8 @@ Close closes all peers in the route.
 */
 func (route PriorityRoute) Close() error {
 	for _, peer := range route {
-		if peer.dst != nil {
-			peer.dst.Close()
+		if peer.Dst != nil {
+			peer.Dst.Close()
 		}
 	}
 
@@ -109,7 +121,7 @@ func (route *PriorityRoute) Reorder() {
 	filtered := (*route)[:0]
 
 	for _, peer := range *route {
-		if peer.score >= scorePruneFloor || peer.score == 0 {
+		if peer.Score >= scorePruneFloor || peer.Score == 0 {
 			filtered = append(filtered, peer)
 		}
 	}
@@ -117,7 +129,7 @@ func (route *PriorityRoute) Reorder() {
 	*route = filtered
 
 	sort.Slice(*route, func(i, j int) bool {
-		return (*route)[i].score > (*route)[j].score
+		return (*route)[i].Score > (*route)[j].Score
 	})
 }
 

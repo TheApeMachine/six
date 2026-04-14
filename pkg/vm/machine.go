@@ -173,6 +173,8 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 	}
 
+	machine.orchestrator.Flush()
+
 	return nil
 }
 
@@ -194,6 +196,12 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.PromptEvent(string(values[0].Bytes())))
 	}
+
+	machine.orchestrator.Publish(values...)
+	machine.orchestrator.Flush()
+
+	// Clear values so we don't push them again
+	values = nil
 
 	for len(resolved) == 0 {
 		select {
@@ -217,6 +225,10 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 				}
 			}
 		}
+	}
+
+	if viz.DefaultBus.IsActive() && len(resolved) > 0 {
+		viz.DefaultBus.Publish(viz.PromptResultEvent(string(resolved[0].Bytes()), nil))
 	}
 
 	return resolved, nil

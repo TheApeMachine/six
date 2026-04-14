@@ -50,6 +50,34 @@ func (linker *Linker) Push(values ...*primitive.Value) {
 }
 
 /*
+Flush forces the remaining Values in the sliding window to be popped.
+It should be called when the stream of Values is complete.
+*/
+func (linker *Linker) Flush() (*primitive.Value, []*programmer.Asset) {
+	if len(linker.values) == 0 {
+		return nil, nil
+	}
+
+	value := linker.values[0]
+
+	assetValue := &primitive.Value{}
+	assetStart, _ := primitive.AssetRegion.WordExtent()
+
+	if linker.lastID != 0 {
+		assetValue.Set(assetStart, linker.lastID)
+	}
+
+	assets := []*programmer.Asset{
+		programmer.NewAsset(assetValue, primitive.AssetRegion),
+	}
+
+	linker.lastID = value.ID()
+	linker.values = linker.values[1:]
+
+	return value, assets
+}
+
+/*
 Pop returns the next ready Value and its linking assets.
 It returns nil if the window does not have enough Values to form a link.
 */

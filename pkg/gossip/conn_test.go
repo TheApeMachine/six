@@ -129,7 +129,7 @@ func TestConnAddPeer(t *testing.T) {
 			conn.AddPeer(peer, [5]uint64{0xFF, 0, 0, 0, 0})
 
 			So(len(conn.route), ShouldEqual, 1)
-			So(conn.route[0].dst, ShouldEqual, peer)
+			So(conn.route[0].Dst, ShouldEqual, peer)
 		})
 	})
 }

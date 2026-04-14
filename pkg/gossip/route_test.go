@@ -26,8 +26,8 @@ func TestPriorityRouteWrite(t *testing.T) {
 		peerB := NewConn(context.Background())
 
 		route := PriorityRoute{
-			{dst: peerA, affinity: [5]uint64{}, score: 0.8},
-			{dst: peerB, affinity: [5]uint64{}, score: 0.5},
+			{Dst: peerA, Affinity: [5]uint64{}, Score: 0.8},
+			{Dst: peerB, Affinity: [5]uint64{}, Score: 0.5},
 		}
 
 		frame := makeFrame(0x99)
@@ -51,13 +51,13 @@ func TestPriorityRouteWrite(t *testing.T) {
 		})
 
 		Convey("Write should nudge scores upward for peers that accepted the frame", func() {
-			initialA := route[0].score
-			initialB := route[1].score
+			initialA := route[0].Score
+			initialB := route[1].Score
 
 			route.Write(frame) //nolint:errcheck
 
-			So(route[0].score, ShouldBeGreaterThan, initialA)
-			So(route[1].score, ShouldBeGreaterThan, initialB)
+			So(route[0].Score, ShouldBeGreaterThan, initialA)
+			So(route[1].Score, ShouldBeGreaterThan, initialB)
 		})
 	})
 
@@ -75,7 +75,7 @@ func TestPriorityRouteWrite(t *testing.T) {
 
 func TestPriorityRouteRead(t *testing.T) {
 	Convey("Given a PriorityRoute", t, func() {
-		route := PriorityRoute{{dst: NewConn(context.Background())}}
+		route := PriorityRoute{{Dst: NewConn(context.Background())}}
 
 		Convey("Read should return ErrClosedPipe because PriorityRoute is outbound-only", func() {
 			n, err := route.Read(make([]byte, connFrameSize))
@@ -94,33 +94,33 @@ func TestPriorityRouteReorder(t *testing.T) {
 		peerDead := NewConn(context.Background())
 
 		route := PriorityRoute{
-			{dst: peerMid, score: 0.5},
-			{dst: peerLow, score: 0.1},
-			{dst: peerHigh, score: 0.9},
-			{dst: peerDead, score: 0.01},
+			{Dst: peerMid, Score: 0.5},
+			{Dst: peerLow, Score: 0.1},
+			{Dst: peerHigh, Score: 0.9},
+			{Dst: peerDead, Score: 0.01},
 		}
 
 		Convey("Reorder should sort peers descending by score", func() {
 			route.Reorder()
 
-			So(route[0].dst, ShouldEqual, peerHigh)
-			So(route[1].dst, ShouldEqual, peerMid)
-			So(route[2].dst, ShouldEqual, peerLow)
+			So(route[0].Dst, ShouldEqual, peerHigh)
+			So(route[1].Dst, ShouldEqual, peerMid)
+			So(route[2].Dst, ShouldEqual, peerLow)
 		})
 
 		Convey("Reorder should prune peers whose score is below scorePruneFloor", func() {
 			route.Reorder()
 
 			for _, peer := range route {
-				So(peer.score, ShouldBeGreaterThanOrEqualTo, scorePruneFloor)
+				So(peer.Score, ShouldBeGreaterThanOrEqualTo, scorePruneFloor)
 			}
 		})
 	})
 
 	Convey("Given a PriorityRoute with all zero-score peers", t, func() {
 		route := PriorityRoute{
-			{dst: NewConn(context.Background()), score: 0},
-			{dst: NewConn(context.Background()), score: 0},
+			{Dst: NewConn(context.Background()), Score: 0},
+			{Dst: NewConn(context.Background()), Score: 0},
 		}
 
 		Convey("Reorder should keep zero-score peers (they have not yet been evaluated)", func() {
@@ -137,8 +137,8 @@ func TestPriorityRouteClose(t *testing.T) {
 		peerB := NewConn(context.Background())
 
 		route := PriorityRoute{
-			{dst: peerA},
-			{dst: peerB},
+			{Dst: peerA},
+			{Dst: peerB},
 		}
 
 		Convey("Close should close all peers without error", func() {
@@ -203,7 +203,7 @@ func BenchmarkPriorityRouteWrite(b *testing.B) {
 	route := make(PriorityRoute, len(peers))
 
 	for idx, peer := range peers {
-		route[idx] = ScoredPeer{dst: peer, score: float64(idx) * 0.25}
+		route[idx] = ScoredPeer{Dst: peer, Score: float64(idx) * 0.25}
 	}
 
 	frame := makeFrame(1)

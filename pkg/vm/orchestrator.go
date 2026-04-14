@@ -2,13 +2,16 @@ package vm
 
 import (
 	"context"
+	"io"
 
 	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -23,6 +26,7 @@ type Orchestrator struct {
 	field    *geometry.Field
 	firmware *programmer.Firmware
 	linker   *Linker
+	route    gossip.PriorityRoute
 }
 
 /*
@@ -48,6 +52,11 @@ func NewOrchestrator(
 		field:    geometry.NewField(geometry.Mod65537),
 		firmware: programmer.NewFirmware(),
 		linker:   NewLinker(),
+		route:    make(gossip.PriorityRoute, 0),
+	}
+
+	if conn != nil {
+		orchestrator.route.AddPeer(conn, conn.Affinity())
 	}
 
 	if err := validate.Require(map[string]any{
@@ -112,6 +121,7 @@ func (orchestrator *Orchestrator) Cycle(
 		firmware := orchestrator.firmware.Next(value)
 
 		if firmware == "" {
+			orchestrator.routeValue(value)
 			continue
 		}
 
@@ -131,5 +141,165 @@ func (orchestrator *Orchestrator) Cycle(
 		})
 	}
 
-	return nil, nil
+	orchestrator.route.Reorder()
+
+	if _, err := orchestrator.field.Cycle(); err != nil {
+		return nil, err
+	}
+
+	active := viz.DefaultBus.IsActive()
+	epsilon := core.Cfg.System.BeliefEpsilon
+	stateIdx := core.Cfg.Value.Region.Properties.Start + int(primitive.STATE)
+
+	var resolved []*primitive.Value
+
+	for slotIndex, community := range orchestrator.field.Fields {
+		if community == nil || len(community.Values) < 2 {
+			continue
+		}
+
+		dominant := community.Dominant()
+
+		if active && dominant.Index >= 0 {
+			viz.DefaultBus.Publish(viz.EigenmodeDetected(
+				0, community.MemberCount(), dominant.Concentration,
+			))
+		}
+
+		for _, value := range community.Values {
+			if value == nil {
+				continue
+			}
+
+			affinity := value.Get(primitive.AffinityRegion)
+
+			valueID := value.ID()
+			gap := community.BeliefGap(affinity)
+
+			if active {
+				viz.DefaultBus.Publish(viz.BeliefGapEvaluatedEvent(
+					valueID, slotIndex, gap,
+				))
+			}
+
+			if gap <= epsilon {
+				(*value)[stateIdx] = uint64(primitive.RESOLVED)
+				resolved = append(resolved, value)
+
+				if active {
+					viz.DefaultBus.Publish(viz.ValueResolvedEvent(
+						valueID, slotIndex, gap,
+					))
+				}
+			}
+		}
+	}
+
+	return resolved, nil
+}
+
+/*
+Flush forces the linker to pop all remaining Values and processes them.
+*/
+func (orchestrator *Orchestrator) Flush() {
+	for {
+		value, assets := orchestrator.linker.Flush()
+
+		if value == nil {
+			break
+		}
+
+		firmware := orchestrator.firmware.Next(value)
+
+		if firmware == "" {
+			orchestrator.routeValue(value)
+			continue
+		}
+
+		if firmware != "link" {
+			assets = nil
+		}
+
+		orchestrator.queue.Submit(func() {
+			executable := programmer.NewExecutable(
+				value, firmware, assets,
+			)
+
+			executable.Compile(programmer.CPU)
+		})
+	}
+}
+
+/*
+routeValue routes a settled Value to the most appropriate community field
+using the gossip-based fast path. It wraps the PriorityRoute in an
+AffinityFilter and copies the Value. If no community accepts the Value,
+a new community is spawned and added to the route.
+*/
+func (orchestrator *Orchestrator) routeValue(value *primitive.Value) {
+	affinity := value.Get(primitive.AffinityRegion)
+	var frameAffinity [5]uint64
+	copy(frameAffinity[:], affinity)
+
+	// Try to route to an existing community in priority order
+	for _, peer := range orchestrator.route {
+		dist := geometry.AffinityHammingDistance(frameAffinity[:], peer.Affinity[:])
+		if dist <= 10 { // budget
+			// We found a community within budget. Use AffinityFilter to write it.
+			// Since we already checked the distance, we could just write directly to peer.Dst,
+			// but we'll use AffinityFilter to follow the proposal's composable I/O pattern.
+			filter := gossip.NewAffinityFilter(peer.Dst, peer.Affinity, 10)
+
+			// Value implements io.Reader, so we can use io.Copy.
+			// However, io.Copy will consume the Value's reader.
+			// Since we only want to write it once, and value.Read returns EOF after one frame, this is perfect.
+			_, _ = io.Copy(filter, value)
+
+			// Find the community ID for the visualizer
+			communityID := -1
+			for i, c := range orchestrator.field.Fields {
+				if c == peer.Dst {
+					communityID = i
+					break
+				}
+			}
+			if communityID != -1 {
+				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), communityID, dist))
+			}
+
+			return
+		}
+	}
+
+	// If no community found or all too far, create a new GF(8191) community
+	newCommunity := geometry.NewField(geometry.Mod8191)
+	newCommunity.Affinity = make([]uint64, 5)
+	copy(newCommunity.Affinity, frameAffinity[:])
+
+	// Add it to the global field's children
+	placed := false
+	communityID := -1
+	for i, c := range orchestrator.field.Fields {
+		if c == nil {
+			orchestrator.field.Fields[i] = newCommunity
+			placed = true
+			communityID = i
+			break
+		}
+	}
+	if !placed {
+		communityID = len(orchestrator.field.Fields)
+		orchestrator.field.Fields = append(orchestrator.field.Fields, newCommunity)
+	}
+
+	viz.DefaultBus.Publish(viz.CommunityCreatedEvent(communityID, frameAffinity[:]))
+
+	// Add it to our PriorityRoute
+	orchestrator.route.AddPeer(newCommunity, frameAffinity)
+
+	// Route the value to the newly created community
+	filter := gossip.NewAffinityFilter(newCommunity, frameAffinity, 10)
+	_, _ = io.Copy(filter, value)
+
+	viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), communityID, 0))
 }
