@@ -11,8 +11,8 @@ rejection rate) degrades as the substrate processes more requests.
 
 \paragraph{Results.}
 Total time: 0\,ms. Ingestion rate: 0.0\,KB/s (0 entries).
-Per-query latency declines across the sequence (mean 0.0\,ms,
-range [0.0,\,1.0]\,ms). Beam confidence: $$\mu = 0.000$, $\sigma = 0.000$, median $= 0.000$, range $[0.000,\,0.000]$, $N = 0$$.
+Per-query latency declines across the sequence (mean 1.4\,ms,
+range [0.0,\,15.0]\,ms). Beam confidence: $$\mu = 0.000$, $\sigma = 0.000$, median $= 0.000$, range $[0.000,\,0.000]$, $N = 0$$.
 Rejection rate: $\mu = 0.000$.
 
 Figure~\ref{fig:pipeline_throughput_chart} shows the latency
@@ -21,6 +21,6 @@ confidence under load (bottom-left), and substrate pressure signals
 (bottom-right).
 
 \paragraph{Assessment.}
-Latency decreases over the sequence (mean 0.0\,ms)—cache warming
+Latency decreases over the sequence (mean 1.4\,ms)—cache warming
 or branch prediction improvement under sustained load. The pipeline
 gets faster with repeated queries at this corpus size.

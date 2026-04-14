@@ -3,155 +3,140 @@ package programmer
 import (
 	"testing"
 
+	"github.com/theapemachine/six/pkg/primitive"
+
 	. "github.com/smartystreets/goconvey/convey"
 )
 
-func TestParse(t *testing.T) {
-	Convey("Parse should accept programs block syntax from config.yml", t, func() {
-		src := `tokens[0,2] tokens[2,2] signals[0,1] xor accumulate
-tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
-affinity[0,5] affinity[0,5] affinity[4,1] xor reduce
-`
-		toks, cont, err := NewParser(NewProgram(src)).Parse()
+/*
+TestNewParser checks parser wiring to a Program instance.
+*/
+func TestNewParser(t *testing.T) {
+	Convey("Given a program with one operation line", t, func() {
+		source := "tokens tokens signals xor accumulate\n"
+		program := NewProgram(source)
+		parser := NewParser(program)
 
-		So(err, ShouldBeNil)
-		So(cont, ShouldBeNil)
-		So(len(toks), ShouldEqual, 3)
-		So(toks[0].SrcA, ShouldEqual, "tokens[0,2]")
-		So(toks[0].SrcARef.Name, ShouldEqual, "tokens")
-		So(toks[0].SrcARef.Start, ShouldEqual, 0)
-		So(toks[0].SrcARef.Span, ShouldEqual, 2)
-		So(toks[0].DstRef.Name, ShouldEqual, "signals")
-		So(toks[0].DstRef.Span, ShouldEqual, 1)
-		So(toks[0].ModeBit, ShouldEqual, ModeAccumulate)
-		So(toks[2].ModeBit, ShouldEqual, ModeReduce)
-	})
-
-	Convey("Parse should accept comment lines and inline trailing comments", t, func() {
-		src := `# leading comment
-tokens[0,1] tokens[1,1] signals[0,1] xor accumulate # trailing comment
-# mid comment
-tokens[0,1] tokens[1,1] signals[0,1] and reduce
-`
-		toks, _, err := NewParser(NewProgram(src)).Parse()
-
-		So(err, ShouldBeNil)
-		So(len(toks), ShouldEqual, 2)
-	})
-
-	Convey("Parse should accept trailing next line", t, func() {
-		src := `tokens[0,1] tokens[1,1] signals[0,1] xor accumulate
-next 42
-`
-		toks, cont, err := NewParser(NewProgram(src)).Parse()
-
-		So(err, ShouldBeNil)
-		So(len(toks), ShouldEqual, 1)
-		So(cont, ShouldNotBeNil)
-		So(cont.Kind, ShouldEqual, ContinuationValueID)
-		So(cont.ValueID, ShouldEqual, 42)
-	})
-
-	Convey("Parse should accept next self", t, func() {
-		src := `tokens[0,1] tokens[1,1] signals[0,1] xor accumulate
-next self
-`
-		_, cont, err := NewParser(NewProgram(src)).Parse()
-
-		So(err, ShouldBeNil)
-		So(cont.Kind, ShouldEqual, ContinuationSelf)
-	})
-
-	Convey("Parse should reject duplicate next", t, func() {
-		src := `tokens[0,1] tokens[1,1] signals[0,1] xor accumulate
-next 1
-next 2
-`
-		_, _, err := NewParser(NewProgram(src)).Parse()
-
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Parse should reject op after next", t, func() {
-		src := `next 1
-tokens[0,1] tokens[1,1] signals[0,1] xor accumulate
-`
-		_, _, err := NewParser(NewProgram(src)).Parse()
-
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Parse should reject wrong field count", t, func() {
-		_, _, err := NewParser(NewProgram("tokens[0,1] signals[0,1] xor accumulate")).Parse()
-
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Parse should reject invalid region ref", t, func() {
-		_, _, err := NewParser(NewProgram("badref signals[0,1] signals[0,1] xor accumulate")).Parse()
-
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Parse should reject unknown op", t, func() {
-		_, _, err := NewParser(NewProgram("tokens[0,1] tokens[1,1] signals[0,1] mystery accumulate")).Parse()
-
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Parse should reject unknown execution mode", t, func() {
-		_, _, err := NewParser(NewProgram("tokens[0,1] tokens[1,1] signals[0,1] xor wishful")).Parse()
-
-		So(err, ShouldNotBeNil)
-	})
-
-	Convey("Parse should reject region ref that overflows its region", t, func() {
-		_, _, err := NewParser(NewProgram("tokens[0,64] tokens[0,1] signals[0,1] xor accumulate")).Parse()
-
-		So(err, ShouldNotBeNil)
+		Convey("NewParser should keep the program reference", func() {
+			So(parser, ShouldNotBeNil)
+			So(parser.program, ShouldEqual, program)
+		})
 	})
 }
 
-func TestParser_validateOperationMnemonic(t *testing.T) {
-	Convey("Given a Parser", t, func() {
-		parser := &Parser{}
+/*
+TestParser_Parse maps five fields per line onto Token fields using RegionNames.
+*/
+func TestParser_Parse(t *testing.T) {
+	Convey("Given a program with a xor accumulate line", t, func() {
+		source := "tokens tokens signals xor accumulate\n"
+		program := NewProgram(source)
+		parser := NewParser(program)
 
-		Convey("validateOperationMnemonic should accept truth-table ops", func() {
-			So(parser.validateOperationMnemonic("xor"), ShouldBeNil)
-			So(parser.validateOperationMnemonic("NAND"), ShouldBeNil)
+		Convey("Parse should yield one token with matching regions and op", func() {
+			tokens := parser.Parse()
+
+			So(len(tokens), ShouldEqual, 1)
+			So(tokens[0].SrcA, ShouldEqual, primitive.TokenRegion)
+			So(tokens[0].SrcB, ShouldEqual, primitive.TokenRegion)
+			So(tokens[0].Dst, ShouldEqual, primitive.SignalsRegion)
+			So(tokens[0].Op, ShouldEqual, XOR)
+			So(tokens[0].Mode, ShouldEqual, ModeAccumulate)
 		})
+	})
 
-		Convey("validateOperationMnemonic should accept popcount before lowering", func() {
-			So(parser.validateOperationMnemonic("popcount"), ShouldBeNil)
+	Convey("Given a program with a comment line", t, func() {
+		source := "# header comment\ncontext context gradient or reduce\n"
+		program := NewProgram(source)
+		parser := NewParser(program)
+
+		Convey("Parse should skip comment lines", func() {
+			tokens := parser.Parse()
+
+			So(len(tokens), ShouldEqual, 1)
+			So(tokens[0].Op, ShouldEqual, OR)
+			So(tokens[0].Mode, ShouldEqual, ModeReduce)
+		})
+	})
+}
+
+/*
+TestParser_validateOperationMnemonic gates allowed surface op spellings.
+*/
+func TestParser_validateOperationMnemonic(t *testing.T) {
+	Convey("Given a Parser receiver", t, func() {
+		var parser Parser
+
+		Convey("validateOperationMnemonic should accept xor", func() {
+			So(parser.validateOperationMnemonic("xor"), ShouldBeNil)
 		})
 
 		Convey("validateOperationMnemonic should reject unknown ops", func() {
-			So(parser.validateOperationMnemonic("mystery"), ShouldNotBeNil)
+			err := parser.validateOperationMnemonic("not_a_real_op")
+
+			So(err, ShouldNotBeNil)
 		})
 	})
 }
 
-func BenchmarkParse(b *testing.B) {
-	src := `tokens[0,16] affinity[0,5] signals[0,1] and reduce
-tokens[0,16] affinity[0,5] signals[1,1] or reduce
-`
-	program := NewProgram(src)
+/*
+TestParser_parseOperationType maps keywords to OperationType values.
+*/
+func TestParser_parseOperationType(t *testing.T) {
+	Convey("Given a Parser receiver", t, func() {
+		var parser Parser
 
+		Convey("parseOperationType should map xor to XOR", func() {
+			So(parser.parseOperationType("xor"), ShouldEqual, XOR)
+		})
+
+		Convey("parseOperationType should default unknown ops to FALSE", func() {
+			So(parser.parseOperationType("typo"), ShouldEqual, FALSE)
+		})
+	})
+}
+
+/*
+TestParser_parseExecutionMode maps mode keywords onto ExecutionMode.
+*/
+func TestParser_parseExecutionMode(t *testing.T) {
+	Convey("Given a Parser receiver", t, func() {
+		var parser Parser
+
+		Convey("parseExecutionMode should map accumulate correctly", func() {
+			So(parser.parseExecutionMode("accumulate"), ShouldEqual, ModeAccumulate)
+		})
+
+		Convey("parseExecutionMode should map reduce correctly", func() {
+			So(parser.parseExecutionMode("reduce"), ShouldEqual, ModeReduce)
+		})
+
+		Convey("parseExecutionMode should default unknown modes to accumulate", func() {
+			So(parser.parseExecutionMode("unknown"), ShouldEqual, ModeAccumulate)
+		})
+	})
+}
+
+func BenchmarkParser_Parse(b *testing.B) {
+	source := "tokens tokens signals xor accumulate\ncontext context gradient or reduce\n"
+	program := NewProgram(source)
+	parser := NewParser(program)
+
+	b.ReportAllocs()
 	b.ResetTimer()
 
-	for range b.N {
-		parser := NewParser(program)
-		program.ResetParseState()
-		_, _, _ = parser.Parse()
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = parser.Parse()
 	}
 }
 
-func BenchmarkParser_validateOperationMnemonic(b *testing.B) {
-	parser := &Parser{}
+func BenchmarkParser_parseOperationType(b *testing.B) {
+	var parser Parser
 
+	b.ReportAllocs()
 	b.ResetTimer()
 
-	for range b.N {
-		_ = parser.validateOperationMnemonic("xor")
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = parser.parseOperationType("xor")
 	}
 }

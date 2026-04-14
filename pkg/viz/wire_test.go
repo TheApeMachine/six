@@ -18,7 +18,7 @@ func TestMarshalWireEventRoundTrip(t *testing.T) {
 		want.Meta["graph"] = `{"edges":[],"vertices":[]}`
 
 		raw := MarshalWireEvent(want)
-		ft, got, _, _, _, err := UnmarshalWireMessage(raw)
+		ft, got, _, _, _, _, _, err := UnmarshalWireMessage(raw)
 		So(err, ShouldBeNil)
 		So(ft, ShouldEqual, WireFrameEvent)
 		So(got.Kind, ShouldEqual, want.Kind)
@@ -34,7 +34,7 @@ func TestMarshalWireEventRoundTrip(t *testing.T) {
 func TestMarshalWireBootstrapScrubStats(t *testing.T) {
 	Convey("bootstrap", t, func() {
 		raw := MarshalWireBootstrap([]string{"node_a", "node_b"})
-		ft, _, nodes, _, _, err := UnmarshalWireMessage(raw)
+		ft, _, nodes, _, _, _, _, err := UnmarshalWireMessage(raw)
 		So(err, ShouldBeNil)
 		So(ft, ShouldEqual, WireFrameBootstrap)
 		So(nodes, ShouldResemble, []string{"node_a", "node_b"})
@@ -42,7 +42,7 @@ func TestMarshalWireBootstrapScrubStats(t *testing.T) {
 
 	Convey("stats", t, func() {
 		raw := MarshalWireStats(4242)
-		ft, _, _, d, _, err := UnmarshalWireMessage(raw)
+		ft, _, _, d, _, _, _, err := UnmarshalWireMessage(raw)
 		So(err, ShouldBeNil)
 		So(ft, ShouldEqual, WireFrameStats)
 		So(d, ShouldEqual, 4242)
@@ -55,7 +55,7 @@ func TestMarshalWireBootstrapScrubStats(t *testing.T) {
 		b.Target = "node_y"
 		b.Values["latency_ms"] = 1.25
 		raw := MarshalWireScrub([]Event{a, b})
-		ft, _, _, _, scrub, err := UnmarshalWireMessage(raw)
+		ft, _, _, _, scrub, _, _, err := UnmarshalWireMessage(raw)
 		So(err, ShouldBeNil)
 		So(ft, ShouldEqual, WireFrameScrub)
 		So(len(scrub), ShouldEqual, 2)
@@ -63,6 +63,19 @@ func TestMarshalWireBootstrapScrubStats(t *testing.T) {
 		So(scrub[0].Label, ShouldEqual, "n1")
 		So(scrub[1].Kind, ShouldEqual, EventPeerLatency)
 		So(scrub[1].Values["latency_ms"], ShouldAlmostEqual, 1.25, 1e-9)
+	})
+}
+
+func TestMarshalWireValueFrameRoundTrip(t *testing.T) {
+	Convey("raw Value frame round-trips", t, func() {
+		payload := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
+		const wantID = uint64(0xdeadbeefbaadc0de)
+		raw := MarshalWireValueFrame(wantID, payload)
+		ft, _, _, _, _, vid, blob, err := UnmarshalWireMessage(raw)
+		So(err, ShouldBeNil)
+		So(ft, ShouldEqual, WireFrameValue)
+		So(vid, ShouldEqual, wantID)
+		So(blob, ShouldResemble, payload)
 	})
 }
 

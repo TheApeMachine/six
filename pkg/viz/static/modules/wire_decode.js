@@ -13,6 +13,7 @@ export const WireFrame = {
   Stats: 3,
   Scrub: 4,
   JSONBlob: 5,
+  Value: 6,
 };
 
 const textDecoder = new TextDecoder();
@@ -163,6 +164,19 @@ export function decodeVizMessage(u8) {
     if (off !== u8.length) throw new Error('wire: json trailing');
     const text = textDecoder.decode(jsonBytes);
     return { frameType: 'json', text };
+  }
+
+  if (frameType === WireFrame.Value) {
+    if (off0 + 8 + 4 > u8.length) throw new Error('wire: value header');
+    const valueId = dv.getBigUint64(off0, true);
+    let off = off0 + 8;
+    const blen = dv.getUint32(off, true);
+    off += 4;
+    if (off + blen > u8.length) throw new Error('wire: value body');
+    const bytes = u8.subarray(off, off + blen);
+    off += blen;
+    if (off !== u8.length) throw new Error('wire: value trailing');
+    return { frameType: 'value', valueId, bytes };
   }
 
   throw new Error(`wire: unknown frame type ${frameType}`);

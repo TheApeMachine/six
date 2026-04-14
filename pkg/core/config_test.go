@@ -52,6 +52,23 @@ func TestMain(m *testing.M) {
 
 func TestNewConfig(t *testing.T) {
 	Convey("NewConfig", t, func() {
+		Convey("When NewConfig merges viper after TestMain loaded cmd/cfg/config.yml", func() {
+			cfg := NewConfig()
+
+			Convey("It should decode value.rules as an ordered list with typed conditions", func() {
+				rules := cfg.Value.Rules
+
+				So(len(rules), ShouldBeGreaterThan, 0)
+				So(rules[0].Name, ShouldEqual, "affinity")
+				So(rules[0].Firmware, ShouldEqual, "affinity")
+
+				affinityWant, ok := rules[0].Conditions["affinity"]
+
+				So(ok, ShouldBeTrue)
+				So(affinityWant, ShouldEqual, false)
+			})
+		})
+
 		Convey("loads telemetry settings from viper", func() {
 			viper.Set("telemetry.enabled", true)
 			viper.Set("telemetry.udp_endpoint", "127.0.0.1:9191")
@@ -82,6 +99,38 @@ func TestValueRegionConfigMaxTokenIngestBytes(t *testing.T) {
 			So(small.MaxTokenIngestBytes(), ShouldEqual, 1)
 		})
 	})
+}
+
+func TestValueOffsetConfig_WordExtent(t *testing.T) {
+	Convey("Given a ValueOffsetConfig", t, func() {
+		Convey("It should return start and ceil(Bits/64) words", func() {
+			cfg := ValueOffsetConfig{Start: 16, Bits: 512}
+
+			start, words := cfg.WordExtent()
+
+			So(start, ShouldEqual, 16)
+			So(words, ShouldEqual, 8)
+		})
+
+		Convey("It should round partial words up", func() {
+			cfg := ValueOffsetConfig{Start: 0, Bits: 257}
+
+			_, words := cfg.WordExtent()
+
+			So(words, ShouldEqual, 5)
+		})
+	})
+}
+
+func BenchmarkValueOffsetConfig_WordExtent(b *testing.B) {
+	cfg := ValueOffsetConfig{Start: 16, Bits: 512}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_, _ = cfg.WordExtent()
+	}
 }
 
 func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {

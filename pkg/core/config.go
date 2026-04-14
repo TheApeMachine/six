@@ -78,6 +78,18 @@ type ValueConfig struct {
 	NumRotations int                `mapstructure:"num_rotations"`
 	Region       ValueRegionConfig  `mapstructure:"region"`
 	Opcodes      ValueOpcodesConfig `mapstructure:"opcodes"`
+	Rules        []ValueRulesConfig `mapstructure:"rules"`
+}
+
+/*
+ValueRulesConfig is one row in value.rules: AND over conditions, then select
+Firmware (a key in programs:). Condition values are compared as booleans or
+strings ("true"/"false") so YAML may use unquoted true/false.
+*/
+type ValueRulesConfig struct {
+	Name       string         `mapstructure:"name"`
+	Conditions map[string]any `mapstructure:"conditions"`
+	Firmware   string         `mapstructure:"firmware"`
 }
 
 /*
@@ -91,7 +103,7 @@ Layout (128 uint64 words = 1 KiB):
 	Context:    words  32–39  (512 bits)
 	Gradient:   words  40–47  (512 bits)
 	Properties: words  48–55  (512 bits; canonical property / forward-transition band)
-	Reserved:   words 56–117
+	Asset:      words 56–117  (4096 bits; scratch + bundled program payload; see programmer.Asset)
 	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
 	Next:     word  121
@@ -105,6 +117,7 @@ type ValueRegionConfig struct {
 	Context    ValueOffsetConfig `mapstructure:"context"`
 	Gradient   ValueOffsetConfig `mapstructure:"gradient"`
 	Properties ValueOffsetConfig `mapstructure:"properties"`
+	Asset      ValueOffsetConfig `mapstructure:"asset"`
 	Prev       ValueOffsetConfig `mapstructure:"prev"`
 	Next       ValueOffsetConfig `mapstructure:"next"`
 	ID         ValueOffsetConfig `mapstructure:"id"`
@@ -133,6 +146,15 @@ for a Value's offset.
 type ValueOffsetConfig struct {
 	Start int    `mapstructure:"start"`
 	Bits  uint64 `mapstructure:"bits"`
+}
+
+/*
+WordExtent returns the absolute uint64 word index where the region begins and
+how many words cover Bits (rounded up). Region slices and ALU operand packing
+both use this shape.
+*/
+func (cfg ValueOffsetConfig) WordExtent() (start int, words int) {
+	return cfg.Start, int((cfg.Bits + 63) / 64)
 }
 
 /*
@@ -225,6 +247,10 @@ func NewConfig() *Config {
 					Start: WithDefault(viper.GetInt("value.region.properties.start"), 48),
 					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 512),
 				},
+				Asset: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.asset.start"), 56),
+					Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 4096),
+				},
 				Prev: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
 					Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
@@ -260,6 +286,7 @@ func NewConfig() *Config {
 				NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
 				TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
 			},
+			Rules: loadValueRules(),
 		},
 		TelemetryEnabled:               WithDefault(viper.GetBool("telemetry.enabled"), false),
 		TelemetryEndpoint:              WithDefault(viper.GetString("telemetry.udp_endpoint"), ""),
@@ -272,6 +299,24 @@ func NewConfig() *Config {
 	}
 
 	return Cfg
+}
+
+/*
+loadValueRules unmarshals the value.rules sequence from config (ordered list
+of {name, conditions, firmware}). Empty or missing block yields nil.
+*/
+func loadValueRules() []ValueRulesConfig {
+	if !viper.IsSet("value.rules") {
+		return nil
+	}
+
+	var out []ValueRulesConfig
+
+	if err := viper.UnmarshalKey("value.rules", &out); err != nil {
+		return nil
+	}
+
+	return out
 }
 
 /*

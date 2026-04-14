@@ -524,7 +524,9 @@ export function FieldViewer({ className }: FieldViewerProps) {
 					actionResonance: found.actionResonance,
 					prevId: found.prevId,
 					nextId: found.nextId,
-					telemetry: null,
+					communityAffinityHex: found.communityAffinityHex,
+					wireFrame: found.wireFrame ?? null,
+					telemetry: found.telemetry,
 				});
 			}
 
@@ -565,7 +567,9 @@ export function FieldViewer({ className }: FieldViewerProps) {
 					actionResonance: found.actionResonance,
 					prevId: found.prevId,
 					nextId: found.nextId,
-					telemetry: null,
+					communityAffinityHex: found.communityAffinityHex,
+					wireFrame: found.wireFrame ?? null,
+					telemetry: found.telemetry,
 				});
 				setZoomLevel("telemetry");
 			}
@@ -592,7 +596,9 @@ export function FieldViewer({ className }: FieldViewerProps) {
 			actionResonance: member.actionResonance,
 			prevId: member.prevId,
 			nextId: member.nextId,
-			telemetry: null,
+			communityAffinityHex: member.communityAffinityHex,
+			wireFrame: member.wireFrame ?? null,
+			telemetry: member.telemetry,
 		});
 		setZoomLevel("telemetry");
 		setSelectedField(null);
@@ -1068,19 +1074,19 @@ function SidebarPreview({
 				<span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
 					{snap.role}
 				</span>
-				{snap.program &&
+				{(snap.program || snap.role === "data") &&
 					(onSelectProgram ? (
 						<button
 							type="button"
-							onClick={() => onSelectProgram(snap.program)}
+							onClick={() => onSelectProgram(snap.program || "affinity")}
 							className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors cursor-pointer border-0"
 							title="View program circuit"
 						>
-							{snap.program} ↗
+							{snap.program || "affinity"} ↗
 						</button>
 					) : (
 						<span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
-							{snap.program}
+							{snap.program || "affinity"}
 						</span>
 					))}
 				{snap.communityId >= 0 && (
@@ -1089,7 +1095,11 @@ function SidebarPreview({
 					</span>
 				)}
 			</div>
-			<p className="text-[9px] text-muted-foreground/50 break-all">{snap.id}</p>
+			<p className="text-[9px] text-muted-foreground/50 break-all">
+				{/^[0-9a-fA-F]+$/.test(snap.id) && snap.id.length <= 16
+					? snap.id.padStart(16, "0")
+					: snap.id}
+			</p>
 			{snap.content && (
 				<p className="text-sky-200/70 break-all leading-relaxed">
 					&ldquo;{snap.content.substring(0, 80)}

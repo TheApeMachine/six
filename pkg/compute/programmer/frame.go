@@ -9,8 +9,7 @@ import (
 Frame is one compiled chunk sized to fit a single Value program region.
 
 Program holds the bits written into value.region.program. Scheduling metadata
-(word 117, next program ValueID) is applied by Executable after Values exist,
-not inside this struct.
+(word 117) is applied by WriteFrames / Installer after program words are laid down.
 */
 type Frame struct {
 	Program [64]uint64

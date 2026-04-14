@@ -25,9 +25,9 @@
   "name": "reconstruction",
   "outcome": {
     "actual": 0.0016581428404956263,
-    "message": "Expected '0.0016581428404956263' to be greater than or equal to '0.004381073868335406' (but it wasn't)!",
+    "message": "Expected '0.0016581428404956263' to be greater than or equal to '0.004615072199201392' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.004381073868335406
+    "threshold": 0.004615072199201392
   },
   "results": [
     {

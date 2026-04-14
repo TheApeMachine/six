@@ -96,7 +96,7 @@ func applyVizLayoutQueue(ev *Event, inflight int64, valueID uint64) {
 		band = 0.82
 	}
 
-	applyVizLayout(ev, "queue", band, strconv.FormatUint(valueID, 16))
+	applyVizLayout(ev, "queue", band, FormatValueIDHex(valueID))
 }
 
 func applyVizLayoutCommunity(ev *Event, communityID int, suffix string) {

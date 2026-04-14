@@ -21,8 +21,10 @@ import (
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 )
 
@@ -86,36 +88,52 @@ func pipelineExperimentRowCount(experiment tools.PipelineExperiment) (int, bool)
 	return len(rows), true
 }
 
-func promptResolutionRow(
+func promptExperimentRow(
 	idx int,
 	prompt string,
 	holdout []byte,
-	resolution *vm.PromptResolution,
+	segments []*primitive.Value,
+	cycleResolved []*primitive.Value,
 	classLabels []string,
 ) tools.ExperimentalData {
+	var primary *primitive.Value
+
+	executionSettled := false
+	reasoningResolved := false
+
+	if len(cycleResolved) > 0 && cycleResolved[0] != nil {
+		primary = cycleResolved[0]
+		executionSettled = true
+		reasoningResolved = true
+	}
+
+	if primary == nil && len(segments) > 0 && segments[0] != nil {
+		primary = segments[0]
+		executionSettled = true
+	}
+
 	row := tools.ExperimentalData{
 		Idx:               idx,
 		Name:              fmt.Sprintf("prompt_%d", idx),
 		Prefix:            []byte(prompt),
 		Holdout:           append([]byte(nil), holdout...),
-		PropertiesWord:    resolution.PropertiesWord,
-		ProbeState:        resolution.ProbeState,
-		ProbeDepth:        resolution.ProbeDepth,
-		ExecutionSettled:  resolution.ExecutionSettled,
-		ReasoningResolved: resolution.ReasoningResolved,
-		HaltedByCeiling:   resolution.HaltedByCeiling,
+		ExecutionSettled:  executionSettled,
+		ReasoningResolved: reasoningResolved,
 	}
 
-	if resolution != nil {
-		row.Generation = []byte(resolution.Generation)
+	if primary != nil {
+		row.PropertiesWord = (*primary)[kernel.PropertiesStartWord]
+		row.ProbeState = (*primary)[kernel.PropertiesProbeStateWord]
+		row.ProbeDepth = (*primary)[kernel.PropertiesProbeDepthWord]
+		row.Generation = []byte(primary.String())
 	}
 
-	if len(classLabels) == 0 || resolution == nil {
+	if len(classLabels) == 0 || primary == nil {
 		return row
 	}
 
 	classIdx, ok := kernel.PrimaryClassFromPropertiesWord(
-		resolution.PropertiesWord,
+		row.PropertiesWord,
 		len(classLabels),
 	)
 	if !ok {
@@ -254,14 +272,26 @@ func TestPipeline(t *testing.T) {
 						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
 						// Same ingress program as corpus load (affinity fold). Scores use Properties plus
 						// Morton chain readout (README: Values carry state; PrevID/NextID encode structure).
-						resolution, promptErr := machine.PromptWithResolution(prompt, "affinity")
-
-						if promptErr != nil {
-							t.Fatalf("prompt %d: %v", idx, promptErr)
+						segments, segErr := primitive.NewValue([]byte(prompt))
+						if segErr != nil {
+							t.Fatalf("prompt %d: NewValue: %v", idx, segErr)
 						}
 
-						if resolution == nil || resolution.Value == nil {
-							t.Fatalf("prompt %d: nil resolution", idx)
+						if len(segments) == 0 {
+							t.Fatalf("prompt %d: empty segments", idx)
+						}
+
+						installer := programmer.Installer{}
+
+						for _, seg := range segments {
+							if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {
+								t.Fatalf("prompt %d: InstallProgram: %v", idx, installErr)
+							}
+						}
+
+						cycleResolved, promptErr := machine.Prompt(segments...)
+						if promptErr != nil {
+							t.Fatalf("prompt %d: %v", idx, promptErr)
 						}
 
 						classLabels := []string(nil)
@@ -272,7 +302,7 @@ func TestPipeline(t *testing.T) {
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.
 						pipeline.experiment.AddResult(
-							promptResolutionRow(idx, prompt, holdoutBytes, resolution, classLabels),
+							promptExperimentRow(idx, prompt, holdoutBytes, segments, cycleResolved, classLabels),
 						)
 
 						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)

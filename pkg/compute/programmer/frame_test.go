@@ -3,64 +3,70 @@ package programmer
 import (
 	"testing"
 
-	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
+
+	. "github.com/smartystreets/goconvey/convey"
 )
 
+/*
+TestFrame_writeIntoProgramRegion checks that lowered words land in the Value program slab.
+*/
 func TestFrame_writeIntoProgramRegion(t *testing.T) {
-	original := *core.Cfg
-	t.Cleanup(func() {
-		*core.Cfg = original
-	})
+	Convey("Given a minted Value and a frame with a marked program word", t, func() {
+		values, err := primitive.NewValue([]byte("frame write"))
 
-	Convey("Given a Frame with program words and a Value", t, func() {
-		start := core.Cfg.Value.Region.Program.Start
+		So(err, ShouldBeNil)
+		So(len(values), ShouldBeGreaterThan, 0)
+
+		value := values[0]
+
 		var frame Frame
-		frame.Program[0] = 0x6
-		frame.Program[1] = 0x6666666666666666
+		mark := uint64(0xC0FFEE)
+		frame.Program[0] = mark
 
-		var value primitive.Value
+		Convey("writeIntoProgramRegion should copy into the configured program words", func() {
+			frame.writeIntoProgramRegion(value)
 
-		Convey("writeIntoProgramRegion should copy into the configured program band", func() {
-			frame.writeIntoProgramRegion(&value)
+			start := core.Cfg.Value.Region.Program.Start
 
-			So(value[start+0], ShouldEqual, frame.Program[0])
-			So(value[start+1], ShouldEqual, frame.Program[1])
+			So((*value)[start], ShouldEqual, mark)
+		})
+
+		Reset(func() {
+			value.Close()
 		})
 	})
 
-	Convey("Given a nil Frame", t, func() {
-		var value primitive.Value
-
-		Convey("writeIntoProgramRegion should not panic", func() {
-			var frame *Frame
-			frame.writeIntoProgramRegion(&value)
-		})
-	})
-
-	Convey("Given a nil Value", t, func() {
+	Convey("Given nil frame or nil value", t, func() {
+		var nilFrame *Frame
+		var nilValue *primitive.Value
 		var frame Frame
 
 		Convey("writeIntoProgramRegion should not panic", func() {
-			frame.writeIntoProgramRegion(nil)
+			nilFrame.writeIntoProgramRegion(&primitive.Value{})
+			frame.writeIntoProgramRegion(nilValue)
 		})
 	})
 }
 
 func BenchmarkFrame_writeIntoProgramRegion(b *testing.B) {
-	original := *core.Cfg
-	b.Cleanup(func() {
-		*core.Cfg = original
-	})
+	values, err := primitive.NewValue([]byte("bench frame"))
+
+	if err != nil || len(values) == 0 {
+		b.Fatal(err)
+	}
+
+	value := values[0]
+	defer value.Close()
 
 	var frame Frame
-	frame.Program[0] = 0xF
-	var value primitive.Value
+	frame.Program[0] = 1
 
+	b.ReportAllocs()
 	b.ResetTimer()
 
-	for range b.N {
-		frame.writeIntoProgramRegion(&value)
+	for iteration := 0; iteration < b.N; iteration++ {
+		frame.writeIntoProgramRegion(value)
 	}
 }

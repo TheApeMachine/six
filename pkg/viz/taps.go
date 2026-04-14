@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -274,20 +276,24 @@ func PoolScheduleEvent(action string, queueSize, workers int, valueID uint64) Ev
 	ev := NewEvent(EventPoolSchedule, "pool")
 	ev.Label = action
 	ev.Values = map[string]float64{
+		"inflight":   float64(queueSize),
 		"queue_size": float64(queueSize),
 		"workers":    float64(workers),
 	}
-	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
-	applyVizLayout(&ev, "pool_schedule", vizBandPool, fmt.Sprintf("%s|%s", action, strconv.FormatUint(valueID, 16)))
+	ev.Meta = map[string]string{"value_id": FormatValueIDHex(valueID)}
+	applyVizLayout(&ev, "pool_schedule", vizBandPool, fmt.Sprintf("%s|%s", action, FormatValueIDHex(valueID)))
 	return ev
 }
 
-func PoolCompleteEvent(action string, durationMs int, valueID uint64) Event {
+func PoolCompleteEvent(action string, durationNanos int64, valueID uint64) Event {
 	ev := NewEvent(EventPoolComplete, "pool")
 	ev.Label = action
-	ev.Values = map[string]float64{"duration_ms": float64(durationMs)}
-	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
-	applyVizLayout(&ev, "pool_complete", vizBandPool, fmt.Sprintf("%s|%s|%d", action, strconv.FormatUint(valueID, 16), durationMs))
+	ev.Values = map[string]float64{
+		"duration_ms": float64(durationNanos) / 1_000_000.0,
+		"duration_ns": float64(durationNanos),
+	}
+	ev.Meta = map[string]string{"value_id": FormatValueIDHex(valueID)}
+	applyVizLayout(&ev, "pool_complete", vizBandPool, fmt.Sprintf("%s|%s|%d", action, FormatValueIDHex(valueID), durationNanos))
 	return ev
 }
 
@@ -330,22 +336,24 @@ func CompilerCompileEvent(
 
 /*
 ALUDispatchEvent records substrate execution after the frame opcode is fixed.
-durationMs matches PoolComplete for the same dispatch when both fire.
+durationNanos matches PoolComplete for the same dispatch when both fire.
 */
-func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, durationMs int, valueID uint64) Event {
+func ALUDispatchEvent(substrateName string, opcode uint8, correlation uint64, durationNanos int64, valueID uint64) Event {
 	ev := NewEvent(EventALUDispatch, "compute")
 	ev.Label = substrateName
 	ev.Values = map[string]float64{
 		"opcode":      float64(opcode),
-		"duration_ms": float64(durationMs),
+		"duration_ms": float64(durationNanos) / 1_000_000.0,
+		"duration_ns": float64(durationNanos),
 	}
+	ev.Meta["substrate"] = substrateName
 
 	if correlation != 0 {
 		ev.Meta["correlation"] = strconv.FormatUint(correlation, 10)
 	}
-	ev.Meta["value_id"] = strconv.FormatUint(valueID, 16)
+	ev.Meta["value_id"] = FormatValueIDHex(valueID)
 
-	applyVizLayout(&ev, "alu", vizBandCompute, fmt.Sprintf("%s|%d|%s", substrateName, opcode, strconv.FormatUint(valueID, 16)))
+	applyVizLayout(&ev, "alu", vizBandCompute, fmt.Sprintf("%s|%d|%s", substrateName, opcode, FormatValueIDHex(valueID)))
 
 	return ev
 }
@@ -441,18 +449,30 @@ func TokenizerChunkEvent(bytesWritten int) Event {
 }
 
 /*
-TokenizerEmitEvent fires when the tokenizer mints a new Value from a
-drained chunk and publishes it downstream.
+TokenizerEmitEvent fires after InstallProgram has stamped the affinity firmware
+on the Value so meta carries program name and the live affinity-region words.
 */
-func TokenizerEmitEvent(valueID uint64, label string, tokenContent string) Event {
+func TokenizerEmitEvent(seg *primitive.Value, label string) Event {
 	ev := NewEvent(EventTokenizerEmit, "tokenizer")
+
+	if seg == nil {
+		return ev
+	}
+
 	ev.Label = label
-	vidHex := strconv.FormatUint(valueID, 16)
+	vidHex := FormatValueIDHex(seg.ID())
+	tokenContent := truncate(seg.String(), 128)
+
 	ev.Meta = map[string]string{
 		"value_id": vidHex,
-		"content":  truncate(tokenContent, 128),
+		"content":  tokenContent,
+		"program":  "affinity",
 	}
+
+	ev.Meta["affinity"] = AffinityHexFromFrame(seg)
+
 	applyVizLayout(&ev, "tokenizer_emit", vizBandTokenizerVal, fmt.Sprintf("%s|%s", vidHex, label))
+
 	return ev
 }
 
@@ -463,9 +483,17 @@ func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content st
 	ev := NewEvent(EventQueueSubmit, "queue")
 	ev.Label = truncate(content, 128)
 	ev.Values["inflight"] = float64(inflight)
-	ev.Meta["value_id"] = strconv.FormatUint(valueID, 16)
-	ev.Meta["prev_id"] = strconv.FormatUint(prevID, 16)
-	ev.Meta["next_id"] = strconv.FormatUint(nextID, 16)
+	ev.Meta["value_id"] = FormatValueIDHex(valueID)
+	ev.Meta["program"] = "affinity"
+
+	if prevID != 0 {
+		ev.Meta["prev_id"] = FormatValueIDHex(prevID)
+	}
+
+	if nextID != 0 {
+		ev.Meta["next_id"] = FormatValueIDHex(nextID)
+	}
+
 	applyVizLayoutQueue(&ev, inflight, valueID)
 	return ev
 }
@@ -479,23 +507,23 @@ func CausalHubProbeEvent(valueID uint64, prefixStart, prefixWords int, mask uint
 		"depth":        float64(depth),
 	}
 	ev.Meta = map[string]string{
-		"value_id": strconv.FormatUint(valueID, 16),
+		"value_id": FormatValueIDHex(valueID),
 		"mask":     strconv.FormatUint(mask, 16),
 		"status":   status,
 	}
-	applyVizLayout(&ev, "causal_hub", vizBandQueue, fmt.Sprintf("%s|%d|%s", strconv.FormatUint(valueID, 16), depth, status))
+	applyVizLayout(&ev, "causal_hub", vizBandQueue, fmt.Sprintf("%s|%d|%s", FormatValueIDHex(valueID), depth, status))
 	return ev
 }
 
 func HolographicCrossoverEvent(valueID uint64) Event {
 	ev := NewEvent(EventHolographicCrossover, "queue")
-	applyVizLayout(&ev, "crossover", vizBandQueue, strconv.FormatUint(valueID, 16))
+	applyVizLayout(&ev, "crossover", vizBandQueue, FormatValueIDHex(valueID))
 	return ev
 }
 
 func SenseEvent(valueID uint64, amplitude, index int) Event {
 	ev := NewEvent(EventSense, "queue")
-	applyVizLayout(&ev, "sense", vizBandQueue, fmt.Sprintf("%s|%d|%d", strconv.FormatUint(valueID, 16), amplitude, index))
+	applyVizLayout(&ev, "sense", vizBandQueue, fmt.Sprintf("%s|%d|%d", FormatValueIDHex(valueID), amplitude, index))
 	return ev
 }
 
@@ -528,8 +556,8 @@ func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Ev
 		"community_id": float64(communityID),
 		"distance":     float64(distance),
 	}
-	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
-	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("join|%s", strconv.FormatUint(valueID, 16)))
+	ev.Meta = map[string]string{"value_id": FormatValueIDHex(valueID)}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("join|%s", FormatValueIDHex(valueID)))
 	return ev
 }
 
@@ -550,7 +578,7 @@ func CommunityActionEvent(communityID int, actionID uint64, program string, reso
 		"community_id": float64(communityID),
 		"resonance":    resonance,
 	}
-	idHex := strconv.FormatUint(actionID, 16)
+	idHex := FormatValueIDHex(actionID)
 	ev.Meta = map[string]string{"action_id": idHex}
 	applyVizLayoutProgram(&ev, communityID, program, idHex)
 	return ev
@@ -560,7 +588,7 @@ func CommunityReactionEvent(communityID int, reactionID uint64, program string) 
 	ev := NewEvent(EventCommunityReaction, "orchestrator")
 	ev.Label = program
 	ev.Values = map[string]float64{"community_id": float64(communityID)}
-	idHex := strconv.FormatUint(reactionID, 16)
+	idHex := FormatValueIDHex(reactionID)
 	ev.Meta = map[string]string{"reaction_id": idHex}
 	applyVizLayoutProgram(&ev, communityID, program, idHex)
 	return ev
@@ -574,8 +602,8 @@ func BeliefGapEvaluatedEvent(valueID uint64, communityID int, gap float64) Event
 		"community_id": float64(communityID),
 		"gap":          gap,
 	}
-	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
-	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("gap|%s|%0.4f", strconv.FormatUint(valueID, 16), gap))
+	ev.Meta = map[string]string{"value_id": FormatValueIDHex(valueID)}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("gap|%s|%0.4f", FormatValueIDHex(valueID), gap))
 	return ev
 }
 
@@ -586,8 +614,8 @@ func ValueResolvedEvent(valueID uint64, communityID int, gap float64) Event {
 		"community_id": float64(communityID),
 		"gap":          gap,
 	}
-	ev.Meta = map[string]string{"value_id": strconv.FormatUint(valueID, 16)}
-	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("resolved|%s", strconv.FormatUint(valueID, 16)))
+	ev.Meta = map[string]string{"value_id": FormatValueIDHex(valueID)}
+	applyVizLayoutCommunity(&ev, communityID, fmt.Sprintf("resolved|%s", FormatValueIDHex(valueID)))
 	return ev
 }
 

@@ -96,7 +96,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
-	return s.Serve()
+	return s.serve(ctx)
 }
 
 /*
@@ -116,6 +116,10 @@ func (s *Server) ListenAndActivate() error {
 	s.bus.Activate()
 	s.ch = s.bus.Subscribe(8192, nil)
 
+	SetWireValueFrameSink(func(payload []byte) {
+		s.send(payload, nil)
+	})
+
 	log.Printf("viz: serving on http://%s", s.addr)
 
 	return nil
@@ -126,8 +130,10 @@ Serve starts the consume loop, stats broadcaster, and HTTP server on
 the listener opened by ListenAndActivate. Blocks until shutdown.
 */
 func (s *Server) Serve() error {
-	ctx := context.Background()
+	return s.serve(context.Background())
+}
 
+func (s *Server) serve(ctx context.Context) error {
 	go s.consume(ctx, s.ch)
 	go s.broadcastStats(ctx)
 
@@ -136,7 +142,10 @@ func (s *Server) Serve() error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = s.srv.Shutdown(shutCtx)
-		s.bus.Unsubscribe(s.ch)
+		s.bus.Deactivate()
+		if s.ch != nil {
+			s.bus.Unsubscribe(s.ch)
+		}
 	}()
 
 	if err := s.srv.Serve(s.ln); err != http.ErrServerClosed {

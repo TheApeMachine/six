@@ -153,22 +153,36 @@ func ProcPin() int
 func ProcUnpin()
 
 // custom parking function
+//
+// park_m transitions _Grunning→_Gwaiting before dropg. Doing dropg first
+// leaves curg cleared while atomicstatus is still _Grunning, so g.m is nil
+// for a supposedly-running G — GC suspendG can fault on gp.m (preempt.go).
 func fast_park(gp unsafe.Pointer) {
-	dropg()
 	casgstatus(gp, _Grunning, _Gwaiting)
+	dropg()
 	schedule()
 }
 
 // call ready after ensuring the goroutine is parked
+//
+// A parked pool worker is _Gwaiting, but the GC may set _Gscan while it
+// suspends the G for stack scanning (_Gscanwaiting). Masking with ^_Gscan
+// makes that look like plain _Gwaiting; calling goready in that window races
+// suspendG/resumeG and can corrupt g status (e.g. SIGSEGV inside suspendG).
+// We only goready when the status is exactly _Gwaiting with no scan bit.
 func safe_ready(gp unsafe.Pointer) {
-	for Readgstatus(gp)&^_Gscan != _Gwaiting {
-		mcall(gosched_m)
-	}
+	for {
+		status := Readgstatus(gp)
+		base := status &^ _Gscan
+		scan := status & _Gscan
 
-	// Double check the status before calling goready to avoid fatal error
-	status := Readgstatus(gp) &^ _Gscan
-	if status == _Gwaiting {
-		goready(gp, 1)
+		if base == _Gwaiting && scan == 0 {
+			goready(gp, 1)
+
+			return
+		}
+
+		mcall(gosched_m)
 	}
 }
 

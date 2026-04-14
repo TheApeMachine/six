@@ -14,7 +14,7 @@ Layout is little-endian. All string/blob lengths are uint32 so trie graph JSON
 and other large meta values are not capped at 64KiB.
 
 	[0:4]   magic — 'V','Z','B', version (0x01)
-	[4]     frame type — 1=event, 2=bootstrap, 3=stats, 4=scrub, 5=json blob
+	[4]     frame type — 1=event, 2=bootstrap, 3=stats, 4=scrub, 5=json blob, 6=raw Value
 
 Event payload (type 1):
 
@@ -54,6 +54,8 @@ const (
 	WireFrameScrub
 	// WireFrameJSONBlob carries a legacy JSON object (e.g. snapshot_data) inside binary transport.
 	WireFrameJSONBlob
+	// WireFrameValue carries a full primitive.Value.Bytes wire image (u64 value_id + blob).
+	WireFrameValue
 )
 
 var errWireTrunc = errors.New("viz wire: truncated")
@@ -180,6 +182,18 @@ func MarshalWireJSONBlob(jsonBytes []byte) []byte {
 	b = append(b, wireHeader(WireFrameJSONBlob)...)
 	b = appendU32(b, uint32(len(jsonBytes)))
 	b = append(b, jsonBytes...)
+	return b
+}
+
+/*
+MarshalWireValueFrame wraps a full Value.Bytes buffer (little-endian uint64 words)
+with the owning id so the browser can key frames without scanning the payload first.
+*/
+func MarshalWireValueFrame(valueID uint64, frame []byte) []byte {
+	b := make([]byte, 0, 5+8+4+len(frame))
+	b = append(b, wireHeader(WireFrameValue)...)
+	b = appendU64(b, valueID)
+	b = appendBlob(b, frame)
 	return b
 }
 
@@ -355,12 +369,23 @@ func checkFrameHeader(data []byte) (frameType byte, payloadOff int, err error) {
 }
 
 /*
-UnmarshalWireMessage parses any supported server→client frame.
+UnmarshalWireMessage parses any supported server→client frame. When frameType
+is WireFrameValue, valueWireID and valueWire are populated; other kinds leave
+them zero / nil.
 */
-func UnmarshalWireMessage(data []byte) (frameType byte, ev Event, nodes []string, dropped uint64, scrub []Event, err error) {
+func UnmarshalWireMessage(data []byte) (
+	frameType byte,
+	ev Event,
+	nodes []string,
+	dropped uint64,
+	scrub []Event,
+	valueWireID uint64,
+	valueWire []byte,
+	err error,
+) {
 	ft, off, err := checkFrameHeader(data)
 	if err != nil {
-		return 0, ev, nil, 0, nil, err
+		return 0, ev, nil, 0, nil, 0, nil, err
 	}
 
 	payload := data[off:]
@@ -369,22 +394,22 @@ func UnmarshalWireMessage(data []byte) (frameType byte, ev Event, nodes []string
 	case WireFrameEvent:
 		ev, err = UnmarshalWireEventPayload(payload)
 		if err != nil {
-			return 0, ev, nil, 0, nil, err
+			return 0, ev, nil, 0, nil, 0, nil, err
 		}
 
-		return WireFrameEvent, ev, nil, 0, nil, nil
+		return WireFrameEvent, ev, nil, 0, nil, 0, nil, nil
 
 	case WireFrameBootstrap:
 		n, i, err := readU32(payload, 0)
 		if err != nil {
-			return 0, ev, nil, 0, nil, err
+			return 0, ev, nil, 0, nil, 0, nil, err
 		}
 
 		nodes = make([]string, 0, n)
 		for k := uint32(0); k < n; k++ {
 			s, ni, err := readString(payload, i)
 			if err != nil {
-				return 0, ev, nil, 0, nil, err
+				return 0, ev, nil, 0, nil, 0, nil, err
 			}
 
 			nodes = append(nodes, s)
@@ -392,46 +417,46 @@ func UnmarshalWireMessage(data []byte) (frameType byte, ev Event, nodes []string
 		}
 
 		if i != len(payload) {
-			return 0, ev, nil, 0, nil, fmt.Errorf("viz wire: bootstrap trailing %d", len(payload)-i)
+			return 0, ev, nil, 0, nil, 0, nil, fmt.Errorf("viz wire: bootstrap trailing %d", len(payload)-i)
 		}
 
-		return WireFrameBootstrap, ev, nodes, 0, nil, nil
+		return WireFrameBootstrap, ev, nodes, 0, nil, 0, nil, nil
 
 	case WireFrameStats:
 		d, i, err := readU64(payload, 0)
 		if err != nil {
-			return 0, ev, nil, 0, nil, err
+			return 0, ev, nil, 0, nil, 0, nil, err
 		}
 
 		if i != len(payload) {
-			return 0, ev, nil, 0, nil, fmt.Errorf("viz wire: stats trailing")
+			return 0, ev, nil, 0, nil, 0, nil, fmt.Errorf("viz wire: stats trailing")
 		}
 
-		return WireFrameStats, ev, nil, d, nil, nil
+		return WireFrameStats, ev, nil, d, nil, 0, nil, nil
 
 	case WireFrameScrub:
 		nEv, i, err := readU32(payload, 0)
 		if err != nil {
-			return 0, ev, nil, 0, nil, err
+			return 0, ev, nil, 0, nil, 0, nil, err
 		}
 
 		scrub = make([]Event, 0, nEv)
 		for k := uint32(0); k < nEv; k++ {
 			chunkLen, ni, err := readU32(payload, i)
 			if err != nil {
-				return 0, ev, nil, 0, nil, err
+				return 0, ev, nil, 0, nil, 0, nil, err
 			}
 
 			i = ni
 			end := i + int(chunkLen)
 			if end > len(payload) {
-				return 0, ev, nil, 0, nil, errWireTrunc
+				return 0, ev, nil, 0, nil, 0, nil, errWireTrunc
 			}
 
 			chunk := payload[i:end]
 			evOne, err := UnmarshalWireEventPayload(chunk)
 			if err != nil {
-				return 0, ev, nil, 0, nil, err
+				return 0, ev, nil, 0, nil, 0, nil, err
 			}
 
 			scrub = append(scrub, evOne)
@@ -439,13 +464,33 @@ func UnmarshalWireMessage(data []byte) (frameType byte, ev Event, nodes []string
 		}
 
 		if i != len(payload) {
-			return 0, ev, nil, 0, nil, fmt.Errorf("viz wire: scrub trailing")
+			return 0, ev, nil, 0, nil, 0, nil, fmt.Errorf("viz wire: scrub trailing")
 		}
 
-		return WireFrameScrub, ev, nil, 0, scrub, nil
+		return WireFrameScrub, ev, nil, 0, scrub, 0, nil, nil
+
+	case WireFrameValue:
+		vID, i, err := readU64(payload, 0)
+		if err != nil {
+			return 0, ev, nil, 0, nil, 0, nil, err
+		}
+
+		blen, i, err := readU32(payload, i)
+		if err != nil {
+			return 0, ev, nil, 0, nil, 0, nil, err
+		}
+
+		if i+int(blen) > len(payload) {
+			return 0, ev, nil, 0, nil, 0, nil, errWireTrunc
+		}
+
+		wire := make([]byte, blen)
+		copy(wire, payload[i:i+int(blen)])
+
+		return WireFrameValue, ev, nil, 0, nil, vID, wire, nil
 
 	default:
-		return 0, ev, nil, 0, nil, fmt.Errorf("viz wire: unknown frame %d", ft)
+		return 0, ev, nil, 0, nil, 0, nil, fmt.Errorf("viz wire: unknown frame %d", ft)
 	}
 }
 

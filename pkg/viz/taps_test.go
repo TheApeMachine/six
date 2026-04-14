@@ -298,6 +298,7 @@ func TestPoolScheduleEvent(t *testing.T) {
 		So(ev.Kind, ShouldEqual, EventPoolSchedule)
 		So(ev.Source, ShouldEqual, "pool")
 		So(ev.Label, ShouldEqual, "run")
+		So(ev.Values["inflight"], ShouldEqual, 10)
 		So(ev.Values["workers"], ShouldEqual, 4)
 	})
 }
@@ -306,12 +307,13 @@ func TestPoolCompleteEvent(t *testing.T) {
 	t.Parallel()
 
 	Convey("PoolCompleteEvent records duration", t, func() {
-		ev := PoolCompleteEvent("run", 33, 123)
+		ev := PoolCompleteEvent("run", 33_000_000, 123)
 
 		So(ev.Kind, ShouldEqual, EventPoolComplete)
 		So(ev.Source, ShouldEqual, "pool")
 		So(ev.Label, ShouldEqual, "run")
 		So(ev.Values["duration_ms"], ShouldEqual, 33)
+		So(ev.Values["duration_ns"], ShouldEqual, 33_000_000)
 	})
 }
 
@@ -352,9 +354,31 @@ func TestCausalHubProbeEvent(t *testing.T) {
 		So(ev.Values["prefix_start"], ShouldEqual, 0)
 		So(ev.Values["prefix_words"], ShouldEqual, 2)
 		So(ev.Values["depth"], ShouldEqual, 7)
-		So(ev.Meta["value_id"], ShouldEqual, "beef")
+		So(ev.Meta["value_id"], ShouldEqual, "000000000000beef")
 		So(ev.Meta["mask"], ShouldEqual, "40")
 		So(ev.Meta["status"], ShouldEqual, "settled")
+	})
+}
+
+func TestQueueSubmitEvent(t *testing.T) {
+	t.Parallel()
+
+	Convey("QueueSubmitEvent omits empty chain ids", t, func() {
+		ev := QueueSubmitEvent(1, 0xab, 0, 0, "content")
+
+		So(ev.Kind, ShouldEqual, EventQueueSubmit)
+		So(ev.Meta["value_id"], ShouldEqual, "00000000000000ab")
+		_, hasPrev := ev.Meta["prev_id"]
+		_, hasNext := ev.Meta["next_id"]
+		So(hasPrev, ShouldBeFalse)
+		So(hasNext, ShouldBeFalse)
+	})
+
+	Convey("QueueSubmitEvent preserves non-zero chain ids", t, func() {
+		ev := QueueSubmitEvent(1, 0xab, 0x10, 0x20, "content")
+
+		So(ev.Meta["prev_id"], ShouldEqual, "0000000000000010")
+		So(ev.Meta["next_id"], ShouldEqual, "0000000000000020")
 	})
 }
 
@@ -393,11 +417,13 @@ func TestCompilerPipelineEvents(t *testing.T) {
 		So(compile.Values["finalizer_depth"], ShouldEqual, 2)
 		So(compile.Meta["correlation"], ShouldEqual, "42")
 
-		alu := ALUDispatchEvent("cpu", 7, 99, 12, 123)
+		alu := ALUDispatchEvent("cpu", 7, 99, 12_000_000, 123)
 		So(alu.Kind, ShouldEqual, EventALUDispatch)
 		So(alu.Label, ShouldEqual, "cpu")
 		So(alu.Values["opcode"], ShouldEqual, 7)
 		So(alu.Values["duration_ms"], ShouldEqual, 12)
+		So(alu.Values["duration_ns"], ShouldEqual, 12_000_000)
+		So(alu.Meta["substrate"], ShouldEqual, "cpu")
 		So(alu.Meta["correlation"], ShouldEqual, "99")
 
 		fin := FinalizerRunEvent(3, 2, 4, true)
@@ -409,7 +435,7 @@ func TestCompilerPipelineEvents(t *testing.T) {
 
 		for _, ev := range []Event{compile, alu, fin} {
 			raw := MarshalWireEvent(ev)
-			ft, got, _, _, _, err := UnmarshalWireMessage(raw)
+			ft, got, _, _, _, _, _, err := UnmarshalWireMessage(raw)
 			So(err, ShouldBeNil)
 			So(ft, ShouldEqual, WireFrameEvent)
 			So(got.Kind, ShouldEqual, ev.Kind)

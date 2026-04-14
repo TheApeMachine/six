@@ -1,6 +1,7 @@
 package viz
 
 import (
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -192,6 +193,16 @@ func (b *Bus) Publish(ev Event) {
 	}
 
 	b.seq.Add(1)
+
+	// Shallow struct copy does not duplicate map headers; timeline storage and
+	// concurrent marshaling can otherwise race with callers who reuse Meta/Values.
+	if ev.Values != nil {
+		ev.Values = maps.Clone(ev.Values)
+	}
+
+	if ev.Meta != nil {
+		ev.Meta = maps.Clone(ev.Meta)
+	}
 
 	b.mu.RLock()
 	subs := b.subscribers

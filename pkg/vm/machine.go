@@ -3,12 +3,11 @@ package vm
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -16,7 +15,6 @@ import (
 	"github.com/theapemachine/six/pkg/network"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/transport"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -39,22 +37,6 @@ type Machine struct {
 	programReady chan struct{}
 	remSleep     *time.Ticker
 	remDone      chan struct{}
-}
-
-/*
-PromptResolution captures the low-level halt state and the higher-level
-resolution snapshot for one prompt run. ExecutionSettled is the scheduler
-fact; ReasoningResolved is the semantic contract experiment code should read.
-*/
-type PromptResolution struct {
-	Value             *primitive.Value
-	Generation        string
-	PropertiesWord    uint64
-	ProbeState        uint64
-	ProbeDepth        uint64
-	ExecutionSettled  bool
-	ReasoningResolved bool
-	HaltedByCeiling   bool
 }
 
 type machineOpts func(*Machine)
@@ -98,7 +80,7 @@ func NewMachine(
 	)
 
 	if machine.tokenizer, machine.err = NewTokenizer(
-		ctx, machine.queue,
+		ctx,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -124,7 +106,7 @@ func (machine *Machine) Close() error {
 	var errs []error
 
 	if machine.queue != nil {
-		machine.queue.Drain()
+		machine.queue.Close()
 	}
 
 	if machine.remSleep != nil {
@@ -169,7 +151,7 @@ Properties word when Label is present, then publishes through the queue and
 orchestrator. Resets tokenizer ingest state when finished so later Prompt paths
 see a clean pipe.
 */
-func (machine *Machine) Load(dataset data.Provider) error {
+func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
 		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
@@ -177,102 +159,65 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		return errnie.Error(err)
 	}
 
-	publishers := []transport.Publishable{
-		machine.queue,
-		machine.orchestrator,
-	}
+	var segments []*primitive.Value
 
 	for sample := range dataset.Generate() {
-		if ingestErr := machine.tokenizer.IngestSample(
-			machine.ctx, sample, publishers,
-		); ingestErr != nil {
-			return errnie.Error(ingestErr)
+		if segments, err = machine.tokenizer.IngestSample(
+			machine.ctx, sample,
+		); err != nil {
+			return errnie.Error(err)
+		}
+
+		for _, segment := range segments {
+			machine.orchestrator.Publish(segment)
 		}
 	}
-
-	machine.tokenizer.ResetAfterEOF()
-	machine.orchestrator.Label()
 
 	return nil
 }
 
 /*
-Prompt feeds the prompt string through the same path as Load — tokenize,
-link, install affinity, publish as tracked. We spin until the Value's
-scheduling word is zeroed (meaning it has settled), then return it.
-Causal children the queue spawns are irrelevant — they keep running in
-the background and their traces accumulate in the field.
+Prompt injects the prompt segment Values on the first orchestrator Cycle, then
+runs further Cycles with no new ingress until the field reports at least one
+resolved Value (belief gap ≤ BeliefEpsilon — see Orchestrator.Cycle). Those
+returned Values are the prompt outcome. The only normal exit is gap closure;
+use context cancellation or deadline on NewMachine’s context to bound work if
+the substrate never reaches epsilon.
 */
-func (machine *Machine) Prompt(value *primitive.Value) ([]*primitive.Value, error) {
+func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitive.Value, err error) {
 	if err := validate.Require(map[string]any{
-		"value": value,
+		"values": values,
 	}); err != nil {
 		return nil, errnie.Error(err)
 	}
 
 	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PromptEvent(string(value.Bytes())))
+		viz.DefaultBus.Publish(viz.PromptEvent(string(values[0].Bytes())))
 	}
 
-	return machine.orchestrator.Cycle(value)
-}
+	for len(resolved) == 0 {
+		select {
+		case <-machine.ctx.Done():
+			return nil, machine.ctx.Err()
+		default:
+			// Feedback loop, values go in, values come out, which then go in again, etc.
+			if values, err = machine.orchestrator.Cycle(
+				slices.Clone(values)...,
+			); err != nil {
+				return nil, errnie.Error(err)
+			}
 
-/*
-PromptWithResolution tokenizes a prompt string, installs the named program,
-runs it through the orchestrator cycle, and wraps the result into a
-PromptResolution suitable for experiment scoring.
-*/
-func (machine *Machine) PromptWithResolution(
-	prompt string, program string,
-) (*PromptResolution, error) {
-	segments, err := primitive.NewValue([]byte(prompt))
-
-	if err != nil {
-		return nil, errnie.Error(err)
-	}
-
-	if len(segments) == 0 {
-		return nil, errnie.Error(errors.New("vm.Machine.PromptWithResolution: empty prompt"))
-	}
-
-	for _, seg := range segments {
-		installer := programmer.Installer{}
-
-		if installErr := installer.InstallProgram(seg, program); installErr != nil {
-			return nil, errnie.Error(installErr)
+			// Check for any resolved values, which indicates the prompt has been resolved
+			// and we have reached the stop condition.
+			for _, value := range values {
+				if stateWord, err := value.Property(
+					primitive.STATE,
+				); err == nil && stateWord == uint64(primitive.RESOLVED) {
+					resolved = append(resolved, value)
+				}
+			}
 		}
 	}
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PromptEvent(prompt))
-	}
-
-	resolved, cycleErr := machine.orchestrator.Cycle(segments...)
-
-	if cycleErr != nil {
-		return nil, cycleErr
-	}
-
-	resolution := &PromptResolution{}
-
-	if len(resolved) > 0 && resolved[0] != nil {
-		value := resolved[0]
-		resolution.Value = value
-		resolution.Generation = value.String()
-		resolution.PropertiesWord = (*value)[kernel.PropertiesStartWord]
-		resolution.ProbeState = (*value)[kernel.PropertiesProbeStateWord]
-		resolution.ProbeDepth = (*value)[kernel.PropertiesProbeDepthWord]
-		resolution.ExecutionSettled = true
-		resolution.ReasoningResolved = true
-	} else if len(segments) > 0 {
-		value := segments[0]
-		resolution.Value = value
-		resolution.Generation = value.String()
-		resolution.PropertiesWord = (*value)[kernel.PropertiesStartWord]
-		resolution.ProbeState = (*value)[kernel.PropertiesProbeStateWord]
-		resolution.ProbeDepth = (*value)[kernel.PropertiesProbeDepthWord]
-		resolution.ExecutionSettled = true
-	}
-
-	return resolution, nil
+	return resolved, nil
 }

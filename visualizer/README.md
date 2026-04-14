@@ -1,20 +1,40 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Six Visualizer
 
-# Run and deploy your AI Studio app
+React/Vite inspection UI for the live `pkg/viz` event stream. It connects to the Go viz server over the binary WebSocket protocol at `/ws` and uses `/api/prompt` plus `/api/programs` for prompt injection and firmware inspection.
 
-This contains everything you need to run your app locally.
+## Run
 
-View your app in AI Studio: https://ai.studio/apps/297366bd-a922-4fd3-9709-2e988df034f0
+```bash
+npm install
+npm run dev
+```
 
-## Run Locally
+By default the UI connects to `ws://localhost:6600/ws`.
 
-**Prerequisites:**  Node.js
+```bash
+VITE_VIZ_HOST=host.docker.internal VITE_VIZ_PORT=6600 npm run dev
+```
 
+Start the Go event server from the repository root:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+go run . viz --addr :6600
+```
+
+Use `--demo` for a self-contained event stream.
+
+## Inspection Surfaces
+
+- **Live** renders the current event stream as a field/value canvas.
+- **Fields** renders community membership, saturation, concentration, and emitted action counts.
+- **Values** renders the causal graph from `PrevID` and `NextID` telemetry.
+- **Stream** shows the raw decoded wire events, including every `vals` and `meta` payload.
+- **Telemetry** follows the canonical 1 KB Value layout from `pkg/compute/kernel/layout.go`, including property words 48-55 and scheduler word 117 when the backend emits them.
+- **Programs** fetches firmware source from `/api/programs` and renders each DSL line as a dataflow circuit.
+
+## Checks
+
+```bash
+npm run lint
+npm run build
+```

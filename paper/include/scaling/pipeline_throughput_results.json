@@ -18,9 +18,9 @@
   "name": "Pipeline Throughput",
   "outcome": {
     "actual": 0.003342245989304812,
-    "message": "Expected '0.003342245989304812' to be greater than or equal to '0.004303218323146084' (but it wasn't)!",
+    "message": "Expected '0.003342245989304812' to be greater than or equal to '0.004615072199201392' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.004303218323146084
+    "threshold": 0.004615072199201392
   },
   "results": [
     {
@@ -1175,7 +1175,7 @@
     },
     {
       "Idx": 50,
-      "Name": "Summary: 50 entries, 781 KB/s",
+      "Name": "Summary: 50 entries, 263 KB/s",
       "Prefix": null,
       "Holdout": null,
       "Generation": null,

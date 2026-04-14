@@ -10,6 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { VizInspectSnapshot } from "@/lib/engine";
 import { cn } from "@/lib/utils";
+import {
+	affinityHexWords,
+	chainIdFromWord,
+	formatWordHex64,
+	readWordU64LE,
+	WORD,
+} from "@/lib/valueLayout";
 
 interface ValueInspectorProps {
 	snap: VizInspectSnapshot;
@@ -28,13 +35,36 @@ const ROLE_COLORS: Record<string, string> = {
 	prompt: "bg-amber-500/20 text-amber-300 border-amber-500/30",
 };
 
-const STATE_LABELS: Record<number, string> = {
-	0: "IDLE",
-	1: "READY",
-	2: "BUSY",
-	3: "WAITING",
-	4: "DONE",
+const PROBE_STATUS_LABELS: Record<number, string> = {
+	0: "inactive",
+	1: "active",
+	2: "settled",
+	3: "ceiling",
 };
+
+/*
+formatValueWordId pads hex value ids to one 64-bit word for display parity
+with on-device word layout.
+*/
+function formatValueWordId(id: string): string {
+	if (/^[0-9a-fA-F]+$/.test(id)) {
+		return id.length <= 16 ? id.padStart(16, "0") : id;
+	}
+
+	return id;
+}
+
+/*
+effectiveProgram shows the routing firmware name; data values always run the
+configured affinity program even when the wire has not stamped a name yet.
+*/
+function effectiveProgram(snap: VizInspectSnapshot): string {
+	if (snap.program) return snap.program;
+
+	if (snap.role === "data") return "affinity";
+
+	return "";
+}
 
 interface RegionProps {
 	label: string;
@@ -119,6 +149,26 @@ function KV({
 	);
 }
 
+function hexWord(meta: Record<string, string>, key: string): string | null {
+	return meta[key] ?? null;
+}
+
+function hexOrDash(value: string | null): string {
+	return value ?? "—";
+}
+
+function decodeProbeStatus(wordHex: string | null): string | null {
+	if (!wordHex) return null;
+
+	try {
+		const word = BigInt(`0x${wordHex}`);
+		const status = Number((word >> 8n) & 0xffn);
+		return PROBE_STATUS_LABELS[status] ?? `status ${status}`;
+	} catch {
+		return null;
+	}
+}
+
 export function ValueInspector({
 	snap,
 	className,
@@ -136,16 +186,63 @@ export function ValueInspector({
 	const vals = snap.telemetry?.vals ?? {};
 	const meta = snap.telemetry?.meta ?? {};
 
-	const stateWord =
-		vals["state"] !== undefined ? Math.round(vals["state"]) : -1;
-	const stateLabel = STATE_LABELS[stateWord] ?? null;
-	const confidence = vals["confidence"] ?? snap.resonance;
+	const frame = snap.wireFrame;
+	const frameOk =
+		frame !== null &&
+		frame !== undefined &&
+		frame.byteLength >= (WORD.ID + 1) * 8;
+
+	const wordAt = (idx: number): string | null => {
+		if (!frameOk || !frame) return null;
+
+		return formatWordHex64(readWordU64LE(frame, idx));
+	};
+
+	const propertiesW48 = wordAt(48) ?? hexWord(meta, "properties_w48_labels");
+	const propertiesW49 =
+		wordAt(49) ?? hexWord(meta, "properties_w49_confidence");
+	const propertiesW50 = wordAt(50) ?? hexWord(meta, "properties_w50_epoch");
+	const propertiesW51 = wordAt(51) ?? hexWord(meta, "properties_w51_ttl");
+	const propertiesW52 = wordAt(52) ?? hexWord(meta, "properties_w52_noise");
+	const propertiesW53 =
+		wordAt(53) ?? hexWord(meta, "properties_w53_probe_state");
+	const propertiesW54 =
+		wordAt(54) ?? hexWord(meta, "properties_w54_probe_window");
+	const propertiesW55 =
+		wordAt(55) ?? hexWord(meta, "properties_w55_probe_depth");
+	const schedulerNext = wordAt(117) ?? hexWord(meta, "scheduler_next_w117");
+	const probeStatus = decodeProbeStatus(propertiesW53);
+	const confidence = vals["confidence"] ?? null;
 	const epoch = vals["epoch"] !== undefined ? Math.round(vals["epoch"]) : null;
-	const temperature = vals["temperature"] ?? vals["temp"] ?? null;
-	const prediction = vals["prediction"] ?? vals["pred"] ?? null;
-	const predictionError =
-		vals["prediction_error"] ?? vals["pred_error"] ?? null;
-	const affinityHex = meta["affinity"] ?? meta["initial_affinity"] ?? null;
+
+	const affinityFromFrame = frameOk && frame ? affinityHexWords(frame) : null;
+	const affinityHex =
+		affinityFromFrame ||
+		meta["affinity"] ||
+		meta["initial_affinity"] ||
+		snap.communityAffinityHex ||
+		null;
+
+	/*
+	Chain words: a later wire snapshot may have w120/w121 cleared or clobbered
+	after execute while QueueSubmit meta still holds the tokenizer chain. Prefer
+	non-zero frame words; otherwise keep event-derived ids.
+	*/
+	const prevWire =
+		frameOk && frame ? chainIdFromWord(readWordU64LE(frame, WORD.PREV)) : "";
+	const nextWire =
+		frameOk && frame ? chainIdFromWord(readWordU64LE(frame, WORD.NEXT)) : "";
+
+	const prevId = prevWire || snap.prevId;
+	const nextId = nextWire || snap.nextId;
+
+	const idFromFrame =
+		frameOk && frame ? formatWordHex64(readWordU64LE(frame, WORD.ID)) : null;
+
+	const affinityIsAllZero =
+		!!affinityHex && /^0+$/.test(affinityHex.replace(/\s+/g, ""));
+	const programShown = effectiveProgram(snap);
+	const tokenBandFilled = !!(snap.content || snap.label);
 
 	return (
 		<div className={cn("space-y-2", className)}>
@@ -156,12 +253,15 @@ export function ValueInspector({
 						<Badge variant="outline" className={ROLE_COLORS[snap.role] ?? ""}>
 							{snap.role.toUpperCase()}
 						</Badge>
-						{snap.program && (
+						{programShown && (
 							<Badge
 								variant="outline"
 								className="border-purple-500/30 bg-purple-500/20 text-purple-300"
 							>
-								{snap.program}
+								{programShown}
+								{snap.role === "data" && !snap.program ? (
+									<span className="text-purple-200/50"> · default</span>
+								) : null}
 							</Badge>
 						)}
 						{snap.communityId >= 0 && (
@@ -175,19 +275,26 @@ export function ValueInspector({
 								RESOLVED
 							</Badge>
 						)}
-						{stateLabel && (
+						{probeStatus && (
 							<Badge
 								variant="outline"
 								className="border-muted/30 text-muted-foreground"
 							>
-								{stateLabel}
+								probe {probeStatus}
 							</Badge>
 						)}
 					</div>
 
-					<p className="text-[10px] font-mono text-muted-foreground/50 break-all">
-						{snap.id}
-					</p>
+					<div className="flex items-center gap-2 flex-wrap min-w-0">
+						<p className="text-[10px] font-mono text-muted-foreground/50 break-all">
+							{idFromFrame ?? formatValueWordId(snap.id)}
+						</p>
+						{frameOk ? (
+							<span className="text-[8px] font-mono text-emerald-400/45 shrink-0">
+								live frame
+							</span>
+						) : null}
+					</div>
 
 					<div className="ml-auto flex items-center gap-2 shrink-0">
 						<div className="w-28 h-1.5 rounded-full bg-secondary overflow-hidden">
@@ -215,7 +322,7 @@ export function ValueInspector({
 				<Region
 					label="TOKEN"
 					words="0–15 · 1024b"
-					fill={snap.content ? 1 : 0.05}
+					fill={tokenBandFilled ? 1 : 0.05}
 					width="16%"
 					headerClass="bg-sky-500/10"
 					barClass="bg-sky-400"
@@ -238,14 +345,22 @@ export function ValueInspector({
 				<Region
 					label="PROGRAM"
 					words="16–23 · 512b"
-					fill={snap.program ? 1 : 0.05}
+					fill={programShown ? 1 : 0.05}
 					width="9%"
 					headerClass="bg-purple-500/10"
 					barClass="bg-purple-400"
 					textClass="text-purple-200/80"
 				>
-					{snap.program ? (
-						<p className="font-semibold">{snap.program}</p>
+					{programShown ? (
+						<p className="font-semibold">
+							{programShown}
+							{snap.role === "data" && !snap.program ? (
+								<span className="text-purple-200/45 font-normal text-[8px]">
+									{" "}
+									(routing firmware)
+								</span>
+							) : null}
+						</p>
 					) : (
 						<Dim>no telemetry</Dim>
 					)}
@@ -316,46 +431,41 @@ export function ValueInspector({
 					barClass="bg-amber-400"
 					textClass="text-amber-200/80"
 				>
-					<KV k="w48 labels" v={snap.label || "—"} />
+					<KV
+						k="w48 labels"
+						v={hexOrDash(propertiesW48)}
+						vClass={snap.label ? "text-amber-100/80" : undefined}
+					/>
+					{snap.label && <KV k="tokenizer" v={snap.label} />}
 					<KV
 						k="w49 confidence"
-						v={(confidence as number).toFixed(4)}
-						vClass={
-							(confidence as number) > 0.7 ? "text-emerald-300" : undefined
-						}
-					/>
-					<KV k="w50 epoch" v={epoch !== null ? String(epoch) : "—"} />
-					<KV
-						k="w51 role·prog"
-						v={`${snap.role}${snap.program ? "·" + snap.program : ""}`}
-						vClass="text-purple-300/70"
-					/>
-					<KV
-						k="w52 state"
-						v={stateLabel ?? "—"}
-						vClass={stateLabel === "DONE" ? "text-emerald-300" : undefined}
-					/>
-					<KV
-						k="w53 temp"
-						v={temperature !== null ? (temperature as number).toFixed(3) : "—"}
-					/>
-					<KV
-						k="w54 pred"
-						v={prediction !== null ? (prediction as number).toFixed(3) : "—"}
-					/>
-					<KV
-						k="w55 err"
 						v={
-							predictionError !== null
-								? (predictionError as number).toFixed(5)
-								: "—"
+							propertiesW49 ??
+							(confidence !== null ? (confidence as number).toFixed(4) : "—")
 						}
 						vClass={
-							predictionError !== null && (predictionError as number) > 0.5
-								? "text-red-300"
+							confidence !== null && (confidence as number) > 0.7
+								? "text-emerald-300"
 								: undefined
 						}
 					/>
+					<KV
+						k="w50 epoch"
+						v={propertiesW50 ?? (epoch !== null ? String(epoch) : "—")}
+					/>
+					<KV k="w51 ttl" v={hexOrDash(propertiesW51)} />
+					<KV k="w52 noise" v={hexOrDash(propertiesW52)} />
+					<KV
+						k="w53 probe"
+						v={
+							probeStatus
+								? `${hexOrDash(propertiesW53)} · ${probeStatus}`
+								: hexOrDash(propertiesW53)
+						}
+						vClass={probeStatus === "settled" ? "text-emerald-300" : undefined}
+					/>
+					<KV k="w54 window" v={hexOrDash(propertiesW54)} />
+					<KV k="w55 depth" v={hexOrDash(propertiesW55)} />
 				</Region>
 
 				{/* RESERVED 56–119 · 4096 bits */}
@@ -368,9 +478,9 @@ export function ValueInspector({
 					barClass="bg-muted"
 					textClass="text-muted-foreground/25"
 				>
-					<p>TTL</p>
-					<p>probe ABI</p>
-					<p>K-store</p>
+					<KV k="w117 sched" v={hexOrDash(schedulerNext)} />
+					<p>K-store / scratchpad</p>
+					<p>reserved[0,64]</p>
 				</Region>
 
 				{/* PREV 120 */}
@@ -383,10 +493,10 @@ export function ValueInspector({
 					barClass="bg-indigo-400"
 					textClass="text-indigo-200/70"
 				>
-					{snap.prevId ? (
+					{prevId ? (
 						<button
 							type="button"
-							onClick={() => onSelectId?.(snap.prevId)}
+							onClick={() => onSelectId?.(prevId)}
 							className={cn(
 								"break-all text-[8px] text-left leading-tight w-full",
 								onSelectId
@@ -394,7 +504,7 @@ export function ValueInspector({
 									: "text-indigo-200/70",
 							)}
 						>
-							← {snap.prevId.substring(0, 16)}
+							← {formatValueWordId(prevId)}
 						</button>
 					) : (
 						<Dim>—</Dim>
@@ -411,10 +521,10 @@ export function ValueInspector({
 					barClass="bg-indigo-400"
 					textClass="text-indigo-200/70"
 				>
-					{snap.nextId ? (
+					{nextId ? (
 						<button
 							type="button"
-							onClick={() => onSelectId?.(snap.nextId)}
+							onClick={() => onSelectId?.(nextId)}
 							className={cn(
 								"break-all text-[8px] text-left leading-tight w-full",
 								onSelectId
@@ -422,7 +532,7 @@ export function ValueInspector({
 									: "text-indigo-200/70",
 							)}
 						>
-							{snap.nextId.substring(0, 16)} →
+							{formatValueWordId(nextId)} →
 						</button>
 					) : (
 						<Dim>—</Dim>
@@ -439,7 +549,9 @@ export function ValueInspector({
 					barClass="bg-indigo-300"
 					textClass="text-indigo-100/80"
 				>
-					<p className="break-all text-[8px]">{snap.id}</p>
+					<p className="break-all text-[8px]">
+						{idFromFrame ?? formatValueWordId(snap.id)}
+					</p>
 				</Region>
 
 				{/* AFFINITY 123–127 · 257 bits */}
@@ -453,9 +565,16 @@ export function ValueInspector({
 					textClass="text-pink-200/70"
 				>
 					{affinityHex ? (
-						<p className="break-all text-[8px]">{affinityHex}</p>
+						<div className="space-y-0.5">
+							<p className="break-all text-[8px]">{affinityHex}</p>
+							{affinityIsAllZero ? (
+								<p className="text-[7px] text-muted-foreground/40 leading-tight">
+									all-zero lanes until substrate writes affinity
+								</p>
+							) : null}
+						</div>
 					) : (
-						<Dim>CommunityCreated event</Dim>
+						<Dim>no field affinity</Dim>
 					)}
 				</Region>
 			</div>

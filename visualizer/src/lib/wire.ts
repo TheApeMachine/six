@@ -6,6 +6,8 @@ export const FrameType = {
     Stats: 3,
     Scrub: 4,
     JSONBlob: 5,
+    /** Raw primitive.Value.Bytes (see pkg/viz/wire.go WireFrameValue). */
+    Value: 6,
 } as const;
 
 export { EK, KIND_NAMES } from './viz_event_kinds';
@@ -25,7 +27,8 @@ export type DecodedFrame =
   | { frameType: "bootstrap"; nodes: string[] }
   | { frameType: "stats"; dropped: number }
   | { frameType: "scrub"; events: VizEvent[] }
-  | { frameType: "json"; text: string };
+  | { frameType: "json"; text: string }
+  | { frameType: "value"; valueId: bigint; bytes: Uint8Array };
 
 const textDecoder = new TextDecoder();
 
@@ -203,6 +206,19 @@ export const decodeVizFrames = (input: Uint8Array | ArrayBuffer): DecodedFrame[]
                 const text = textDecoder.decode(arr.subarray(off, off + jlen));
                 out.push({ frameType: 'json', text });
                 i = off + jlen;
+                continue;
+            }
+
+            if (frameType === FrameType.Value) {
+                if (off0 + 8 + 4 > arr.length) break;
+                const valueId = dv.getBigUint64(off0, true);
+                let off = off0 + 8;
+                const blen = dv.getUint32(off, true);
+                off += 4;
+                if (off + blen > arr.length) break;
+                const bytes = arr.subarray(off, off + blen);
+                out.push({ frameType: 'value', valueId, bytes });
+                i = off + blen;
                 continue;
             }
         } catch (err) {

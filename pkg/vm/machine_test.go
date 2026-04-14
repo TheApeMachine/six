@@ -3,6 +3,7 @@ package vm
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"iter"
 	"testing"
@@ -142,7 +143,9 @@ func TestMachineLoad(t *testing.T) {
 	})
 
 	Convey("Load ingests labeled samples", t, func() {
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		machine, err := NewMachine(ctx)
 
 		So(err, ShouldBeNil)
@@ -163,10 +166,10 @@ func TestMachineLoad(t *testing.T) {
 		segments, segErr := primitive.NewValue([]byte("orbital launch telemetry"))
 		So(segErr, ShouldBeNil)
 
-		promptValues, promptErr := machine.Prompt(segments[len(segments)-1])
+		cancel()
+		_, promptErr := machine.Prompt(segments[len(segments)-1])
 
-		So(promptErr, ShouldBeNil)
-		So(promptValues, ShouldBeNil)
+		So(errors.Is(promptErr, context.Canceled), ShouldBeTrue)
 	})
 
 	Convey("Load accepts unlabeled samples", t, func() {
@@ -225,8 +228,10 @@ func TestMachineLoadPrompts(t *testing.T) {
 func TestMachinePrompt(t *testing.T) {
 	setupTokenizerValueConfig(t)
 
-	Convey("Prompt delegates to the orchestrator Cycle", t, func() {
-		ctx := context.Background()
+	Convey("Prompt loops on Cycle until gap closure or context end", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		machine, err := NewMachine(ctx)
 
 		So(err, ShouldBeNil)
@@ -238,10 +243,11 @@ func TestMachinePrompt(t *testing.T) {
 		segments, segErr := primitive.NewValue([]byte("prompt"))
 		So(segErr, ShouldBeNil)
 
-		promptValues, promptErr := machine.Prompt(segments[len(segments)-1])
+		cancel()
 
-		So(promptErr, ShouldBeNil)
-		So(promptValues, ShouldBeNil)
+		_, promptErr := machine.Prompt(segments[len(segments)-1])
+
+		So(errors.Is(promptErr, context.Canceled), ShouldBeTrue)
 	})
 }
 

@@ -3,108 +3,123 @@ package programmer
 import (
 	"testing"
 
-	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
+
+	. "github.com/smartystreets/goconvey/convey"
 )
 
+/*
+TestNewProgram resolves named firmware from config when present, otherwise treats the argument as source text.
+*/
 func TestNewProgram(t *testing.T) {
-	original := *core.Cfg
-	t.Cleanup(func() {
-		*core.Cfg = original
+	Convey("Given an inline program body that is not a config key", t, func() {
+		body := "tokens tokens signals xor accumulate\n"
+		program := NewProgram(body)
+
+		Convey("NewProgram should keep that text as the source", func() {
+			So(program, ShouldNotBeNil)
+			So(program.source, ShouldEqual, body)
+		})
 	})
 
-	Convey("Given a restored core.Cfg after the test", t, func() {
-		Convey("When Programs maps the key to non-empty text", func() {
-			core.Cfg.Programs = map[string]string{
-				"named": "from config",
-			}
+	Convey("Given the affinity program name from config", t, func() {
+		body, ok := core.Cfg.Programs["affinity"]
 
-			program := NewProgram("named")
+		if !ok || body == "" {
+			t.Skip("Cfg.Programs affinity body missing; load cmd/cfg/config.yml for this case")
+		}
 
-			Convey("NewProgram should use the config body", func() {
-				So(program.source, ShouldEqual, "from config")
-			})
-		})
+		program := NewProgram("affinity")
 
-		Convey("When the key is missing", func() {
-			core.Cfg.Programs = map[string]string{
-				"other": "x",
-			}
-
-			program := NewProgram("inline body")
-
-			Convey("NewProgram should use the argument as source", func() {
-				So(program.source, ShouldEqual, "inline body")
-			})
-		})
-
-		Convey("When the key maps to empty string", func() {
-			core.Cfg.Programs = map[string]string{
-				"empty": "",
-			}
-
-			program := NewProgram("empty")
-
-			Convey("NewProgram should fall back to the argument", func() {
-				So(program.source, ShouldEqual, "empty")
-			})
+		Convey("NewProgram should resolve the named body from Cfg.Programs", func() {
+			So(program.source, ShouldEqual, body)
 		})
 	})
 }
 
-func TestLoad(t *testing.T) {
-	Convey("Load should split into trimmed field rows (five columns per line)", t, func() {
-		program := NewProgram("  tokens[0] tokens[1] signals[0] xor accumulate  \n\n  affinity[0] signals[0] affinity[0] popcount reduce  ")
+/*
+TestProgram_Load splits non-empty lines into fields and strips inline hash comments.
+*/
+func TestProgram_Load(t *testing.T) {
+	Convey("Given multi-line source with blanks and inline comments", t, func() {
+		source := "  tokens  tokens  signals  xor  accumulate  # note\n\ncontext context gradient or reduce\n"
+		program := NewProgram(source)
 
-		lines := program.Load()
+		Convey("Load should return trimmed fields per logical line", func() {
+			lines := program.Load()
 
-		So(lines, ShouldResemble, [][]string{
-			{"tokens[0]", "tokens[1]", "signals[0]", "xor", "accumulate"},
-			{"affinity[0]", "signals[0]", "affinity[0]", "popcount", "reduce"},
+			So(len(lines), ShouldEqual, 2)
+			So(lines[0][0], ShouldEqual, "tokens")
+			So(lines[0][4], ShouldEqual, "accumulate")
+			So(lines[1][3], ShouldEqual, "or")
+		})
+
+		Convey("a second Load should return the cached rows without re-splitting", func() {
+			again := program.Load()
+
+			So(again, ShouldResemble, program.lineFields)
 		})
 	})
 
-	Convey("Load on empty source", t, func() {
+	Convey("Given empty source", t, func() {
 		program := NewProgram("")
 
-		So(program.Load(), ShouldResemble, [][]string{})
-	})
-
-	Convey("Load caches the same slice", t, func() {
-		program := NewProgram("tokens[0] tokens[1] signals[0] xor accumulate")
-
-		first := program.Load()
-		second := program.Load()
-
-		So(first, ShouldEqual, second)
+		Convey("Load should return an empty row list", func() {
+			So(len(program.Load()), ShouldEqual, 0)
+		})
 	})
 }
 
-func BenchmarkLoad(b *testing.B) {
-	src := "tokens[0] tokens[1] signals[0] xor accumulate\naffinity[0] signals[0] affinity[0] popcount reduce\n"
-	program := NewProgram(src)
+/*
+TestProgram_ResetParseState clears cached rows so Load re-tokenizes.
+*/
+func TestProgram_ResetParseState(t *testing.T) {
+	Convey("Given a program after Load", t, func() {
+		program := NewProgram("tokens tokens signals xor accumulate\n")
+		first := program.Load()
 
+		So(len(first), ShouldBeGreaterThan, 0)
+
+		Convey("ResetParseState should allow Load to rebuild rows", func() {
+			program.ResetParseState()
+
+			So(program.lineFields, ShouldBeNil)
+
+			second := program.Load()
+
+			So(len(second), ShouldEqual, len(first))
+		})
+	})
+
+	Convey("Given a nil Program pointer", t, func() {
+		var program *Program
+
+		Convey("ResetParseState should not panic", func() {
+			program.ResetParseState()
+		})
+	})
+}
+
+func BenchmarkProgram_Load(b *testing.B) {
+	source := "tokens tokens signals xor accumulate\ncontext context gradient or reduce\n"
+	program := NewProgram(source)
+
+	b.ReportAllocs()
 	b.ResetTimer()
 
-	for range b.N {
+	for iteration := 0; iteration < b.N; iteration++ {
 		program.ResetParseState()
 		_ = program.Load()
 	}
 }
 
-func BenchmarkNewProgram(b *testing.B) {
-	original := *core.Cfg
-	b.Cleanup(func() {
-		*core.Cfg = original
-	})
+func BenchmarkProgram_NewProgram(b *testing.B) {
+	body := "tokens tokens signals xor accumulate\n"
 
-	core.Cfg.Programs = map[string]string{
-		"benchkey": "bench body",
-	}
-
+	b.ReportAllocs()
 	b.ResetTimer()
 
-	for range b.N {
-		_ = NewProgram("benchkey")
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = NewProgram(body)
 	}
 }

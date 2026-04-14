@@ -16,12 +16,14 @@ const (
 	PropertiesProbeStateWord  = 53 // properties[5], explicit runtime probe ABI only
 	PropertiesProbeWindowWord = 54 // properties[6], PackRegionRef over token words
 	PropertiesProbeDepthWord  = 55 // properties[7], final re-stabilization depth
-	ReservedStartWord         = 56
+	AssetStartWord            = 56
 	SchedulingNextProgramWord = 117
-	PrevStartWord             = 120
-	NextStartWord             = 121
-	IDStartWord               = 122
-	AffinityStartWord         = 123
+	// ReservedStartWord is the legacy name for the asset scratch region base word.
+	ReservedStartWord = AssetStartWord
+	PrevStartWord     = 120
+	NextStartWord     = 121
+	IDStartWord       = 122
+	AffinityStartWord = 123
 
 	OpcodeBooleanMask   uint64 = 0x0F
 	OpcodeGeometricMask uint64 = 0xF0

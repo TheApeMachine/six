@@ -148,11 +148,6 @@ func NewBackend(
 	}
 
 	backend.queue = queue
-
-	if queue != nil {
-		queue.SetBackend(backend)
-	}
-
 	return backend
 }
 
@@ -320,7 +315,7 @@ func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.P
 		st.substrate.Name(),
 		op,
 		corr,
-		int(elapsed.Milliseconds()),
+		elapsed.Nanoseconds(),
 		valID,
 	))
 }
@@ -373,7 +368,7 @@ func (backend *Backend) Execute(
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.PoolCompleteEvent(
 			st.substrate.Name(),
-			int(elapsed.Milliseconds()),
+			elapsed.Nanoseconds(),
 			valID,
 		))
 	}

@@ -9,12 +9,48 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
+/*
+RegionType names coarse Value regions for later lowering from region refs.
+
+Source text uses string refs (e.g. tokens[0,16]); lowering maps those into
+the packed Value layout via RegionRef.
+*/
+type RegionType uint8
+
+const (
+	TokenRegion RegionType = iota
+	ProgramRegion
+	SignalsRegion
+	ContextRegion
+	GradientRegion
+	PropertiesRegion
+	AssetRegion
+	PrevRegion
+	NextRegion
+	IDRegion
+	AffinityRegion
+)
+
 var (
-	valueTo   func(*Value, []byte)
-	valueFrom func([]byte, *Value)
+	valueTo     func(*Value, []byte)
+	valueFrom   func([]byte, *Value)
+	RegionNames = map[string]RegionType{
+		"tokens":     TokenRegion,
+		"program":    ProgramRegion,
+		"signals":    SignalsRegion,
+		"context":    ContextRegion,
+		"gradient":   GradientRegion,
+		"properties": PropertiesRegion,
+		"asset":      AssetRegion,
+		"prev":       PrevRegion,
+		"next":       NextRegion,
+		"id":         IDRegion,
+		"affinity":   AffinityRegion,
+	}
 )
 
 /*
@@ -102,7 +138,11 @@ var valuePool = sync.Pool{
 var valueIDSeq atomic.Uint64
 
 /*
-NewValue requires a non-empty payload. The Morton token slab is written into
+NewValue requires a non-empty payload. Optional variadic label slices are
+supervision metadata: the first non-empty label stamps PropertiesStartWord via
+kernel.LabelPropertiesWord (later non-empty entries are ignored so the word
+stays a single fingerprint). Call NewValue(p) with no extra args when no label
+applies. The Morton token slab is written into
 the configured tokens region, the full wire frame is materialized, and stampID
 assigns a new ID. The result is ready for backend execution, Publish, and
 trie storage.
@@ -133,8 +173,8 @@ when the Morton slab fills, packing continues in a fresh segment.
 
 CloseAll closes every non-nil pointer in the slice.
 */
-func NewValue(p []byte) ([]*Value, error) {
-	return newValuesFromPayload(p, nil)
+func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
+	return newValuesFromPayload(p, nil, labels...)
 }
 
 /*
@@ -186,6 +226,7 @@ const newValueMaxSlotProbeSteps = 1 << 22
 func newValuesFromPayload(
 	p []byte,
 	geometry *geometry,
+	labels ...[]byte,
 ) ([]*Value, error) {
 	if len(p) == 0 {
 		return nil, io.ErrShortBuffer
@@ -297,15 +338,27 @@ func newValuesFromPayload(
 		valueFrom(wire, value)
 
 		stamped := value.stampID()
-		out = append(out, stamped)
 
-		if len(out) >= 2 {
-			prev := out[len(out)-2]
-			next := out[len(out)-1]
+		var label []byte
 
-			prev.Set(nextWord, next.ID())
-			next.Set(prevWord, prev.ID())
+		for _, candidate := range labels {
+			if len(candidate) == 0 {
+				continue
+			}
+
+			label = candidate
+
+			break
 		}
+
+		if len(label) > 0 {
+			stamped.Set(
+				kernel.PropertiesStartWord,
+				kernel.LabelPropertiesWord(label),
+			)
+		}
+
+		out = append(out, stamped)
 	}
 
 	return out, nil
@@ -341,8 +394,18 @@ func (value *Value) stampID() *Value {
 		return nil
 	}
 
+	// One full uint64 lane at Region.ID — never truncated; viz string forms use %016x.
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
 	return value
+}
+
+/*
+StampNewID assigns the next sequential ID word for Values minted outside NewValue
+(unsupervised learners, probes, and other in-place constructions that still need
+a trie-routable identity).
+*/
+func (value *Value) StampNewID() *Value {
+	return value.stampID()
 }
 
 /*
@@ -412,6 +475,64 @@ func (value *Value) Set(region int, data uint64) {
 	}
 
 	(*value)[region] = data
+}
+
+/*
+WordExtent returns the absolute start word index and word count for this
+coarse region name, matching Value.Get slicing for the active config.
+*/
+func (region RegionType) WordExtent() (start int, words int) {
+	r := core.Cfg.Value.Region
+
+	switch region {
+	case TokenRegion:
+		return r.Tokens.WordExtent()
+	case ProgramRegion:
+		return r.Program.WordExtent()
+	case SignalsRegion:
+		return r.Signals.WordExtent()
+	case ContextRegion:
+		return r.Context.WordExtent()
+	case GradientRegion:
+		return r.Gradient.WordExtent()
+	case PropertiesRegion:
+		return r.Properties.WordExtent()
+	case AssetRegion:
+		return r.Asset.WordExtent()
+	case PrevRegion:
+		return r.Prev.WordExtent()
+	case NextRegion:
+		return r.Next.WordExtent()
+	case IDRegion:
+		return r.ID.WordExtent()
+	case AffinityRegion:
+		return r.Affinity.WordExtent()
+	}
+
+	return 0, 0
+}
+
+/*
+Get returns the uint64 words backing the given coarse region.
+*/
+func (value *Value) Get(region RegionType) []uint64 {
+	if value == nil {
+		return nil
+	}
+
+	start, words := region.WordExtent()
+
+	if words == 0 {
+		return nil
+	}
+
+	end := start + words
+
+	if start < 0 || end > len(*value) || start > end {
+		return nil
+	}
+
+	return (*value)[start:end]
 }
 
 /*

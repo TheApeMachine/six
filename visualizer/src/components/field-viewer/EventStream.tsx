@@ -89,8 +89,9 @@ interface EventRowProps {
 function EventRow({ ev, onSelectValue }: EventRowProps) {
 	const [expanded, setExpanded] = useState(false);
 	const kindName = KIND_NAMES[ev.kind] || `kind_${ev.kind}`;
-	const valueId =
+	const rawValueId =
 		ev.meta?.value_id || ev.meta?.action_id || ev.meta?.reaction_id || "";
+	const valueId = rawValueId === "0" ? "" : rawValueId;
 	const hasPayload =
 		Object.keys(ev.vals).length > 0 || Object.keys(ev.meta).length > 0;
 

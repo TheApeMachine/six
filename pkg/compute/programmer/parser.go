@@ -2,8 +2,9 @@ package programmer
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
+
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -38,7 +39,13 @@ before lowering; any op the frame builder recognises (including popcount)
 passes this gate.
 */
 func (*Parser) validateOperationMnemonic(mnemonic string) error {
-	return newFrameBuilder(nil).acceptSourceOp(mnemonic)
+	switch strings.ToLower(strings.TrimSpace(mnemonic)) {
+	case "false", "and", "aandnotb", "a", "notandb", "b", "xor", "or", "nor", "xnor",
+		"notb", "ifbthena", "nota", "ifathenb", "nand", "true":
+		return nil
+	default:
+		return fmt.Errorf("programmer: unknown operation %q", mnemonic)
+	}
 }
 
 /*
@@ -57,95 +64,68 @@ or operation lines after `next` are errors. Lines whose first field starts
 with '#' are treated as comments and ignored, so YAML literal blocks can
 intermix explanatory prose with executable lines.
 */
-func (parser *Parser) Parse() (tokens []Token, trailing *Continuation, err error) {
+func (parser *Parser) Parse() (tokens []Token) {
 	parser.tokens = parser.tokens[:0]
-
-	var continuation *Continuation
-
 	lines := parser.program.Load()
 
-	for rowIndex, fields := range lines {
+	for _, fields := range lines {
 		if strings.HasPrefix(fields[0], "#") {
 			continue
 		}
 
-		if fields[0] == "next" {
-			if continuation != nil {
-				return nil, nil, fmt.Errorf("line %d: duplicate next directive", rowIndex+1)
-			}
-
-			if len(fields) < 2 {
-				return nil, nil, fmt.Errorf("line %d: next requires a target", rowIndex+1)
-			}
-
-			if fields[1] == "self" {
-				continuation = &Continuation{Kind: ContinuationSelf}
-
-				continue
-			}
-
-			valueID, parseErr := strconv.ParseUint(fields[1], 10, 64)
-
-			if parseErr != nil {
-				return nil, nil, fmt.Errorf("line %d: invalid next value ID: %w", rowIndex+1, parseErr)
-			}
-
-			continuation = &Continuation{Kind: ContinuationValueID, ValueID: valueID}
-
-			continue
-		}
-
-		if continuation != nil {
-			return nil, nil, fmt.Errorf("line %d: operation after next directive", rowIndex+1)
-		}
-
-		if len(fields) != 5 {
-			return nil, nil, fmt.Errorf("line %d: want 5 fields (srcA srcB dst op mode), got %d: %v",
-				rowIndex+1, len(fields), fields)
-		}
-
-		srcARef, refErr := ParseRegionRef(fields[0])
-
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("line %d: srcA: %w", rowIndex+1, refErr)
-		}
-
-		srcBRef, refErr := ParseRegionRef(fields[1])
-
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("line %d: srcB: %w", rowIndex+1, refErr)
-		}
-
-		dstRef, refErr := ParseRegionRef(fields[2])
-
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("line %d: dst: %w", rowIndex+1, refErr)
-		}
-
-		if opErr := parser.validateOperationMnemonic(fields[3]); opErr != nil {
-			return nil, nil, fmt.Errorf("line %d: unknown op %q", rowIndex+1, fields[3])
-		}
-
-		modeBit, modeErr := parseExecutionMode(fields[4])
-
-		if modeErr != nil {
-			return nil, nil, fmt.Errorf("line %d: %w", rowIndex+1, modeErr)
-		}
-
 		parser.tokens = append(parser.tokens, Token{
-			SrcA:    fields[0],
-			SrcB:    fields[1],
-			Dst:     fields[2],
-			Op:      fields[3],
-			Mode:    fields[4],
-			SrcARef: srcARef,
-			SrcBRef: srcBRef,
-			DstRef:  dstRef,
-			ModeBit: modeBit,
+			SrcA: primitive.RegionNames[strings.ToLower(strings.TrimSpace(fields[0]))],
+			SrcB: primitive.RegionNames[strings.ToLower(strings.TrimSpace(fields[1]))],
+			Dst:  primitive.RegionNames[strings.ToLower(strings.TrimSpace(fields[2]))],
+			Op:   parser.parseOperationType(fields[3]),
+			Mode: parser.parseExecutionMode(fields[4]),
 		})
 	}
 
-	return parser.tokens, continuation, nil
+	return parser.tokens
+}
+
+/*
+parseOperationType maps the surface op keyword onto the OperationType enum.
+Unknown keywords are rejected so typos fail at parse time instead of silently
+defaulting.
+*/
+func (parser *Parser) parseOperationType(op string) OperationType {
+	switch strings.ToLower(strings.TrimSpace(op)) {
+	case "false":
+		return FALSE
+	case "and":
+		return AND
+	case "aandnotb":
+		return AANDNOTB
+	case "a":
+		return A
+	case "notandb":
+		return NOTANDB
+	case "b":
+		return B
+	case "xor":
+		return XOR
+	case "or":
+		return OR
+	case "nor":
+		return NOR
+	case "xnor":
+		return XNOR
+	case "notb":
+		return NOTB
+	case "ifbthena":
+		return IFBTHENA
+	case "nota":
+		return NOTA
+	case "ifathenb":
+		return IFA_THEN_B
+	case "nand":
+		return NAND
+	case "true":
+		return TRUE
+	}
+	return FALSE
 }
 
 /*
@@ -153,13 +133,13 @@ parseExecutionMode maps the surface mode keyword onto the ExecutionMode
 enum. Unknown keywords are rejected so typos fail at parse time instead
 of silently defaulting.
 */
-func parseExecutionMode(mode string) (ExecutionMode, error) {
+func (parser *Parser) parseExecutionMode(mode string) ExecutionMode {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "accumulate":
-		return ModeAccumulate, nil
+		return ModeAccumulate
 	case "reduce":
-		return ModeReduce, nil
+		return ModeReduce
 	}
 
-	return 0, fmt.Errorf("unknown execution mode %q", mode)
+	return ModeAccumulate
 }

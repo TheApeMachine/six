@@ -7,89 +7,50 @@
 
 This research project started from a simple question: "Can we reject gradient descent and back-propagation long enough to convince ourselves that we may not need them?"
 
+## The Story
+
+- This is an exploration of alternative machine intelligence architecture, the goal is discovery, not competition.
+
+## Assumptions
+
+Any attempt at new architectural work forces the adoption of a number of assumptions to set a clear direction. It seems prudent to clearly report the assumptions behind the attempt that this repository represents.
+
+- **Overstated Semantic Complexity** poses that human language, in practice, contains less complexity than commonly assumed. Signals that are used to provide foundation for this assumtion come from Zipf's law and Claude Shannon's work. This architecture takes this a step further by rejecting operating at the language semantic level, or to pre-processing incoming data trying to force structure.
+
+## Pillars
+
+- **Inclusivity** should guarantee that anyone with consumer hardware should be enabled to compete at a serious and recognizable scale.
+- **Multi-Modality** enforces that all data is treated the same, and the system has no concept of text, image, audio, etc.
+
+## Guidance & Rosetta Stone
+
+- **Forget Modality** if you try to think about text, images, audio, you are effectively reasoning against the system.
+- **Do not isolate a single Value** the system does not orchestrate `Values` from a central point, everything is massively connected.
+- **Do not try to control** `Fields` emerge from `Values` and `Fields` drive the `System` via `Values`.
+
 ---
 
 ## Architecture
 
-Six has three active layers. Values are the atoms of computation. The Queue and Backend execute their programs. The Orchestrator groups settled Values into communities and uses the Field to drive further computation.
-
-```mermaid
-flowchart TD
-
-    subgraph "Layer 3 — Global Field GF(65537)"
-        GF["Global Phase Vector"]
-        Gossip["gossip.Conn<br/>Digest + NodePhase"]
-        GF <--> Gossip
-    end
-
-    subgraph "Layer 2 — Community Field GF(8191)"
-        C1["Community"]
-        C2["Community"]
-        F1["geometry.Field<br/>Affine rotation + PhaseDial"]
-        F2["geometry.Field<br/>Affine rotation + PhaseDial"]
-        C1 --- F1
-        C2 --- F2
-    end
-
-    subgraph "Layer 1 — Value Field GF(257)"
-        V1["primitive.Value<br/>1KB programmable token"]
-        V2["primitive.Value"]
-        V3["primitive.Value"]
-        V4["primitive.Value"]
-    end
-
-    subgraph "Execution"
-        Q["pool.Queue<br/>Lock-free work scheduling"]
-        B["compute.Backend<br/>CPU / Metal / CUDA"]
-        O["vm.Orchestrator<br/>Community routing + action emission"]
-    end
-
-    %% Bottom-up: Values settle, orchestrator groups them
-    V1 --> O
-    V2 --> O
-    V3 --> O
-    V4 --> O
-    O --> C1
-    O --> C2
-    C1 --> GF
-    C2 --> GF
-
-    %% Top-down: field pressure drives new computation
-    GF --> F1
-    GF --> F2
-    F1 --> Q
-    F2 --> Q
-    Q --> B
-    B --> V1
-    B --> V2
-    B --> V3
-    B --> V4
-```
+The core of the architecture, stripped of all orchestration, consists of a global `Field` which contains many community `Fields` which contain many `Values`.
 
 ```text
-┌──────────────────────────────────┐
-│       Global Field GF(65537)     │
-│  Aggregates community fields     │
-│  Gossip propagates phase state   │
-└──────────────┬───────────────────┘
-               │ top-down pressure
-┌──────────────▼───────────────────┐
-│     Community Fields GF(8191)    │
-│  Orchestrator groups Values by   │
-│  affinity into communities       │
-└──────────────┬───────────────────┘
-               │ action emission
-┌──────────────▼───────────────────┐
-│    Queue + Compute Backend       │
-│  Lock-free pool, multi-substrate │
-│  CPU / Metal / CUDA execution    │
-└──────────────┬───────────────────┘
-               │ programs run on
-┌──────────────▼───────────────────┐
-│           Values GF(257)         │
-│  1KB programmable tokens         │
-│  Linked via PrevID / NextID      │
-└──────────────────────────────────┘
+          ┌──────────────────┐
+          │ FIELD (GF 65537) │
+       ┌─►│ The global field ├─────┐
+       │  └─────────┬────────┘     │
+Project│            │              │Top-down feedback
+upwards│            │              │Bias
+       │  ┌─────────▼───────────┐  │Attention
+       └──┤ FIELD (GF 8191)     │◄─┘                                 
+       ┌─►│ The community field ├──────────────────┐                 
+       │  └─────────┬───────────┘                  │
+Project│            │                              │
+upwards│            │                              │Top-down feedback
+       │  ┌─────────▼───────────────────────────┐  │Bias
+       │  │ VALUE (GF 257 & GF 2)               │  │Attention
+       └──┤ Native Programmable Reasoning Token │◄─┘                    
+          └─────────────────────────────────────┘                    
 ```
 
 ### Field Hierarchy
@@ -116,7 +77,7 @@ This is the actual end-to-end path the code implements today:
 8. **Orchestrator groups** — When a Value settles (word 117 = 0), the Orchestrator's `Cycle` picks it up. `findCommunity` computes Hamming distance over the 5 affinity words against existing community fields. Close enough → join; too far or all saturated → spawn a new `GF(8191)` community in the first empty slot.
 9. **Community emits actions** — When a community has ≥ 3 members and its dominant mode's concentration exceeds the resonance threshold, `emitActions` mints a new Value from the community's aggregate state, installs a program (`beam_swarm_step` or `active_inference`), and publishes it back to the Queue. The community's Value list is then cleared.
 
-For prompts, `Machine.Prompt` takes the same path but uses `PublishTracked` and spins until the Value's scheduling word clears. That low-level halt is only **execution settled**. Experiment code should prefer `Machine.PromptWithResolution`, which returns the settled `Value` plus a semantic resolution snapshot (readout, properties word, probe state/depth, and whether a cascade ceiling forced the stop) so prompt scoring can distinguish "scheduler stopped" from "reasoning resolved."
+For prompts, mint segments with `primitive.NewValue`, install a program with `programmer.Installer`, then call `Machine.Prompt(segments...)`. Prompt routes the segments on the first `Orchestrator.Cycle` and keeps cycling (no further ingress) until at least one Value is returned — **belief gap ≤ `BeliefEpsilon`** inside a multi-member community (see `Orchestrator.Cycle`). Those returned Values are the resolved output. Use a deadline or cancel on `ctx` passed to `NewMachine` if the field might never reach epsilon.
 
 ## Values: Programmable Data
 
@@ -145,16 +106,16 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 Canonical 512 bit region, spanning words 48 to 55. The constants below are defined in `pkg/compute/kernel/layout.go` and are the authoritative word map.
 
-| Word (absolute) | Region offset | Name | Notes |
-|-----------------|---------------|------|-------|
-| 48 | 0 | **labels** | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63 |
-| 49 | 1 | **confidence** | Reserved for future use |
-| 50 | 2 | **epoch** | Reserved for future use |
-| 51 | 3 | **TTL** (`PropertiesTTLWord`) | Time-to-live for ephemeral Values; zero means dissolve |
-| 52 | 4 | **noise** (`PropertiesNoiseWord`) | Physical noise injected into affinity by the `temperature` program |
-| 53 | 5 | **probe state** (`PropertiesProbeStateWord`) | Packed probe kind + lifecycle status (see `kernel.PackProbeState`) |
-| 54 | 6 | **probe window** (`PropertiesProbeWindowWord`) | `PackRegionRef` over token words for causal probes |
-| 55 | 7 | **probe depth** (`PropertiesProbeDepthWord`) | Re-stabilisation depth for causal hub probes |
+| Word (absolute) | Region offset | Name                                           | Notes                                                                                                                  |
+|-----------------|---------------|------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| 48              | 0             | **labels**                                     | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63 |
+| 49              | 1             | **confidence**                                 | Reserved for future use                                                                                                |
+| 50              | 2             | **epoch**                                      | Reserved for future use                                                                                                |
+| 51              | 3             | **TTL** (`PropertiesTTLWord`)                  | Time-to-live for ephemeral Values; zero means dissolve                                                                 |
+| 52              | 4             | **noise** (`PropertiesNoiseWord`)              | Physical noise injected into affinity by the `temperature` program                                                     |
+| 53              | 5             | **probe state** (`PropertiesProbeStateWord`)   | Packed probe kind + lifecycle status (see `kernel.PackProbeState`)                                                     |
+| 54              | 6             | **probe window** (`PropertiesProbeWindowWord`) | `PackRegionRef` over token words for causal probes                                                                     |
+| 55              | 7             | **probe depth** (`PropertiesProbeDepthWord`)   | Re-stabilisation depth for causal hub probes                                                                           |
 
 ### Program Authoring (`pkg/compute/programmer`)
 
@@ -263,17 +224,17 @@ Word 48 of the Properties region is the **label word**. It holds four 16-bit lab
 
 Slots are packed **low-to-high**: slot 0 occupies bits 0–15 (the lowest 16 bits), slot 3 occupies bits 48–63 (the highest). `kernel.PackClassificationLabelSlots` and `kernel.UnpackClassificationLabelSlots` are the canonical accessors. Slot 0 is reserved for the dataset-provided label (written by the tokenizer when the data provider supplies one). Slots 1–3 are written by the unsupervised learning pass. Zero means unlabeled.
 
-**ALU constraint — label injection:** Inserting a 16-bit value into a specific bit-lane of a 64-bit word requires a clean full-word OR operation. The ALU kernel (`universalBitwiseV2`) is a 16-rotation LSH sweep that produces a byte-level signature — not a clean word-level bitwise operation. The byte-lane packing means the kernel's output is an LSH artifact, not the expected slot value. Until a word-level write instruction is added to the ALU, label injection is performed by the orchestrator directly on `properties[0]` (`Unsupervised.injectLabel`).
+**ALU constraint — label injection:** Inserting a 16-bit value into a specific bit-lane of a 64-bit word requires a clean full-word OR operation. The ALU kernel (`universalBitwiseV2`) is a 16-rotation LSH sweep that produces a byte-level signature — not a clean word-level bitwise operation. The byte-lane packing means the kernel's output is an LSH artifact, not the expected slot value. Until a word-level write instruction is added to the ALU, unsupervised learner Values keep their own result in `signals`/`properties`; they do not mutate source Values from Go.
 
 ### Field Crystallization
 
 Each community field maintains a **crystallization score** measured by `vm.measureCrystallization`. The score is composed from three metrics computed by iterating the live Value population:
 
-| Metric | Semantics | Computation |
-|--------|-----------|-------------|
-| `Coverage` | Fraction of members with ≥ 1 non-zero label slot | `labeled / total` |
-| `Consensus` | `1 − normalized_Shannon_entropy` of label distribution | Over all non-zero slot values across members |
-| `LabelDensity` | Mean fraction of the four available slots that are filled | `slotSum / (total × 4)` |
+| Metric         | Semantics                                                 | Computation                                  |
+|----------------|-----------------------------------------------------------|----------------------------------------------|
+| `Coverage`     | Fraction of members with ≥ 1 non-zero label slot          | `labeled / total`                            |
+| `Consensus`    | `1 − normalized_Shannon_entropy` of label distribution    | Over all non-zero slot values across members |
+| `LabelDensity` | Mean fraction of the four available slots that are filled | `slotSum / (total × 4)`                      |
 
 ```
 Crystallization.Score = Coverage × Consensus × LabelDensity
@@ -291,7 +252,7 @@ measure_field: |
 
 ### Global Crystallization and the Spawn Trigger
 
-The orchestrator's `Unsupervised.Cycle` iterates every community in the root field and runs a labeling pass on any community whose `Coverage` is below the floor. This is the **single Go-side trigger** for the unsupervised learning pipeline. Everything the pipeline does to a Value — XOR comparison, label candidate extraction, label injection — happens in `Unsupervised` methods that the orchestrator calls after `field.Cycle()` completes.
+The orchestrator's `Unsupervised.Cycle` iterates every community in the root field and schedules a bounded labeling pass on any community whose `Coverage` is below the floor. This is the **single Go-side trigger** for the unsupervised learning pipeline. The comparison work runs as queued learner Values carrying the `unsupervised_learn` program; each learner is aimed back at the source pair through `PrevID`/`NextID` and keeps its result in-band. The trigger caps learner emission per community and per root-field cycle so the global field creates continuous pressure instead of materializing the full O(U²) pair graph at once.
 
 When `Coverage >= crystallizationFloor` across all communities, `Cycle` returns without spawning anything. The system is quiescent.
 
@@ -309,7 +270,7 @@ tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
 
 #### `unsupervised_learn`
 
-XOR-compare two peer token regions staged by the orchestrator. Before each dispatch the orchestrator copies peer A's tokens (words 0–15) into `reserved[0,16]` and peer B's tokens into `reserved[16,16]` (absolute words 56–71 and 72–87 respectively). The ALU runs the XOR sweep across the two 16-word spans, accumulating the 64-byte LSH signature into `signals[0,8]`. After execution, `geometry.ScanZeroRun` finds the longest zero-run in the 8 signal words; `geometry.RunLabel` maps the run's start position to a deterministic 16-bit label candidate.
+XOR-compare two peer token regions staged into a learner Value. Before each dispatch the orchestrator copies peer A's tokens (words 0–15) into `reserved[0,16]` and peer B's tokens into `reserved[16,16]` (absolute words 56–71 and 72–87 respectively). The learner is published to the Queue as tracked work. The ALU runs the XOR sweep across the two 16-word spans, accumulating the 64-byte LSH signature into `signals[0,8]`, then reduces that signature into `properties[1]` as the learner's in-band self-knowledge metric.
 
 ```
 reserved[0,16]  reserved[16,16]  signals[0,8]  xor  accumulate
@@ -321,7 +282,7 @@ Permanent community resident. See **Field Crystallization** above.
 
 #### `inject_labels` (orchestrator-side)
 
-Not implemented as a rotation-sweep program. `Unsupervised.injectLabel` writes the winning label hash directly into the first available slot (1–3) of `properties[0]`. This is documented here to acknowledge the constraint and to mark it as the target for a future ALU word-write extension.
+Not implemented as a rotation-sweep program. Current unsupervised learning does not inject labels into source Values from Go. Settled learner Values keep their own result in-band until a future ALU word-write extension can express source label-slot updates as firmware.
 
 ### How Programs See Peer Data — the Reserved Scratchpad
 
@@ -340,23 +301,15 @@ The program then runs against those staged words with existing instructions — 
 orchestrator.Cycle() calls Unsupervised.Cycle(root) after field.Cycle()
 │
 ▼
-For each community with Coverage < 0.35:
+For each community with Coverage < 0.35, within the cycle's learner budget:
 ├─ labelCommunity(community)
 │    │
-│    ├─ compareTokens(peerA, peerB) for all pairs
-│    │    orchestrator stages peerA[0:15] → worker.reserved[0,16]
-│    │                        peerB[0:15] → worker.reserved[16,16]
-│    │    ALU runs: unsupervised_learn program
-│    │    geometry.ScanZeroRun(signals[0,8]) → (start, length)
-│    │    geometry.RunLabel(start, length)   → 16-bit label candidate
-│    │
-│    ├─ votes[label]++ per pair
-│    │
-│    └─ winner = mode(votes) if votes[winner] >= labelQuorum
-│         │
-│         └─ injectLabel(value, winner) for all unlabeled members
-│              orchestrator writes directly to properties[0] (word 48)
-│              (rotation-sweep ALU cannot do clean 64-bit word OR)
+│    ├─ scheduleLearner(peerA, peerB) for all pairs
+│    │    orchestrator stages peerA[0:15] → learner.reserved[0,16]
+│    │                        peerB[0:15] → learner.reserved[16,16]
+│    │    Queue runs learner with unsupervised_learn program
+│    │    learner.signals[0,8] carries the shared-structure signature
+│    │    learner.properties[1] carries the reduced self-knowledge metric
 │
 ▼
 measure_field residents update signals[7] in parallel via next-self loop
@@ -417,21 +370,20 @@ The gap between the prompt's affinity and the eigenmode is the drive. The explor
 Both beliefs revise by the act of resolution. Perception and learning are the same operation, executed once.
 
 ```text
-                      ┌──────────────────────┐
-                      │   Local eigenmode    │
-                      │  (current belief)    │
-                      └──────────▲───────────┘
-                                 │  mode drifts
-                                 │  toward prompt
-                                 │
-               field pressure    │
-           closes the phase gap  │
-                                 │
-                      ┌──────────┴───────────┐
-                      │   Prompt / Values    │
-                      │  drifting toward     │
-                      │  the attractor       │
-                      └──────────────────────┘
+          ┌────────────────────┐
+          │ Local eigenmode    │
+          │ (current belief)   │
+          └──────────▲─────────┘
+                     │ mode drifts
+                     │ toward prompt
+                     │
+      field pressure │
+closes the phase gap │
+          ┌──────────┴─────────┐
+          │ Prompt / Values    │
+          │ drifting toward    │
+          │ the attractor      │
+          └────────────────────┘
 ```
 
 ### Multiple perspectives via phase rotation
@@ -601,7 +553,7 @@ The `compute.Backend` load-balancer probes available substrates at startup and r
 
 Six provides pluggable transport for distributing Values across machines:
 
-- **QUIC**: Reliable, encrypted WAN transport with congestion control. Single bidirectional stream per connection carrying Value frames. Built on `golang.org/x/net/quic`.
+- **QUIC**: Reliable, encrypted WAN transport with bi-directional streaming, and congestion control.
 - **UDP**: Lightweight datagram transport for local-network gossip.
 - **IPC**: Inter-process communication for co-located nodes.
 
@@ -623,16 +575,16 @@ value:
   words: 128
   bytes: 1024
   region:
-    tokens:   { start: 0,   bits: 1024 }
-    program:  { start: 16,  bits: 512 }
-    signals:  { start: 24,  bits: 512 }
+    tokens:     { start: 0,   bits: 1024 }
+    program:    { start: 16,  bits: 512 }
+    signals:    { start: 24,  bits: 512 }
     context:    { start: 32,  bits: 512 }
     gradient:   { start: 40,  bits: 512 }
     properties: { start: 48,  bits: 512 }
-    prev:     { start: 120, bits: 64 }
-    next:     { start: 121, bits: 64 }
-    id:       { start: 122, bits: 64 }
-    affinity: { start: 123, bits: 257 }
+    prev:       { start: 120, bits: 64 }
+    next:       { start: 121, bits: 64 }
+    id:         { start: 122, bits: 64 }
+    affinity:   { start: 123, bits: 257 }
 ```
 
 **`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
@@ -643,13 +595,14 @@ value:
 
 The project includes a Docker Compose stack for observability and data management:
 
-| Service                          | Purpose                               | Port       |
-|----------------------------------|---------------------------------------|------------|
-| Elasticsearch (3-node cluster)   | Log aggregation, experiment telemetry | 9200       |
-| Elasticsearch ML nodes (3 nodes) | Machine-learning-capable ES nodes     | —          |
-| Kibana                           | Log visualization and dashboards      | 5601       |
-| MinIO                            | S3-compatible object storage          | 9000, 9001 |
-| LakeFS                           | Data versioning over MinIO            | 8000       |
+| Service                          | Purpose                                    | Port       |
+|----------------------------------|--------------------------------------------|------------|
+| Elasticsearch (3-node cluster)   | Log aggregation, experiment telemetry      | 9200       |
+| Elasticsearch ML nodes (3 nodes) | Machine-learning-capable ES nodes          | —          |
+| Kibana                           | Log visualization and dashboards           | 5601       |
+| MinIO                            | S3-compatible object storage               | 9000, 9001 |
+| LakeFS                           | Data versioning over MinIO                 | 8000       |
+| Custom Interactive Visualizer    | Deep real-time system inspection/debugging | 3000       |
 
 Structured logs are shipped to Elasticsearch via a bulk indexer with configurable flush intervals. Trace-level logging operates independently of the global log level, allowing production systems to emit detailed traces without noise in standard output.
 
@@ -674,30 +627,39 @@ make paper
 make pprof EXP=Text_Classification
 ```
 
-**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the CPU backend is always available.
+**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the highly optimize SIMD CPU backend is always available.
 
 ---
 
 ## Usage
 
 ```go
-// Create a machine
+/*
+Create a machine, which acts as a convenient wrapper
+around the system.
+*/
 machine, _ := vm.NewMachine(ctx)
 defer machine.Close()
 
-// Load a dataset — Values are minted, linked, programmed, and
-// published to the queue and orchestrator automatically.
+/*
+Load a dataset — Values are minted, linked, programmed, and
+published to the queue and orchestrator automatically.
+Datasets must follow the Provider interface.
+*/
 machine.Load(dataset)
 
-// Prompt — the Value flows through the same pipeline as Load.
-// Spins until the scheduling word clears (Value has settled).
-result, _ := machine.Prompt("the cat sat on the", "beam_swarm_step")
-
-// PromptWithResolution exposes the semantic completion snapshot used by
-// experiment/task gating. Unresolved prompts score as unresolved even if the
-// scheduler halted.
-resolution, _ := machine.PromptWithResolution("the cat sat on the", "beam_swarm_step")
-_ = resolution.ReasoningResolved
+/*
+Prompt — segments + program on first cycle, then cycles until gap closure
+(or ctx cancel/deadline). Returned Values are the resolution.
+*/
+segments, _ := primitive.NewValue([]byte("the cat sat on the"))
+installer := programmer.Installer{}
+for _, seg := range segments {
+	_ = installer.InstallProgram(seg, "beam_swarm_step")
+}
+resolved, err := machine.Prompt(segments...)
+_ = resolved
+_ = err
 ```
 
 ---
