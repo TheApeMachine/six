@@ -69,7 +69,21 @@ func (parser *Parser) Parse() (tokens []Token) {
 	lines := parser.program.Load()
 
 	for _, fields := range lines {
+		if len(fields) == 0 {
+			continue
+		}
+
 		if strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+
+		// Scheduler directive (see config programs:), not an ALU row — two fields:
+		//   next self | next <uint64>
+		if strings.EqualFold(strings.TrimSpace(fields[0]), "next") {
+			continue
+		}
+
+		if len(fields) < 5 {
 			continue
 		}
 

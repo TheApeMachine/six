@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type Scores struct {
@@ -18,6 +19,10 @@ type Scores struct {
 type ExperimentalData struct {
 	Idx               int
 	Name              string
+	Prompt            string
+	Segments          []*primitive.Value
+	Resolved          []*primitive.Value
+	ClassLabels       []string
 	Prefix            []byte
 	Holdout           []byte
 	Generation        []byte

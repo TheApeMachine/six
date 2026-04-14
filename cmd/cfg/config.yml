@@ -102,9 +102,18 @@ value:
     nand: 1110
     true: 1111
   rules:
+    - name: link
+      conditions:
+        prev: false
+        next: false
+      firmware: link
     - name: affinity
       conditions:
-        affinity: false
+        and:
+          or:
+            prev: true
+            next: true
+          affinity: false
       firmware: affinity
 
 
@@ -119,6 +128,14 @@ programs:
   #   reduce      popcount the whole signals region and write the total to
   #               dst[start]; dst[start+1..] is untouched.
   # Optional last line: next <value_id> | next self  (scheduler: word 117).
+
+  # Link generation: the orchestrator stages the previous Value's ID into
+  # asset[0] and the next Value's ID into asset[1]. This program copies
+  # those IDs into the prev and next regions respectively.
+  link: |
+    asset[0,1] asset[0,1] prev[0,1] or accumulate
+    asset[1,1] asset[1,1] next[0,1] or accumulate
+    next self
 
   # Affinity generation: fold every token word against every other token
   # word through the substrate's 16-rotation sweep, then accumulate the
@@ -151,26 +168,26 @@ programs:
   # drift away in DHT space, and loops via `next self` so the scheduler
   # keeps spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
-    tokens[0,8]  gradient[0,8]  context[0,8]  xor accumulate
-    tokens[0,8]  context[0,8]   signals[0,8]  xor accumulate
-    signals[0,8] signals[0,8]   properties[0,1]     xor reduce
-    properties[0,1]    properties[1,1]      properties[0,1]     or  accumulate
-    properties[0,1]    affinity[0,5]  affinity[0,5] xor accumulate
+    tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    signals[0,8]    signals[0,8]    properties[0,1] xor reduce
+    properties[0,1] properties[1,1] properties[0,1] or  accumulate
+    properties[0,1] affinity[0,5]   affinity[0,5]   xor accumulate
     next self
 
   # Free Energy / Prediction Error: Computes the gap between the incoming
   # tokens and the context (the local eigenmode/attractor).
   surprisal: |
-    tokens[0,8]  context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] properties[0,1]    xor reduce
+    tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8] properties[0,1] xor reduce
 
   # Popperian Test: XORs tokens against a predicted-absent pattern in context.
   # A high popcount in properties[1] means the claim held (they differ); a low
   # popcount refutes it. If refuted, we zero the TTL word (properties[3]).
   falsification: |
-    tokens[0,8]  context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] properties[1,1]    xor reduce
-    properties[1,1]    properties[3,1]    properties[3,1]    and accumulate
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    signals[0,8]    signals[0,8]    properties[1,1] xor reduce
+    properties[1,1] properties[3,1] properties[3,1] and accumulate
 
   # Temperature: Physical noise injected into the Affinity vector during
   # exploration to widen the search space.
@@ -181,23 +198,23 @@ programs:
   # evaluates their expected free energy, and applies the action that minimizes
   # surprisal.
   active_inference: |
-    tokens[0,8]    gradient[0,8]   asset[0,8]  xor accumulate
-    tokens[0,4]    properties[4,2] asset[8,4]  and accumulate
-    tokens[4,4]    properties[6,2] asset[12,4] and accumulate
-    tokens[0,8]    context[0,8]    asset[16,8] xor accumulate
-    asset[0,8]  context[0,8]    signals[0,8]   xor accumulate
-    asset[8,8]  context[0,8]    asset[24,8] xor accumulate
-    asset[16,8] context[0,8]    asset[32,8] xor accumulate
-    signals[0,8]   signals[0,8]    signals[0,1]   xor reduce
-    asset[24,8] asset[24,8]  signals[1,1]   xor reduce
-    asset[32,8] asset[32,8]  signals[2,1]   xor reduce
+    tokens[0,8]  gradient[0,8]   asset[0,8]   xor accumulate
+    tokens[0,4]  properties[4,2] asset[8,4]   and accumulate
+    tokens[4,4]  properties[6,2] asset[12,4]  and accumulate
+    tokens[0,8]  context[0,8]    asset[16,8]  xor accumulate
+    asset[0,8]   context[0,8]    signals[0,8] xor accumulate
+    asset[8,8]   context[0,8]    asset[24,8]  xor accumulate
+    asset[16,8]  context[0,8]    asset[32,8]  xor accumulate
+    signals[0,8] signals[0,8]    signals[0,1] xor reduce
+    asset[24,8]  asset[24,8]     signals[1,1] xor reduce
+    asset[32,8]  asset[32,8]     signals[2,1] xor reduce
     next self
 
   # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
   # Used by phase probes; the field drives parallel population, not one tight loop.
   causal_explore: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    gradient[0,8]   context[0,8]    asset[40,8]  xor accumulate
+    gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
 
@@ -205,7 +222,7 @@ programs:
   # Loops via next self until the queue or finalizer breaks the circuit.
   causal_hub: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    gradient[0,8]   context[0,8]    asset[40,8]  xor accumulate
+    gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
     next self
@@ -218,8 +235,8 @@ programs:
   # rotations against the cyclic srcB span; the 64-byte LSH result is
   # XOR-accumulated into signals[0,8], then OR-reduced into properties[1].
   unsupervised_learn: |
-    asset[0,16]  asset[16,16]  signals[0,8]  xor  accumulate
-    signals[0,8]    signals[0,8]     properties[1,1] or   reduce
+    asset[0,16]  asset[16,16] signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8] properties[1,1] or  reduce
 
   # Community label-energy fingerprint: the orchestrator stages up to 8
   # community member label words (w48) into asset[0,8] before dispatch.
@@ -229,5 +246,5 @@ programs:
   # next self; the orchestrator reads signals[7] each cycle to steer the
   # community eigenmode and check the global crystallisation floor.
   measure_field: |
-    asset[0,8]  asset[0,8]  signals[7,1]  or  reduce
+    asset[0,8] asset[0,8] signals[7,1] or reduce
     next self

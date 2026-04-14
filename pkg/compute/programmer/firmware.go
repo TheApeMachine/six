@@ -39,19 +39,21 @@ func (firmware *Firmware) evaluateConditions(value *primitive.Value, conditions 
 		var match bool
 
 		lowerKey := strings.ToLower(strings.TrimSpace(key))
-		if lowerKey == "and" {
+
+		switch lowerKey {
+		case "and":
 			if sub, ok := val.(map[string]any); ok {
 				match = firmware.evaluateConditions(value, sub, true)
 			} else {
 				match = false
 			}
-		} else if lowerKey == "or" {
+		case "or":
 			if sub, ok := val.(map[string]any); ok {
 				match = firmware.evaluateConditions(value, sub, false)
 			} else {
 				match = false
 			}
-		} else {
+		default:
 			regionType, nameOK := primitive.RegionNames[lowerKey]
 			if !nameOK {
 				match = false

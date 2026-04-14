@@ -3,7 +3,6 @@ package experiment
 import (
 	"crypto/rand"
 	"math"
-	"strings"
 	"sync"
 
 	gc "github.com/smartystreets/goconvey/convey"
@@ -134,26 +133,6 @@ func (expectation Expectation) threshold() float64 {
 	}
 
 	return expectation.Baseline
-}
-
-func (evaluator *Evaluator) unambiguousLabelInText(observed string, numClasses int) (int, bool) {
-	if len(observed) == 0 {
-		return 0, false
-	}
-
-	var hits []int
-
-	for classIdx := range numClasses {
-		if strings.Contains(observed, evaluator.labels[classIdx]) {
-			hits = append(hits, classIdx)
-		}
-	}
-
-	if len(hits) != 1 {
-		return 0, false
-	}
-
-	return hits[0], true
 }
 
 /*

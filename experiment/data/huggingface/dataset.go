@@ -352,24 +352,6 @@ func (dataset *Dataset) tryStartCacheLoad() bool {
 	return true
 }
 
-func (dataset *Dataset) waitForCachedTokens() []byte {
-	dataset.cacheMu.Lock()
-	defer dataset.cacheMu.Unlock()
-
-	for dataset.cacheLoading {
-		dataset.cacheCond.Wait()
-	}
-
-	if !dataset.cacheReady {
-		return nil
-	}
-
-	cached := make([]byte, len(dataset.cachedTokens))
-	copy(cached, dataset.cachedTokens)
-
-	return cached
-}
-
 func (dataset *Dataset) finishCacheLoad(tokens []byte, samples []data.Sample, ok bool) {
 	dataset.cacheMu.Lock()
 	defer dataset.cacheMu.Unlock()

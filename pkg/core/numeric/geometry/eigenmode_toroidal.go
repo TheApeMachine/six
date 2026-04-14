@@ -7,7 +7,6 @@ import (
 	"math/cmplx"
 	"sort"
 
-	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/tphakala/simd/f64"
 	"gonum.org/v1/gonum/mat"
@@ -122,62 +121,6 @@ func NewEigenModeToroidal(opts ...eigenOpts) (*EigenModeToroidal, error) {
 	}
 
 	return emt, nil
-}
-
-/*
-buildMultiScaleCooccurrence superimposes Fibonacci-windowed co-occurrence
-eigen phases. For each window w in fibWindows, it computes the (v2, v3)
-eigenplane and derives Phase[i] and Frequency[i]. The final Phase is the
-weighted circular mean across all scales; Frequency is the weighted sum.
-
-Smaller windows → fine-grained local correlation.
-Larger windows  → longer-range coupling.
-The composite starting state gives every oscillator knowledge of both scales.
-*/
-func (emt *EigenModeToroidal) buildMultiScaleCooccurrence(corpus []uint64) {
-	sinAcc := make([]float64, 512)
-	cosAcc := make([]float64, 512)
-	freqAcc := make([]float64, 512)
-
-	for wi, w := range numeric.FibWindows {
-		weight := numeric.FibWeights[wi]
-
-		var C [512][512]float64
-		emt.buildCooccurrenceInto(&C, corpus, w)
-		_, v2, v3 := emt.top3Eigenvectors(&C)
-
-		// Magnitude in (v2,v3) eigenplane → per-scale frequency contribution.
-		var maxMag float64
-		mags := make([]float64, 512)
-
-		for i := range 512 {
-			mags[i] = math.Sqrt(v2[i]*v2[i] + v3[i]*v3[i])
-
-			if mags[i] > maxMag {
-				maxMag = mags[i]
-			}
-		}
-
-		for i := range 512 {
-			phase := math.Atan2(v3[i], v2[i])
-			sinAcc[i] += weight * math.Sin(phase)
-			cosAcc[i] += weight * math.Cos(phase)
-
-			freq := 1.0
-
-			if maxMag > 0 {
-				freq = 1.0 + (mags[i]/maxMag)*math.Log2(512.0)
-			}
-
-			freqAcc[i] += weight * freq
-		}
-	}
-
-	// Circular mean of the weighted phase contributions.
-	for i := range 512 {
-		emt.phase[i] = math.Atan2(sinAcc[i], cosAcc[i])
-		emt.frequency[i] = freqAcc[i]
-	}
 }
 
 /*

@@ -58,6 +58,22 @@ func TestParser_Parse(t *testing.T) {
 			So(tokens[0].Mode, ShouldEqual, ModeReduce)
 		})
 	})
+
+	Convey("Given a program with a trailing next self directive", t, func() {
+		source := "tokens tokens signals xor accumulate\n" +
+			"context context gradient xor accumulate\n" +
+			"next self\n"
+		program := NewProgram(source)
+		parser := NewParser(program)
+
+		Convey("Parse should emit only ALU rows and skip the scheduler line", func() {
+			tokens := parser.Parse()
+
+			So(len(tokens), ShouldEqual, 2)
+			So(tokens[0].Op, ShouldEqual, XOR)
+			So(tokens[1].Op, ShouldEqual, XOR)
+		})
+	})
 }
 
 /*

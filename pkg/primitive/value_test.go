@@ -120,27 +120,16 @@ func TestNewValue(t *testing.T) {
 
 	Convey("Given a payload that chains segments", t, func() {
 		// Size the payload well past a single token slab so the packer has
-		// to open a second segment and link prev/next words.
+		// to open a second segment.
 		capacity := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8 / 2)
 		payload := bytes.Repeat([]byte{'A'}, capacity*3)
 
 		Convey("When NewValue mints it", func() {
 			values, err := NewValue(payload)
 
-			Convey("It should produce multiple linked segments", func() {
+			Convey("It should produce multiple segments", func() {
 				So(err, ShouldBeNil)
 				So(len(values), ShouldBeGreaterThanOrEqualTo, 2)
-
-				prevWord := core.Cfg.Value.Region.Prev.Start
-				nextWord := core.Cfg.Value.Region.Next.Start
-
-				for idx := 1; idx < len(values); idx++ {
-					prev := values[idx-1]
-					next := values[idx]
-
-					So((*prev)[nextWord], ShouldEqual, next.ID())
-					So((*next)[prevWord], ShouldEqual, prev.ID())
-				}
 			})
 
 			Reset(func() {

@@ -14,6 +14,10 @@ func NewExecutable(
 	firmware string,
 	assets []*Asset,
 ) *Executable {
+	for _, asset := range assets {
+		_ = asset.Bundle(value)
+	}
+
 	return &Executable{
 		value:    value,
 		firmware: firmware,

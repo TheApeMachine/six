@@ -101,14 +101,6 @@ func (experiment *LanguagesExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
-func langDisplayNames() []string {
-	names := make([]string, len(humanEvalLanguages))
-	for i, l := range humanEvalLanguages {
-		names[i] = l.DisplayName
-	}
-	return names
-}
-
 func (experiment *LanguagesExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]

@@ -242,9 +242,6 @@ func newValuesFromPayload(
 		geometry = newBalancedGeometry(tokenBytes/2, 2)
 	}
 
-	prevWord := core.Cfg.Value.Region.Prev.Start
-	nextWord := core.Cfg.Value.Region.Next.Start
-
 	idx := 0
 
 	var out []*Value

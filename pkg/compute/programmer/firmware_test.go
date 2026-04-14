@@ -52,10 +52,45 @@ func TestFirmware_Next(t *testing.T) {
 		value := values[0]
 		firmware := NewFirmware()
 
-		Convey("Next should return the rule firmware when affinity is empty and the rule expects false", func() {
+		Convey("Next should return the link firmware when prev and next are empty", func() {
 			next := firmware.Next(value)
+			So(next, ShouldEqual, "link")
+		})
 
+		Convey("Next should return the affinity firmware when prev is set but next is empty", func() {
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			value.Set(prevStart, 1)
+
+			next := firmware.Next(value)
 			So(next, ShouldEqual, "affinity")
+		})
+
+		Convey("Next should return the affinity firmware when next is set but prev is empty", func() {
+			nextStart, _ := primitive.NextRegion.WordExtent()
+			value.Set(nextStart, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "affinity")
+		})
+
+		Convey("Next should return the affinity firmware when both prev and next are set", func() {
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			nextStart, _ := primitive.NextRegion.WordExtent()
+			value.Set(prevStart, 1)
+			value.Set(nextStart, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "affinity")
+		})
+
+		Convey("Next should return empty string when affinity is already set", func() {
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "")
 		})
 
 		Reset(func() {

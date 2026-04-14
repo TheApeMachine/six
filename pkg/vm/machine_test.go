@@ -92,6 +92,11 @@ func (provider *staticSampleProvider) Generate() iter.Seq[data.Sample] {
 	return provider.seq
 }
 
+func setupTokenizerValueConfig() {
+	core.Cfg.Value.Region.Tokens.Start = 0
+	core.Cfg.Value.Region.Tokens.Bits = 1024
+}
+
 func TestNewMachine(t *testing.T) {
 	Convey("NewMachine wires host, queue, backend, and tokenizer", t, func() {
 		ctx := context.Background()
@@ -123,7 +128,7 @@ func TestMachineClose(t *testing.T) {
 }
 
 func TestMachineLoad(t *testing.T) {
-	setupTokenizerValueConfig(t)
+	setupTokenizerValueConfig()
 
 	Convey("Load ingests samples through tokenizer IngestSample", t, func() {
 		ctx := context.Background()
@@ -193,7 +198,7 @@ func TestMachineLoad(t *testing.T) {
 }
 
 func TestMachineLoadPrompts(t *testing.T) {
-	setupTokenizerValueConfig(t)
+	setupTokenizerValueConfig()
 
 	Convey("Load ingests multiple samples in order", t, func() {
 		ctx := context.Background()
@@ -226,7 +231,7 @@ func TestMachineLoadPrompts(t *testing.T) {
 }
 
 func TestMachinePrompt(t *testing.T) {
-	setupTokenizerValueConfig(t)
+	setupTokenizerValueConfig()
 
 	Convey("Prompt loops on Cycle until gap closure or context end", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -267,7 +272,7 @@ func TestMachineError(t *testing.T) {
 }
 
 func BenchmarkMachine_Load(b *testing.B) {
-	setupTokenizerValueConfig(b)
+	setupTokenizerValueConfig()
 
 	ctx := context.Background()
 	machine, err := NewMachine(ctx)

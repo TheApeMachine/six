@@ -22,14 +22,8 @@ type Orchestrator struct {
 	queue    *pool.Queue
 	field    *geometry.Field
 	firmware *programmer.Firmware
+	linker   *Linker
 }
-
-/*
-affinityMatchBitBudget is the maximum Hamming distance (in bits) between a
-Value’s affinity words and a community’s aggregate for the Value to join that
-community instead of starting a new one.
-*/
-const affinityMatchBitBudget = 64
 
 /*
 NewOrchestrator creates a new orchestrator.
@@ -53,6 +47,7 @@ func NewOrchestrator(
 		queue:    queue,
 		field:    geometry.NewField(geometry.Mod65537),
 		firmware: programmer.NewFirmware(),
+		linker:   NewLinker(),
 	}
 
 	if err := validate.Require(map[string]any{
@@ -105,31 +100,35 @@ pipeline the system has resolved the prompt.
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) ([]*primitive.Value, error) {
-	assetStart, _ := primitive.AssetRegion.WordExtent()
+	orchestrator.linker.Push(values...)
 
-	for i, value := range values {
+	for {
+		value, assets := orchestrator.linker.Pop()
+
 		if value == nil {
-			continue
-		}
-
-		if i > 0 && values[i-1] != nil {
-			value.Set(assetStart, values[i-1].ID())
-		}
-		if i < len(values)-1 && values[i+1] != nil {
-			value.Set(assetStart+1, values[i+1].ID())
+			break
 		}
 
 		firmware := orchestrator.firmware.Next(value)
 
-		if firmware != "" {
-			orchestrator.queue.Submit(func() {
-				executable := programmer.NewExecutable(
-					value, firmware, nil,
-				)
-
-				executable.Compile(programmer.CPU)
-			})
+		if firmware == "" {
+			continue
 		}
+
+		// Only pass assets if the firmware actually requires them (like "link").
+		// If other firmwares don't need them, we could conditionally pass nil,
+		// but since the asset region is just scratch space, passing it is harmless.
+		if firmware != "link" {
+			assets = nil
+		}
+
+		orchestrator.queue.Submit(func() {
+			executable := programmer.NewExecutable(
+				value, firmware, assets,
+			)
+
+			executable.Compile(programmer.CPU)
+		})
 	}
 
 	return nil, nil

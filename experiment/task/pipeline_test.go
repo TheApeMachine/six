@@ -4,6 +4,7 @@
 package task
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,8 +21,6 @@ import (
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -37,113 +36,6 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(m.Run())
-}
-
-func finalizePipelineExperimentIfAny(t *testing.T, experiment tools.PipelineExperiment) {
-	t.Helper()
-
-	if f, ok := experiment.(interface {
-		Finalize(any) error
-	}); ok {
-		if err := f.Finalize(nil); err != nil {
-			t.Fatalf("experiment Finalize(any): %v", err)
-		}
-
-		return
-	}
-
-	if f, ok := experiment.(interface {
-		Finalize() error
-	}); ok {
-		if err := f.Finalize(); err != nil {
-			t.Fatalf("experiment Finalize(): %v", err)
-		}
-	}
-}
-
-func logPipelineGate(t *testing.T, experimentName string, actual any, assertion Assertion, threshold any) {
-	t.Helper()
-
-	if assertion == nil {
-		return
-	}
-
-	if message := assertion(actual, threshold); message != "" {
-		t.Logf(
-			"%s aggregate gate recorded below threshold: actual=%v threshold=%v detail=%s",
-			experimentName,
-			actual,
-			threshold,
-			message,
-		)
-	}
-}
-
-func pipelineExperimentRowCount(experiment tools.PipelineExperiment) (int, bool) {
-	rows, ok := experiment.TableData().([]tools.ExperimentalData)
-	if !ok {
-		return 0, false
-	}
-
-	return len(rows), true
-}
-
-func promptExperimentRow(
-	idx int,
-	prompt string,
-	holdout []byte,
-	segments []*primitive.Value,
-	cycleResolved []*primitive.Value,
-	classLabels []string,
-) tools.ExperimentalData {
-	var primary *primitive.Value
-
-	executionSettled := false
-	reasoningResolved := false
-
-	if len(cycleResolved) > 0 && cycleResolved[0] != nil {
-		primary = cycleResolved[0]
-		executionSettled = true
-		reasoningResolved = true
-	}
-
-	if primary == nil && len(segments) > 0 && segments[0] != nil {
-		primary = segments[0]
-		executionSettled = true
-	}
-
-	row := tools.ExperimentalData{
-		Idx:               idx,
-		Name:              fmt.Sprintf("prompt_%d", idx),
-		Prefix:            []byte(prompt),
-		Holdout:           append([]byte(nil), holdout...),
-		ExecutionSettled:  executionSettled,
-		ReasoningResolved: reasoningResolved,
-	}
-
-	if primary != nil {
-		row.PropertiesWord = (*primary)[kernel.PropertiesStartWord]
-		row.ProbeState = (*primary)[kernel.PropertiesProbeStateWord]
-		row.ProbeDepth = (*primary)[kernel.PropertiesProbeDepthWord]
-		row.Generation = []byte(primary.String())
-	}
-
-	if len(classLabels) == 0 || primary == nil {
-		return row
-	}
-
-	classIdx, ok := kernel.PrimaryClassFromPropertiesWord(
-		row.PropertiesWord,
-		len(classLabels),
-	)
-	if !ok {
-		return row
-	}
-
-	row.PredLabel = tools.OptionalLabel(classIdx)
-	row.Classification = []byte(classLabels[classIdx])
-
-	return row
 }
 
 func tryLoadConfigForTaskTests() error {
@@ -256,53 +148,46 @@ func TestPipeline(t *testing.T) {
 					machine, err := vm.NewMachine(t.Context())
 					So(err, ShouldBeNil)
 					So(machine, ShouldNotBeNil)
-					if machine != nil {
-						defer func() {
-							if closeErr := machine.Close(); closeErr != nil {
-								t.Fatalf("machine.Close: %v", closeErr)
-							}
-						}()
-					}
-					if loadErr := machine.Load(experiment.Dataset()); loadErr != nil {
-						t.Fatalf("machine.Load: %v", loadErr)
-					}
+
+					defer func() {
+						if closeErr := machine.Close(); closeErr != nil {
+							t.Fatalf("machine.Close: %v", closeErr)
+						}
+					}()
+
+					So(machine.Load(experiment.Dataset()), ShouldBeNil)
 
 					for idx, prompt := range experiment.Prompts() {
 						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
 						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
-						// Same ingress program as corpus load (affinity fold). Scores use Properties plus
-						// Morton chain readout (README: Values carry state; PrevID/NextID encode structure).
 						segments, segErr := primitive.NewValue([]byte(prompt))
-						if segErr != nil {
-							t.Fatalf("prompt %d: NewValue: %v", idx, segErr)
-						}
 
-						if len(segments) == 0 {
-							t.Fatalf("prompt %d: empty segments", idx)
-						}
+						So(segErr, ShouldBeNil)
+						So(len(segments), ShouldBeGreaterThan, 0)
 
-						installer := programmer.Installer{}
+						resolved, promptErr := machine.Prompt(segments...)
 
-						for _, seg := range segments {
-							if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {
-								t.Fatalf("prompt %d: InstallProgram: %v", idx, installErr)
-							}
-						}
-
-						cycleResolved, promptErr := machine.Prompt(segments...)
-						if promptErr != nil {
-							t.Fatalf("prompt %d: %v", idx, promptErr)
-						}
+						So(promptErr, ShouldBeNil)
+						So(len(resolved), ShouldBeGreaterThan, 0)
 
 						classLabels := []string(nil)
-						if labeledExperiment, ok := experiment.(interface{ ClassLabels() []string }); ok {
-							classLabels = labeledExperiment.ClassLabels()
+
+						for _, result := range resolved {
+							classLabels = append(classLabels, classLabelStringForPipeline(experiment, result))
 						}
 
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.
 						pipeline.experiment.AddResult(
-							promptExperimentRow(idx, prompt, holdoutBytes, segments, cycleResolved, classLabels),
+							tools.ExperimentalData{
+								Idx:         idx,
+								Generation:  bytes.Clone(resolved[0].Bytes()),
+								Holdout:     bytes.Clone(holdoutBytes),
+								Prompt:      prompt,
+								Segments:    segments,
+								Resolved:    resolved,
+								ClassLabels: classLabels,
+							},
 						)
 
 						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)
@@ -320,8 +205,6 @@ func TestPipeline(t *testing.T) {
 							)
 						}
 					}
-
-					finalizePipelineExperimentIfAny(t, experiment)
 				})
 
 				Convey("It should record the aggregate outcome for "+experiment.Name(), func() {
@@ -344,4 +227,47 @@ func TestPipeline(t *testing.T) {
 	Convey("When the experiments index is written", t, func() {
 		So(WriteExperimentsIndex(), ShouldBeNil)
 	})
+}
+
+func pipelineExperimentRowCount(experiment tools.PipelineExperiment) (int, bool) {
+	rows, ok := experiment.TableData().([]tools.ExperimentalData)
+
+	if !ok {
+		return 0, false
+	}
+
+	return len(rows), true
+}
+
+func logPipelineGate(t *testing.T, experimentName string, actual any, assertion any, threshold any) {
+	t.Helper()
+	t.Logf(
+		"pipeline gate %s: actual=%v assertion=%v threshold=%v",
+		experimentName,
+		actual,
+		assertion,
+		threshold,
+	)
+}
+
+func classLabelStringForPipeline(experiment tools.PipelineExperiment, value *primitive.Value) string {
+	if value == nil {
+		return ""
+	}
+
+	labelWord, err := value.Property(primitive.LABELS)
+
+	if err != nil {
+		return ""
+	}
+
+	if named, ok := experiment.(interface{ ClassLabels() []string }); ok {
+		names := named.ClassLabels()
+
+		if labelWord < uint64(len(names)) {
+			return names[labelWord]
+		}
+	}
+
+	return fmt.Sprintf("%d", labelWord)
 }
