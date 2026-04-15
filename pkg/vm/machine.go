@@ -79,6 +79,8 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
+	machine.orchestrator.router.AttachRoot(machine.field)
+
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx,
 	); machine.err != nil {

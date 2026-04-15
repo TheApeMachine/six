@@ -1,4 +1,5 @@
 import { chainIdFromWord, readWordU64LE, WORD } from "./valueLayout";
+import { WHEEL_ZOOM_SENSITIVITY, wheelDeltaToPixels } from "./wheelInput";
 import { decodeVizFrames, EK, KIND_NAMES, type VizEvent } from "./wire";
 
 const ACTIONS: { name: string; color: [number, number, number] }[] = [
@@ -463,12 +464,21 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			e.preventDefault();
 			autoFitEnabled = false;
 
-			const world = screenToWorld(e.offsetX, e.offsetY);
-			const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-			camZoom = Math.max(0.01, Math.min(10, camZoom * factor));
+			const sx = e.offsetX;
+			const sy = e.offsetY;
+			const { deltaX, deltaY } = wheelDeltaToPixels(e, W, H);
 
-			camX = world.x - (e.offsetX - W / 2) / camZoom;
-			camY = world.y - (e.offsetY - H / 2) / camZoom;
+			if (Math.abs(deltaY) > 1e-9) {
+				const world = screenToWorld(sx, sy);
+				const factor = Math.exp(-deltaY * WHEEL_ZOOM_SENSITIVITY);
+				camZoom = Math.max(0.01, Math.min(10, camZoom * factor));
+				camX = world.x - (sx - W / 2) / camZoom;
+				camY = world.y - (sy - H / 2) / camZoom;
+			}
+
+			if (Math.abs(deltaX) > 0.5) {
+				camX -= deltaX / camZoom;
+			}
 		},
 		{ passive: false },
 	);
@@ -530,7 +540,15 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 	let compilerLastProg = "";
 	let finalizerTotal = 0;
 
-	const routingBeams: { x: number; y: number; tx: number; ty: number; life: number; dist: number; cid: number }[] = [];
+	const routingBeams: {
+		x: number;
+		y: number;
+		tx: number;
+		ty: number;
+		life: number;
+		dist: number;
+		cid: number;
+	}[] = [];
 
 	let frameCount = 0;
 	let isDestroyed = false;
@@ -1614,7 +1632,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			ctx.beginPath();
 			ctx.moveTo(b.x, b.y);
 			ctx.lineTo(b.tx, b.ty);
-			
+
 			// Color based on distance: green for close, red for far
 			const hue = Math.max(0, 120 - b.dist * 12);
 			ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${b.life * 0.8})`;

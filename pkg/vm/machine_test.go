@@ -259,6 +259,7 @@ func TestMachineLoad(t *testing.T) {
 		So((*secondValue)[120], ShouldEqual, firstValue.ID())
 		So((*firstValue)[123] != 0 || (*firstValue)[124] != 0 || (*firstValue)[125] != 0 || (*firstValue)[126] != 0 || (*firstValue)[127] != 0, ShouldBeTrue)
 		So((*secondValue)[123] != 0 || (*secondValue)[124] != 0 || (*secondValue)[125] != 0 || (*secondValue)[126] != 0 || (*secondValue)[127] != 0, ShouldBeTrue)
+		So(len(machine.field.Children), ShouldBeGreaterThan, 0)
 	})
 }
 

@@ -22,6 +22,7 @@ interference, and dominant extraction are identical operations at every layer
 type Field struct {
 	modulus      uint32
 	Fields       []*Field
+	Children     []*Field
 	Values       []*primitive.Value
 	Affinity     []uint64
 	amplitude    uint32
@@ -85,11 +86,15 @@ func (field *Field) Cycle() ([]*primitive.Value, error) {
 		return nil, nil
 	}
 
-	if len(field.Fields) == 0 {
+	if len(field.Children) > 0 {
+		return field.cycleRoot()
+	}
+
+	if len(field.Values) > 0 || len(field.Fields) == 0 {
 		return field.cycleLeaf()
 	}
 
-	return field.cycleRoot()
+	return nil, nil
 }
 
 /*
@@ -105,6 +110,9 @@ func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
 		return nil, nil
 	}
 
+	field.ResetLanes()
+	field.resetAffinity()
+
 	affinityMap := make(map[uint64][]uint64, len(field.Values))
 	participants := make([]ModeParticipant, 0, len(field.Values))
 
@@ -116,6 +124,8 @@ func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
 		id := (*value)[valueIDWord]
 		aff := valueAffinity(value)
 		affinityMap[id] = aff
+		field.MergeAffinity(aff)
+		field.observeAffinity(aff, 1)
 
 		gap := field.BeliefGap(aff)
 		energy := 1.0 - gap
@@ -177,7 +187,10 @@ back toward global coherence.
 func (field *Field) cycleRoot() ([]*primitive.Value, error) {
 	var processed []*primitive.Value
 
-	for _, community := range field.Fields {
+	field.ResetLanes()
+	field.resetAffinity()
+
+	for _, community := range field.Children {
 		if community == nil {
 			continue
 		}
@@ -188,7 +201,10 @@ func (field *Field) cycleRoot() ([]*primitive.Value, error) {
 		}
 
 		processed = append(processed, values...)
+		field.MergeAffinity(community.Affinity)
 	}
+
+	field.AggregateFromLowerFields(field.Children, 0)
 
 	globalDominant := field.Dominant()
 
@@ -196,7 +212,7 @@ func (field *Field) cycleRoot() ([]*primitive.Value, error) {
 		return processed, nil
 	}
 
-	for slotIndex, community := range field.Fields {
+	for slotIndex, community := range field.Children {
 		if community == nil || len(community.Values) == 0 {
 			continue
 		}
@@ -272,6 +288,30 @@ func valueAffinity(value *primitive.Value) []uint64 {
 	return out
 }
 
+func (field *Field) resetAffinity() {
+	if field == nil || len(field.Affinity) == 0 {
+		return
+	}
+
+	clear(field.Affinity)
+}
+
+func (field *Field) observeAffinity(valueAffinity []uint64, weight uint32) {
+	if field == nil || len(field.Fields) == 0 || weight == 0 || len(valueAffinity) == 0 {
+		return
+	}
+
+	var folded uint64
+
+	for wordIndex, word := range valueAffinity {
+		shift := (wordIndex * 11) & 63
+		folded ^= bits.RotateLeft64(word, shift)
+		folded += uint64(wordIndex + 1)
+	}
+
+	field.Observe(int(ReduceScalar(field.modulus, folded)), weight)
+}
+
 func newFieldLanes(laneCount int, modulus uint32) *Field {
 	if laneCount < 1 {
 		laneCount = LaneCountForModulus(modulus)
@@ -289,6 +329,7 @@ func newFieldLanes(laneCount int, modulus uint32) *Field {
 	return &Field{
 		modulus:      modulus,
 		Fields:       make([]*Field, laneCount),
+		Children:     nil,
 		Cooccurrence: make(map[int]map[int]uint32),
 		lastMode:     -1,
 	}
@@ -766,7 +807,13 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 	}
 
 	for laneIndex := range childLanes {
-		childValue := child.Fields[laneIndex].Dominant().Amplitude
+		childLane := child.Fields[laneIndex]
+
+		if childLane == nil {
+			continue
+		}
+
+		childValue := childLane.Dominant().Amplitude
 
 		if childValue == 0 {
 			continue
@@ -774,7 +821,12 @@ func (field *Field) AccumulateProjected(child *Field, slot int) {
 
 		laneMultiplier := field.addMod(slotMultiplier, uint32(laneIndex+1))
 		projected := field.mulMod(laneMultiplier, childValue)
-		field.addMod(field.Fields[laneIndex].Dominant().Amplitude, projected)
+
+		if field.Fields[laneIndex] == nil {
+			field.Fields[laneIndex] = &Field{modulus: field.modulus}
+		}
+
+		field.Fields[laneIndex].amplitude = field.addMod(field.Fields[laneIndex].amplitude, projected)
 	}
 }
 

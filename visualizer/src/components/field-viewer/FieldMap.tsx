@@ -14,6 +14,7 @@ caller can show a community inspector panel.
 
 import { useCallback, useEffect, useRef } from "react";
 import type { FieldSnapshot, FieldValueSnapshot } from "@/lib/engine";
+import { WHEEL_ZOOM_SENSITIVITY, wheelDeltaToPixels } from "@/lib/wheelInput";
 
 const GOLDEN_ANGLE = 2.399963;
 const LENS_RADIUS = 190;
@@ -619,17 +620,28 @@ export function FieldMap({
 		const cam = camRef.current;
 		const W = e.currentTarget.clientWidth;
 		const H = e.currentTarget.clientHeight;
+		const { deltaX, deltaY } = wheelDeltaToPixels(e.nativeEvent, W, H);
 
-		const worldX = (mx - W / 2) / cam.zoom + cam.x;
-		const worldY = (my - H / 2) / cam.zoom + cam.y;
-		const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-		const newZoom = Math.max(0.1, Math.min(6, cam.zoom * factor));
+		let nextX = cam.x;
+		let nextY = cam.y;
+		let nextZoom = cam.zoom;
 
-		camRef.current = {
-			zoom: newZoom,
-			x: worldX - (mx - W / 2) / newZoom,
-			y: worldY - (my - H / 2) / newZoom,
-		};
+		if (Math.abs(deltaY) > 1e-9) {
+			const worldX = (mx - W / 2) / cam.zoom + cam.x;
+			const worldY = (my - H / 2) / cam.zoom + cam.y;
+			nextZoom = Math.max(
+				0.1,
+				Math.min(6, cam.zoom * Math.exp(-deltaY * WHEEL_ZOOM_SENSITIVITY)),
+			);
+			nextX = worldX - (mx - W / 2) / nextZoom;
+			nextY = worldY - (my - H / 2) / nextZoom;
+		}
+
+		if (Math.abs(deltaX) > 0.5) {
+			nextX -= deltaX / nextZoom;
+		}
+
+		camRef.current = { x: nextX, y: nextY, zoom: nextZoom };
 	}, []);
 
 	const handleDoubleClick = useCallback(() => {
