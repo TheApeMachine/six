@@ -40,12 +40,5 @@ func TestMain(m *testing.M) {
 	core.NewConfig()
 
 	code := m.Run()
-
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "vm: viper.ReadInConfig (restore): %v\n", err)
-		os.Exit(1)
-	}
-
-	core.NewConfig()
 	os.Exit(code)
 }

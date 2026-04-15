@@ -14,6 +14,20 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+func hasNonZeroAffinity(value *primitive.Value, affinityStart int, affinityWords int) bool {
+	if value == nil {
+		return false
+	}
+
+	for offset := 0; offset < affinityWords; offset++ {
+		if (*value)[affinityStart+offset] != 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
 /*
 TestOrchestratorSubmitStep verifies that the in-value scheduler word is treated
 as first-class control flow. A resident next-self program must be re-submitted
@@ -54,13 +68,13 @@ func TestOrchestratorSubmitStep(t *testing.T) {
 
 		orchestrator.submitStep(value)
 
-		Convey("submitStep should reschedule the resident program onto the pool", func() {
+		Convey("It should reschedule the resident program onto the pool", func() {
 			select {
 			case executable := <-dispatched:
 				So(executable, ShouldNotBeNil)
 				So(executable.Value(), ShouldEqual, value)
 			case <-time.After(2 * time.Second):
-				So("pool dispatch", ShouldEqual, "timed out")
+				t.Fatal("pool dispatch timed out")
 			}
 		})
 	})
@@ -100,14 +114,14 @@ func TestOrchestratorSubmitStep(t *testing.T) {
 
 		orchestrator.submitStep(value)
 
-		Convey("submitStep should prefer the affinity rule before resident re-execution", func() {
+		Convey("It should prefer the affinity rule before resident re-execution", func() {
 			select {
 			case executable := <-dispatched:
 				So(executable, ShouldNotBeNil)
 				So(executable.Value(), ShouldEqual, value)
 				So(executable.IsResidentProgram(), ShouldBeFalse)
 			case <-time.After(2 * time.Second):
-				So("pool dispatch", ShouldEqual, "timed out")
+				t.Fatal("pool dispatch timed out")
 			}
 		})
 	})
@@ -157,17 +171,6 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 			linked := (*first)[prevStart] == 0 && (*first)[nextStart] == second.ID() &&
 				(*second)[prevStart] == first.ID() && (*second)[nextStart] == 0
 
-			firstAffinityNonZero := false
-			secondAffinityNonZero := false
-			for offset := 0; offset < affinityWords; offset++ {
-				if (*first)[affinityStart+offset] != 0 {
-					firstAffinityNonZero = true
-				}
-				if (*second)[affinityStart+offset] != 0 {
-					secondAffinityNonZero = true
-				}
-			}
-
 			assigned := 0
 			for _, peer := range orchestrator.router.route {
 				community, ok := peer.Dst().(*geometry.Field)
@@ -177,7 +180,7 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 				assigned += len(community.Values)
 			}
 
-			if linked && firstAffinityNonZero && secondAffinityNonZero && assigned >= 2 {
+			if linked && hasNonZeroAffinity(first, affinityStart, affinityWords) && hasNonZeroAffinity(second, affinityStart, affinityWords) && assigned >= 2 {
 				break
 			}
 
@@ -189,19 +192,8 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 			So((*first)[nextStart], ShouldEqual, second.ID())
 			So((*second)[prevStart], ShouldEqual, first.ID())
 			So((*second)[nextStart], ShouldEqual, uint64(0))
-
-			firstAffinityNonZero := false
-			secondAffinityNonZero := false
-			for offset := 0; offset < affinityWords; offset++ {
-				if (*first)[affinityStart+offset] != 0 {
-					firstAffinityNonZero = true
-				}
-				if (*second)[affinityStart+offset] != 0 {
-					secondAffinityNonZero = true
-				}
-			}
-			So(firstAffinityNonZero, ShouldBeTrue)
-			So(secondAffinityNonZero, ShouldBeTrue)
+			So(hasNonZeroAffinity(first, affinityStart, affinityWords), ShouldBeTrue)
+			So(hasNonZeroAffinity(second, affinityStart, affinityWords), ShouldBeTrue)
 
 			assigned := 0
 			for _, peer := range orchestrator.router.route {
@@ -214,4 +206,69 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 			So(assigned, ShouldBeGreaterThanOrEqualTo, 2)
 		})
 	})
+}
+
+func BenchmarkSubmitStep(b *testing.B) {
+	ctx := context.Background()
+	queue, err := pool.NewQueue(ctx, func(*programmer.Executable) {})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer queue.Close()
+
+	orchestrator, err := NewOrchestrator(ctx, nil, queue)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer orchestrator.Close()
+
+	values, err := primitive.NewValue([]byte("bench submit"))
+	if err != nil || len(values) == 0 {
+		b.Fatal(err)
+	}
+	value := values[0]
+	defer value.Close()
+
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+	value.Set(affinityStart, 1)
+	value.Set(kernel.SchedulingNextProgramWord, value.ID())
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		orchestrator.submitStep(value)
+	}
+}
+
+func BenchmarkPublish(b *testing.B) {
+	ctx := context.Background()
+	queue, err := pool.NewQueue(ctx, func(*programmer.Executable) {})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer queue.Close()
+
+	orchestrator, err := NewOrchestrator(ctx, nil, queue)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer orchestrator.Close()
+
+	first, err := primitive.FirstSegment(primitive.NewValue([]byte("bench first")))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer first.Close()
+
+	second, err := primitive.FirstSegment(primitive.NewValue([]byte("bench second")))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer second.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		_, _ = orchestrator.Publish(first, second)
+	}
 }

@@ -94,6 +94,26 @@ func TestExecutable_ApplyContinuation(t *testing.T) {
 	})
 }
 
+func BenchmarkExecutable_ApplyContinuation(b *testing.B) {
+	values, err := primitive.NewValue([]byte("bench continuation"))
+
+	if err != nil || len(values) == 0 {
+		b.Fatal(err)
+	}
+
+	value := values[0]
+	defer value.Close()
+
+	executable := NewExecutable(value, "tokens tokens signals xor accumulate\nnext self\n", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		executable.ApplyContinuation()
+	}
+}
+
 func BenchmarkNewExecutable(b *testing.B) {
 	values, err := primitive.NewValue([]byte("bench executable"))
 

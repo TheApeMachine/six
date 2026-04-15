@@ -209,6 +209,8 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
         return;
     }
 
+    uint64_t rawOpcode = frame[PROGRAM_START_WORD] & 0xFF;
+    uint64_t opcode = rawOpcode & 0x0F;
     uint64_t rotationTable = frame[PROGRAM_START_WORD + 1];
     int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
 

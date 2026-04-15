@@ -33,7 +33,7 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
-func exactBinaryWord(op uint64, a uint64, b uint64) uint64 {
+func (backend *Backend) exactBinaryWord(op uint64, a uint64, b uint64) uint64 {
 	m0 := uint64(0)
 	if op&0x1 != 0 {
 		m0 = ^uint64(0)
@@ -56,7 +56,7 @@ func exactBinaryWord(op uint64, a uint64, b uint64) uint64 {
 		(^a & ^b & m3)
 }
 
-func exactBinary(frameWords *[128]uint64, op uint64, aStart int, aSpan int, bStart int, bSpan int, dstStart int, dstSpan int) {
+func (backend *Backend) exactBinary(frameWords *[128]uint64, op uint64, aStart int, aSpan int, bStart int, bSpan int, dstStart int, dstSpan int) {
 	if frameWords == nil || aSpan <= 0 || bSpan <= 0 || dstSpan <= 0 {
 		return
 	}
@@ -74,7 +74,7 @@ func exactBinary(frameWords *[128]uint64, op uint64, aStart int, aSpan int, bSta
 		return
 	}
 	for idx := 0; idx < limit; idx++ {
-		frameWords[dstStart+idx] = exactBinaryWord(op, frameWords[aStart+idx], frameWords[bStart+idx])
+		frameWords[dstStart+idx] = backend.exactBinaryWord(op, frameWords[aStart+idx], frameWords[bStart+idx])
 	}
 }
 
@@ -166,7 +166,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
 
 		if contract == kernel.ProgramContractExactBinary {
-			exactBinary(frameWords, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
+			backend.exactBinary(frameWords, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
 			continue
 		}
 

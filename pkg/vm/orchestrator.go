@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"runtime"
-	"slices"
 	"sync/atomic"
 	"unsafe"
 
@@ -30,7 +29,6 @@ type Orchestrator struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	err      error
-	conn     *gossip.Conn
 	queue    *pool.Queue
 	firmware *programmer.Firmware
 	router   *Router
@@ -53,7 +51,6 @@ func NewOrchestrator(
 	orchestrator := &Orchestrator{
 		ctx:      ctx,
 		cancel:   cancel,
-		conn:     conn,
 		queue:    queue,
 		firmware: programmer.NewFirmware(),
 		router:   NewRouter(),
@@ -106,7 +103,7 @@ Publish stages the predecessor ID into the asset region so the link program
 can copy it into prev, then hands the Value to the rule evaluator.
 */
 func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
-	for _, value := range values {
+	for index, value := range values {
 		if value == nil {
 			continue
 		}
@@ -124,7 +121,7 @@ func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primit
 		previousID := orchestrator.lastID
 		nextID := uint64(0)
 
-		if index := slices.Index(values, value); index >= 0 && index+1 < len(values) && values[index+1] != nil {
+		if index+1 < len(values) && values[index+1] != nil {
 			nextID = values[index+1].ID()
 		}
 

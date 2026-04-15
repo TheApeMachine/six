@@ -42,6 +42,16 @@ func (builder *Builder) build(target CompilerTarget) ([]Frame, error) {
 	return out, nil
 }
 
+/**
+encodeMode packs the FrameContract and ExecutionMode into one uint64 program
+word. The low byte stores the ExecutionMode value, while the next byte stores
+one of kernel.ProgramContractUnknown, kernel.ProgramContractExactBinary,
+kernel.ProgramContractSweepSignal, kernel.ProgramContractReduce, or
+kernel.ProgramContractGeometric shifted left by kernel.ProgramContractShift.
+This keeps the lowered FrameContract and ExecutionMode together in
+kernel.ProgramModeWord so kernels can decode both pieces of intent from one
+word.
+*/
 func (builder *Builder) encodeMode(contract FrameContract, mode ExecutionMode) uint64 {
 	encodedContract := kernel.ProgramContractUnknown
 
