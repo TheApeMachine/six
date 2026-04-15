@@ -49,6 +49,7 @@ func TestCompiler_Compile(t *testing.T) {
 
 			So(err, ShouldBeNil)
 			So(len(frames), ShouldEqual, 1)
+			So(frames[0].Contract, ShouldEqual, ContractSweepSignal)
 			So(frames[0].Program[0], ShouldEqual, uint64(XOR)&0xF)
 		})
 

@@ -11,6 +11,8 @@
 #define OPCODE_GEOMETRIC_REVERSE 0x30
 #define OPCODE_REGION_PROGRAM 0x40
 #define RESERVED_START_WORD 56
+#define PROGRAM_CONTRACT_SHIFT 8
+#define CONTRACT_EXACT_BINARY 1
 
 struct Multivector {
     double v[8];
@@ -77,6 +79,35 @@ static __device__ __forceinline__ Multivector sandwich(Multivector motor, Multiv
 static __device__ __forceinline__ void unpack_region_ref(uint64_t word, int* start, int* span) {
     *start = (int)(uint32_t)word;
     *span = (int)(uint32_t)(word >> 32);
+}
+
+static __device__ __forceinline__ uint64_t exact_binary_word(uint64_t op, uint64_t a, uint64_t b) {
+    uint64_t m0 = (op & 1) ? ~0ULL : 0ULL;
+    uint64_t m1 = (op & 2) ? ~0ULL : 0ULL;
+    uint64_t m2 = (op & 4) ? ~0ULL : 0ULL;
+    uint64_t m3 = (op & 8) ? ~0ULL : 0ULL;
+    return (a & b & m0) |
+           (a & ~b & m1) |
+           (~a & b & m2) |
+           (~a & ~b & m3);
+}
+
+static __device__ __forceinline__ void exact_binary_device(
+    uint64_t* frame,
+    uint64_t op,
+    int aStart, int aSpan,
+    int bStart, int bSpan,
+    int dstStart, int dstSpan
+) {
+    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    int limit = aSpan;
+    if (bSpan < limit) limit = bSpan;
+    if (dstSpan < limit) limit = dstSpan;
+    if (aStart + limit > 128 || bStart + limit > 128 || dstStart + limit > 128) return;
+    for (int idx = 0; idx < limit; idx++) {
+        frame[dstStart + idx] = exact_binary_word(op, frame[aStart + idx], frame[bStart + idx]);
+    }
 }
 
 static __device__ __forceinline__ void universal_bitwise_v2_device(
@@ -179,13 +210,20 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
     }
 
     uint64_t rotationTable = frame[PROGRAM_START_WORD + 1];
-    if (rotationTable == 0) return;
+    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
 
     int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+
+    if (contract == CONTRACT_EXACT_BINARY) {
+        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
+        return;
+    }
+
+    if (rotationTable == 0) return;
 
     universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
 }

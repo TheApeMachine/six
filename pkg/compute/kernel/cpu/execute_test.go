@@ -52,6 +52,22 @@ func TestBackend_Execute(t *testing.T) {
 			So(ke.Type, ShouldEqual, kernel.KernelErrNilPointer)
 		})
 
+		Convey("Execute with an exact-binary OR frame should write the direct result to dst", func() {
+			var frame [128]uint64
+			frame[kernel.ProgramOpcodeWord] = kernel.OpcodeXOR | 0x1
+			frame[kernel.ProgramModeWord] = uint64(0) | (uint64(1) << 8)
+			frame[kernel.ProgramSrcAWord] = kernel.PackRegionRef(kernel.AssetStartWord, 1)
+			frame[kernel.ProgramSrcBWord] = kernel.PackRegionRef(kernel.AssetStartWord+1, 1)
+			frame[kernel.ProgramDstWord] = kernel.PackRegionRef(kernel.PrevStartWord, 1)
+			frame[kernel.AssetStartWord] = 0x00ff00ff00ff00ff
+			frame[kernel.AssetStartWord+1] = 0x0f0f0f0f0f0f0f0f
+
+			ptr := unsafe.Pointer(&frame[0])
+
+			So(backend.Execute([]unsafe.Pointer{ptr}), ShouldBeNil)
+			So(frame[kernel.PrevStartWord], ShouldEqual, uint64(0x0fff0fff0fff0fff))
+		})
+
 		Convey("Execute with a truth-table xor frame should succeed", func() {
 			var frame [128]uint64
 			const xorNibble = kernel.OpcodeXOR

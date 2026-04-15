@@ -33,6 +33,51 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
+func exactBinaryWord(op uint64, a uint64, b uint64) uint64 {
+	m0 := uint64(0)
+	if op&0x1 != 0 {
+		m0 = ^uint64(0)
+	}
+	m1 := uint64(0)
+	if op&0x2 != 0 {
+		m1 = ^uint64(0)
+	}
+	m2 := uint64(0)
+	if op&0x4 != 0 {
+		m2 = ^uint64(0)
+	}
+	m3 := uint64(0)
+	if op&0x8 != 0 {
+		m3 = ^uint64(0)
+	}
+	return (a & b & m0) |
+		(a & ^b & m1) |
+		(^a & b & m2) |
+		(^a & ^b & m3)
+}
+
+func exactBinary(frameWords *[128]uint64, op uint64, aStart int, aSpan int, bStart int, bSpan int, dstStart int, dstSpan int) {
+	if frameWords == nil || aSpan <= 0 || bSpan <= 0 || dstSpan <= 0 {
+		return
+	}
+	limit := aSpan
+	if bSpan < limit {
+		limit = bSpan
+	}
+	if dstSpan < limit {
+		limit = dstSpan
+	}
+	if limit <= 0 || aStart < 0 || bStart < 0 || dstStart < 0 {
+		return
+	}
+	if aStart+limit > len(frameWords) || bStart+limit > len(frameWords) || dstStart+limit > len(frameWords) {
+		return
+	}
+	for idx := 0; idx < limit; idx++ {
+		frameWords[dstStart+idx] = exactBinaryWord(op, frameWords[aStart+idx], frameWords[bStart+idx])
+	}
+}
+
 const (
 	regionEntryWords = 6
 	maxRegionEntries = 10
@@ -66,6 +111,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 		rawOpcode := frameWords[kernel.ProgramOpcodeWord] & 0xFF
 		opcode := rawOpcode & kernel.OpcodeBooleanMask
+		contract := (frameWords[kernel.ProgramModeWord] >> kernel.ProgramContractShift) & 0xFF
 		batchCount := frameWords[kernel.NearestAffinityBatchWord]
 
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
@@ -114,6 +160,15 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		rotationTable := frameWords[kernel.ProgramRotTabWord]
+		mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
+		aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
+		bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
+		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
+
+		if contract == kernel.ProgramContractExactBinary {
+			exactBinary(frameWords, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
+			continue
+		}
 
 		// An all-zero rotation table means the frame has no work for the
 		// universal bitwise lane. Skip it instead of running a sweep that
@@ -121,11 +176,6 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		if rotationTable == 0 {
 			continue
 		}
-
-		mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
-		aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
-		bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
-		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
 
 		universalBitwiseV2(
 			value,

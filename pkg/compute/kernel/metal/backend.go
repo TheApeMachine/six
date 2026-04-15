@@ -15,22 +15,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 )
 
-/*
-metalMu serializes all CGO calls into Metal. Metal command buffer
-submission from concurrent goroutines triggers a fatal
-"semasleep on Darwin signal stack" crash. A single mutex here is
-the cheapest correct fix — the GPU work itself is still parallel
-on-device; we only serialize the host-side dispatch.
-*/
-var metalMu sync.Mutex
-var batchBuffer []byte
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
 //go:generate xcrun -sdk macosx metallib backend.air -o backend.metallib
@@ -108,11 +98,14 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		return nil
 	}
 
-	metalMu.Lock()
-	defer metalMu.Unlock()
-
+	// Per-call scratch for the unified kernel staging copy. Stack-allocated
+	// via make on the current goroutine so concurrent Execute callers never
+	// share mutable state on the Go side. The Objective-C layer allocates a
+	// dedicated MTLBuffer per call too, so there is no shared resource left
+	// between workers and no mutex is required.
 	unifiedBatch := make([]unsafe.Pointer, 0, len(frames))
 	var unifiedBatchCount int
+	var batchBuffer []byte
 
 	flushUnified := func() error {
 		if unifiedBatchCount == 0 {
@@ -243,9 +236,6 @@ func (backend *Backend) NearestAffinity(
 	}
 
 	distances := make([]uint32, count)
-
-	metalMu.Lock()
-	defer metalMu.Unlock()
 
 	if C.nearest_affinity_metal(
 		query,

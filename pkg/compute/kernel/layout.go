@@ -93,10 +93,21 @@ Backend.Execute keeps working unchanged.
 const (
 	ProgramOpcodeWord = ProgramStartWord     // legacy opcode byte + geometric gate
 	ProgramRotTabWord = ProgramStartWord + 1 // 16-nibble rotation opcode table
-	ProgramModeWord   = ProgramStartWord + 2 // ExecutionMode (0=accumulate, 1=reduce)
+	ProgramModeWord   = ProgramStartWord + 2 // low byte: ExecutionMode, next byte: lowered contract kind
 	ProgramSrcAWord   = ProgramStartWord + 3 // srcA: aStart low32 | aSpan high32
 	ProgramSrcBWord   = ProgramStartWord + 4 // srcB: bStart low32 | bSpan high32
 	ProgramDstWord    = ProgramStartWord + 5 // dst:  dStart low32 | dSpan high32
+)
+
+const (
+	ProgramContractShift = 8
+	ProgramContractMask  = uint64(0xFF) << ProgramContractShift
+
+	ProgramContractUnknown     = uint64(0)
+	ProgramContractExactBinary = uint64(1)
+	ProgramContractSweepSignal = uint64(2)
+	ProgramContractReduce      = uint64(3)
+	ProgramContractGeometric   = uint64(4)
 )
 
 /*

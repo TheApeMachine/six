@@ -3,6 +3,7 @@ package programmer
 import (
 	"testing"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -56,6 +57,35 @@ func TestExecutable_Compile(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(len(frames), ShouldEqual, 1)
 			So(frames[0].Program[0], ShouldEqual, uint64(XOR)&0xF)
+		})
+
+		Reset(func() {
+			value.Close()
+		})
+	})
+}
+
+/*
+TestExecutable_ApplyContinuation verifies that trailing scheduler directives
+materialize into the in-value scheduling word rather than being handled only by
+Go-side callbacks.
+*/
+func TestExecutable_ApplyContinuation(t *testing.T) {
+	Convey("Given an executable built from firmware with next self", t, func() {
+		values, err := primitive.NewValue([]byte("continue"))
+
+		So(err, ShouldBeNil)
+		So(len(values), ShouldBeGreaterThan, 0)
+
+		value := values[0]
+		source := "tokens tokens signals xor accumulate\nnext self\n"
+
+		executable := NewExecutable(value, source, nil)
+
+		Convey("ApplyContinuation should schedule the current Value ID in word 117", func() {
+			executable.ApplyContinuation()
+
+			So(value[kernel.SchedulingNextProgramWord], ShouldEqual, value.ID())
 		})
 
 		Reset(func() {

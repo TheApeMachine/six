@@ -334,6 +334,18 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 		return
 	}
 
+	framePtr := unsafe.Pointer(&value[0])
+	ptrs := []unsafe.Pointer{framePtr}
+
+	if executable.IsResidentProgram() {
+		if err := backend.Execute(ptrs); err != nil {
+			errnie.Error(err)
+		}
+
+		executable.Finalize()
+		return
+	}
+
 	frames, err := executable.Compile(programmer.CPU)
 
 	if err != nil {
@@ -346,10 +358,8 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 		return
 	}
 
-	framePtr := unsafe.Pointer(&value[0])
-	ptrs := []unsafe.Pointer{framePtr}
-
 	st := backend.pick(ptrs)
+
 
 	if st.target != programmer.CPU {
 		recompiled, err := executable.Compile(st.target)
@@ -374,6 +384,7 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 
 	for idx := range frames {
 		frames[idx].WriteIntoProgramRegion(value)
+		executable.ApplyContinuation()
 
 		if err := st.substrate.Execute(ptrs); err != nil {
 			errnie.Error(err)

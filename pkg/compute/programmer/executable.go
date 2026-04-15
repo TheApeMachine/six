@@ -1,6 +1,9 @@
 package programmer
 
-import "github.com/theapemachine/six/pkg/primitive"
+import (
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
+)
 
 /*
 Finalizer is a post-execution callback attached to an Executable. After the
@@ -18,12 +21,14 @@ CompilerTarget, writes the resulting Frames into the Value, executes on the
 substrate, and then calls Finalize.
 */
 type Executable struct {
-	value     *primitive.Value
-	firmware  string
-	assets    []*Asset
-	tokens    []Token
-	err       error
-	finalizer Finalizer
+	value        *primitive.Value
+	firmware     string
+	assets       []*Asset
+	tokens       []Token
+	continuation *Continuation
+	resident     bool
+	err          error
+	finalizer    Finalizer
 }
 
 func NewExecutable(
@@ -39,11 +44,19 @@ func NewExecutable(
 	tokens := parser.Parse()
 
 	return &Executable{
+		value:        value,
+		firmware:     firmware,
+		assets:       assets,
+		tokens:       tokens,
+		continuation: parser.Continuation(),
+		err:          parser.Err(),
+	}
+}
+
+func NewResidentExecutable(value *primitive.Value) *Executable {
+	return &Executable{
 		value:    value,
-		firmware: firmware,
-		assets:   assets,
-		tokens:   tokens,
-		err:      parser.Err(),
+		resident: true,
 	}
 }
 
@@ -53,6 +66,14 @@ pointer and write compiled program words.
 */
 func (executable *Executable) Value() *primitive.Value {
 	return executable.value
+}
+
+func (executable *Executable) IsResidentProgram() bool {
+	if executable == nil {
+		return false
+	}
+
+	return executable.resident
 }
 
 /*
@@ -76,5 +97,27 @@ func (executable *Executable) Compile(target CompilerTarget) ([]Frame, error) {
 		return nil, executable.err
 	}
 
+	if executable.resident {
+		return nil, nil
+	}
+
 	return NewCompiler(executable.tokens).Compile(target)
+}
+
+func (executable *Executable) ApplyContinuation() {
+	if executable == nil || executable.value == nil {
+		return
+	}
+
+	if executable.continuation == nil {
+		executable.value.Set(kernel.SchedulingNextProgramWord, 0)
+		return
+	}
+
+	if executable.continuation.Self {
+		executable.value.Set(kernel.SchedulingNextProgramWord, executable.value.ID())
+		return
+	}
+
+	executable.value.Set(kernel.SchedulingNextProgramWord, executable.continuation.ValueID)
 }

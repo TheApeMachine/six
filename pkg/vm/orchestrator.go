@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"runtime"
+	"slices"
 	"sync/atomic"
 	"unsafe"
 
@@ -29,6 +30,7 @@ type Orchestrator struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	err      error
+	conn     *gossip.Conn
 	queue    *pool.Queue
 	firmware *programmer.Firmware
 	router   *Router
@@ -51,6 +53,7 @@ func NewOrchestrator(
 	orchestrator := &Orchestrator{
 		ctx:      ctx,
 		cancel:   cancel,
+		conn:     conn,
 		queue:    queue,
 		firmware: programmer.NewFirmware(),
 		router:   NewRouter(),
@@ -119,12 +122,14 @@ func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primit
 
 		assetStart, _ := primitive.AssetRegion.WordExtent()
 		previousID := orchestrator.lastID
+		nextID := uint64(0)
 
-		if previousID == 0 {
-			previousID = value.ID()
+		if index := slices.Index(values, value); index >= 0 && index+1 < len(values) && values[index+1] != nil {
+			nextID = values[index+1].ID()
 		}
 
 		value.Set(assetStart, previousID)
+		value.Set(assetStart+1, nextID)
 		orchestrator.lastID = value.ID()
 		orchestrator.publishExecuted(value)
 	}
@@ -216,7 +221,23 @@ here for the next firmware pass. When no rule matches the Value is routed
 to a community field.
 */
 func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
 	name := orchestrator.firmware.Next(value)
+
+	if name == "" && value[kernel.SchedulingNextProgramWord] == value.ID() {
+		executable := programmer.NewResidentExecutable(value)
+
+		executable.SetFinalizer(orchestrator.publishExecuted)
+
+		orchestrator.queue.Submit(func() *programmer.Executable {
+			return executable
+		})
+
+		return
+	}
 
 	if name == "" {
 		orchestrator.clearProgram(value)

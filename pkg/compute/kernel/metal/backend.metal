@@ -10,6 +10,8 @@ using namespace metal;
 #define OPCODE_GEOMETRIC_REVERSE 0x30
 #define OPCODE_REGION_PROGRAM 0x40
 #define RESERVED_START_WORD 56
+#define PROGRAM_CONTRACT_SHIFT 8
+#define CONTRACT_EXACT_BINARY 1
 
 struct Multivector {
     float v[8];
@@ -156,6 +158,35 @@ static inline void unpack_region_ref(ulong word, thread int* start, thread int* 
     *span = (int)(uint)(word >> 32);
 }
 
+static inline ulong exact_binary_word(ulong op, ulong a, ulong b) {
+    ulong m0 = (op & 1) ? ~0UL : 0UL;
+    ulong m1 = (op & 2) ? ~0UL : 0UL;
+    ulong m2 = (op & 4) ? ~0UL : 0UL;
+    ulong m3 = (op & 8) ? ~0UL : 0UL;
+    return (a & b & m0) |
+           (a & ~b & m1) |
+           (~a & b & m2) |
+           (~a & ~b & m3);
+}
+
+static inline void exact_binary_device(
+    device ulong* frame,
+    ulong op,
+    int aStart, int aSpan,
+    int bStart, int bSpan,
+    int dstStart, int dstSpan
+) {
+    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    int limit = aSpan;
+    if (bSpan < limit) limit = bSpan;
+    if (dstSpan < limit) limit = dstSpan;
+    if (aStart + limit > 128 || bStart + limit > 128 || dstStart + limit > 128) return;
+    for (int idx = 0; idx < limit; idx++) {
+        frame[dstStart + idx] = exact_binary_word(op, frame[aStart + idx], frame[bStart + idx]);
+    }
+}
+
 static inline void universal_bitwise_v2_device(
     device ulong* frame,
     int aStart, int aSpan,
@@ -235,6 +266,7 @@ kernel void unified_bitwise_kernel(
     device ulong* frame = A + base;
 
     uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
+    uchar opcode = rawOpcode & 0x0F;
 
     if (rawOpcode == OPCODE_REGION_PROGRAM) {
         for (int offset = 0; offset < 60; offset += 6) {
@@ -256,13 +288,20 @@ kernel void unified_bitwise_kernel(
     }
 
     ulong rotationTable = frame[PROGRAM_START_WORD + 1];
-    if (rotationTable == 0) return;
+    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
 
     int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+
+    if (contract == CONTRACT_EXACT_BINARY) {
+        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
+        return;
+    }
+
+    if (rotationTable == 0) return;
 
     universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
 }

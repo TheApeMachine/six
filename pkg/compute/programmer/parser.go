@@ -15,9 +15,10 @@ downstream stages work off validated RegionRef structs instead of raw
 strings.
 */
 type Parser struct {
-	program *Program
-	tokens  []Token
-	err     error
+	program      *Program
+	tokens       []Token
+	continuation *Continuation
+	err          error
 }
 
 type parserOption func(*Parser)
@@ -50,6 +51,11 @@ func (*Parser) validateOperationMnemonic(mnemonic string) error {
 	}
 }
 
+type Continuation struct {
+	ValueID uint64
+	Self    bool
+}
+
 /*
 Err returns the first parse error. Parse keeps the existing one-return API so
 callers that only need tokens stay simple.
@@ -60,6 +66,18 @@ func (parser *Parser) Err() error {
 	}
 
 	return parser.err
+}
+
+/*
+Continuation returns the trailing scheduler directive captured during Parse.
+Nil means the source omitted a next-program line.
+*/
+func (parser *Parser) Continuation() *Continuation {
+	if parser == nil {
+		return nil
+	}
+
+	return parser.continuation
 }
 
 /*
@@ -80,9 +98,11 @@ intermix explanatory prose with executable lines.
 */
 func (parser *Parser) Parse() (tokens []Token) {
 	parser.tokens = parser.tokens[:0]
+	parser.continuation = nil
 	parser.err = nil
 
 	lines := parser.program.Load()
+	sawContinuation := false
 
 	for _, fields := range lines {
 		if len(fields) == 0 {
@@ -93,10 +113,38 @@ func (parser *Parser) Parse() (tokens []Token) {
 			continue
 		}
 
-		// Scheduler directive (see config programs:), not an ALU row — two fields:
-		//   next self | next <uint64>
 		if strings.EqualFold(strings.TrimSpace(fields[0]), "next") {
+			if sawContinuation {
+				parser.err = fmt.Errorf("programmer: multiple next directives")
+				return parser.tokens
+			}
+
+			if len(fields) != 2 {
+				parser.err = fmt.Errorf("programmer: malformed next directive")
+				return parser.tokens
+			}
+
+			sawContinuation = true
+			parser.continuation = &Continuation{}
+
+			if strings.EqualFold(strings.TrimSpace(fields[1]), "self") {
+				parser.continuation.Self = true
+				continue
+			}
+
+			valueID, err := strconv.ParseUint(strings.TrimSpace(fields[1]), 10, 64)
+			if err != nil {
+				parser.err = fmt.Errorf("programmer: invalid next target %q", fields[1])
+				return parser.tokens
+			}
+
+			parser.continuation.ValueID = valueID
 			continue
+		}
+
+		if sawContinuation {
+			parser.err = fmt.Errorf("programmer: operation after next directive")
+			return parser.tokens
 		}
 
 		if len(fields) < 5 {

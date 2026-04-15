@@ -6,13 +6,29 @@ import (
 )
 
 /*
+FrameContract identifies the lowered execution family the compiler selected for
+one frame. Kernels should eventually dispatch on lowered contract shape rather
+than infer semantics from one universal sweep path.
+*/
+type FrameContract uint8
+
+const (
+	ContractUnknown FrameContract = iota
+	ContractExactBinary
+	ContractSweepSignal
+	ContractReduceBinary
+	ContractGeometric
+)
+
+/*
 Frame is one compiled chunk sized to fit a single Value program region.
 
 Program holds the bits written into value.region.program. Scheduling metadata
 (word 117) is applied by WriteFrames / Installer after program words are laid down.
 */
 type Frame struct {
-	Program [64]uint64
+	Contract FrameContract
+	Program  [64]uint64
 }
 
 /*

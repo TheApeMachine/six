@@ -19,29 +19,12 @@ static int initResult = 0;
 #define VALUE_BYTES 1024
 
 /*
-Single shared buffer pool: one host-visible buffer (poolA) that grows
-geometrically (capacity tracked in poolCap) and is reused by every kernel path.
+No shared host-visible buffer. Every dispatch allocates its own MTLBuffer so
+concurrent calls from different goroutines never stomp on each other. Metal's
+MTLCommandQueue is documented as safe for multi-threaded submission when each
+thread builds its own command buffer with its own resources — which is now
+the pattern we follow on every dispatch path.
 */
-static id<MTLBuffer> poolA   = nil;
-static uint32_t      poolCap = 0;
-
-static int ensure_pool(uint32_t num_values) {
-    if (poolA != nil && poolCap >= num_values) return 0;
-
-    uint32_t cap = num_values * 2;
-    if (cap < 1024) cap = 1024;
-
-    if (poolA)   { [poolA release];   poolA   = nil; }
-
-    NSUInteger bytes = (NSUInteger)cap * VALUE_BYTES;
-
-    poolA   = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-
-    if (!poolA) { poolCap = 0; return -1; }
-
-    poolCap = cap;
-    return 0;
-}
 
 /*
 Device init
@@ -134,33 +117,32 @@ Unified Bitwise dispatch — each Value carries its own 32-bit in-band program
 and the kernel executes the self-only slot sweep directly from the frame.
 */
 int unified_bitwise_metal(void* a_host, uint32_t num_values) {
-    if (!pipelineUnifiedBitwise || !a_host) return -1;
-    if (ensure_pool(num_values) != 0) return -1;
+    if (!pipelineUnifiedBitwise || !a_host || num_values == 0) return -1;
 
     @autoreleasepool {
         NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
-        NSUInteger la = [poolA length];
-        if (la < reqBytes) {
-            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu",
-                  (unsigned long)reqBytes, (unsigned long)la);
-            return -6;
-        }
 
-        memcpy([poolA contents], a_host, reqBytes);
+        id<MTLBuffer> buf = [device newBufferWithBytes:a_host
+                                                length:reqBytes
+                                               options:MTLResourceStorageModeShared];
+        if (!buf) return -1;
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
-        [enc setBuffer:poolA   offset:0 atIndex:0];
+        [enc setBuffer:buf offset:0 atIndex:0];
 
         dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-        if (r != 0) return r;
 
-        memcpy(a_host, [poolA contents], reqBytes);
-        return 0;
+        if (r == 0) {
+            memcpy(a_host, [buf contents], reqBytes);
+        }
+
+        [buf release];
+        return r;
     }
 }
 
@@ -171,32 +153,31 @@ float arithmetic core.
 */
 int geometric_metal(void* a_host, uint32_t num_values) {
     if (!pipelineGeometric || !a_host || num_values == 0) return -1;
-    if (ensure_pool(num_values) != 0) return -1;
 
     @autoreleasepool {
         NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
-        NSUInteger la = [poolA length];
-        if (la < reqBytes) {
-            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu",
-                  (unsigned long)reqBytes, (unsigned long)la);
-            return -7;
-        }
 
-        memcpy([poolA contents], a_host, reqBytes);
+        id<MTLBuffer> buf = [device newBufferWithBytes:a_host
+                                                length:reqBytes
+                                               options:MTLResourceStorageModeShared];
+        if (!buf) return -1;
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
-        [enc setBuffer:poolA offset:0 atIndex:0];
+        [enc setBuffer:buf offset:0 atIndex:0];
 
         dispatchKernel(enc, pipelineGeometric, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-        if (r != 0) return r;
 
-        memcpy(a_host, [poolA contents], reqBytes);
-        return 0;
+        if (r == 0) {
+            memcpy(a_host, [buf contents], reqBytes);
+        }
+
+        [buf release];
+        return r;
     }
 }
 
@@ -254,6 +235,5 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
 }
 
 void cleanup_metal_pools(void) {
-    if (poolA)   { [poolA release];   poolA   = nil; }
-    poolCap = 0;
+    // No persistent buffers to free — every dispatch owns its own MTLBuffer.
 }
