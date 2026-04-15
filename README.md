@@ -53,6 +53,10 @@ upwards│            │                              │Top-down feedback
           └─────────────────────────────────────┘                    
 ```
 
+The idea here is that the community fields "emerge" from the Values, and the global field emerges from the community fields. This emergence should happen because of how information is projected upwards. The Value has regions that tell us something about it, and projecting this upwards allows the field above it to aggregate many of these data points into an accumulated state, which should allow the field to make desicions on what to do next. "What to do" is mostly expressed as the emission of new (ephemeral) Values that can run algorithms as in-Value/in-band programs.
+
+The gossip mechanism allows Values, Community Fields, and the Global Field to exchange information fast. These communication pipes can be weighted by a learning mechanism, such as reinforcement learning.
+
 ### Field Hierarchy
 
 The three finite fields form a phase hierarchy. Each layer aggregates the one below it; gossip carries the vectors peers need to reconstruct the same pressure field.
@@ -62,6 +66,8 @@ The three finite fields form a phase hierarchy. Each layer aggregates the one be
 | Value           | `GF(257)`   | Per-Value byte-phase, local interference, affine rotation    |
 | Community Field | `GF(8191)`  | Regional aggregate from community members                    |
 | Global Field    | `GF(65537)` | Global eigenphase aggregated across nodes via gossip digests |
+
+> To be clear, it is the Affinity region that uses GF(257) and rotating it using affine rotation can tell us something about the noise level of the Value.
 
 ### Data Flow
 
@@ -286,7 +292,7 @@ Not implemented as a rotation-sweep program. Current unsupervised learning does 
 
 ### How Programs See Peer Data — the Reserved Scratchpad
 
-The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data enters through the **Reserved region (words 56–119)**, which the orchestrator uses as a staging scratchpad before dispatch.
+The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data enters through the **Asset region (words 56–119)**, which the orchestrator uses as a staging scratchpad before dispatch.
 
 ```text
 peer A tokens[0,15]  → executing Value's reserved[0,16]   (words 56–71)

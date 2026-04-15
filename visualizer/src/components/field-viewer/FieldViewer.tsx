@@ -919,7 +919,7 @@ export function FieldViewer({ className }: FieldViewerProps) {
 
 				{/* Prompt inspector — auto-appears on all non-telemetry tabs */}
 				{zoomLevel !== "telemetry" && zoomLevel !== "programs" && (
-					<PromptInspector events={events} />
+					<PromptInspector events={events} snapshot={activeSnapshot} />
 				)}
 
 				{/* Floating inspector panel — shows outside telemetry view, only when

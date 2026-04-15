@@ -1,4 +1,7 @@
-        const panels = {{.PanelsJSON}};
+        const spec = {{.SpecJSON}};
+        const panels = spec.panels || [];
+        const tooltip = spec.tooltip || {};
+        const legend = spec.legend || {};
 
         /* ── Unified Design System ─────────────────────────────────────── */
         const PALETTES = {
@@ -194,21 +197,41 @@
             }
         });
 
+        const tooltipOption = {};
+        if (tooltip.trigger) {
+            tooltipOption.trigger = tooltip.trigger;
+        }
+        if (tooltip.positionSet) {
+            tooltipOption.position = tooltip.position;
+        } else if (!tooltip.trigger) {
+            tooltipOption.position = 'top';
+        }
+
+        const legendOption = {
+            data: legendItems,
+            top: legend.top || '1%',
+            textStyle: { color: '#475569', fontSize: 11 }
+        };
+        if (legend.rightExplicit) {
+            if (legend.right) {
+                legendOption.right = legend.right;
+            }
+        } else {
+            legendOption.right = legend.right || '2%';
+        }
+        if (legend.selectedMode !== null) {
+            legendOption.selectedMode = legend.selectedMode;
+        }
+
         chart.setOption({
             backgroundColor: 'transparent',
             animation: false,
-            tooltip:  { position: 'top' },
-            title:    titles,
-            grid:     grids,
-            xAxis:    xAxes,
-            yAxis:    yAxes,
-            series:   series,
+            tooltip: tooltipOption,
+            title: titles,
+            grid: grids,
+            xAxis: xAxes,
+            yAxis: yAxes,
+            series: series,
             visualMap: visualMaps,
-            legend: {
-                data: legendItems,
-                selectedMode: false,
-                top:   '1%',
-                right: '2%',
-                textStyle: { color: '#475569', fontSize: 11 }
-            }
+            legend: legendOption
         });

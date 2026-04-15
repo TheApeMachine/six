@@ -1,14 +1,9 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
 	"io"
 	"os"
 )
-
-//go:embed barchart_script.tmpl
-var barchartScriptTmpl string
 
 // BarSeries is one named data series in a bar chart.
 type BarSeries struct {
@@ -41,21 +36,7 @@ func NewBarChart(opts ...barChartOpts) *BarChart {
 func (chart *BarChart) SetOutput(out io.Writer) { chart.out = out }
 
 func (chart *BarChart) RenderHTML(w io.Writer) error {
-	xData, _ := json.Marshal(chart.xAxisData)
-	sData, _ := json.Marshal(chart.series)
-	script := execTemplate(barchartScriptTmpl, struct {
-		XAxisDataJSON string
-		SeriesJSON    string
-	}{string(xData), string(sData)})
-	html, err := renderChartHTML(chart.title, chartW, chartH, script)
-
-	if err != nil {
-		return err
-	}
-
-	_, err = w.Write([]byte(html))
-
-	return err
+	return chart.asMultiPanel().RenderHTML(w)
 }
 
 func (chart *BarChart) RenderLaTeX(w io.Writer) error {
@@ -63,17 +44,7 @@ func (chart *BarChart) RenderLaTeX(w io.Writer) error {
 }
 
 func (chart *BarChart) GenerateToDisk() error {
-	xData, _ := json.Marshal(chart.xAxisData)
-	sData, _ := json.Marshal(chart.series)
-	script := execTemplate(barchartScriptTmpl, struct {
-		XAxisDataJSON string
-		SeriesJSON    string
-	}{string(xData), string(sData)})
-
-	return finalizeEChartsFigure(
-		chart.title, chartW, chartH, script,
-		chart.outDir, chart.filename, chart.caption, chart.label, chart.out,
-	)
+	return chart.asMultiPanel().Generate()
 }
 
 func BarChartWithAxes(xAxis []string, series []BarSeries) barChartOpts {

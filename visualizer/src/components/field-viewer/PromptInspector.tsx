@@ -19,12 +19,14 @@ import {
 	IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { VizGraphSnapshot } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 import type { VizEvent } from "@/lib/wire";
 import { EK } from "@/lib/wire";
 
 interface PromptInspectorProps {
 	events: VizEvent[];
+	snapshot?: VizGraphSnapshot | null;
 	className?: string;
 }
 
@@ -85,7 +87,10 @@ function formatTs(tsMicro: number, baseMicro: number): string {
 deriveLifecycle scans backwards through the event stream to find the most
 recent prompt and everything that happened after it up to the result (or now).
 */
-function deriveLifecycle(events: VizEvent[]): PromptLifecycle | null {
+function deriveLifecycle(
+	events: VizEvent[],
+	valueContentById: ReadonlyMap<string, string>,
+): PromptLifecycle | null {
 	let promptIdx = -1;
 	for (let i = 0; i < events.length; i++) {
 		if (events[i].kind === EK.Prompt) {
@@ -121,10 +126,11 @@ function deriveLifecycle(events: VizEvent[]): PromptLifecycle | null {
 		}
 
 		if (ev.kind === EK.TokenizerEmit) {
+			const valueId = ev.meta?.value_id || "";
 			tokens.push({
 				ts: ev.ts,
-				content: ev.meta?.content || ev.lbl || "",
-				valueId: ev.meta?.value_id || "",
+				content: valueContentById.get(valueId) || ev.lbl || "",
+				valueId,
 			});
 		}
 
@@ -211,12 +217,39 @@ function ScoreBar({ score, label }: { score: number; label?: string }) {
 	);
 }
 
-export function PromptInspector({ events, className }: PromptInspectorProps) {
+export function PromptInspector({
+	events,
+	snapshot,
+	className,
+}: PromptInspectorProps) {
 	const [expanded, setExpanded] = useState(true);
 	const [dismissed, setDismissed] = useState(false);
 	const prevPromptTsRef = useRef<number | null>(null);
 
-	const lifecycle = useMemo(() => deriveLifecycle(events), [events]);
+	const valueContentById = useMemo(() => {
+		const entries = new Map<string, string>();
+
+		if (!snapshot) {
+			return entries;
+		}
+
+		for (const field of snapshot.fields) {
+			for (const value of field.members) {
+				entries.set(value.id, value.content);
+			}
+		}
+
+		for (const value of snapshot.orphanValues) {
+			entries.set(value.id, value.content);
+		}
+
+		return entries;
+	}, [snapshot]);
+
+	const lifecycle = useMemo(
+		() => deriveLifecycle(events, valueContentById),
+		[events, valueContentById],
+	);
 
 	useEffect(() => {
 		if (lifecycle && lifecycle.promptTs !== prevPromptTsRef.current) {

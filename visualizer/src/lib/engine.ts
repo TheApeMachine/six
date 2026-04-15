@@ -1,4 +1,4 @@
-import { chainIdFromWord, readWordU64LE, WORD } from "./valueLayout";
+import { ValueStore } from "./value-store";
 import { WHEEL_ZOOM_SENSITIVITY, wheelDeltaToPixels } from "./wheelInput";
 import { decodeVizFrames, EK, KIND_NAMES, type VizEvent } from "./wire";
 
@@ -210,7 +210,7 @@ interface VisValue {
   wireFrame is the latest full Value.Bytes image from the viz binary path
 	(WireFrameValue); word layout matches pkg/primitive + kernel layout.
   */
-	wireFrame?: Uint8Array;
+	wireFrame: Uint8Array | null;
 	program: string;
 	communityId: number;
 	label: string;
@@ -495,7 +495,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 	});
 	ro.observe(container);
 	const valueMap = new Map<string, VisValue>();
-	const pendingWireFrames = new Map<string, Uint8Array>();
+	const valueStore = new ValueStore();
 	const communityMap = new Map<number, VisCommunity>();
 	const eventLog: {
 		ts: number;
@@ -537,7 +537,6 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 	let poolCompleted = 0;
 	const adaptiveAlphas = new Map<string, number>();
 	let compilerTotal = 0;
-	let compilerLastProg = "";
 	let finalizerTotal = 0;
 
 	const routingBeams: {
@@ -614,6 +613,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 
 		const community =
 			v.communityId >= 0 ? communityMap.get(v.communityId) : undefined;
+		syncValueFrameState(v);
 
 		callbacks.onSelection({
 			id: v.id,
@@ -708,36 +708,25 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		return community;
 	}
 
-	function applyWireFrameToValue(v: VisValue, bytes: Uint8Array) {
-		v.wireFrame = bytes;
+	function syncValueFrameState(v: VisValue) {
+		const stored = valueStore.get(v.id);
+		if (!stored?.decoded) {
+			return;
+		}
 
-		/*
-		readWordU64LE returns 0 for out-of-range words; chainIdFromWord turns that
-		into "" so short frames still contribute asset staging (w56–w57) without
-		requiring a full 1024-byte image.
-		*/
-		const prevCommitted = chainIdFromWord(readWordU64LE(bytes, WORD.PREV));
-		const nextCommitted = chainIdFromWord(readWordU64LE(bytes, WORD.NEXT));
-		const prevStaged = chainIdFromWord(readWordU64LE(bytes, WORD.ASSET_PREV));
-		const nextStaged = chainIdFromWord(readWordU64LE(bytes, WORD.ASSET_NEXT));
+		v.wireFrame = stored.frame ?? null;
 
-		const prevW = prevCommitted || prevStaged;
-		const nextW = nextCommitted || nextStaged;
+		if (stored.decoded.content) {
+			v.content = stored.decoded.content;
+		}
 
-		/*
-		Do not clear chain ids when the frame shows zero: a later execute path can
-		clobber w120/w121 while an earlier snapshot still held the causal link.
-		*/
-		if (prevW) v.prevId = prevW;
+		if (stored.decoded.prevId) {
+			v.prevId = stored.decoded.prevId;
+		}
 
-		if (nextW) v.nextId = nextW;
-	}
-
-	function attachPendingWireFrame(id: string, value: VisValue) {
-		const pending = pendingWireFrames.get(id);
-		if (!pending) return;
-		applyWireFrameToValue(value, pending);
-		pendingWireFrames.delete(id);
+		if (stored.decoded.nextId) {
+			v.nextId = stored.decoded.nextId;
+		}
 	}
 
 	function ensureValue(
@@ -750,9 +739,14 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 
 		if (!id) return null;
 
+		valueStore.ensure(id, { role });
+
 		let value = valueMap.get(id);
 
-		if (value) return value;
+		if (value) {
+			syncValueFrameState(value);
+			return value;
+		}
 
 		const pos = spawnPos(`ref|${id}`, communityId);
 		const vel = layoutVelocity(`ref|${id}`);
@@ -764,7 +758,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			program: role === "data" ? ev.meta?.program || "" : ev.lbl || "",
 			communityId,
 			label: ev.lbl || "",
-			content: ev.meta?.content || "",
+			content: "",
 			resonance: role === "data" ? 0.55 : 0.8,
 			gap: 1,
 			resolved: false,
@@ -774,9 +768,10 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			telemetry: snapshotTelemetry(ev),
 			actionResonance: ev.vals?.resonance ?? 0,
 			memberIndex: 0,
+			wireFrame: null,
 		};
 		valueMap.set(id, value);
-		attachPendingWireFrame(id, value);
+		syncValueFrameState(value);
 		cullOldest();
 
 		return value;
@@ -784,14 +779,10 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 
 	function applyValueWireFrame(valueId: bigint, bytes: Uint8Array) {
 		const vid = valueId.toString(16).padStart(16, "0").toLowerCase();
+		valueStore.applyWireFrame(valueId, bytes);
 		const v = valueMap.get(vid);
-
-		if (!v) {
-			pendingWireFrames.set(vid, bytes);
-			return;
-		}
-
-		applyWireFrameToValue(v, bytes);
+		if (!v) return;
+		syncValueFrameState(v);
 	}
 
 	function applyEvent(ev: VizEvent) {
@@ -979,7 +970,6 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		// ── Compiler → ALU → Finalizer ──────────────────────────────────────────
 		else if (ev.kind === EK.CompilerCompile) {
 			compilerTotal++;
-			compilerLastProg = ev.meta?.program || ev.lbl || "";
 			const compileUs = (ev.vals?.compile_ns ?? 0) / 1000;
 			addLog(
 				"compiler",
@@ -1042,6 +1032,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 				telemetry: tel,
 				actionResonance: 0,
 				memberIndex: 0,
+				wireFrame: null,
 			});
 			cullOldest();
 			addLog("prompt", promptText.substring(0, 50));
@@ -1053,18 +1044,17 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		// ── Ingest pipeline ─────────────────────────────────────────────────────
 		else if (ev.kind === EK.TokenizerEmit) {
 			const vid = ev.meta?.value_id || `v_${ev.ts}`;
-			const tokenContent = ev.meta?.content || "";
 			const v = ensureValue(vid, ev, "data", -1);
 
 			if (v) {
 				v.program = ev.meta?.program || v.program || "affinity";
 				if (ev.lbl) v.label = ev.lbl;
-				if (tokenContent) v.content = tokenContent;
+				syncValueFrameState(v);
 				v.telemetry = mergeTelemetry(v.telemetry, ev);
 			}
 			addLog(
 				"tokenizer",
-				`${(tokenContent || vid).substring(0, 30)}${ev.lbl ? " [" + ev.lbl + "]" : ""}`,
+				`${(v?.content || vid).substring(0, 30)}${ev.lbl ? " [" + ev.lbl + "]" : ""}`,
 			);
 		} else if (ev.kind === EK.TokenizerChunk) {
 			const bw = ev.vals?.bytes_written ?? 0;
@@ -1078,13 +1068,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			const v = ensureValue(vid, ev, "data", -1);
 
 			if (v) {
-				const p = normalizedId(ev.meta?.prev_id);
-				const n = normalizedId(ev.meta?.next_id);
-
-				if (p) v.prevId = p;
-
-				if (n) v.nextId = n;
-
+				syncValueFrameState(v);
 				v.telemetry = mergeTelemetry(v.telemetry, ev);
 
 				if (ev.meta?.program) {
@@ -1095,7 +1079,10 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			}
 
 			const inf = ev.vals?.inflight ?? -1;
-			addLog("queue", `submit inf=${inf} ${(ev.lbl || "").substring(0, 40)}`);
+			addLog(
+				"queue",
+				`submit inf=${inf} ${(v?.content || ev.lbl || "").substring(0, 40)}`,
+			);
 		} else if (ev.kind === EK.HolographicCrossover) {
 			addLog("field", `holographic crossover ${ev.lbl || ev.src}`);
 		} else if (ev.kind === EK.Sense) {
@@ -1211,7 +1198,9 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 				telemetry: tel,
 				actionResonance: ar,
 				memberIndex: 0,
+				wireFrame: null,
 			});
+			valueStore.ensure(vid, { role: "action" });
 			cullOldest();
 			addLog("action", `#${cid} → ${prog}`);
 		} else if (ev.kind === EK.CommunityReaction) {
@@ -1247,7 +1236,9 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 				telemetry: tel,
 				actionResonance: 0,
 				memberIndex: 0,
+				wireFrame: null,
 			});
+			valueStore.ensure(vid, { role: "reaction" });
 			cullOldest();
 			addLog("reaction", `#${cid} → ${prog}`);
 		} else if (ev.kind === EK.CausalHubProbe) {
@@ -2144,6 +2135,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			for (const vid of community.memberIds) {
 				const v = valueMap.get(vid);
 				if (!v) continue;
+				syncValueFrameState(v);
 				emittedValueIds.add(v.id);
 				members.push({
 					id: v.id,
@@ -2180,6 +2172,7 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 
 		for (const [, v] of valueMap) {
 			if (emittedValueIds.has(v.id)) continue;
+			syncValueFrameState(v);
 
 			orphanValues.push({
 				id: v.id,

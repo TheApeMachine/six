@@ -58,21 +58,36 @@ type MPPanel struct {
 
 // MultiPanel renders N panels (heatmap / line / bar / combo) into one ECharts figure.
 type MultiPanel struct {
-	out      io.Writer
-	title    string
-	panels   []MPPanel
-	caption  string
-	label    string
-	filename string
-	outDir   string
-	width    int
-	height   int
+	out                 io.Writer
+	title               string
+	panels              []MPPanel
+	caption             string
+	label               string
+	filename            string
+	outDir              string
+	width               int
+	height              int
+	tooltipTrigger      string
+	tooltipPosition     string
+	tooltipPositionSet  bool
+	legendTop           string
+	legendRight         string
+	legendRightExplicit bool
+	legendSelectedMode  *bool
 }
 
 type multiPanelOpts func(*MultiPanel)
 
 func NewMultiPanel(opts ...multiPanelOpts) *MultiPanel {
-	mp := &MultiPanel{out: os.Stdout, filename: "multipanel", outDir: ".", width: 1200, height: 900}
+	selectedMode := false
+	mp := &MultiPanel{
+		out:                os.Stdout,
+		filename:           "multipanel",
+		outDir:             ".",
+		width:              1200,
+		height:             900,
+		legendSelectedMode: &selectedMode,
+	}
 	for _, opt := range opts {
 		opt(mp)
 	}
@@ -81,16 +96,62 @@ func NewMultiPanel(opts ...multiPanelOpts) *MultiPanel {
 
 func (mp *MultiPanel) SetOutput(out io.Writer) { mp.out = out }
 
-func (mp *MultiPanel) Generate() error {
-	panelsJSON, err := json.Marshal(mp.panels)
+func (mp *MultiPanel) RenderHTML(w io.Writer) error {
+	html, err := mp.renderHTML()
 	if err != nil {
 		return err
 	}
-	script := execTemplate(multipanelScriptTmpl, struct{ PanelsJSON string }{string(panelsJSON)})
+
+	_, err = w.Write([]byte(html))
+
+	return err
+}
+
+func (mp *MultiPanel) Generate() error {
+	script, err := mp.renderScript()
+	if err != nil {
+		return err
+	}
+
 	return finalizeEChartsFigure(
 		mp.title, mp.width, mp.height, script,
 		mp.outDir, mp.filename, mp.caption, mp.label, mp.out,
 	)
+}
+
+func (mp *MultiPanel) renderHTML() (string, error) {
+	script, err := mp.renderScript()
+	if err != nil {
+		return "", err
+	}
+
+	return renderChartHTML(mp.title, mp.width, mp.height, script)
+}
+
+func (mp *MultiPanel) renderScript() (string, error) {
+	specJSON, err := json.Marshal(mp.scriptSpec())
+	if err != nil {
+		return "", err
+	}
+
+	return execTemplate(multipanelScriptTmpl, struct{ SpecJSON string }{string(specJSON)}), nil
+}
+
+func (mp *MultiPanel) scriptSpec() multiPanelScriptSpec {
+	return multiPanelScriptSpec{
+		Panels: mp.panels,
+		Tooltip: multiPanelTooltipSpec{
+			Trigger:     mp.tooltipTrigger,
+			Position:    mp.tooltipPosition,
+			PositionSet: mp.tooltipPositionSet,
+		},
+		Legend: multiPanelLegendSpec{
+			Top:           mp.legendTop,
+			Right:         mp.legendRight,
+			RightExplicit: mp.legendRightExplicit,
+			SelectedMode:  mp.legendSelectedMode,
+		},
+	}
 }
 
 // ─── Option functions ───────────────────────────────────────────────────────
@@ -115,6 +176,25 @@ func MultiPanelWithSize(width, height int) multiPanelOpts {
 
 // F64 wraps a float64 as a pointer for MPPanel.YMin / YMax (nil = ECharts auto).
 func F64(v float64) *float64 { return &v }
+
+type multiPanelScriptSpec struct {
+	Panels  []MPPanel             `json:"panels"`
+	Tooltip multiPanelTooltipSpec `json:"tooltip"`
+	Legend  multiPanelLegendSpec  `json:"legend"`
+}
+
+type multiPanelTooltipSpec struct {
+	Trigger     string `json:"trigger"`
+	Position    string `json:"position"`
+	PositionSet bool   `json:"positionSet"`
+}
+
+type multiPanelLegendSpec struct {
+	Top           string `json:"top"`
+	Right         string `json:"right"`
+	RightExplicit bool   `json:"rightExplicit"`
+	SelectedMode  *bool  `json:"selectedMode"`
+}
 
 // HeatmapPanel returns an MPPanel pre-configured as a heatmap.
 func HeatmapPanel(xLabels, yLabels []string, data [][]any, heatMin, heatMax float64, cs string) MPPanel {

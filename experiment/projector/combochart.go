@@ -1,14 +1,9 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
 	"io"
 	"os"
 )
-
-//go:embed combochart_script.tmpl
-var combochartScriptTmpl string
 
 // ComboSeries describes one series in a combo (mixed bar+line) chart.
 // Kind is one of "bar", "line" (smooth), or "dashed".
@@ -49,20 +44,7 @@ func NewComboChart(opts ...comboChartOpts) *ComboChart {
 func (chart *ComboChart) SetOutput(out io.Writer) { chart.out = out }
 
 func (chart *ComboChart) Generate() error {
-	xData, _ := json.Marshal(chart.xAxisData)
-	sData, _ := json.Marshal(chart.series)
-	script := execTemplate(combochartScriptTmpl, struct {
-		XAxisDataJSON string
-		SeriesJSON    string
-		YMin          float64
-		YMax          float64
-		XAxisName     string
-		YAxisName     string
-	}{string(xData), string(sData), chart.yMin, chart.yMax, chart.xAxisName, chart.yAxisName})
-	return finalizeEChartsFigure(
-		chart.title, chartW, chartH, script,
-		chart.outDir, chart.filename, chart.caption, chart.label, chart.out,
-	)
+	return chart.asMultiPanel().Generate()
 }
 
 func ComboChartWithAxes(xAxis []string, series []ComboSeries) comboChartOpts {

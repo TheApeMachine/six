@@ -1,14 +1,9 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
 	"io"
 	"os"
 )
-
-//go:embed linechart_script.tmpl
-var linechartScriptTmpl string
 
 // LineSeries is one named data series in a line chart.
 type LineSeries struct {
@@ -43,19 +38,7 @@ func NewLineChart(opts ...lineChartOpts) *LineChart {
 func (chart *LineChart) SetOutput(out io.Writer) { chart.out = out }
 
 func (chart *LineChart) Generate() error {
-	xData, _ := json.Marshal(chart.xAxisData)
-	sData, _ := json.Marshal(chart.series)
-	script := execTemplate(linechartScriptTmpl, struct {
-		XAxisDataJSON string
-		SeriesJSON    string
-		YMin          float64
-		YMax          float64
-	}{string(xData), string(sData), chart.yMin, chart.yMax})
-
-	return finalizeEChartsFigure(
-		chart.title, chartW, chartH, script,
-		chart.outDir, chart.filename, chart.caption, chart.label, chart.out,
-	)
+	return chart.asMultiPanel().Generate()
 }
 
 func LineChartWithAxes(xAxis []string, series []LineSeries) lineChartOpts {
