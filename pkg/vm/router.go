@@ -7,7 +7,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -73,9 +73,9 @@ func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
 	router.nextID++
 	router.registerCommunity(cid, community, affinity)
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.CommunityCreatedEvent(cid, affinity[:]))
-		viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), cid, 0))
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.CommunityCreatedEvent(cid, affinity[:]))
+		telemetry.DefaultBus.Publish(telemetry.ValueJoinedCommunityEvent(value.ID(), cid, 0))
 	}
 
 	return community
@@ -113,10 +113,10 @@ func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
 		communityField.MergeAffinity(frameAffinity[:])
 		router.mergeGlobal(frameAffinity[:])
 
-		if viz.DefaultBus.IsActive() {
+		if telemetry.DefaultBus.IsActive() {
 			cid, known := router.communityIDs[peer.Dst()]
 			if known {
-				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(
+				telemetry.DefaultBus.Publish(telemetry.ValueJoinedCommunityEvent(
 					value.ID(), cid, dist,
 				))
 			}

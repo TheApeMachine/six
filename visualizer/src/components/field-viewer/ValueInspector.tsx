@@ -8,7 +8,7 @@ above the band.
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { VizInspectSnapshot } from "@/lib/engine";
+import type { VizInspectSnapshot } from "@/features/telemetry/types";
 import { cn } from "@/lib/utils";
 import {
 	affinityHexWords,

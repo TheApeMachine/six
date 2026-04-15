@@ -1,27 +1,32 @@
 # Six Visualizer
 
-React/Vite inspection UI for the live `pkg/viz` event stream. It connects to the Go viz server over the binary WebSocket protocol at `/ws` and uses `/api/prompt` plus `/api/programs` for prompt injection and firmware inspection.
+React/Vite inspection UI and local bridge for live Six telemetry. The Go runtime now emits binary VZB frames over the configured telemetry transport, and the bridge inside `visualizer/` owns the browser-facing `/ws`, `/api/prompt`, and `/api/programs` endpoints.
 
 ## Run
 
 ```bash
 npm install
 npm run dev
+npm run bridge
 ```
 
-By default the UI connects to `ws://localhost:6600/ws`.
+By default the browser connects to `ws://localhost:6600/ws`, while the bridge listens for raw Go telemetry on UDP `127.0.0.1:8258`.
 
 ```bash
 VITE_VIZ_HOST=host.docker.internal VITE_VIZ_PORT=6600 npm run dev
 ```
 
-Start the Go event server from the repository root:
+Run any Go workload that enables telemetry. The default config already points telemetry at `127.0.0.1:8258`.
 
 ```bash
-go run . viz --addr :6600
+go test -ldflags='-checklinkname=0' -tags=exp_pipeline -run 'TestPipeline/Substrate_query_scaling$' ./experiment/task/
 ```
 
-Use `--demo` for a self-contained event stream.
+If you have a separate prompt-control process, point the bridge at it:
+
+```bash
+TELEMETRY_CONTROL_URL=http://127.0.0.1:8259 npm run bridge
+```
 
 ## Inspection Surfaces
 

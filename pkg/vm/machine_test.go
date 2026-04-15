@@ -16,7 +16,7 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -274,16 +274,16 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 		}()
 
 		framesByID := map[uint64][][]byte{}
-		viz.SetWireValueFrameSink(func(payload []byte) {
-			ft, _, _, _, _, valueID, wire, err := viz.UnmarshalWireMessage(payload)
-			if err != nil || ft != byte(viz.WireFrameValue) || valueID == 0 || len(wire) == 0 {
+		telemetry.SetWireValueFrameSink(func(payload []byte) {
+			ft, _, _, _, _, valueID, wire, err := telemetry.UnmarshalWireMessage(payload)
+			if err != nil || ft != byte(telemetry.WireFrameValue) || valueID == 0 || len(wire) == 0 {
 				return
 			}
 
 			copyWire := append([]byte(nil), wire...)
 			framesByID[valueID] = append(framesByID[valueID], copyWire)
 		})
-		defer viz.SetWireValueFrameSink(nil)
+		defer telemetry.SetWireValueFrameSink(nil)
 
 		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
 			if !yield(data.Sample{Text: []byte("first")}) {

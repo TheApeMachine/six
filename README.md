@@ -694,14 +694,14 @@ six/
 │   ├── gossip/              # Gossip protocol types (Conn, Digest)
 │   ├── network/             # QUIC, UDP, IPC transports
 │   ├── transport/           # Pipeline, Stream framing
-│   ├── viz/                 # Event bus, WebSocket server, timeline
+│   ├── telemetry/           # Event bus, binary wire protocol, bridge transport
 │   └── errnie/              # Structured logging + Elasticsearch shipping
 ├── experiment/              # Experiment tasks, data loaders, paper generation
 │   ├── data/                # HuggingFace + local data providers
 │   ├── task/                # Classification, codegen, logic, phasedial, scaling, textgen
 │   ├── projector/           # LaTeX/chart templates
 │   └── trialmap/            # Trial visualization
-├── visualizer/              # React/Three.js 3D visualizer
+├── visualizer/              # React debugger UI + local telemetry bridge
 ├── paper/                   # LaTeX paper + generated figures
 ├── docker-compose.yml       # Elasticsearch, Kibana, MinIO, LakeFS
 ├── Makefile                 # Build targets

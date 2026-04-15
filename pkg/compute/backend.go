@@ -13,7 +13,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -306,13 +306,13 @@ func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, corr
 }
 
 func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.Pointer, elapsed time.Duration) {
-	if !viz.DefaultBus.IsActive() {
+	if !telemetry.DefaultBus.IsActive() {
 		return
 	}
 
 	op, corr, valID := firstFrameOpcodeAndCorrelation(frames)
 
-	viz.DefaultBus.Publish(viz.ALUDispatchEvent(
+	telemetry.DefaultBus.Publish(telemetry.ALUDispatchEvent(
 		st.substrate.Name(),
 		op,
 		corr,
@@ -334,7 +334,7 @@ func (backend *Backend) publishWireFrames(frames []unsafe.Pointer) {
 			continue
 		}
 
-		viz.PublishWireValueFrame(
+		telemetry.PublishWireValueFrame(
 			valueID,
 			unsafe.Slice((*byte)(ptr), frameBytes),
 		)
@@ -380,7 +380,6 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 
 	st := backend.pick(ptrs)
 
-
 	if st.target != programmer.CPU {
 		recompiled, err := executable.Compile(st.target)
 
@@ -391,8 +390,8 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 
 	st.inflight.Add(1)
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PoolScheduleEvent(
 			st.substrate.Name(),
 			int(st.inflight.Load()),
 			len(backend.states),
@@ -416,8 +415,8 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 	st.inflight.Add(-1)
 	st.observe(elapsed)
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PoolCompleteEvent(
 			st.substrate.Name(),
 			elapsed.Nanoseconds(),
 			value.ID(),
@@ -458,8 +457,8 @@ func (backend *Backend) Execute(
 
 	st.inflight.Add(1)
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PoolScheduleEvent(
 			st.substrate.Name(),
 			int(st.inflight.Load()),
 			len(backend.states),
@@ -475,8 +474,8 @@ func (backend *Backend) Execute(
 	st.inflight.Add(-1)
 	st.observe(elapsed)
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PoolCompleteEvent(
 			st.substrate.Name(),
 			elapsed.Nanoseconds(),
 			valID,

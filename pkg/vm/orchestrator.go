@@ -14,7 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -132,13 +132,13 @@ func (orchestrator *Orchestrator) publishPrepared(value *primitive.Value) {
 		return
 	}
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.QueueSubmitEvent(
 			1,
 			value,
 			value.String(),
 		))
-		viz.PublishWireValueFrame(value.ID(), value.Bytes())
+		telemetry.PublishWireValueFrame(value.ID(), value.Bytes())
 	}
 
 	orchestrator.publishExecuted(value)
@@ -162,8 +162,8 @@ func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primit
 			nextID = values[index+1].ID()
 		}
 
-		if viz.DefaultBus.IsActive() {
-			viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+		if telemetry.DefaultBus.IsActive() {
+			telemetry.DefaultBus.Publish(telemetry.QueueSubmitEvent(
 				int64(len(values)),
 				value,
 				value.String(),
@@ -304,8 +304,8 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 
 	executable.SetFinalizer(orchestrator.finalizeExecutedValue)
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.CompilerCompileEvent(
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.CompilerCompileEvent(
 			"queued", 0, 0, 0, false, 0,
 		))
 	}

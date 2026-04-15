@@ -9,7 +9,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -157,9 +157,9 @@ convenience wrapper around conn.Route().Write(p) for callers that do not need
 the full io.MultiWriter composition.
 */
 func (conn *Conn) Broadcast(p []byte) (int, error) {
-	if viz.DefaultBus.IsActive() {
+	if telemetry.DefaultBus.IsActive() {
 		epoch := conn.epoch.Add(1)
-		viz.DefaultBus.Publish(viz.GossipSent(conn.nodeID, epoch))
+		telemetry.DefaultBus.Publish(telemetry.GossipSent(conn.nodeID, epoch))
 	}
 
 	return conn.route.Write(p)
@@ -174,9 +174,9 @@ func (conn *Conn) Receive(value *primitive.Value) {
 		return
 	}
 
-	if viz.DefaultBus.IsActive() {
+	if telemetry.DefaultBus.IsActive() {
 		epoch := conn.epoch.Load()
-		viz.DefaultBus.Publish(viz.GossipReceived(conn.nodeID, value.ID(), epoch))
+		telemetry.DefaultBus.Publish(telemetry.GossipReceived(conn.nodeID, value.ID(), epoch))
 	}
 
 	var buf [connFrameSize]byte

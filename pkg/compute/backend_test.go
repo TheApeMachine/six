@@ -9,7 +9,7 @@ import (
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 func stubTwoSubstrateBackend() *Backend {
@@ -101,10 +101,10 @@ func TestBackendExecutePublishesWireFrame(t *testing.T) {
 	convey.Convey("Execute publishes raw Value wire frames for the visualizer", t, func() {
 		backend := NewBackend(context.Background())
 		framesOut := make(chan []byte, 1)
-		viz.SetWireValueFrameSink(func(payload []byte) {
+		telemetry.SetWireValueFrameSink(func(payload []byte) {
 			framesOut <- payload
 		})
-		defer viz.SetWireValueFrameSink(nil)
+		defer telemetry.SetWireValueFrameSink(nil)
 
 		var frame [128]uint64
 		const xorNibble = kernel.OpcodeXOR
@@ -124,9 +124,9 @@ func TestBackendExecutePublishesWireFrame(t *testing.T) {
 
 		select {
 		case payload := <-framesOut:
-			ft, _, _, _, _, valueID, wire, err := viz.UnmarshalWireMessage(payload)
+			ft, _, _, _, _, valueID, wire, err := telemetry.UnmarshalWireMessage(payload)
 			convey.So(err, convey.ShouldBeNil)
-			convey.So(ft, convey.ShouldEqual, byte(viz.WireFrameValue))
+			convey.So(ft, convey.ShouldEqual, byte(telemetry.WireFrameValue))
 			convey.So(valueID, convey.ShouldEqual, uint64(0xAB))
 			convey.So(len(wire), convey.ShouldEqual, 128*8)
 		case <-time.After(2 * time.Second):

@@ -7,7 +7,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 type Tokenizer struct {
@@ -48,8 +48,8 @@ func (tokenizer *Tokenizer) IngestSample(
 		return nil, nil
 	}
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.TokenizerChunkEvent(len(sample.Text)))
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.TokenizerChunkEvent(len(sample.Text)))
 	}
 
 	segments, err := primitive.NewValue(sample.Text, sample.Label)
@@ -58,10 +58,10 @@ func (tokenizer *Tokenizer) IngestSample(
 		return nil, errnie.Error(err)
 	}
 
-	if viz.DefaultBus.IsActive() {
+	if telemetry.DefaultBus.IsActive() {
 		for _, segment := range segments {
-			viz.PublishWireValueFrame(segment.ID(), segment.Bytes())
-			viz.DefaultBus.Publish(viz.TokenizerEmitEvent(segment, string(sample.Label)))
+			telemetry.PublishWireValueFrame(segment.ID(), segment.Bytes())
+			telemetry.DefaultBus.Publish(telemetry.TokenizerEmitEvent(segment, string(sample.Label)))
 		}
 	}
 

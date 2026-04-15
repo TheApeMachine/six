@@ -16,7 +16,7 @@ import (
 	"github.com/theapemachine/six/pkg/network"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -227,8 +227,8 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 		return nil, errnie.Error(err)
 	}
 
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.PromptEvent(string(values[0].Bytes())))
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PromptEvent(values[0].String()))
 	}
 
 	machine.orchestrator.Publish(values...)
@@ -260,9 +260,9 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 		}
 	}
 
-	if viz.DefaultBus.IsActive() && len(resolved) > 0 {
+	if telemetry.DefaultBus.IsActive() && len(resolved) > 0 {
 		for _, res := range resolved {
-			viz.DefaultBus.Publish(viz.PromptResultEvent(string(res.Bytes()), nil))
+			telemetry.DefaultBus.Publish(telemetry.PromptResultEvent(res.String(), nil))
 		}
 	}
 

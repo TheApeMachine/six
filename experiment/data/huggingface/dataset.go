@@ -21,7 +21,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 const hfBase = "https://huggingface.co"
@@ -300,8 +300,8 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 
 	dataset.readTotalSent += int64(n)
 	total := dataset.readTotalSent
-	if viz.DefaultBus.IsActive() {
-		viz.DefaultBus.Publish(viz.DatasetReadEvent(dataset.repo, int64(n), total, ""))
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.DatasetReadEvent(dataset.repo, int64(n), total, ""))
 	}
 
 	return n, nil

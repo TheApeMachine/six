@@ -13,7 +13,10 @@ caller can show a community inspector panel.
 */
 
 import { useCallback, useEffect, useRef } from "react";
-import type { FieldSnapshot, FieldValueSnapshot } from "@/lib/engine";
+import type {
+	FieldSnapshot,
+	FieldValueSnapshot,
+} from "@/features/telemetry/types";
 import { WHEEL_ZOOM_SENSITIVITY, wheelDeltaToPixels } from "@/lib/wheelInput";
 
 const GOLDEN_ANGLE = 2.399963;

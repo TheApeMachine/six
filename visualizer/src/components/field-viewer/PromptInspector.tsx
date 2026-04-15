@@ -19,7 +19,7 @@ import {
 	IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { VizGraphSnapshot } from "@/lib/engine";
+import type { VizGraphSnapshot } from "@/features/telemetry/types";
 import { cn } from "@/lib/utils";
 import type { VizEvent } from "@/lib/wire";
 import { EK } from "@/lib/wire";

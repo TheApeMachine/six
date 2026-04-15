@@ -8,7 +8,7 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/viz"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 var vizOnce sync.Once
@@ -109,42 +109,18 @@ func PipelineWithSnapshotReporter() pipelineOpts {
 }
 
 /*
-PipelineWithViz starts the 3D visualization server on the given address
-(default ":6600") and activates the global event bus so all kadabra,
-compute, and field events stream to the browser in real time.
-
-The server runs under a long-lived context so the first pipeline finishing
-(or being cancelled) does not tear down viz for later pipelines in the
-same process. Use tests with "127.0.0.1:0" for an ephemeral port.
+PipelineWithViz is the compatibility entrypoint for telemetry-enabled runs.
+The browser-facing bridge now lives under visualizer/; this hook only enables
+the Go telemetry publisher path.
 */
 func PipelineWithViz(addr string) pipelineOpts {
 	return func(_ *Pipeline) {
 		vizOnce.Do(func() {
-			if addr == "" {
-				addr = ":6600"
+			if addr != "" {
+				errnie.Info("task.PipelineWithViz", "bridge_addr", addr)
 			}
 
-			server := viz.NewServer(viz.DefaultBus, addr)
-
-			if err := server.ListenAndActivate(); err != nil {
-				errnie.Warn(
-					"task.PipelineWithViz: viz server listen failed",
-					"addr", addr,
-					"err", err,
-				)
-
-				return
-			}
-
-			go func() {
-				if err := server.Serve(); err != nil {
-					errnie.Warn(
-						"task.PipelineWithViz: viz server exited",
-						"addr", addr,
-						"err", err,
-					)
-				}
-			}()
+			telemetry.ConfigureFromConfig()
 		})
 	}
 }
