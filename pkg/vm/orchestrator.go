@@ -98,6 +98,23 @@ func (orchestrator *Orchestrator) Error() error {
 	return orchestrator.err
 }
 
+func (orchestrator *Orchestrator) publishPrepared(value *primitive.Value) {
+	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			1,
+			value,
+			value.String(),
+		))
+		viz.PublishWireValueFrame(value.ID(), value.Bytes())
+	}
+
+	orchestrator.publishExecuted(value)
+}
+
 /*
 Publish stages the predecessor ID into the asset region so the link program
 can copy it into prev, then hands the Value to the rule evaluator.
@@ -108,15 +125,6 @@ func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primit
 			continue
 		}
 
-		if viz.DefaultBus.IsActive() {
-			viz.DefaultBus.Publish(viz.QueueSubmitEvent(
-				int64(len(values)),
-				value.ID(),
-				0, 0,
-				value.String(),
-			))
-		}
-
 		assetStart, _ := primitive.AssetRegion.WordExtent()
 		previousID := orchestrator.lastID
 		nextID := uint64(0)
@@ -125,10 +133,18 @@ func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primit
 			nextID = values[index+1].ID()
 		}
 
+		if viz.DefaultBus.IsActive() {
+			viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+				int64(len(values)),
+				value,
+				value.String(),
+			))
+		}
+
 		value.Set(assetStart, previousID)
 		value.Set(assetStart+1, nextID)
 		orchestrator.lastID = value.ID()
-		orchestrator.publishExecuted(value)
+		orchestrator.publishPrepared(value)
 	}
 
 	return nil, nil

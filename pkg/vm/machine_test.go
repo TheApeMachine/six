@@ -3,15 +3,20 @@ package vm
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -194,6 +199,176 @@ func TestMachineLoad(t *testing.T) {
 		})
 
 		So(machine.Load(provider), ShouldBeNil)
+	})
+
+	Convey("Load should link sequential samples and compute affinity through the real runtime path", t, func() {
+		ctx := context.Background()
+		machine, err := NewMachine(ctx)
+
+		So(err, ShouldBeNil)
+
+		defer func() {
+			So(machine.Close(), ShouldBeNil)
+		}()
+
+		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
+			if !yield(data.Sample{Text: []byte("first")}) {
+				return
+			}
+
+			_ = yield(data.Sample{Text: []byte("second")})
+		})
+
+		So(machine.Load(provider), ShouldBeNil)
+
+		var firstValue *primitive.Value
+		var secondValue *primitive.Value
+
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, peer := range machine.orchestrator.router.route {
+				community, ok := peer.Dst().(*geometry.Field)
+				if !ok || community == nil {
+					continue
+				}
+
+				for _, value := range community.Values {
+					if value == nil {
+						continue
+					}
+
+					switch value.String() {
+					case "first":
+						firstValue = value
+					case "second":
+						secondValue = value
+					}
+				}
+			}
+
+			if firstValue != nil && secondValue != nil {
+				break
+			}
+
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		So(firstValue, ShouldNotBeNil)
+		So(secondValue, ShouldNotBeNil)
+		So((*firstValue)[121], ShouldEqual, secondValue.ID())
+		So((*secondValue)[120], ShouldEqual, firstValue.ID())
+		So((*firstValue)[123] != 0 || (*firstValue)[124] != 0 || (*firstValue)[125] != 0 || (*firstValue)[126] != 0 || (*firstValue)[127] != 0, ShouldBeTrue)
+		So((*secondValue)[123] != 0 || (*secondValue)[124] != 0 || (*secondValue)[125] != 0 || (*secondValue)[126] != 0 || (*secondValue)[127] != 0, ShouldBeTrue)
+	})
+}
+
+func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
+	setupTokenizerValueConfig()
+
+	Convey("Machine.Load emits a later raw wire frame whose affinity words are non-zero", t, func() {
+		ctx := context.Background()
+		machine, err := NewMachine(ctx)
+		So(err, ShouldBeNil)
+		defer func() {
+			So(machine.Close(), ShouldBeNil)
+		}()
+
+		framesByID := map[uint64][][]byte{}
+		viz.SetWireValueFrameSink(func(payload []byte) {
+			ft, _, _, _, _, valueID, wire, err := viz.UnmarshalWireMessage(payload)
+			if err != nil || ft != byte(viz.WireFrameValue) || valueID == 0 || len(wire) == 0 {
+				return
+			}
+
+			copyWire := append([]byte(nil), wire...)
+			framesByID[valueID] = append(framesByID[valueID], copyWire)
+		})
+		defer viz.SetWireValueFrameSink(nil)
+
+		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
+			if !yield(data.Sample{Text: []byte("first")}) {
+				return
+			}
+			_ = yield(data.Sample{Text: []byte("second")})
+		})
+
+		So(machine.Load(provider), ShouldBeNil)
+
+		var firstValue *primitive.Value
+		var secondValue *primitive.Value
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, peer := range machine.orchestrator.router.route {
+				community, ok := peer.Dst().(*geometry.Field)
+				if !ok || community == nil {
+					continue
+				}
+				for _, value := range community.Values {
+					if value == nil {
+						continue
+					}
+					switch value.String() {
+					case "first":
+						firstValue = value
+					case "second":
+						secondValue = value
+					}
+				}
+			}
+
+			if firstValue != nil && secondValue != nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		So(firstValue, ShouldNotBeNil)
+		So(secondValue, ShouldNotBeNil)
+
+		deadline = time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			ids := []uint64{firstValue.ID(), secondValue.ID()}
+			ready := 0
+			for _, valueID := range ids {
+				frames := framesByID[valueID]
+				if len(frames) < 2 {
+					continue
+				}
+				last := frames[len(frames)-1]
+				affinityNonZero := false
+				for word := 123; word <= 127; word++ {
+					off := word * 8
+					if binary.LittleEndian.Uint64(last[off:off+8]) != 0 {
+						affinityNonZero = true
+						break
+					}
+				}
+				if affinityNonZero {
+					ready++
+				}
+			}
+			if ready == len(ids) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		for _, value := range []*primitive.Value{firstValue, secondValue} {
+			frames := framesByID[value.ID()]
+			So(len(frames), ShouldBeGreaterThanOrEqualTo, 2)
+			last := frames[len(frames)-1]
+			affinityWords := make([]string, 0, 5)
+			affinityNonZero := false
+			for word := 123; word <= 127; word++ {
+				off := word * 8
+				got := binary.LittleEndian.Uint64(last[off:off+8])
+				affinityWords = append(affinityWords, fmt.Sprintf("%016x", got))
+				if got != 0 {
+					affinityNonZero = true
+				}
+			}
+			SoMsg(fmt.Sprintf("value %q (%x) final published frame affinity %v", value.String(), value.ID(), affinityWords), affinityNonZero, ShouldBeTrue)
+		}
 	})
 }
 

@@ -5,13 +5,27 @@ Word indices match pkg/compute/kernel/layout.go (128 × uint64 little-endian).
 export const WORD = {
 	PROPERTIES_0: 48,
 	PROGRAM_0: 16,
+	/*
+	Orchestrator and linker stage predecessor/successor into the first two asset
+	words (kernel.AssetStartWord..+1) before link firmware copies into Prev/Next.
+	*/
+	ASSET_PREV: 56,
+	ASSET_NEXT: 57,
 	PREV: 120,
 	NEXT: 121,
 	ID: 122,
 	AFFINITY_0: 123,
 } as const;
 
+/*
+VALUE_WORD_COUNT matches primitive.Value ([128]uint64). The viz binary always
+ships a full little-endian image when publishing WireFrameValue.
+*/
+export const VALUE_WORD_COUNT = 128;
+
 const WORD_BYTES = 8;
+
+export const VALUE_FRAME_BYTE_LENGTH = VALUE_WORD_COUNT * WORD_BYTES;
 
 export function readWordU64LE(buf: Uint8Array, wordIndex: number): bigint {
 	const offset = wordIndex * WORD_BYTES;

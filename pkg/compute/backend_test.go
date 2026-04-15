@@ -1,12 +1,15 @@
 package compute
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 func stubTwoSubstrateBackend() *Backend {
@@ -91,6 +94,44 @@ func TestBackendPickExplorationIgnoresPenalty(t *testing.T) {
 		chosen := backend.pick([]unsafe.Pointer{unsafe.Pointer(&frame)})
 
 		convey.So(chosen, convey.ShouldEqual, backend.states[0])
+	})
+}
+
+func TestBackendExecutePublishesWireFrame(t *testing.T) {
+	convey.Convey("Execute publishes raw Value wire frames for the visualizer", t, func() {
+		backend := NewBackend(context.Background())
+		framesOut := make(chan []byte, 1)
+		viz.SetWireValueFrameSink(func(payload []byte) {
+			framesOut <- payload
+		})
+		defer viz.SetWireValueFrameSink(nil)
+
+		var frame [128]uint64
+		const xorNibble = kernel.OpcodeXOR
+		frame[kernel.ProgramOpcodeWord] = xorNibble
+		var packed uint64
+		for rotation := 0; rotation < 16; rotation++ {
+			packed |= xorNibble << (rotation * 4)
+		}
+		frame[kernel.ProgramRotTabWord] = packed
+		frame[kernel.ProgramSrcAWord] = kernel.PackRegionRef(0, 16)
+		frame[kernel.ProgramSrcBWord] = kernel.PackRegionRef(0, 16)
+		frame[kernel.ProgramDstWord] = kernel.PackRegionRef(kernel.AffinityStartWord, 5)
+		frame[kernel.IDStartWord] = 0xAB
+
+		ptr := unsafe.Pointer(&frame[0])
+		convey.So(backend.Execute([]unsafe.Pointer{ptr}), convey.ShouldBeNil)
+
+		select {
+		case payload := <-framesOut:
+			ft, _, _, _, _, valueID, wire, err := viz.UnmarshalWireMessage(payload)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(ft, convey.ShouldEqual, byte(viz.WireFrameValue))
+			convey.So(valueID, convey.ShouldEqual, uint64(0xAB))
+			convey.So(len(wire), convey.ShouldEqual, 128*8)
+		case <-time.After(2 * time.Second):
+			t.Fatal("wire frame publish timed out")
+		}
 	})
 }
 

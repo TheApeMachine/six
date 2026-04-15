@@ -15,6 +15,7 @@ import {
 	chainIdFromWord,
 	formatWordHex64,
 	readWordU64LE,
+	VALUE_FRAME_BYTE_LENGTH,
 	WORD,
 } from "@/lib/valueLayout";
 
@@ -149,10 +150,6 @@ function KV({
 	);
 }
 
-function hexWord(meta: Record<string, string>, key: string): string | null {
-	return meta[key] ?? null;
-}
-
 function hexOrDash(value: string | null): string {
 	return value ?? "—";
 }
@@ -184,13 +181,12 @@ export function ValueInspector({
 				: "text-red-300";
 
 	const vals = snap.telemetry?.vals ?? {};
-	const meta = snap.telemetry?.meta ?? {};
 
 	const frame = snap.wireFrame;
 	const frameOk =
 		frame !== null &&
 		frame !== undefined &&
-		frame.byteLength >= (WORD.ID + 1) * 8;
+		frame.byteLength >= VALUE_FRAME_BYTE_LENGTH;
 
 	const wordAt = (idx: number): string | null => {
 		if (!frameOk || !frame) return null;
@@ -198,40 +194,42 @@ export function ValueInspector({
 		return formatWordHex64(readWordU64LE(frame, idx));
 	};
 
-	const propertiesW48 = wordAt(48) ?? hexWord(meta, "properties_w48_labels");
-	const propertiesW49 =
-		wordAt(49) ?? hexWord(meta, "properties_w49_confidence");
-	const propertiesW50 = wordAt(50) ?? hexWord(meta, "properties_w50_epoch");
-	const propertiesW51 = wordAt(51) ?? hexWord(meta, "properties_w51_ttl");
-	const propertiesW52 = wordAt(52) ?? hexWord(meta, "properties_w52_noise");
-	const propertiesW53 =
-		wordAt(53) ?? hexWord(meta, "properties_w53_probe_state");
-	const propertiesW54 =
-		wordAt(54) ?? hexWord(meta, "properties_w54_probe_window");
-	const propertiesW55 =
-		wordAt(55) ?? hexWord(meta, "properties_w55_probe_depth");
-	const schedulerNext = wordAt(117) ?? hexWord(meta, "scheduler_next_w117");
+	const propertiesW48 = wordAt(48);
+	const propertiesW49 = wordAt(49);
+	const propertiesW50 = wordAt(50);
+	const propertiesW51 = wordAt(51);
+	const propertiesW52 = wordAt(52);
+	const propertiesW53 = wordAt(53);
+	const propertiesW54 = wordAt(54);
+	const propertiesW55 = wordAt(55);
+	const schedulerNext = wordAt(117);
 	const probeStatus = decodeProbeStatus(propertiesW53);
 	const confidence = vals["confidence"] ?? null;
 	const epoch = vals["epoch"] !== undefined ? Math.round(vals["epoch"]) : null;
 
 	const affinityFromFrame = frameOk && frame ? affinityHexWords(frame) : null;
-	const affinityHex =
-		affinityFromFrame ||
-		meta["affinity"] ||
-		meta["initial_affinity"] ||
-		snap.communityAffinityHex ||
-		null;
+	const affinityHex = affinityFromFrame || snap.communityAffinityHex || null;
 
 	/*
-	Chain words: a later wire snapshot may have w120/w121 cleared or clobbered
-	after execute while QueueSubmit meta still holds the tokenizer chain. Prefer
-	non-zero frame words; otherwise keep event-derived ids.
+	Chain: committed ids live at w120/w121 after link; the orchestrator stages
+	the same logical ids at w56/w57 until then. Prefer committed words, else
+	staging, else last VisValue snapshot.
 	*/
-	const prevWire =
+	const prevCommitted =
 		frameOk && frame ? chainIdFromWord(readWordU64LE(frame, WORD.PREV)) : "";
-	const nextWire =
+	const nextCommitted =
 		frameOk && frame ? chainIdFromWord(readWordU64LE(frame, WORD.NEXT)) : "";
+	const prevStaged =
+		frameOk && frame
+			? chainIdFromWord(readWordU64LE(frame, WORD.ASSET_PREV))
+			: "";
+	const nextStaged =
+		frameOk && frame
+			? chainIdFromWord(readWordU64LE(frame, WORD.ASSET_NEXT))
+			: "";
+
+	const prevWire = prevCommitted || prevStaged;
+	const nextWire = nextCommitted || nextStaged;
 
 	const prevId = prevWire || snap.prevId;
 	const nextId = nextWire || snap.nextId;
@@ -242,7 +240,11 @@ export function ValueInspector({
 	const affinityIsAllZero =
 		!!affinityHex && /^0+$/.test(affinityHex.replace(/\s+/g, ""));
 	const programShown = effectiveProgram(snap);
-	const tokenBandFilled = !!(snap.content || snap.label);
+	const tokenizerLabel =
+		snap.label && snap.label !== snap.id && snap.label !== snap.content
+			? snap.label
+			: "";
+	const tokenBandFilled = !!(snap.content || tokenizerLabel);
 
 	return (
 		<div className={cn("space-y-2", className)}>
@@ -328,8 +330,8 @@ export function ValueInspector({
 					barClass="bg-sky-400"
 					textClass="text-sky-200/80"
 				>
-					{snap.label && (
-						<KV k="lbl" v={snap.label} vClass="text-amber-200/80" />
+					{tokenizerLabel && (
+						<KV k="lbl" v={tokenizerLabel} vClass="text-amber-200/80" />
 					)}
 					{snap.content ? (
 						<p className="leading-relaxed opacity-90 break-all">
@@ -431,12 +433,7 @@ export function ValueInspector({
 					barClass="bg-amber-400"
 					textClass="text-amber-200/80"
 				>
-					<KV
-						k="w48 labels"
-						v={hexOrDash(propertiesW48)}
-						vClass={snap.label ? "text-amber-100/80" : undefined}
-					/>
-					{snap.label && <KV k="tokenizer" v={snap.label} />}
+					<KV k="w48 labels" v={hexOrDash(propertiesW48)} />
 					<KV
 						k="w49 confidence"
 						v={
@@ -487,7 +484,7 @@ export function ValueInspector({
 				<Region
 					label="PREV"
 					words="w120 · 64b"
-					fill={snap.prevId ? 1 : 0.05}
+					fill={prevId ? 1 : 0.05}
 					width="6%"
 					headerClass="bg-indigo-500/10"
 					barClass="bg-indigo-400"
@@ -515,7 +512,7 @@ export function ValueInspector({
 				<Region
 					label="NEXT"
 					words="w121 · 64b"
-					fill={snap.nextId ? 1 : 0.05}
+					fill={nextId ? 1 : 0.05}
 					width="6%"
 					headerClass="bg-indigo-500/10"
 					barClass="bg-indigo-400"
@@ -581,7 +578,10 @@ export function ValueInspector({
 
 			{/* ── Wire event telemetry ─────────────────────────────────────────── */}
 			{snap.telemetry &&
-				(Object.keys(vals).length > 0 || Object.keys(meta).length > 0) && (
+				(Object.keys(vals).length > 0 ||
+					!!snap.telemetry.lbl ||
+					!!snap.telemetry.src ||
+					!!snap.telemetry.tgt) && (
 					<Card>
 						<CardContent className="px-3 py-2">
 							<div className="flex flex-wrap gap-x-6 gap-y-0.5">
@@ -609,22 +609,6 @@ export function ValueInspector({
 											</span>
 										</span>
 									))}
-								{Object.entries(meta)
-									.sort(([a], [b]) => a.localeCompare(b))
-									.map(([k, v]) => {
-										const str = String(v);
-										return (
-											<span
-												key={k}
-												className="text-[9px] font-mono text-purple-200/50"
-											>
-												{k}={" "}
-												<span className="text-purple-100/60">
-													{str.length > 40 ? str.substring(0, 38) + "…" : str}
-												</span>
-											</span>
-										);
-									})}
 							</div>
 						</CardContent>
 					</Card>

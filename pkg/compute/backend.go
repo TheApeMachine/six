@@ -321,6 +321,26 @@ func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.P
 	))
 }
 
+func (backend *Backend) publishWireFrames(frames []unsafe.Pointer) {
+	const frameBytes = 128 * 8
+
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		valueID := kernel.FrameID(ptr)
+		if valueID == 0 {
+			continue
+		}
+
+		viz.PublishWireValueFrame(
+			valueID,
+			unsafe.Slice((*byte)(ptr), frameBytes),
+		)
+	}
+}
+
 /*
 Dispatch is the pool handler: it receives an Executable from a worker,
 picks the best substrate, compiles for the matching target, writes the
@@ -405,6 +425,7 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 	}
 
 	backend.publishALUDispatch(st, ptrs, elapsed)
+	backend.publishWireFrames(ptrs)
 
 	executable.Finalize()
 }
@@ -463,6 +484,7 @@ func (backend *Backend) Execute(
 	}
 
 	backend.publishALUDispatch(st, frames, elapsed)
+	backend.publishWireFrames(frames)
 
 	return err
 }

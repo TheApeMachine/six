@@ -8,6 +8,7 @@ import (
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -153,6 +154,27 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		return errnie.Error(err)
 	}
 
+	linker := NewLinker()
+
+	publishLinked := func(value *primitive.Value, assets []*programmer.Asset) error {
+		if value == nil {
+			return nil
+		}
+
+		for _, asset := range assets {
+			if asset == nil {
+				continue
+			}
+
+			if err := asset.Bundle(value); err != nil {
+				return errnie.Error(err)
+			}
+		}
+
+		machine.orchestrator.publishPrepared(value)
+		return nil
+	}
+
 	var segments []*primitive.Value
 
 	for sample := range dataset.Generate() {
@@ -162,8 +184,28 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 			return errnie.Error(err)
 		}
 
-		for _, segment := range segments {
-			machine.orchestrator.Publish(segment)
+		linker.Push(segments...)
+
+		for {
+			value, assets := linker.Pop()
+			if value == nil {
+				break
+			}
+
+			if err := publishLinked(value, assets); err != nil {
+				return err
+			}
+		}
+	}
+
+	for {
+		value, assets := linker.Flush()
+		if value == nil {
+			break
+		}
+
+		if err := publishLinked(value, assets); err != nil {
+			return err
 		}
 	}
 

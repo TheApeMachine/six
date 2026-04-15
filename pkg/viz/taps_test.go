@@ -4,6 +4,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
+
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -363,22 +366,54 @@ func TestCausalHubProbeEvent(t *testing.T) {
 func TestQueueSubmitEvent(t *testing.T) {
 	t.Parallel()
 
-	Convey("QueueSubmitEvent omits empty chain ids", t, func() {
-		ev := QueueSubmitEvent(1, 0xab, 0, 0, "content")
+	Convey("QueueSubmitEvent reads prev/next from Value memory (asset staging)", t, func() {
+		core.NewConfig()
+
+		var v primitive.Value
+
+		assetStart, _ := primitive.AssetRegion.WordExtent()
+		idStart, _ := primitive.IDRegion.WordExtent()
+
+		v.Set(idStart, 0xab)
+		v.Set(assetStart, 0x10)
+		v.Set(assetStart+1, 0x20)
+
+		ev := QueueSubmitEvent(1, &v, "content")
 
 		So(ev.Kind, ShouldEqual, EventQueueSubmit)
 		So(ev.Meta["value_id"], ShouldEqual, "00000000000000ab")
-		_, hasPrev := ev.Meta["prev_id"]
-		_, hasNext := ev.Meta["next_id"]
-		So(hasPrev, ShouldBeFalse)
-		So(hasNext, ShouldBeFalse)
-	})
-
-	Convey("QueueSubmitEvent preserves non-zero chain ids", t, func() {
-		ev := QueueSubmitEvent(1, 0xab, 0x10, 0x20, "content")
-
 		So(ev.Meta["prev_id"], ShouldEqual, "0000000000000010")
 		So(ev.Meta["next_id"], ShouldEqual, "0000000000000020")
+	})
+
+	Convey("QueueSubmitEvent prefers committed prev/next over asset when both set", t, func() {
+		core.NewConfig()
+
+		var v primitive.Value
+
+		assetStart, _ := primitive.AssetRegion.WordExtent()
+		prevStart, _ := primitive.PrevRegion.WordExtent()
+		nextStart, _ := primitive.NextRegion.WordExtent()
+		idStart, _ := primitive.IDRegion.WordExtent()
+
+		v.Set(idStart, 0xcd)
+		v.Set(assetStart, 0xaa)
+		v.Set(assetStart+1, 0xbb)
+		v.Set(prevStart, 0x30)
+		v.Set(nextStart, 0x40)
+
+		ev := QueueSubmitEvent(2, &v, "content")
+
+		So(ev.Meta["prev_id"], ShouldEqual, "0000000000000030")
+		So(ev.Meta["next_id"], ShouldEqual, "0000000000000040")
+	})
+
+	Convey("QueueSubmitEvent with nil value omits ids", t, func() {
+		ev := QueueSubmitEvent(1, nil, "content")
+
+		So(ev.Kind, ShouldEqual, EventQueueSubmit)
+		_, hasVID := ev.Meta["value_id"]
+		So(hasVID, ShouldBeFalse)
 	})
 }
 

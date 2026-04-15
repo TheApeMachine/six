@@ -60,6 +60,7 @@ func (tokenizer *Tokenizer) IngestSample(
 
 	if viz.DefaultBus.IsActive() {
 		for _, segment := range segments {
+			viz.PublishWireValueFrame(segment.ID(), segment.Bytes())
 			viz.DefaultBus.Publish(viz.TokenizerEmitEvent(segment, string(sample.Label)))
 		}
 	}

@@ -26,6 +26,11 @@ interface FieldContextValue {
 	events: VizEvent[];
 	sendPrompt: (text: string) => void;
 	/*
+	selectValueById selects a value in the engine (same as clicking it on the Live
+	canvas) so React selection state stays the single source of truth for telemetry.
+	*/
+	selectValueById: (id: string) => boolean;
+	/*
 	setEngineContainer registers the HTMLDivElement that the engine's 2D canvas
 	should be mounted inside. Call this once from FieldViewer's "Live" tab div
 	ref. The engine is initialised (or re-initialised) as soon as the element
@@ -99,6 +104,10 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 		engineRef.current?.sendPrompt(text);
 	}, []);
 
+	const selectValueById = useCallback((id: string) => {
+		return engineRef.current?.selectValueById(id) ?? false;
+	}, []);
+
 	return (
 		<FieldContext.Provider
 			value={{
@@ -108,6 +117,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				selection,
 				events,
 				sendPrompt,
+				selectValueById,
 				setEngineContainer,
 			}}
 		>

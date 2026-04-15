@@ -385,6 +385,7 @@ export function FieldViewer({ className }: FieldViewerProps) {
 		selection,
 		events,
 		sendPrompt,
+		selectValueById,
 		setEngineContainer,
 	} = useField();
 
@@ -414,15 +415,6 @@ export function FieldViewer({ className }: FieldViewerProps) {
 	const [jumpToProgram, setJumpToProgram] = useState<string | undefined>(
 		undefined,
 	);
-
-	// localSelection is set when the user clicks a node in NodeGraphLegacy or
-	// a member in the community inspector.
-	const [localSelection, setLocalSelection] =
-		useState<VizInspectSnapshot | null>(null);
-
-	// Prefer the engine's richer selection (from hidden canvas click handler via
-	// field-context), fall back to locally constructed ones.
-	const activeSelection = selection ?? localSelection;
 
 	// ── Timeline scrubbing ─────────────────────────────────────────────────────
 	const LIVE_THRESHOLD_MS = 3000;
@@ -469,6 +461,37 @@ export function FieldViewer({ className }: FieldViewerProps) {
 		[activeSnapshot],
 	);
 
+	const activeSelection = useMemo(() => {
+		if (!selection) return null;
+
+		const allValues: FieldValueSnapshot[] = [
+			...fieldList.flatMap((f) => f.members),
+			...orphanList,
+		];
+		const refreshed = allValues.find((v) => v.id === selection.id);
+
+		if (!refreshed) return selection;
+
+		return {
+			id: refreshed.id,
+			role: refreshed.role,
+			program: refreshed.program,
+			communityId: refreshed.communityId,
+			label: refreshed.label,
+			content: refreshed.content,
+			pos: selection.pos,
+			resonance: refreshed.resonance,
+			gap: refreshed.gap,
+			resolved: refreshed.resolved,
+			actionResonance: refreshed.actionResonance,
+			prevId: refreshed.prevId,
+			nextId: refreshed.nextId,
+			communityAffinityHex: refreshed.communityAffinityHex,
+			wireFrame: refreshed.wireFrame ?? null,
+			telemetry: refreshed.telemetry,
+		};
+	}, [selection, fieldList, orphanList]);
+
 	const valueGraph = useMemo(
 		() => buildValueGraph(fieldList, orphanList),
 		[fieldList, orphanList],
@@ -503,32 +526,7 @@ export function FieldViewer({ className }: FieldViewerProps) {
 
 	const handleValueSelect = useCallback(
 		(_nodeIndex: number, nodeName: string) => {
-			const allValues: FieldValueSnapshot[] = [
-				...fieldList.flatMap((f) => f.members),
-				...orphanList,
-			];
-			const found = allValues.find((v) => v.id === nodeName);
-
-			if (found) {
-				setLocalSelection({
-					id: found.id,
-					role: found.role,
-					program: found.program,
-					communityId: found.communityId,
-					label: found.label,
-					content: found.content,
-					pos: { x: 0, y: 0 },
-					resonance: found.resonance,
-					gap: found.gap,
-					resolved: found.resolved,
-					actionResonance: found.actionResonance,
-					prevId: found.prevId,
-					nextId: found.nextId,
-					communityAffinityHex: found.communityAffinityHex,
-					wireFrame: found.wireFrame ?? null,
-					telemetry: found.telemetry,
-				});
-			}
+			if (!selectValueById(nodeName)) return;
 
 			setZoomLevel("telemetry");
 			setBreadcrumbs((prev) => {
@@ -540,69 +538,32 @@ export function FieldViewer({ className }: FieldViewerProps) {
 				];
 			});
 		},
-		[fieldList, orphanList],
+		[selectValueById],
 	);
 
-	// Selecting a value by ID — used by the event stream and chain navigation.
+	// Selecting a value by ID — stream, sidebar, causal Prev/Next, memory-band links.
 	const handleSelectById = useCallback(
 		(id: string) => {
-			const allValues: FieldValueSnapshot[] = [
-				...fieldList.flatMap((f) => f.members),
-				...orphanList,
-			];
-			const found = allValues.find((v) => v.id === id);
+			if (!selectValueById(id)) return;
 
-			if (found) {
-				setLocalSelection({
-					id: found.id,
-					role: found.role,
-					program: found.program,
-					communityId: found.communityId,
-					label: found.label,
-					content: found.content,
-					pos: { x: 0, y: 0 },
-					resonance: found.resonance,
-					gap: found.gap,
-					resolved: found.resolved,
-					actionResonance: found.actionResonance,
-					prevId: found.prevId,
-					nextId: found.nextId,
-					communityAffinityHex: found.communityAffinityHex,
-					wireFrame: found.wireFrame ?? null,
-					telemetry: found.telemetry,
-				});
-				setZoomLevel("telemetry");
-			}
+			setZoomLevel("telemetry");
 		},
-		[fieldList, orphanList],
+		[selectValueById],
 	);
 
 	const handleFieldSelect = useCallback((field: FieldSnapshot | null) => {
 		setSelectedField(field);
 	}, []);
 
-	const handleMemberSelect = useCallback((member: FieldValueSnapshot) => {
-		setLocalSelection({
-			id: member.id,
-			role: member.role,
-			program: member.program,
-			communityId: member.communityId,
-			label: member.label,
-			content: member.content,
-			pos: { x: 0, y: 0 },
-			resonance: member.resonance,
-			gap: member.gap,
-			resolved: member.resolved,
-			actionResonance: member.actionResonance,
-			prevId: member.prevId,
-			nextId: member.nextId,
-			communityAffinityHex: member.communityAffinityHex,
-			wireFrame: member.wireFrame ?? null,
-			telemetry: member.telemetry,
-		});
-		setZoomLevel("telemetry");
-		setSelectedField(null);
-	}, []);
+	const handleMemberSelect = useCallback(
+		(member: FieldValueSnapshot) => {
+			if (!selectValueById(member.id)) return;
+
+			setZoomLevel("telemetry");
+			setSelectedField(null);
+		},
+		[selectValueById],
+	);
 
 	const handlePrompt = useCallback(
 		(e: React.FormEvent) => {

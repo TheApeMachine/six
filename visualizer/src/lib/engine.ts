@@ -136,14 +136,15 @@ function snapshotTelemetry(ev: VizEvent): {
 		tgt: ev.tgt,
 		lbl: ev.lbl,
 		vals: { ...ev.vals },
-		meta: { ...ev.meta },
+		// Value layout (affinity, prev/next, properties words) comes only from
+		// WireFrameValue snapshots, not duplicated JSON meta.
+		meta: {},
 	};
 }
 
 /*
-mergeTelemetry overlays a new wire snapshot onto the previous one so later
-events (belief gap, resolve) do not erase tokenizer content, queue chain ids,
-or properties word hex from earlier QueueSubmit telemetry.
+mergeTelemetry overlays numeric vals and routing fields so later events do not
+erase gap scores; memory layout stays on wireFrame only.
 */
 function mergeTelemetry(
 	prev: ReturnType<typeof snapshotTelemetry> | null,
@@ -159,7 +160,7 @@ function mergeTelemetry(
 		tgt: next.tgt || prev.tgt,
 		lbl: next.lbl || prev.lbl,
 		vals: { ...prev.vals, ...next.vals },
-		meta: { ...prev.meta, ...next.meta },
+		meta: {},
 	};
 }
 
@@ -483,8 +484,8 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		}
 	});
 	ro.observe(container);
-
 	const valueMap = new Map<string, VisValue>();
+	const pendingWireFrames = new Map<string, Uint8Array>();
 	const communityMap = new Map<number, VisCommunity>();
 	const eventLog: {
 		ts: number;
@@ -689,6 +690,38 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		return community;
 	}
 
+	function applyWireFrameToValue(v: VisValue, bytes: Uint8Array) {
+		v.wireFrame = bytes;
+
+		/*
+		readWordU64LE returns 0 for out-of-range words; chainIdFromWord turns that
+		into "" so short frames still contribute asset staging (w56–w57) without
+		requiring a full 1024-byte image.
+		*/
+		const prevCommitted = chainIdFromWord(readWordU64LE(bytes, WORD.PREV));
+		const nextCommitted = chainIdFromWord(readWordU64LE(bytes, WORD.NEXT));
+		const prevStaged = chainIdFromWord(readWordU64LE(bytes, WORD.ASSET_PREV));
+		const nextStaged = chainIdFromWord(readWordU64LE(bytes, WORD.ASSET_NEXT));
+
+		const prevW = prevCommitted || prevStaged;
+		const nextW = nextCommitted || nextStaged;
+
+		/*
+		Do not clear chain ids when the frame shows zero: a later execute path can
+		clobber w120/w121 while an earlier snapshot still held the causal link.
+		*/
+		if (prevW) v.prevId = prevW;
+
+		if (nextW) v.nextId = nextW;
+	}
+
+	function attachPendingWireFrame(id: string, value: VisValue) {
+		const pending = pendingWireFrames.get(id);
+		if (!pending) return;
+		applyWireFrameToValue(value, pending);
+		pendingWireFrames.delete(id);
+	}
+
 	function ensureValue(
 		vid: string,
 		ev: VizEvent,
@@ -712,48 +745,36 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			role,
 			program: role === "data" ? ev.meta?.program || "" : ev.lbl || "",
 			communityId,
-			label: ev.lbl || id.substring(0, 12),
+			label: ev.lbl || "",
 			content: ev.meta?.content || "",
 			resonance: role === "data" ? 0.55 : 0.8,
 			gap: 1,
 			resolved: false,
 			age: 0,
-			prevId: normalizedId(ev.meta?.prev_id),
-			nextId: normalizedId(ev.meta?.next_id),
+			prevId: "",
+			nextId: "",
 			telemetry: snapshotTelemetry(ev),
 			actionResonance: ev.vals?.resonance ?? 0,
 			memberIndex: 0,
 		};
 		valueMap.set(id, value);
+		attachPendingWireFrame(id, value);
 		cullOldest();
 
 		return value;
 	}
 
-  function applyValueWireFrame(valueId: bigint, bytes: Uint8Array) {
-    const vid = valueId.toString(16).padStart(16, "0").toLowerCase();
-    const v = valueMap.get(vid);
+	function applyValueWireFrame(valueId: bigint, bytes: Uint8Array) {
+		const vid = valueId.toString(16).padStart(16, "0").toLowerCase();
+		const v = valueMap.get(vid);
 
-    if (!v) return;
+		if (!v) {
+			pendingWireFrames.set(vid, bytes);
+			return;
+		}
 
-    v.wireFrame = bytes;
-
-    const needBytes = (WORD.ID + 1) * 8;
-
-    if (bytes.length < needBytes) return;
-
-    const prevW = chainIdFromWord(readWordU64LE(bytes, WORD.PREV));
-    const nextW = chainIdFromWord(readWordU64LE(bytes, WORD.NEXT));
-
-    /*
-    Do not clear chain ids when the frame shows zero: later queue snapshots can
-    arrive after execute/reuse with w121=0 while QueueSubmit already carried
-    next_id in meta.
-    */
-    if (prevW) v.prevId = prevW;
-
-    if (nextW) v.nextId = nextW;
-  }
+		applyWireFrameToValue(v, bytes);
+	}
 
 	function applyEvent(ev: VizEvent) {
 		const kindName = KIND_NAMES[ev.kind] || `kind_${ev.kind}`;
@@ -1015,30 +1036,14 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 		else if (ev.kind === EK.TokenizerEmit) {
 			const vid = ev.meta?.value_id || `v_${ev.ts}`;
 			const tokenContent = ev.meta?.content || "";
-			const pos = spawnPos(`emit|${vid}`);
-			const vel = layoutVelocity(`tok|${vid}`);
-			const tel = snapshotTelemetry(ev);
+			const v = ensureValue(vid, ev, "data", -1);
 
-			valueMap.set(vid, {
-				id: vid,
-				pos,
-				vel,
-				role: "data",
-				program: ev.meta?.program || "affinity",
-				communityId: -1,
-				label: ev.lbl || "",
-				content: tokenContent,
-				resonance: 0.5,
-				gap: 1,
-				resolved: false,
-				age: 0,
-				prevId: "",
-				nextId: "",
-				telemetry: tel,
-				actionResonance: 0,
-				memberIndex: 0,
-			});
-			cullOldest();
+			if (v) {
+				v.program = ev.meta?.program || v.program || "affinity";
+				if (ev.lbl) v.label = ev.lbl;
+				if (tokenContent) v.content = tokenContent;
+				v.telemetry = mergeTelemetry(v.telemetry, ev);
+			}
 			addLog(
 				"tokenizer",
 				`${(tokenContent || vid).substring(0, 30)}${ev.lbl ? " [" + ev.lbl + "]" : ""}`,
@@ -1055,8 +1060,13 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			const v = ensureValue(vid, ev, "data", -1);
 
 			if (v) {
-				v.prevId = normalizedId(ev.meta?.prev_id);
-				v.nextId = normalizedId(ev.meta?.next_id);
+				const p = normalizedId(ev.meta?.prev_id);
+				const n = normalizedId(ev.meta?.next_id);
+
+				if (p) v.prevId = p;
+
+				if (n) v.nextId = n;
+
 				v.telemetry = mergeTelemetry(v.telemetry, ev);
 
 				if (ev.meta?.program) {
@@ -2187,6 +2197,17 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 	connect();
 	draw();
 
+	function selectValueById(rawId: string): boolean {
+		const id = normalizedId(rawId);
+
+		if (!id || !valueMap.has(id)) return false;
+
+		selectedId = id;
+		emitSelection();
+
+		return true;
+	}
+
 	return {
 		destroy() {
 			isDestroyed = true;
@@ -2194,6 +2215,8 @@ export function initEngine(container: HTMLDivElement, callbacks: VizCallbacks) {
 			ro.disconnect();
 			if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
 		},
+
+		selectValueById,
 
 		sendPrompt(text: string) {
 			const meta = import.meta as ImportMeta & { env?: Record<string, string> };

@@ -450,7 +450,8 @@ func TokenizerChunkEvent(bytesWritten int) Event {
 
 /*
 TokenizerEmitEvent fires after InstallProgram has stamped the affinity firmware
-on the Value so meta carries program name and the live affinity-region words.
+on the Value. Layout words (affinity, chain, properties) are not duplicated in
+JSON — the viz server also ships WireFrameValue with the full Value.Bytes image.
 */
 func TokenizerEmitEvent(seg *primitive.Value, label string) Event {
 	ev := NewEvent(EventTokenizerEmit, "tokenizer")
@@ -469,22 +470,33 @@ func TokenizerEmitEvent(seg *primitive.Value, label string) Event {
 		"program":  "affinity",
 	}
 
-	ev.Meta["affinity"] = AffinityHexFromFrame(seg)
-
 	applyVizLayout(&ev, "tokenizer_emit", vizBandTokenizerVal, fmt.Sprintf("%s|%s", vidHex, label))
 
 	return ev
 }
 
 /*
-QueueSubmitEvent fires when the pool queue accepts a new work item.
+queueSubmitChainMeta mirrors the frontend chain resolution: committed prev/next
+words first, else the first two asset words where the orchestrator stages ids.
+Same memory as WireFrameValue at this instant — included so JSON consumers see
+links even when a binary frame is short or reordered on the socket.
 */
-func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content string) Event {
-	ev := NewEvent(EventQueueSubmit, "queue")
-	ev.Label = truncate(content, 128)
-	ev.Values["inflight"] = float64(inflight)
-	ev.Meta["value_id"] = FormatValueIDHex(valueID)
-	ev.Meta["program"] = "affinity"
+func queueSubmitChainMeta(ev *Event, value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	assetStart, _ := primitive.AssetRegion.WordExtent()
+	prevStart, _ := primitive.PrevRegion.WordExtent()
+	nextStart, _ := primitive.NextRegion.WordExtent()
+
+	prevID := (*value)[prevStart]
+	nextID := (*value)[nextStart]
+
+	if prevID == 0 && nextID == 0 {
+		prevID = (*value)[assetStart]
+		nextID = (*value)[assetStart+1]
+	}
 
 	if prevID != 0 {
 		ev.Meta["prev_id"] = FormatValueIDHex(prevID)
@@ -493,8 +505,29 @@ func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content st
 	if nextID != 0 {
 		ev.Meta["next_id"] = FormatValueIDHex(nextID)
 	}
+}
 
-	applyVizLayoutQueue(&ev, inflight, valueID)
+/*
+QueueSubmitEvent fires when the pool queue accepts a new work item. Meta
+prev_id/next_id are read from the live Value (same words as the following
+WireFrameValue).
+*/
+func QueueSubmitEvent(inflight int64, value *primitive.Value, content string) Event {
+	ev := NewEvent(EventQueueSubmit, "queue")
+	ev.Label = truncate(content, 128)
+	ev.Values["inflight"] = float64(inflight)
+	ev.Meta["program"] = "affinity"
+
+	if value == nil {
+		applyVizLayoutQueue(&ev, inflight, 0)
+
+		return ev
+	}
+
+	ev.Meta["value_id"] = FormatValueIDHex(value.ID())
+	queueSubmitChainMeta(&ev, value)
+	applyVizLayoutQueue(&ev, inflight, value.ID())
+
 	return ev
 }
 
