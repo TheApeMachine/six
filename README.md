@@ -160,6 +160,10 @@ This lane is now reachable from the normal programmer DSL as first-class ops:
 beam_gap_step: |
   context[0,8] gradient[0,8] signals[0,8] compose accumulate
 
+beam_gap_score: |
+  context[0,8] gradient[0,8] signals[0,8] compose accumulate
+  signals[0,8] signals[0,8] properties[0,1] xor reduce
+
 class_projection: |
   context[0,8] gradient[0,8] signals[0,8] sandwich accumulate
 
@@ -168,6 +172,8 @@ phase_align: |
 ```
 
 That matters because it closes a real substrate gap: geometric kernels already existed in the CPU / Metal / CUDA backends, but until now the programmer layer could not emit them from authored source. The execution path is now end-to-end: DSL source → parser token → geometric frame contract → backend execution on the in-band `context`, `gradient`, and `signals` lanes.
+
+The first control-path proof is also in place now: a geometric program can write a multivector into `signals` and then reduce that lane into a scalar in `properties` without any Go-side interpretation step in between. It is still a primitive score, not a finished cognition loop, but it is finally something benchmark-facing code can assert on.
 
 `Context`, `Gradient`, and `Signals` are each 512-bit regions, so each holds one `pkg/core/numeric/geometry.Multivector` without changing the 1024-byte `Value` stride. The kernel dispatch preserves the full opcode byte before falling back to the Boolean low nibble, so geometric opcodes cannot collapse to `FALSE`. CPU, Metal, and CUDA now all expose the same PGA lane; the native kernels read the high nibble in-band and write their 8-lane result back into `Signals`. CPU uses hand-written ARM64 and AMD64 assembly for the PGA product, CUDA executes the lane as native `float64`, and Metal preserves the 64-bit frame ABI while converting to native `float32` arithmetic at the GPU boundary because Apple Metal does not expose double precision in shader code.
 

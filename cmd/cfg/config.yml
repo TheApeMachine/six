@@ -189,6 +189,15 @@ programs:
   beam_gap_step: |
     context[0,8] gradient[0,8] signals[0,8] compose accumulate
 
+  # Geometric beam-gap score: same compose step, but followed by an in-band
+  # scalar reduction of the resulting multivector into properties[0]. This is
+  # intentionally simple but important: it proves a geometric program can feed
+  # a control scalar without any Go-side interpretation of the intermediate
+  # signals lane.
+  beam_gap_score: |
+    context[0,8] gradient[0,8] signals[0,8] compose accumulate
+    signals[0,8] signals[0,8] properties[0,1] xor reduce
+
   # Class projection: project the current target through the active class motor.
   # A matching classifier can later reduce the emitted signals to an in-band
   # score without leaving the Value substrate.
