@@ -95,8 +95,9 @@ type ValueRulesConfig struct {
 /*
 FinalizerRuleConfig defines one generic post-ALU action rule. Scope selects
 where the rule runs: value, community, or global. Regions reuse the
-value.rules boolean has-bits checks, while the numeric thresholds let fields
-react to resonance without hardcoding per-algorithm Go branches.
+value.rules-style has-bits checks implemented by programmer.Firmware.HasBits,
+while the numeric thresholds let fields react to resonance without hardcoding
+per-algorithm Go branches.
 */
 type FinalizerRuleConfig struct {
 	Name             string                  `mapstructure:"name"`
@@ -125,7 +126,7 @@ type FinalizerActionConfig struct {
 FinalizerCopyConfig copies already-existing in-band state into another region
 before reprogramming or emission. Sources are strings such as
 "value.signals[0,8]" or "field.affinity[0,5]"; destination uses the standard
-region-ref syntax, for example "asset[0,8]".
+region-ref syntax without a source prefix, for example "asset[0,8]".
 */
 type FinalizerCopyConfig struct {
 	Source      string `mapstructure:"source"`

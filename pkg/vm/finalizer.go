@@ -260,7 +260,7 @@ func (finalizer *ActionFinalizer) submitExecutable(
 	}
 
 	executable := programmer.NewExecutable(value, program, nil)
-	executable.SetFinalizer(finalizer.orchestrator.executableFinalizer)
+	executable.SetFinalizer(finalizer.orchestrator.finalizeExecutedValue)
 
 	finalizer.orchestrator.queue.Submit(func() *programmer.Executable {
 		return executable
@@ -337,9 +337,8 @@ func (finalizer *ActionFinalizer) fieldSource(
 
 	start, _ := primitive.AffinityRegion.WordExtent()
 	offset := ref.Start - start
-	end := offset + ref.Span
-
-	if offset < 0 || end > len(field.Affinity) || offset > end {
+	end, ok := spanEnd(offset, ref.Span, len(field.Affinity))
+	if !ok {
 		return nil
 	}
 
@@ -367,10 +366,22 @@ func valueSpan(value *primitive.Value, ref programmer.RegionRef) []uint64 {
 		return nil
 	}
 
-	end := ref.Start + ref.Span
-	if ref.Start < 0 || end > len(*value) || ref.Start > end {
+	end, ok := spanEnd(ref.Start, ref.Span, len(*value))
+	if !ok {
 		return nil
 	}
 
 	return (*value)[ref.Start:end]
+}
+
+func spanEnd(start int, span int, limit int) (int, bool) {
+	if start < 0 || span < 0 || start > limit {
+		return 0, false
+	}
+
+	if span > limit-start {
+		return 0, false
+	}
+
+	return start + span, true
 }

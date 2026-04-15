@@ -45,7 +45,7 @@ type orchestratorOption func(*Orchestrator)
 
 /*
 WithField installs the global field that community routing should aggregate
-into. Nil keeps the orchestrator's default GF(65537) root field.
+into. Nil keeps the orchestrator's default Mod65537 root field.
 */
 func WithField(field *geometry.Field) orchestratorOption {
 	return func(orchestrator *Orchestrator) {
@@ -214,7 +214,7 @@ func (orchestrator *Orchestrator) publishExecuted(value *primitive.Value) {
 	orchestrator.drainInbox()
 }
 
-func (orchestrator *Orchestrator) executableFinalizer(value *primitive.Value) {
+func (orchestrator *Orchestrator) finalizeExecutedValue(value *primitive.Value) {
 	if orchestrator == nil || value == nil {
 		return
 	}
@@ -284,7 +284,7 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 	if name == "" && value[kernel.SchedulingNextProgramWord] == value.ID() {
 		executable := programmer.NewResidentExecutable(value)
 
-		executable.SetFinalizer(orchestrator.executableFinalizer)
+		executable.SetFinalizer(orchestrator.finalizeExecutedValue)
 
 		orchestrator.queue.Submit(func() *programmer.Executable {
 			return executable
@@ -302,7 +302,7 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 
 	executable := programmer.NewExecutable(value, name, nil)
 
-	executable.SetFinalizer(orchestrator.executableFinalizer)
+	executable.SetFinalizer(orchestrator.finalizeExecutedValue)
 
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.CompilerCompileEvent(

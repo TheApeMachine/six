@@ -59,6 +59,8 @@ type Continuation struct {
 /*
 ParseRegionRef exposes the parser's region-ref validation to other runtime
 paths that need the same config surface without duplicating syntax rules.
+Accepted forms are region, region[index], and region[index,span], for example
+"gradient[2,3]".
 */
 func ParseRegionRef(raw string) (RegionRef, error) {
 	parser := NewParser(NewProgram(""))

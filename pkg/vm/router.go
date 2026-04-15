@@ -148,7 +148,11 @@ func (router *Router) registerCommunity(
 		return
 	}
 
-	if communityID >= 0 && communityID < len(router.global.Fields) {
+	if communityID >= 0 {
+		if !router.ensureGlobalSlot(communityID) {
+			return
+		}
+
 		router.global.Fields[communityID] = community
 	}
 
@@ -161,4 +165,19 @@ func (router *Router) mergeGlobal(affinity []uint64) {
 	}
 
 	router.global.MergeAffinity(affinity)
+}
+
+func (router *Router) ensureGlobalSlot(communityID int) bool {
+	if router == nil || router.global == nil || communityID < 0 {
+		return false
+	}
+
+	if communityID < len(router.global.Fields) {
+		return true
+	}
+
+	grown := make([]*geometry.Field, communityID+1)
+	copy(grown, router.global.Fields)
+	router.global.Fields = grown
+	return true
 }

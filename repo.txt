@@ -50,18 +50,14 @@
 ./pkg/compute/kernel/operation.go
 ./pkg/compute/kernel/properties_classification.go
 ./pkg/compute/kernel/shared/primitives.h
-./pkg/compute/programmer/cache.go
+./pkg/compute/programmer/asset.go
+./pkg/compute/programmer/builder.go
 ./pkg/compute/programmer/compiler.go
-./pkg/compute/programmer/continuation.go
-./pkg/compute/programmer/cpu.go
-./pkg/compute/programmer/cuda.go
 ./pkg/compute/programmer/executable.go
+./pkg/compute/programmer/firmware.go
 ./pkg/compute/programmer/frame.go
-./pkg/compute/programmer/install_program.go
-./pkg/compute/programmer/metal.go
 ./pkg/compute/programmer/parser.go
 ./pkg/compute/programmer/program.go
-./pkg/compute/programmer/regionref.go
 ./pkg/compute/programmer/token.go
 ./pkg/core/config.go
 ./pkg/core/config_snapshot.go
@@ -145,11 +141,11 @@
 ./pkg/pool/lib_runtime_linkage.go
 ./pkg/pool/pool.go
 ./pkg/pool/queue.go
-./pkg/primitive/classification_stamp.go
 ./pkg/primitive/errors.go
 ./pkg/primitive/gen.go
 ./pkg/primitive/geometry.go
 ./pkg/primitive/morton.go
+./pkg/primitive/properties.go
 ./pkg/primitive/value.go
 ./pkg/transport/pipeline.go
 ./pkg/transport/publishable.go
@@ -165,8 +161,11 @@
 ./pkg/viz/wire.go
 ./pkg/viz/wire_value_sink.go
 ./pkg/vm/errors.go
+./pkg/vm/finalizer.go
+./pkg/vm/linker.go
 ./pkg/vm/machine.go
 ./pkg/vm/orchestrator.go
+./pkg/vm/router.go
 ./pkg/vm/tokenizer.go
 <<<END>>>
 <<<FILE ./README.md>>>
@@ -179,89 +178,50 @@
 
 This research project started from a simple question: "Can we reject gradient descent and back-propagation long enough to convince ourselves that we may not need them?"
 
+## The Story
+
+- This is an exploration of alternative machine intelligence architecture, the goal is discovery, not competition.
+
+## Assumptions
+
+Any attempt at new architectural work forces the adoption of a number of assumptions to set a clear direction. It seems prudent to clearly report the assumptions behind the attempt that this repository represents.
+
+- **Overstated Semantic Complexity** poses that human language, in practice, contains less complexity than commonly assumed. Signals that are used to provide foundation for this assumtion come from Zipf's law and Claude Shannon's work. This architecture takes this a step further by rejecting operating at the language semantic level, or to pre-processing incoming data trying to force structure.
+
+## Pillars
+
+- **Inclusivity** should guarantee that anyone with consumer hardware should be enabled to compete at a serious and recognizable scale.
+- **Multi-Modality** enforces that all data is treated the same, and the system has no concept of text, image, audio, etc.
+
+## Guidance & Rosetta Stone
+
+- **Forget Modality** if you try to think about text, images, audio, you are effectively reasoning against the system.
+- **Do not isolate a single Value** the system does not orchestrate `Values` from a central point, everything is massively connected.
+- **Do not try to control** `Fields` emerge from `Values` and `Fields` drive the `System` via `Values`.
+
 ---
 
 ## Architecture
 
-Six has three active layers. Values are the atoms of computation. The Queue and Backend execute their programs. The Orchestrator groups settled Values into communities and uses the Field to drive further computation.
-
-```mermaid
-flowchart TD
-
-    subgraph "Layer 3 — Global Field GF(65537)"
-        GF["Global Phase Vector"]
-        Gossip["gossip.Conn<br/>Digest + NodePhase"]
-        GF <--> Gossip
-    end
-
-    subgraph "Layer 2 — Community Field GF(8191)"
-        C1["Community"]
-        C2["Community"]
-        F1["geometry.Field<br/>Affine rotation + PhaseDial"]
-        F2["geometry.Field<br/>Affine rotation + PhaseDial"]
-        C1 --- F1
-        C2 --- F2
-    end
-
-    subgraph "Layer 1 — Value Field GF(257)"
-        V1["primitive.Value<br/>1KB programmable token"]
-        V2["primitive.Value"]
-        V3["primitive.Value"]
-        V4["primitive.Value"]
-    end
-
-    subgraph "Execution"
-        Q["pool.Queue<br/>Lock-free work scheduling"]
-        B["compute.Backend<br/>CPU / Metal / CUDA"]
-        O["vm.Orchestrator<br/>Community routing + action emission"]
-    end
-
-    %% Bottom-up: Values settle, orchestrator groups them
-    V1 --> O
-    V2 --> O
-    V3 --> O
-    V4 --> O
-    O --> C1
-    O --> C2
-    C1 --> GF
-    C2 --> GF
-
-    %% Top-down: field pressure drives new computation
-    GF --> F1
-    GF --> F2
-    F1 --> Q
-    F2 --> Q
-    Q --> B
-    B --> V1
-    B --> V2
-    B --> V3
-    B --> V4
-```
+The core of the architecture, stripped of all orchestration, consists of a global `Field` which contains many community `Fields` which contain many `Values`.
 
 ```text
-┌──────────────────────────────────┐
-│       Global Field GF(65537)     │
-│  Aggregates community fields     │
-│  Gossip propagates phase state   │
-└──────────────┬───────────────────┘
-               │ top-down pressure
-┌──────────────▼───────────────────┐
-│     Community Fields GF(8191)    │
-│  Orchestrator groups Values by   │
-│  affinity into communities       │
-└──────────────┬───────────────────┘
-               │ action emission
-┌──────────────▼───────────────────┐
-│    Queue + Compute Backend       │
-│  Lock-free pool, multi-substrate │
-│  CPU / Metal / CUDA execution    │
-└──────────────┬───────────────────┘
-               │ programs run on
-┌──────────────▼───────────────────┐
-│           Values GF(257)         │
-│  1KB programmable tokens         │
-│  Linked via PrevID / NextID      │
-└──────────────────────────────────┘
+          ┌──────────────────┐
+          │ FIELD (GF 65537) │
+       ┌─►│ The global field ├─────┐
+       │  └─────────┬────────┘     │
+Project│            │              │Top-down feedback
+upwards│            │              │Bias
+       │  ┌─────────▼───────────┐  │Attention
+       └──┤ FIELD (GF 8191)     │◄─┘                                 
+       ┌─►│ The community field ├──────────────────┐                 
+       │  └─────────┬───────────┘                  │
+Project│            │                              │
+upwards│            │                              │Top-down feedback
+       │  ┌─────────▼───────────────────────────┐  │Bias
+       │  │ VALUE (GF 257 & GF 2)               │  │Attention
+       └──┤ Native Programmable Reasoning Token │◄─┘                    
+          └─────────────────────────────────────┘                    
 ```
 
 ### Field Hierarchy
@@ -298,7 +258,7 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 ```text
 ┌─────────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
-│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
+│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │   Assets    │ Prev │ Next │ ID  │   Affinity   │
 │  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │   512 bits   │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
 │ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │  words48-55  │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
 └─────────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
@@ -581,21 +541,20 @@ The gap between the prompt's affinity and the eigenmode is the drive. The explor
 Both beliefs revise by the act of resolution. Perception and learning are the same operation, executed once.
 
 ```text
-                      ┌──────────────────────┐
-                      │   Local eigenmode    │
-                      │  (current belief)    │
-                      └──────────▲───────────┘
-                                 │  mode drifts
-                                 │  toward prompt
-                                 │
-               field pressure    │
-           closes the phase gap  │
-                                 │
-                      ┌──────────┴───────────┐
-                      │   Prompt / Values    │
-                      │  drifting toward     │
-                      │  the attractor       │
-                      └──────────────────────┘
+          ┌────────────────────┐
+          │ Local eigenmode    │
+          │ (current belief)   │
+          └──────────▲─────────┘
+                     │ mode drifts
+                     │ toward prompt
+                     │
+      field pressure │
+closes the phase gap │
+          ┌──────────┴─────────┐
+          │ Prompt / Values    │
+          │ drifting toward    │
+          │ the attractor      │
+          └────────────────────┘
 ```
 
 ### Multiple perspectives via phase rotation
@@ -765,7 +724,7 @@ The `compute.Backend` load-balancer probes available substrates at startup and r
 
 Six provides pluggable transport for distributing Values across machines:
 
-- **QUIC**: Reliable, encrypted WAN transport with congestion control. Single bidirectional stream per connection carrying Value frames. Built on `golang.org/x/net/quic`.
+- **QUIC**: Reliable, encrypted WAN transport with bi-directional streaming, and congestion control.
 - **UDP**: Lightweight datagram transport for local-network gossip.
 - **IPC**: Inter-process communication for co-located nodes.
 
@@ -787,19 +746,21 @@ value:
   words: 128
   bytes: 1024
   region:
-    tokens:   { start: 0,   bits: 1024 }
-    program:  { start: 16,  bits: 512 }
-    signals:  { start: 24,  bits: 512 }
+    tokens:     { start: 0,   bits: 1024 }
+    program:    { start: 16,  bits: 512 }
+    signals:    { start: 24,  bits: 512 }
     context:    { start: 32,  bits: 512 }
     gradient:   { start: 40,  bits: 512 }
     properties: { start: 48,  bits: 512 }
-    prev:     { start: 120, bits: 64 }
-    next:     { start: 121, bits: 64 }
-    id:       { start: 122, bits: 64 }
-    affinity: { start: 123, bits: 257 }
+    prev:       { start: 120, bits: 64 }
+    next:       { start: 121, bits: 64 }
+    id:         { start: 122, bits: 64 }
+    affinity:   { start: 123, bits: 257 }
 ```
 
 **`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
+
+**`finalizers:`** blocks hold generic post-ALU orchestration rules. They do not define new Go-side algorithms. Instead they specify when the runtime should either **reprogram the current Value** with an existing named program or **emit an ephemeral clone** of the current Value, optionally copying already-written in-band regions (for example `value.signals` or `field.affinity`) into another region before the next ALU pass.
 
 ---
 
@@ -807,13 +768,14 @@ value:
 
 The project includes a Docker Compose stack for observability and data management:
 
-| Service                          | Purpose                               | Port       |
-|----------------------------------|---------------------------------------|------------|
-| Elasticsearch (3-node cluster)   | Log aggregation, experiment telemetry | 9200       |
-| Elasticsearch ML nodes (3 nodes) | Machine-learning-capable ES nodes     | —          |
-| Kibana                           | Log visualization and dashboards      | 5601       |
-| MinIO                            | S3-compatible object storage          | 9000, 9001 |
-| LakeFS                           | Data versioning over MinIO            | 8000       |
+| Service                          | Purpose                                    | Port       |
+|----------------------------------|--------------------------------------------|------------|
+| Elasticsearch (3-node cluster)   | Log aggregation, experiment telemetry      | 9200       |
+| Elasticsearch ML nodes (3 nodes) | Machine-learning-capable ES nodes          | —          |
+| Kibana                           | Log visualization and dashboards           | 5601       |
+| MinIO                            | S3-compatible object storage               | 9000, 9001 |
+| LakeFS                           | Data versioning over MinIO                 | 8000       |
+| Custom Interactive Visualizer    | Deep real-time system inspection/debugging | 3000       |
 
 Structured logs are shipped to Elasticsearch via a bulk indexer with configurable flush intervals. Trace-level logging operates independently of the global log level, allowing production systems to emit detailed traces without noise in standard output.
 
@@ -838,23 +800,31 @@ make paper
 make pprof EXP=Text_Classification
 ```
 
-**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the CPU backend is always available.
+**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the highly optimize SIMD CPU backend is always available.
 
 ---
 
 ## Usage
 
 ```go
-// Create a machine
+/*
+Create a machine, which acts as a convenient wrapper
+around the system.
+*/
 machine, _ := vm.NewMachine(ctx)
 defer machine.Close()
 
-// Load a dataset — Values are minted, linked, programmed, and
-// published to the queue and orchestrator automatically.
+/*
+Load a dataset — Values are minted, linked, programmed, and
+published to the queue and orchestrator automatically.
+Datasets must follow the Provider interface.
+*/
 machine.Load(dataset)
 
-// Prompt — segments + program on first cycle, then cycles until gap closure
-// (or ctx cancel/deadline). Returned Values are the resolution.
+/*
+Prompt — segments + program on first cycle, then cycles until gap closure
+(or ctx cancel/deadline). Returned Values are the resolution.
+*/
 segments, _ := primitive.NewValue([]byte("the cat sat on the"))
 installer := programmer.Installer{}
 for _, seg := range segments {
@@ -993,7 +963,7 @@ value:
     properties:
       start: 48
       bits: 512
-    reserved:
+    asset:
       start: 56
       bits: 4096
     prev:
@@ -1025,6 +995,20 @@ value:
     ifathenb: 1101
     nand: 1110
     true: 1111
+  rules:
+    - name: link
+      conditions:
+        prev: false
+        next: false
+      firmware: link
+    - name: affinity
+      conditions:
+        and:
+          or:
+            prev: true
+            next: true
+          affinity: false
+      firmware: affinity
 
 
 programs:
@@ -1038,6 +1022,14 @@ programs:
   #   reduce      popcount the whole signals region and write the total to
   #               dst[start]; dst[start+1..] is untouched.
   # Optional last line: next <value_id> | next self  (scheduler: word 117).
+
+  # Link generation: the orchestrator stages the previous Value's ID into
+  # asset[0] and the next Value's ID into asset[1]. This program copies
+  # those IDs into the prev and next regions respectively.
+  link: |
+    asset[0,1] asset[0,1] prev[0,1] or accumulate
+    asset[1,1] asset[1,1] next[0,1] or accumulate
+    next self
 
   # Affinity generation: fold every token word against every other token
   # word through the substrate's 16-rotation sweep, then accumulate the
@@ -1070,26 +1062,26 @@ programs:
   # drift away in DHT space, and loops via `next self` so the scheduler
   # keeps spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
-    tokens[0,8]  gradient[0,8]  context[0,8]  xor accumulate
-    tokens[0,8]  context[0,8]   signals[0,8]  xor accumulate
-    signals[0,8] signals[0,8]   properties[0,1]     xor reduce
-    properties[0,1]    properties[1,1]      properties[0,1]     or  accumulate
-    properties[0,1]    affinity[0,5]  affinity[0,5] xor accumulate
+    tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    signals[0,8]    signals[0,8]    properties[0,1] xor reduce
+    properties[0,1] properties[1,1] properties[0,1] or  accumulate
+    properties[0,1] affinity[0,5]   affinity[0,5]   xor accumulate
     next self
 
   # Free Energy / Prediction Error: Computes the gap between the incoming
   # tokens and the context (the local eigenmode/attractor).
   surprisal: |
-    tokens[0,8]  context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] properties[0,1]    xor reduce
+    tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8] properties[0,1] xor reduce
 
   # Popperian Test: XORs tokens against a predicted-absent pattern in context.
   # A high popcount in properties[1] means the claim held (they differ); a low
   # popcount refutes it. If refuted, we zero the TTL word (properties[3]).
   falsification: |
-    tokens[0,8]  context[0,8] signals[0,8] xor accumulate
-    signals[0,8] signals[0,8] properties[1,1]    xor reduce
-    properties[1,1]    properties[3,1]    properties[3,1]    and accumulate
+    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
+    signals[0,8]    signals[0,8]    properties[1,1] xor reduce
+    properties[1,1] properties[3,1] properties[3,1] and accumulate
 
   # Temperature: Physical noise injected into the Affinity vector during
   # exploration to widen the search space.
@@ -1100,23 +1092,23 @@ programs:
   # evaluates their expected free energy, and applies the action that minimizes
   # surprisal.
   active_inference: |
-    tokens[0,8]    gradient[0,8]   reserved[0,8]  xor accumulate
-    tokens[0,4]    properties[4,2] reserved[8,4]  and accumulate
-    tokens[4,4]    properties[6,2] reserved[12,4] and accumulate
-    tokens[0,8]    context[0,8]    reserved[16,8] xor accumulate
-    reserved[0,8]  context[0,8]    signals[0,8]   xor accumulate
-    reserved[8,8]  context[0,8]    reserved[24,8] xor accumulate
-    reserved[16,8] context[0,8]    reserved[32,8] xor accumulate
-    signals[0,8]   signals[0,8]    signals[0,1]   xor reduce
-    reserved[24,8] reserved[24,8]  signals[1,1]   xor reduce
-    reserved[32,8] reserved[32,8]  signals[2,1]   xor reduce
+    tokens[0,8]  gradient[0,8]   asset[0,8]   xor accumulate
+    tokens[0,4]  properties[4,2] asset[8,4]   and accumulate
+    tokens[4,4]  properties[6,2] asset[12,4]  and accumulate
+    tokens[0,8]  context[0,8]    asset[16,8]  xor accumulate
+    asset[0,8]   context[0,8]    signals[0,8] xor accumulate
+    asset[8,8]   context[0,8]    asset[24,8]  xor accumulate
+    asset[16,8]  context[0,8]    asset[32,8]  xor accumulate
+    signals[0,8] signals[0,8]    signals[0,1] xor reduce
+    asset[24,8]  asset[24,8]     signals[1,1] xor reduce
+    asset[32,8]  asset[32,8]     signals[2,1] xor reduce
     next self
 
   # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
   # Used by phase probes; the field drives parallel population, not one tight loop.
   causal_explore: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
+    gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
 
@@ -1124,32 +1116,58 @@ programs:
   # Loops via next self until the queue or finalizer breaks the circuit.
   causal_hub: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    gradient[0,8]   context[0,8]    reserved[40,8]  xor accumulate
+    gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
     next self
 
   # Unsupervised learning: XOR two token spans that the orchestrator has staged
-  # into reserved[0,16] (peer A, tokens 0-15) and reserved[16,16] (peer B,
+  # into asset[0,16] (peer A, tokens 0-15) and asset[16,16] (peer B,
   # tokens 0-15). Zero bits in signals[0,8] mark positions shared by both
   # Values; properties[1] carries the reduced self-knowledge metric in-band.
   # The kernel XOR-folds the 16-word srcA into 4 lanes, then sweeps 16
   # rotations against the cyclic srcB span; the 64-byte LSH result is
   # XOR-accumulated into signals[0,8], then OR-reduced into properties[1].
   unsupervised_learn: |
-    reserved[0,16]  reserved[16,16]  signals[0,8]  xor  accumulate
-    signals[0,8]    signals[0,8]     properties[1,1] or   reduce
+    asset[0,16]  asset[16,16] signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8] properties[1,1] or  reduce
 
   # Community label-energy fingerprint: the orchestrator stages up to 8
-  # community member label words (w48) into reserved[0,8] before dispatch.
+  # community member label words (w48) into asset[0,8] before dispatch.
   # The OR sweep produces a 64-byte LSH signature; reduce writes its
   # popcount into signals[7]. Higher popcount → more label bits set across
   # the community → more crystallisation energy. The resident loops via
   # next self; the orchestrator reads signals[7] each cycle to steer the
   # community eigenmode and check the global crystallisation floor.
   measure_field: |
-    reserved[0,8]  reserved[0,8]  signals[7,1]  or  reduce
+    asset[0,8] asset[0,8] signals[7,1] or reduce
     next self
+
+finalizers:
+  - name: community_resonance_emit
+    scope: community
+    min_members: 3
+    min_concentration: 0.6
+    actions:
+      - type: emit
+        program: beam_swarm_step
+        ttl: 1
+        copies:
+          # Region refs use [start,span], not [start,end].
+          - source: field.affinity[0,5]
+            destination: gradient[0,5]
+          - source: value.signals[0,8]
+            destination: context[0,8]
+  - name: global_resonance_reprogram
+    scope: global
+    min_communities: 2
+    min_concentration: 0.3
+    actions:
+      - type: reprogram
+        program: active_inference
+        copies:
+          - source: field.affinity[0,5]
+            destination: gradient[0,5]
 
 <<<END>>>
 <<<FILE ./cmd/init.go>>>
@@ -1617,17 +1635,13 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/pool"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -1657,10 +1671,6 @@ var vizCmd = &cobra.Command{
 			return core.Cfg.Programs
 		})
 
-		if vizDemo {
-			go runDemo(ctx)
-		}
-
 		errnie.Info("viz.start", "addr", vizAddr)
 
 		return server.Start(ctx)
@@ -1683,74 +1693,6 @@ func init() {
 	)
 
 	rootCmd.AddCommand(vizCmd)
-}
-
-/*
-runDemo spins up a small mesh and continuously publishes
-data through it so the visualizer has real events to display.
-*/
-func runDemo(ctx context.Context) {
-	queue, err := pool.NewQueue(ctx)
-	if err != nil {
-		errnie.Warn(fmt.Sprintf("viz demo: queue init failed: %v", err))
-		return
-	}
-
-	defer queue.Close()
-
-	corpus := []struct {
-		text  string
-		label string
-	}{
-		{"the cat sat on the mat", "Sentence"},
-		{"a quick brown fox jumps over the lazy dog", "Sentence"},
-		{"buy now limited offer", "Spam"},
-		{"free money click here", "Spam"},
-		{"machine learning is fascinating", "Tech"},
-		{"quantum computing advances rapidly", "Tech"},
-		{"the rain in spain stays mainly in the plain", "Sentence"},
-		{"earn cash from home no experience needed", "Spam"},
-		{"neural networks approximate any function", "Tech"},
-		{"she sells sea shells by the sea shore", "Sentence"},
-	}
-
-	idx := 0
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		entry := corpus[idx%len(corpus)]
-
-		values, err := primitive.NewValue([]byte(entry.text))
-		if err != nil {
-			idx++
-			continue
-		}
-
-		for _, value := range values {
-			_, publishErr := queue.PublishLabeled(entry.label, value)
-			if publishErr != nil {
-				errnie.Warn(
-					fmt.Sprintf(
-						"viz demo: Publish failed: %v (label=%q, value=%s)",
-						publishErr,
-						entry.label,
-						value.String(),
-					),
-				)
-			}
-		}
-
-		primitive.CloseAll(values)
-
-		idx++
-
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 var vizLong = `
@@ -2118,9 +2060,9 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -2132,6 +2074,7 @@ updated from the dispatch hot path.
 type substrateState struct {
 	idx       int
 	substrate kernel.Substrate
+	target    programmer.CompilerTarget
 	inflight  atomic.Int64
 	emaNanos  atomic.Int64
 }
@@ -2152,7 +2095,6 @@ type Backend struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	states          []*substrateState
-	queue           *pool.Queue
 	transferPenalty int64
 	// exploreEvery, when non-zero, zeros the transfer penalty on every Nth
 	// pick so the router empirically re-samples a faster substrate instead of
@@ -2196,7 +2138,6 @@ pressure tracker so dispatch stays lock-free.
 */
 func NewBackend(
 	ctx context.Context,
-	queue *pool.Queue,
 	opts ...BackendOption,
 ) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
@@ -2227,6 +2168,7 @@ func NewBackend(
 		backend.states = append(backend.states, &substrateState{
 			idx:       idx,
 			substrate: cuda.NewBackend(device),
+			target:    programmer.CUDA,
 		})
 
 		idx++
@@ -2237,6 +2179,7 @@ func NewBackend(
 		backend.states = append(backend.states, &substrateState{
 			idx:       idx,
 			substrate: metal.NewBackend(device),
+			target:    programmer.Metal,
 		})
 
 		idx++
@@ -2246,6 +2189,7 @@ func NewBackend(
 	backend.states = append(backend.states, &substrateState{
 		idx:       idx,
 		substrate: cpu.NewBackend(backend.ctx),
+		target:    programmer.CPU,
 	})
 
 	if err := validate.Require(map[string]any{
@@ -2253,12 +2197,6 @@ func NewBackend(
 	}); err != nil {
 		errnie.Error(err)
 		return nil
-	}
-
-	backend.queue = queue
-
-	if queue != nil {
-		queue.SetBackend(backend)
 	}
 
 	return backend
@@ -2433,6 +2371,115 @@ func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.P
 	))
 }
 
+func (backend *Backend) publishWireFrames(frames []unsafe.Pointer) {
+	const frameBytes = 128 * 8
+
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		valueID := kernel.FrameID(ptr)
+		if valueID == 0 {
+			continue
+		}
+
+		viz.PublishWireValueFrame(
+			valueID,
+			unsafe.Slice((*byte)(ptr), frameBytes),
+		)
+	}
+}
+
+/*
+Dispatch is the pool handler: it receives an Executable from a worker,
+picks the best substrate, compiles for the matching target, writes the
+frames into the Value, executes, and then calls the Finalizer so the
+orchestrator can re-evaluate firmware or route to a community.
+*/
+func (backend *Backend) Dispatch(executable *programmer.Executable) {
+	value := executable.Value()
+
+	if value == nil {
+		return
+	}
+
+	framePtr := unsafe.Pointer(&value[0])
+	ptrs := []unsafe.Pointer{framePtr}
+
+	if executable.IsResidentProgram() {
+		if err := backend.Execute(ptrs); err != nil {
+			errnie.Error(err)
+		}
+
+		executable.Finalize()
+		return
+	}
+
+	frames, err := executable.Compile(programmer.CPU)
+
+	if err != nil {
+		errnie.Error(err)
+		return
+	}
+
+	if len(frames) == 0 {
+		executable.Finalize()
+		return
+	}
+
+	st := backend.pick(ptrs)
+
+
+	if st.target != programmer.CPU {
+		recompiled, err := executable.Compile(st.target)
+
+		if err == nil {
+			frames = recompiled
+		}
+	}
+
+	st.inflight.Add(1)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PoolScheduleEvent(
+			st.substrate.Name(),
+			int(st.inflight.Load()),
+			len(backend.states),
+			value.ID(),
+		))
+	}
+
+	start := time.Now()
+
+	for idx := range frames {
+		frames[idx].WriteIntoProgramRegion(value)
+		executable.ApplyContinuation()
+
+		if err := st.substrate.Execute(ptrs); err != nil {
+			errnie.Error(err)
+			break
+		}
+	}
+
+	elapsed := time.Since(start)
+	st.inflight.Add(-1)
+	st.observe(elapsed)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.PoolCompleteEvent(
+			st.substrate.Name(),
+			elapsed.Nanoseconds(),
+			value.ID(),
+		))
+	}
+
+	backend.publishALUDispatch(st, ptrs, elapsed)
+	backend.publishWireFrames(ptrs)
+
+	executable.Finalize()
+}
+
 /*
 Execute dispatches pre-compiled Value frames to the best available
 substrate. Each Value must already contain the program bits the ALU
@@ -2487,6 +2534,7 @@ func (backend *Backend) Execute(
 	}
 
 	backend.publishALUDispatch(st, frames, elapsed)
+	backend.publishWireFrames(frames)
 
 	return err
 }
@@ -2627,6 +2675,51 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
+func (backend *Backend) exactBinaryWord(op uint64, a uint64, b uint64) uint64 {
+	m0 := uint64(0)
+	if op&0x1 != 0 {
+		m0 = ^uint64(0)
+	}
+	m1 := uint64(0)
+	if op&0x2 != 0 {
+		m1 = ^uint64(0)
+	}
+	m2 := uint64(0)
+	if op&0x4 != 0 {
+		m2 = ^uint64(0)
+	}
+	m3 := uint64(0)
+	if op&0x8 != 0 {
+		m3 = ^uint64(0)
+	}
+	return (a & b & m0) |
+		(a & ^b & m1) |
+		(^a & b & m2) |
+		(^a & ^b & m3)
+}
+
+func (backend *Backend) exactBinary(frameWords *[128]uint64, op uint64, aStart int, aSpan int, bStart int, bSpan int, dstStart int, dstSpan int) {
+	if frameWords == nil || aSpan <= 0 || bSpan <= 0 || dstSpan <= 0 {
+		return
+	}
+	limit := aSpan
+	if bSpan < limit {
+		limit = bSpan
+	}
+	if dstSpan < limit {
+		limit = dstSpan
+	}
+	if limit <= 0 || aStart < 0 || bStart < 0 || dstStart < 0 {
+		return
+	}
+	if aStart+limit > len(frameWords) || bStart+limit > len(frameWords) || dstStart+limit > len(frameWords) {
+		return
+	}
+	for idx := 0; idx < limit; idx++ {
+		frameWords[dstStart+idx] = backend.exactBinaryWord(op, frameWords[aStart+idx], frameWords[bStart+idx])
+	}
+}
+
 const (
 	regionEntryWords = 6
 	maxRegionEntries = 10
@@ -2660,6 +2753,7 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 		rawOpcode := frameWords[kernel.ProgramOpcodeWord] & 0xFF
 		opcode := rawOpcode & kernel.OpcodeBooleanMask
+		contract := (frameWords[kernel.ProgramModeWord] >> kernel.ProgramContractShift) & 0xFF
 		batchCount := frameWords[kernel.NearestAffinityBatchWord]
 
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
@@ -2674,20 +2768,20 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 		if rawOpcode == kernel.OpcodeRegionProgram {
 			for offset := 0; offset < regionTableWords; offset += regionEntryWords {
-				op := frameWords[kernel.ReservedStartWord+offset]
+				op := frameWords[kernel.AssetStartWord+offset]
 				if op == 0 && offset > 0 {
 					break
 				}
 
-				rotationTable := frameWords[kernel.ReservedStartWord+offset+1]
+				rotationTable := frameWords[kernel.AssetStartWord+offset+1]
 				if rotationTable == 0 {
 					continue
 				}
 
-				mode := int(frameWords[kernel.ReservedStartWord+offset+2] & 0xFF)
-				aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ReservedStartWord+offset+3])
-				bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ReservedStartWord+offset+4])
-				dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ReservedStartWord+offset+5])
+				mode := int(frameWords[kernel.AssetStartWord+offset+2] & 0xFF)
+				aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+3])
+				bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+4])
+				dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+5])
 
 				universalBitwiseV2(
 					value,
@@ -2708,6 +2802,15 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		}
 
 		rotationTable := frameWords[kernel.ProgramRotTabWord]
+		mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
+		aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
+		bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
+		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
+
+		if contract == kernel.ProgramContractExactBinary {
+			backend.exactBinary(frameWords, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
+			continue
+		}
 
 		// An all-zero rotation table means the frame has no work for the
 		// universal bitwise lane. Skip it instead of running a sweep that
@@ -2715,11 +2818,6 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		if rotationTable == 0 {
 			continue
 		}
-
-		mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
-		aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
-		bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
-		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
 
 		universalBitwiseV2(
 			value,
@@ -6527,6 +6625,8 @@ func universalBitwiseV2(
 #define OPCODE_GEOMETRIC_REVERSE 0x30
 #define OPCODE_REGION_PROGRAM 0x40
 #define RESERVED_START_WORD 56
+#define PROGRAM_CONTRACT_SHIFT 8
+#define CONTRACT_EXACT_BINARY 1
 
 struct Multivector {
     double v[8];
@@ -6593,6 +6693,35 @@ static __device__ __forceinline__ Multivector sandwich(Multivector motor, Multiv
 static __device__ __forceinline__ void unpack_region_ref(uint64_t word, int* start, int* span) {
     *start = (int)(uint32_t)word;
     *span = (int)(uint32_t)(word >> 32);
+}
+
+static __device__ __forceinline__ uint64_t exact_binary_word(uint64_t op, uint64_t a, uint64_t b) {
+    uint64_t m0 = (op & 1) ? ~0ULL : 0ULL;
+    uint64_t m1 = (op & 2) ? ~0ULL : 0ULL;
+    uint64_t m2 = (op & 4) ? ~0ULL : 0ULL;
+    uint64_t m3 = (op & 8) ? ~0ULL : 0ULL;
+    return (a & b & m0) |
+           (a & ~b & m1) |
+           (~a & b & m2) |
+           (~a & ~b & m3);
+}
+
+static __device__ __forceinline__ void exact_binary_device(
+    uint64_t* frame,
+    uint64_t op,
+    int aStart, int aSpan,
+    int bStart, int bSpan,
+    int dstStart, int dstSpan
+) {
+    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    int limit = aSpan;
+    if (bSpan < limit) limit = bSpan;
+    if (dstSpan < limit) limit = dstSpan;
+    if (aStart + limit > 128 || bStart + limit > 128 || dstStart + limit > 128) return;
+    for (int idx = 0; idx < limit; idx++) {
+        frame[dstStart + idx] = exact_binary_word(op, frame[aStart + idx], frame[bStart + idx]);
+    }
 }
 
 static __device__ __forceinline__ void universal_bitwise_v2_device(
@@ -6694,14 +6823,23 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
         return;
     }
 
+    uint64_t rawOpcode = frame[PROGRAM_START_WORD] & 0xFF;
+    uint64_t opcode = rawOpcode & 0x0F;
     uint64_t rotationTable = frame[PROGRAM_START_WORD + 1];
-    if (rotationTable == 0) return;
+    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
 
     int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+
+    if (contract == CONTRACT_EXACT_BINARY) {
+        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
+        return;
+    }
+
+    if (rotationTable == 0) return;
 
     universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
 }
@@ -7579,12 +7717,14 @@ const (
 	PropertiesProbeStateWord  = 53 // properties[5], explicit runtime probe ABI only
 	PropertiesProbeWindowWord = 54 // properties[6], PackRegionRef over token words
 	PropertiesProbeDepthWord  = 55 // properties[7], final re-stabilization depth
-	ReservedStartWord         = 56
+	AssetStartWord            = 56
 	SchedulingNextProgramWord = 117
-	PrevStartWord             = 120
-	NextStartWord             = 121
-	IDStartWord               = 122
-	AffinityStartWord         = 123
+	// ReservedStartWord is the legacy name for the asset scratch region base word.
+	ReservedStartWord = AssetStartWord
+	PrevStartWord     = 120
+	NextStartWord     = 121
+	IDStartWord       = 122
+	AffinityStartWord = 123
 
 	OpcodeBooleanMask   uint64 = 0x0F
 	OpcodeGeometricMask uint64 = 0xF0
@@ -7654,10 +7794,21 @@ Backend.Execute keeps working unchanged.
 const (
 	ProgramOpcodeWord = ProgramStartWord     // legacy opcode byte + geometric gate
 	ProgramRotTabWord = ProgramStartWord + 1 // 16-nibble rotation opcode table
-	ProgramModeWord   = ProgramStartWord + 2 // ExecutionMode (0=accumulate, 1=reduce)
+	ProgramModeWord   = ProgramStartWord + 2 // low byte: ExecutionMode, next byte: lowered contract kind
 	ProgramSrcAWord   = ProgramStartWord + 3 // srcA: aStart low32 | aSpan high32
 	ProgramSrcBWord   = ProgramStartWord + 4 // srcB: bStart low32 | bSpan high32
 	ProgramDstWord    = ProgramStartWord + 5 // dst:  dStart low32 | dSpan high32
+)
+
+const (
+	ProgramContractShift = 8
+	ProgramContractMask  = uint64(0xFF) << ProgramContractShift
+
+	ProgramContractUnknown     = uint64(0)
+	ProgramContractExactBinary = uint64(1)
+	ProgramContractSweepSignal = uint64(2)
+	ProgramContractReduce      = uint64(3)
+	ProgramContractGeometric   = uint64(4)
 )
 
 /*
@@ -7709,22 +7860,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 )
 
-/*
-metalMu serializes all CGO calls into Metal. Metal command buffer
-submission from concurrent goroutines triggers a fatal
-"semasleep on Darwin signal stack" crash. A single mutex here is
-the cheapest correct fix — the GPU work itself is still parallel
-on-device; we only serialize the host-side dispatch.
-*/
-var metalMu sync.Mutex
-var batchBuffer []byte
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
 //go:generate xcrun -sdk macosx metallib backend.air -o backend.metallib
@@ -7802,11 +7943,14 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		return nil
 	}
 
-	metalMu.Lock()
-	defer metalMu.Unlock()
-
+	// Per-call scratch for the unified kernel staging copy. Stack-allocated
+	// via make on the current goroutine so concurrent Execute callers never
+	// share mutable state on the Go side. The Objective-C layer allocates a
+	// dedicated MTLBuffer per call too, so there is no shared resource left
+	// between workers and no mutex is required.
 	unifiedBatch := make([]unsafe.Pointer, 0, len(frames))
 	var unifiedBatchCount int
+	var batchBuffer []byte
 
 	flushUnified := func() error {
 		if unifiedBatchCount == 0 {
@@ -7938,9 +8082,6 @@ func (backend *Backend) NearestAffinity(
 
 	distances := make([]uint32, count)
 
-	metalMu.Lock()
-	defer metalMu.Unlock()
-
 	if C.nearest_affinity_metal(
 		query,
 		candidates,
@@ -8027,29 +8168,12 @@ static int initResult = 0;
 #define VALUE_BYTES 1024
 
 /*
-Single shared buffer pool: one host-visible buffer (poolA) that grows
-geometrically (capacity tracked in poolCap) and is reused by every kernel path.
+No shared host-visible buffer. Every dispatch allocates its own MTLBuffer so
+concurrent calls from different goroutines never stomp on each other. Metal's
+MTLCommandQueue is documented as safe for multi-threaded submission when each
+thread builds its own command buffer with its own resources — which is now
+the pattern we follow on every dispatch path.
 */
-static id<MTLBuffer> poolA   = nil;
-static uint32_t      poolCap = 0;
-
-static int ensure_pool(uint32_t num_values) {
-    if (poolA != nil && poolCap >= num_values) return 0;
-
-    uint32_t cap = num_values * 2;
-    if (cap < 1024) cap = 1024;
-
-    if (poolA)   { [poolA release];   poolA   = nil; }
-
-    NSUInteger bytes = (NSUInteger)cap * VALUE_BYTES;
-
-    poolA   = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-
-    if (!poolA) { poolCap = 0; return -1; }
-
-    poolCap = cap;
-    return 0;
-}
 
 /*
 Device init
@@ -8142,33 +8266,32 @@ Unified Bitwise dispatch — each Value carries its own 32-bit in-band program
 and the kernel executes the self-only slot sweep directly from the frame.
 */
 int unified_bitwise_metal(void* a_host, uint32_t num_values) {
-    if (!pipelineUnifiedBitwise || !a_host) return -1;
-    if (ensure_pool(num_values) != 0) return -1;
+    if (!pipelineUnifiedBitwise || !a_host || num_values == 0) return -1;
 
     @autoreleasepool {
         NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
-        NSUInteger la = [poolA length];
-        if (la < reqBytes) {
-            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu",
-                  (unsigned long)reqBytes, (unsigned long)la);
-            return -6;
-        }
 
-        memcpy([poolA contents], a_host, reqBytes);
+        id<MTLBuffer> buf = [device newBufferWithBytes:a_host
+                                                length:reqBytes
+                                               options:MTLResourceStorageModeShared];
+        if (!buf) return -1;
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
-        [enc setBuffer:poolA   offset:0 atIndex:0];
+        [enc setBuffer:buf offset:0 atIndex:0];
 
         dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-        if (r != 0) return r;
 
-        memcpy(a_host, [poolA contents], reqBytes);
-        return 0;
+        if (r == 0) {
+            memcpy(a_host, [buf contents], reqBytes);
+        }
+
+        [buf release];
+        return r;
     }
 }
 
@@ -8179,32 +8302,31 @@ float arithmetic core.
 */
 int geometric_metal(void* a_host, uint32_t num_values) {
     if (!pipelineGeometric || !a_host || num_values == 0) return -1;
-    if (ensure_pool(num_values) != 0) return -1;
 
     @autoreleasepool {
         NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
-        NSUInteger la = [poolA length];
-        if (la < reqBytes) {
-            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu",
-                  (unsigned long)reqBytes, (unsigned long)la);
-            return -7;
-        }
 
-        memcpy([poolA contents], a_host, reqBytes);
+        id<MTLBuffer> buf = [device newBufferWithBytes:a_host
+                                                length:reqBytes
+                                               options:MTLResourceStorageModeShared];
+        if (!buf) return -1;
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
-        [enc setBuffer:poolA offset:0 atIndex:0];
+        [enc setBuffer:buf offset:0 atIndex:0];
 
         dispatchKernel(enc, pipelineGeometric, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-        if (r != 0) return r;
 
-        memcpy(a_host, [poolA contents], reqBytes);
-        return 0;
+        if (r == 0) {
+            memcpy(a_host, [buf contents], reqBytes);
+        }
+
+        [buf release];
+        return r;
     }
 }
 
@@ -8262,8 +8384,7 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
 }
 
 void cleanup_metal_pools(void) {
-    if (poolA)   { [poolA release];   poolA   = nil; }
-    poolCap = 0;
+    // No persistent buffers to free — every dispatch owns its own MTLBuffer.
 }
 
 <<<END>>>
@@ -8280,6 +8401,8 @@ using namespace metal;
 #define OPCODE_GEOMETRIC_REVERSE 0x30
 #define OPCODE_REGION_PROGRAM 0x40
 #define RESERVED_START_WORD 56
+#define PROGRAM_CONTRACT_SHIFT 8
+#define CONTRACT_EXACT_BINARY 1
 
 struct Multivector {
     float v[8];
@@ -8426,6 +8549,35 @@ static inline void unpack_region_ref(ulong word, thread int* start, thread int* 
     *span = (int)(uint)(word >> 32);
 }
 
+static inline ulong exact_binary_word(ulong op, ulong a, ulong b) {
+    ulong m0 = (op & 1) ? ~0UL : 0UL;
+    ulong m1 = (op & 2) ? ~0UL : 0UL;
+    ulong m2 = (op & 4) ? ~0UL : 0UL;
+    ulong m3 = (op & 8) ? ~0UL : 0UL;
+    return (a & b & m0) |
+           (a & ~b & m1) |
+           (~a & b & m2) |
+           (~a & ~b & m3);
+}
+
+static inline void exact_binary_device(
+    device ulong* frame,
+    ulong op,
+    int aStart, int aSpan,
+    int bStart, int bSpan,
+    int dstStart, int dstSpan
+) {
+    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    int limit = aSpan;
+    if (bSpan < limit) limit = bSpan;
+    if (dstSpan < limit) limit = dstSpan;
+    if (aStart + limit > 128 || bStart + limit > 128 || dstStart + limit > 128) return;
+    for (int idx = 0; idx < limit; idx++) {
+        frame[dstStart + idx] = exact_binary_word(op, frame[aStart + idx], frame[bStart + idx]);
+    }
+}
+
 static inline void universal_bitwise_v2_device(
     device ulong* frame,
     int aStart, int aSpan,
@@ -8505,6 +8657,7 @@ kernel void unified_bitwise_kernel(
     device ulong* frame = A + base;
 
     uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
+    uchar opcode = rawOpcode & 0x0F;
 
     if (rawOpcode == OPCODE_REGION_PROGRAM) {
         for (int offset = 0; offset < 60; offset += 6) {
@@ -8526,13 +8679,20 @@ kernel void unified_bitwise_kernel(
     }
 
     ulong rotationTable = frame[PROGRAM_START_WORD + 1];
-    if (rotationTable == 0) return;
+    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
 
     int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+
+    if (contract == CONTRACT_EXACT_BINARY) {
+        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
+        return;
+    }
+
+    if (rotationTable == 0) return;
 
     universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
 }
@@ -9049,277 +9209,144 @@ func LabelPropertiesWord(label []byte) uint64 {
 #endif // SUBSTRATE_PRIMITIVES_H
 
 <<<END>>>
-<<<FILE ./pkg/compute/programmer/cache.go>>>
+<<<FILE ./pkg/compute/programmer/asset.go>>>
 package programmer
 
 import (
-	"sync"
+	"errors"
+	"fmt"
 
-	"github.com/hashicorp/golang-lru/v2/simplelru"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
-ProgramCacheMaxEntries caps how many distinct compiled programs stay resident; least-recently-used
-entries are evicted under mutex protection.
+Asset represents any additional data that a Value needs to carry
+needed by a program. This is the only way to combine the data
+from multiple Values and use it when executing a program.
 */
-const ProgramCacheMaxEntries = 256
-
-var (
-	programCacheMu sync.Mutex
-	programCache   *simplelru.LRU[string, cachedProgram]
-)
-
-func init() {
-	next, err := simplelru.NewLRU[string, cachedProgram](ProgramCacheMaxEntries, nil)
-	if err != nil {
-		panic(err)
-	}
-
-	programCache = next
+type Asset struct {
+	Value  *primitive.Value
+	Region primitive.RegionType
 }
 
 /*
-SetProgramCacheMaxEntries replaces the LRU with a new empty cache of the given capacity.
-Use for tests or tuning; max must be positive.
+NewAsset builds a new Asset from the given Value and Region.
 */
-func SetProgramCacheMaxEntries(max int) {
-	if max <= 0 {
-		return
+func NewAsset(
+	value *primitive.Value,
+	region primitive.RegionType,
+) *Asset {
+	return &Asset{
+		Value:  value,
+		Region: region,
 	}
-
-	next, err := simplelru.NewLRU[string, cachedProgram](max, nil)
-	if err != nil {
-		return
-	}
-
-	programCacheMu.Lock()
-	programCache = next
-	programCacheMu.Unlock()
 }
 
-type cachedProgram struct {
-	frames []Frame
-	cont   *Continuation
-}
-
-func getCachedProgram(nameOrSource string) (cachedProgram, bool) {
-	programCacheMu.Lock()
-	defer programCacheMu.Unlock()
-
-	val, ok := programCache.Get(nameOrSource)
-	if !ok {
-		return cachedProgram{}, false
+/*
+Bundle the Asset into the given Value's Asset region.
+*/
+func (asset *Asset) Bundle(value *primitive.Value) error {
+	if asset.Value == value {
+		return errors.New("programmer: Asset.Bundle: cannot bundle a value with itself")
 	}
 
-	return val, true
-}
+	if asset.Value == nil || value == nil {
+		return errors.New("programmer: Asset.Bundle: nil Value")
+	}
 
-func setCachedProgram(nameOrSource string, cp cachedProgram) {
-	programCacheMu.Lock()
-	defer programCacheMu.Unlock()
+	dst := value.Get(asset.Region)
+	src := asset.Value.Get(asset.Region)
 
-	programCache.Add(nameOrSource, cp)
+	if dst == nil || src == nil {
+		return errors.New("programmer: Asset.Bundle: nil region slice")
+	}
+
+	if len(dst) != len(src) {
+		return fmt.Errorf(
+			"programmer: Asset.Bundle: region word count mismatch (%d vs %d)",
+			len(dst),
+			len(src),
+		)
+	}
+
+	copy(dst, src)
+	return nil
 }
 
 <<<END>>>
-<<<FILE ./pkg/compute/programmer/compiler.go>>>
+<<<FILE ./pkg/compute/programmer/builder.go>>>
 package programmer
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
-type CompilerTarget uint8
-
-const (
-	CPU CompilerTarget = iota
-	Metal
-	CUDA
-)
-
-/*
-Compiler lowers a tokenized program into one or more frames. Each frame is
-sized to fit a single Value program region; when the source does not fit,
-compilation produces multiple frames and the stage emits multiple Values.
-
-Optional continuation (trailing `next` line) is stored for Executable to apply
-after Values are minted (word 117, plus implicit chaining across a batch).
-*/
-type Compiler struct {
-	tokens       []Token
-	continuation *Continuation
-}
-
-type compilerOption func(*Compiler)
-
-func NewCompiler(tokens []Token, opts ...compilerOption) *Compiler {
-	compiler := &Compiler{tokens: tokens}
-
-	for _, option := range opts {
-		option(compiler)
-	}
-
-	return compiler
-}
-
-/*
-Tokens returns the compiler’s source token slice (same order as emitted frames).
-*/
-func (compiler *Compiler) Tokens() []Token {
-	return compiler.tokens
-}
-
-/*
-WithContinuation attaches a parsed trailing `next` directive. Typically taken
-from Parser.Parse alongside the token slice.
-*/
-func WithContinuation(cont *Continuation) compilerOption {
-	return func(compiler *Compiler) {
-		compiler.continuation = cont
-	}
-}
-
-/*
-Continuation returns the optional trailing next-program directive (may be nil).
-*/
-func (compiler *Compiler) Continuation() *Continuation {
-	return compiler.continuation
-}
-
-/*
-Compile the tokens into a slice of contiguous frames, optimized for the given target.
-*/
-func (compiler *Compiler) Compile(target CompilerTarget) ([]Frame, error) {
-	switch target {
-	case CPU:
-		return NewCPUCompiler(compiler.tokens).Compile()
-	case Metal:
-		return NewMetalCompiler(compiler.tokens).Compile()
-	case CUDA:
-		return NewCUDACompiler(compiler.tokens).Compile()
-	}
-
-	return nil, fmt.Errorf("unsupported target: %d", target)
-}
-
-/*
-frameBuilder lowers token lines into program-region Frames. Tokens may be empty
-when used only for mnemonic validation during parse.
-*/
-type frameBuilder struct {
+type Builder struct {
 	tokens []Token
 }
 
-func newFrameBuilder(tokens []Token) *frameBuilder {
-	return &frameBuilder{tokens: tokens}
+func NewBuilder(tokens []Token) *Builder {
+	return &Builder{tokens: tokens}
 }
 
-/*
-frames emits one Frame per token for the chosen substrate target.
-*/
-func (builder *frameBuilder) frames(target CompilerTarget) ([]Frame, error) {
+func (builder *Builder) contractFor(tok Token) FrameContract {
+	if tok.Mode == ModeReduce {
+		return ContractReduceBinary
+	}
+
+	if (tok.Dst.Region == primitive.PrevRegion || tok.Dst.Region == primitive.NextRegion) && tok.Dst.Span == 1 {
+		return ContractExactBinary
+	}
+
+	if tok.Dst.Region == primitive.PropertiesRegion && tok.Dst.Span <= 2 {
+		return ContractExactBinary
+	}
+
+	return ContractSweepSignal
+}
+
+func (builder *Builder) build(target CompilerTarget) ([]Frame, error) {
 	_ = target
 	out := make([]Frame, 0, len(builder.tokens))
 
 	for _, tok := range builder.tokens {
-		op, err := builder.truthTableFromMnemonic(tok.Op)
-
-		if err != nil {
-			return nil, err
-		}
-
-		var frame Frame
-
-		builder.packTruth(&frame, op, tok)
+		frame := Frame{Contract: builder.contractFor(tok)}
+		builder.packTruth(&frame, tok.Op, tok)
 		out = append(out, frame)
 	}
 
 	return out, nil
 }
 
-/*
-acceptSourceOp allows surface ops that are not yet lowered (e.g. popcount) plus
-truth-table mnemonics.
+/**
+encodeMode packs the FrameContract and ExecutionMode into one uint64 program
+word. The low byte stores the ExecutionMode value, while the next byte stores
+one of kernel.ProgramContractUnknown, kernel.ProgramContractExactBinary,
+kernel.ProgramContractSweepSignal, kernel.ProgramContractReduce, or
+kernel.ProgramContractGeometric shifted left by kernel.ProgramContractShift.
+This keeps the lowered FrameContract and ExecutionMode together in
+kernel.ProgramModeWord so kernels can decode both pieces of intent from one
+word.
 */
-func (builder *frameBuilder) acceptSourceOp(mnemonic string) error {
-	key := strings.ToLower(strings.TrimSpace(mnemonic))
+func (builder *Builder) encodeMode(contract FrameContract, mode ExecutionMode) uint64 {
+	encodedContract := kernel.ProgramContractUnknown
 
-	if key == "popcount" {
-		return nil
+	switch contract {
+	case ContractExactBinary:
+		encodedContract = kernel.ProgramContractExactBinary
+	case ContractSweepSignal:
+		encodedContract = kernel.ProgramContractSweepSignal
+	case ContractReduceBinary:
+		encodedContract = kernel.ProgramContractReduce
+	case ContractGeometric:
+		encodedContract = kernel.ProgramContractGeometric
 	}
 
-	_, err := builder.truthTableFromMnemonic(key)
-
-	return err
+	return uint64(mode) | (encodedContract << kernel.ProgramContractShift)
 }
 
-/*
-truthTableFromMnemonic maps surface mnemonics to the 4-bit truth-table space.
-*/
-func (*frameBuilder) truthTableFromMnemonic(mnemonic string) (OperationType, error) {
-	key := strings.ToLower(strings.TrimSpace(mnemonic))
-
-	switch key {
-	case "false":
-		return FALSE, nil
-	case "and":
-		return AND, nil
-	case "aandnotb":
-		return AANDNOTB, nil
-	case "a":
-		return A, nil
-	case "notandb":
-		return NOTANDB, nil
-	case "b":
-		return B, nil
-	case "xor":
-		return XOR, nil
-	case "or":
-		return OR, nil
-	case "nor":
-		return NOR, nil
-	case "xnor":
-		return XNOR, nil
-	case "notb":
-		return NOTB, nil
-	case "ifbthena":
-		return IFBTHENA, nil
-	case "nota":
-		return NOTA, nil
-	case "ifathenb":
-		return IFA_THEN_B, nil
-	case "nand":
-		return NAND, nil
-	case "true":
-		return TRUE, nil
-	default:
-		return 0, fmt.Errorf("programmer: unknown or unsupported op %q", mnemonic)
-	}
-}
-
-/*
-packTruth fills the program region words universalBitwiseV2 reads at run
-time. The wire layout matches kernel/layout.go's Program*Word constants:
-
-	[0] legacy opcode byte in the low 8 bits (geometric / xor dispatch gate)
-	[1] 16-nibble rotation opcode table
-	[2] ExecutionMode (0 accumulate, 1 reduce)
-	[3] srcA absolute start / span
-	[4] srcB absolute start / span
-	[5] dst  absolute start / span
-
-packTruth does not touch operand region data — those words stay whatever
-the input Value held when the frame is stamped onto it. The substrate
-walks the packed refs on its own and reads / writes the Value in place.
-*/
-func (*frameBuilder) packTruth(
-	frame *Frame,
-	op OperationType,
-	tok Token,
-) {
+func (builder *Builder) packTruth(frame *Frame, op OperationType, tok Token) {
 	nibble := uint64(op) & 0xF
 
 	frame.Program[0] = nibble
@@ -9331,109 +9358,53 @@ func (*frameBuilder) packTruth(
 	}
 
 	frame.Program[1] = table
-	frame.Program[2] = uint64(tok.ModeBit)
-	frame.Program[3] = kernel.PackRegionRef(tok.SrcARef.AbsStart(), tok.SrcARef.Span)
-	frame.Program[4] = kernel.PackRegionRef(tok.SrcBRef.AbsStart(), tok.SrcBRef.Span)
-	frame.Program[5] = kernel.PackRegionRef(tok.DstRef.AbsStart(), tok.DstRef.Span)
+	frame.Program[2] = builder.encodeMode(frame.Contract, tok.Mode)
+	frame.Program[3] = kernel.PackRegionRef(tok.SrcA.WordExtent())
+	frame.Program[4] = kernel.PackRegionRef(tok.SrcB.WordExtent())
+	frame.Program[5] = kernel.PackRegionRef(tok.Dst.WordExtent())
 }
 
 <<<END>>>
-<<<FILE ./pkg/compute/programmer/continuation.go>>>
+<<<FILE ./pkg/compute/programmer/compiler.go>>>
 package programmer
 
-import (
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/primitive"
-)
-
-/*
-ContinuationKind classifies a trailing next-program directive after the last
-operation line.
-*/
-type ContinuationKind uint8
+type CompilerTarget uint8
 
 const (
-	ContinuationNone ContinuationKind = iota
-	ContinuationValueID
-	ContinuationSelf
+	CPU CompilerTarget = iota
+	Metal
+	CUDA
 )
 
 /*
-Continuation records scheduling intent applied by Executable after Values exist
-(word 117 holds the next program ValueID when Kind is ContinuationValueID).
+Compiler lowers tokens into Frames for a chosen backend target. Targets share
+the same lowered words until a backend adds a specialized pass.
 */
-type Continuation struct {
-	Kind    ContinuationKind
-	ValueID uint64
+type Compiler struct {
+	builder *Builder
 }
 
+type compilerOption func(*Compiler)
+
 /*
-ApplyScheduling writes word-117 scheduling metadata onto a materialized Value.
+NewCompiler builds a compiler from an already-parsed token slice. Optional
+continuation comes from Parser.Parse when the source ends with next …
 */
-func (continuation *Continuation) ApplyScheduling(value *primitive.Value) {
-	if value == nil || continuation == nil || continuation.Kind == ContinuationNone {
-		return
+func NewCompiler(tokens []Token, opts ...compilerOption) *Compiler {
+	compiler := &Compiler{builder: NewBuilder(tokens)}
+
+	for _, opt := range opts {
+		opt(compiler)
 	}
 
-	switch continuation.Kind {
-	case ContinuationValueID:
-		value.Set(kernel.SchedulingNextProgramWord, continuation.ValueID)
-	case ContinuationSelf:
-		value.Set(kernel.SchedulingNextProgramWord, value.ID())
-	default:
-	}
-}
-
-<<<END>>>
-<<<FILE ./pkg/compute/programmer/cpu.go>>>
-package programmer
-
-/*
-CPUCompiler is an optimizer for CPU execution.
-*/
-type CPUCompiler struct {
-	tokens []Token
-	frames []Frame
+	return compiler
 }
 
 /*
-NewCPUCompiler creates a new CPUCompiler.
+Compile emits one Frame per token, optimized for the given target.
 */
-func NewCPUCompiler(tokens []Token) *CPUCompiler {
-	return &CPUCompiler{tokens: tokens}
-}
-
-/*
-Compile the program and optimize for CPU execution.
-*/
-func (compiler *CPUCompiler) Compile() ([]Frame, error) {
-	return newFrameBuilder(compiler.tokens).frames(CPU)
-}
-
-<<<END>>>
-<<<FILE ./pkg/compute/programmer/cuda.go>>>
-package programmer
-
-/*
-CUDACompiler is an optimizer for CUDA GPU execution.
-*/
-type CUDACompiler struct {
-	tokens []Token
-	frames []Frame
-}
-
-/*
-NewCUDACompiler creates a new CUDACompiler.
-*/
-func NewCUDACompiler(tokens []Token) *CUDACompiler {
-	return &CUDACompiler{tokens: tokens}
-}
-
-/*
-Compile the program and optimize for CUDA GPU execution.
-*/
-func (compiler *CUDACompiler) Compile() ([]Frame, error) {
-	return newFrameBuilder(compiler.tokens).frames(CUDA)
+func (compiler *Compiler) Compile(target CompilerTarget) ([]Frame, error) {
+	return compiler.builder.build(target)
 }
 
 <<<END>>>
@@ -9441,193 +9412,219 @@ func (compiler *CUDACompiler) Compile() ([]Frame, error) {
 package programmer
 
 import (
-	"fmt"
-	"unsafe"
-
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
-Executable binds compilation to execution: a Compiler plus optional ingress
-Values and an optional finalizer that can emit follow-on Values.
+Finalizer is a post-execution callback attached to an Executable. After the
+substrate finishes, the Backend calls Finalize which runs this function. The
+Finalizer reads signals, emits new Values, or re-submits the Value for the
+next firmware pass — it is the only way to observe results in fire-and-forget
+execution.
+*/
+type Finalizer func(value *primitive.Value)
 
-Inputs carry the starting Value wire into the run: every emitted Value
-starts as a copy of inputs[0] when present, then the compiled program
-region is stamped on top. The substrate reads srcA / srcB and writes dst
-directly out of the Value — Executable no longer stages or writes back
-operand bands itself, because packTruth encoded the absolute region
-starts and spans into the program words universalBitwiseV2 decodes at
-dispatch time.
+/*
+Executable pairs a Value with its parsed firmware tokens and an optional
+post-execution Finalizer. The Backend calls Compile with the chosen
+CompilerTarget, writes the resulting Frames into the Value, executes on the
+substrate, and then calls Finalize.
 */
 type Executable struct {
-	compiler  *Compiler
-	inputs    []*primitive.Value
-	finalizer func(*primitive.Value) ([]*primitive.Value, error)
-	frames    []Frame
-	target    CompilerTarget
-	compiled  bool
-	ptrBuf    [1]unsafe.Pointer
+	value        *primitive.Value
+	firmware     string
+	assets       []*Asset
+	tokens       []Token
+	continuation *Continuation
+	resident     bool
+	err          error
+	finalizer    Finalizer
 }
 
 func NewExecutable(
-	compiler *Compiler,
-	finalizer func(*primitive.Value) ([]*primitive.Value, error),
+	value *primitive.Value,
+	firmware string,
+	assets []*Asset,
 ) *Executable {
-	return &Executable{compiler: compiler, finalizer: finalizer}
+	for _, asset := range assets {
+		_ = asset.Bundle(value)
+	}
+
+	parser := NewParser(NewProgram(firmware))
+	tokens := parser.Parse()
+
+	return &Executable{
+		value:        value,
+		firmware:     firmware,
+		assets:       assets,
+		tokens:       tokens,
+		continuation: parser.Continuation(),
+		err:          parser.Err(),
+	}
+}
+
+func NewResidentExecutable(value *primitive.Value) *Executable {
+	return &Executable{
+		value:    value,
+		resident: true,
+	}
 }
 
 /*
-Inputs returns the ingress slice (may be nil). Callers own the Values.
+Value returns the underlying Value so the Backend can obtain the frame
+pointer and write compiled program words.
 */
-func (executable *Executable) Inputs() []*primitive.Value {
-	return executable.inputs
+func (executable *Executable) Value() *primitive.Value {
+	return executable.value
 }
 
-func (executable *Executable) compileOnce(target CompilerTarget) ([]Frame, error) {
-	if executable.compiled && executable.target == target {
-		return executable.frames, nil
+func (executable *Executable) IsResidentProgram() bool {
+	if executable == nil {
+		return false
 	}
-	frames, err := executable.compiler.Compile(target)
-	if err != nil {
-		return nil, err
-	}
-	executable.frames = frames
-	executable.target = target
-	executable.compiled = true
-	return frames, nil
+
+	return executable.resident
 }
 
 /*
-Execute compiles the program and materializes one unsafe.Pointer per
-emitted frame. Each pointer is the base of a full primitive.Value minted
-from inputs[0] when present (otherwise a zero wire), with the compiled
-program region stamped on top. The caller is expected to hand the pointer
-slice to a substrate.
-
-Scheduling from the optional continuation is written on the last emitted
-Value (word 117).
+SetFinalizer attaches a post-execution callback.
 */
-func (executable *Executable) Execute(target CompilerTarget) ([]unsafe.Pointer, error) {
-	frames, err := executable.compileOnce(target)
+func (executable *Executable) SetFinalizer(finalizer Finalizer) {
+	executable.finalizer = finalizer
+}
 
-	if err != nil {
-		return nil, err
+/*
+Finalize runs the post-execution callback if one was set.
+*/
+func (executable *Executable) Finalize() {
+	if executable.finalizer != nil {
+		executable.finalizer(executable.value)
+	}
+}
+
+func (executable *Executable) Compile(target CompilerTarget) ([]Frame, error) {
+	if executable.err != nil {
+		return nil, executable.err
 	}
 
-	tokens := executable.compiler.Tokens()
-
-	if len(tokens) != len(frames) {
-		return nil, fmt.Errorf("programmer: token/frame count mismatch: %d tokens, %d frames",
-			len(tokens), len(frames))
+	if executable.resident {
+		return nil, nil
 	}
 
-	out := make([]unsafe.Pointer, 0, len(frames))
-	cont := executable.compiler.Continuation()
+	return NewCompiler(executable.tokens).Compile(target)
+}
 
-	for idx := range frames {
-		value := executable.valueForFrame()
+func (executable *Executable) ApplyContinuation() {
+	if executable == nil || executable.value == nil {
+		return
+	}
 
-		frames[idx].writeIntoProgramRegion(value)
+	if executable.continuation == nil {
+		executable.value.Set(kernel.SchedulingNextProgramWord, 0)
+		return
+	}
 
-		if idx == len(frames)-1 && cont != nil {
-			cont.ApplyScheduling(value)
+	if executable.continuation.Self {
+		executable.value.Set(kernel.SchedulingNextProgramWord, executable.value.ID())
+		return
+	}
+
+	executable.value.Set(kernel.SchedulingNextProgramWord, executable.continuation.ValueID)
+}
+
+<<<END>>>
+<<<FILE ./pkg/compute/programmer/firmware.go>>>
+package programmer
+
+import (
+	"math/bits"
+	"strings"
+
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
+)
+
+type Firmware struct{}
+
+/*
+NewFirmware creates a new Firmware.
+*/
+func NewFirmware() *Firmware {
+	return &Firmware{}
+}
+
+/*
+Next evaluates the conditions of a Value and potentially assign a new firmware.
+*/
+func (firmware *Firmware) Next(value *primitive.Value) string {
+	for _, rule := range core.Cfg.Value.Rules {
+		if firmware.evaluateConditions(value, rule.Conditions, true) {
+			return rule.Firmware
+		}
+	}
+
+	return ""
+}
+
+func (firmware *Firmware) evaluateConditions(value *primitive.Value, conditions map[string]any, isAnd bool) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+
+	for key, val := range conditions {
+		var match bool
+
+		lowerKey := strings.ToLower(strings.TrimSpace(key))
+
+		switch lowerKey {
+		case "and":
+			if sub, ok := val.(map[string]any); ok {
+				match = firmware.evaluateConditions(value, sub, true)
+			} else {
+				match = false
+			}
+		case "or":
+			if sub, ok := val.(map[string]any); ok {
+				match = firmware.evaluateConditions(value, sub, false)
+			} else {
+				match = false
+			}
+		default:
+			regionType, nameOK := primitive.RegionNames[lowerKey]
+			if !nameOK {
+				match = false
+			} else {
+				region := value.Get(regionType)
+				switch v := val.(type) {
+				case bool:
+					hasBits := firmware.HasBits(region)
+					match = (v && hasBits) || (!v && !hasBits)
+				default:
+					match = false
+				}
+			}
 		}
 
-		out = append(out, unsafe.Pointer(&(*value)[0]))
-	}
-
-	return out, nil
-}
-
-/*
-Run drives one Value through a full program: every frame stamps its
-program region onto the same Value and the substrate runs a pass that
-reads srcA / srcB and writes dst in place. Frames chain because they all
-mutate the same Value, which is what lets an accumulate chain build up
-across lines.
-
-The caller supplies a kernel.Substrate; this keeps programmer free of a
-compile-time cpu/metal/cuda dependency and matches the interface every
-backend already implements.
-*/
-func (executable *Executable) Run(
-	target CompilerTarget,
-	substrate kernel.Substrate,
-) (*primitive.Value, error) {
-	if substrate == nil {
-		return nil, fmt.Errorf("programmer: Run requires a substrate")
-	}
-
-	frames, err := executable.compileOnce(target)
-
-	if err != nil {
-		return nil, err
-	}
-
-	tokens := executable.compiler.Tokens()
-
-	if len(tokens) != len(frames) {
-		return nil, fmt.Errorf("programmer: token/frame count mismatch: %d tokens, %d frames",
-			len(tokens), len(frames))
-	}
-
-	value := executable.valueForFrame()
-	cont := executable.compiler.Continuation()
-
-	executable.ptrBuf[0] = unsafe.Pointer(&(*value)[0])
-
-	for idx := range frames {
-		frames[idx].writeIntoProgramRegion(value)
-
-		if err := substrate.Execute(executable.ptrBuf[:]); err != nil {
-			return nil, err
+		if isAnd && !match {
+			return false
+		}
+		if !isAnd && match {
+			return true
 		}
 	}
 
-	if cont != nil {
-		cont.ApplyScheduling(value)
-	}
-
-	return value, nil
+	return isAnd
 }
 
-/*
-Finalize runs the finalizer on one post-execution Value. When finalizer is
-nil, returns a single-element slice containing that Value.
-*/
-func (executable *Executable) Finalize(out *primitive.Value) ([]*primitive.Value, error) {
-	if executable.finalizer == nil {
-		return []*primitive.Value{out}, nil
+func (firmware *Firmware) HasBits(region []uint64) bool {
+	for _, word := range region {
+		if bits.OnesCount64(word) > 0 {
+			return true
+		}
 	}
 
-	return executable.finalizer(out)
-}
-
-/*
-WithInputs attaches Values whose wire frames seed emitted Values before the
-compiled program is written. Returns the same Executable for chaining.
-*/
-func (executable *Executable) WithInputs(inputs []*primitive.Value) *Executable {
-	executable.inputs = inputs
-
-	return executable
-}
-
-/*
-valueForFrame mints a Value wire for one frame: a copy of inputs[0] when
-set, otherwise a zero wire.
-*/
-func (executable *Executable) valueForFrame() *primitive.Value {
-	if len(executable.inputs) > 0 && executable.inputs[0] != nil {
-		v := *executable.inputs[0]
-
-		return &v
-	}
-
-	out := primitive.Value{}
-
-	return &out
+	return false
 }
 
 <<<END>>>
@@ -9640,21 +9637,36 @@ import (
 )
 
 /*
+FrameContract identifies the lowered execution family the compiler selected for
+one frame. Kernels should eventually dispatch on lowered contract shape rather
+than infer semantics from one universal sweep path.
+*/
+type FrameContract uint8
+
+const (
+	ContractUnknown FrameContract = iota
+	ContractExactBinary
+	ContractSweepSignal
+	ContractReduceBinary
+	ContractGeometric
+)
+
+/*
 Frame is one compiled chunk sized to fit a single Value program region.
 
 Program holds the bits written into value.region.program. Scheduling metadata
-(word 117, next program ValueID) is applied by Executable after Values exist,
-not inside this struct.
+(word 117) is applied by WriteFrames / Installer after program words are laid down.
 */
 type Frame struct {
-	Program [64]uint64
+	Contract FrameContract
+	Program  [64]uint64
 }
 
 /*
-writeIntoProgramRegion copies Program words into the Value program region
+WriteIntoProgramRegion copies Program words into the Value program region
 (value.region.program start and bit span from config).
 */
-func (frame *Frame) writeIntoProgramRegion(value *primitive.Value) {
+func (frame *Frame) WriteIntoProgramRegion(value *primitive.Value) {
 	if frame == nil || value == nil {
 		return
 	}
@@ -9669,146 +9681,6 @@ func (frame *Frame) writeIntoProgramRegion(value *primitive.Value) {
 }
 
 <<<END>>>
-<<<FILE ./pkg/compute/programmer/install_program.go>>>
-package programmer
-
-import (
-	"fmt"
-
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/primitive"
-)
-
-/*
-InstallProgram lowers nameOrSource into the Value program region using the
-same surface as everywhere else: NewProgram for config vs inline resolution,
-then Parse → Compile(CPU) → the first Frame’s writeIntoProgramRegion.
-
-A single substrate pass consumes one Frame; multi-line programs belong on
-Executable.Run.
-*/
-type Installer struct{}
-
-func (i Installer) InstallProgram(value *primitive.Value, nameOrSource string) error {
-	if value == nil {
-		return nil
-	}
-
-	cp, ok := getCachedProgram(nameOrSource)
-	if ok {
-		return i.installCached(value, cp.frames, cp.cont)
-	}
-
-	program := NewProgram(nameOrSource)
-	load := program.Load()
-
-	if len(load) == 0 {
-		return nil
-	}
-
-	tokens, cont, err := NewParser(program).Parse()
-
-	if err != nil {
-		return err
-	}
-
-	compiler := NewCompiler(tokens, WithContinuation(cont))
-
-	frames, err := compiler.Compile(CPU)
-
-	if err != nil {
-		return err
-	}
-
-	setCachedProgram(nameOrSource, cachedProgram{frames: frames, cont: cont})
-
-	return i.installCached(value, frames, cont)
-}
-
-func (i Installer) installCached(value *primitive.Value, frames []Frame, cont *Continuation) error {
-	if len(frames) == 0 {
-		return nil
-	}
-
-	if len(frames) > 1 {
-		const (
-			wordsPerRegionFrame    = 6
-			reservedProgramWords   = 60
-			maxRegionProgramFrames = reservedProgramWords / wordsPerRegionFrame
-		)
-
-		if len(frames) > maxRegionProgramFrames {
-			return fmt.Errorf(
-				"programmer: install program has %d frames; reserved region program table holds at most %d frames (%d words, %d words per entry)",
-				len(frames),
-				maxRegionProgramFrames,
-				reservedProgramWords,
-				wordsPerRegionFrame,
-			)
-		}
-
-		// Install multi-line program into the Reserved region
-		for idx, frame := range frames {
-			for wordOffset := 0; wordOffset < wordsPerRegionFrame; wordOffset++ {
-				(*value)[kernel.ReservedStartWord+idx*wordsPerRegionFrame+wordOffset] = frame.Program[wordOffset]
-			}
-		}
-		// Set OpcodeRegionProgram to trigger execution from Reserved region
-		(*value)[kernel.ProgramOpcodeWord] = kernel.OpcodeRegionProgram
-	} else {
-		frames[0].writeIntoProgramRegion(value)
-	}
-
-	// Apply continuation if present
-	if cont != nil {
-		cont.ApplyScheduling(value)
-	}
-
-	return nil
-}
-
-<<<END>>>
-<<<FILE ./pkg/compute/programmer/metal.go>>>
-package programmer
-
-/*
-MetalCompiler selects the Metal CompilerTarget when lowering tokens to Frames.
-
-Today the frame builder is target-agnostic: newFrameBuilder(...).frames(Metal)
-runs the same packTruth path as CPU and CUDA (see frameBuilder.packTruth, which
-ignores the target). The Metal tag exists so kernel.Substrate and future
-lowering can branch without changing the parser—e.g. specializing packed
-program words for SIMD subgroup width, threadgroup-sized batches, or memory
-layout for constant-address argument buffers. No MSL is generated here; GPU
-work grouping, resource binding, and synchronization live in the Metal
-substrate implementation, not in this package.
-
-Assumption: Metal-capable devices match whatever the linked kernel package
-expects; there is no feature-set gate in programmer. Trade-off: identical
-frames across targets keep CPU/Metal/CUDA tests comparable until a backend
-adds a real Metal-only pass.
-*/
-type MetalCompiler struct {
-	tokens []Token
-	frames []Frame
-}
-
-/*
-NewMetalCompiler wraps tokens for a Metal-target Compile.
-*/
-func NewMetalCompiler(tokens []Token) *MetalCompiler {
-	return &MetalCompiler{tokens: tokens}
-}
-
-/*
-Compile lowers tokens to Frames with target=Metal. Payloads match CPU/CUDA
-unless packTruth gains a Metal branch later.
-*/
-func (compiler *MetalCompiler) Compile() ([]Frame, error) {
-	return newFrameBuilder(compiler.tokens).frames(Metal)
-}
-
-<<<END>>>
 <<<FILE ./pkg/compute/programmer/parser.go>>>
 package programmer
 
@@ -9816,6 +9688,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -9825,8 +9699,10 @@ downstream stages work off validated RegionRef structs instead of raw
 strings.
 */
 type Parser struct {
-	program *Program
-	tokens  []Token
+	program      *Program
+	tokens       []Token
+	continuation *Continuation
+	err          error
 }
 
 type parserOption func(*Parser)
@@ -9850,7 +9726,62 @@ before lowering; any op the frame builder recognises (including popcount)
 passes this gate.
 */
 func (*Parser) validateOperationMnemonic(mnemonic string) error {
-	return newFrameBuilder(nil).acceptSourceOp(mnemonic)
+	switch strings.ToLower(strings.TrimSpace(mnemonic)) {
+	case "false", "and", "aandnotb", "a", "notandb", "b", "xor", "or", "nor", "xnor",
+		"notb", "ifbthena", "nota", "ifathenb", "nand", "true":
+		return nil
+	default:
+		return fmt.Errorf("programmer: unknown operation %q", mnemonic)
+	}
+}
+
+type Continuation struct {
+	ValueID uint64
+	Self    bool
+}
+
+/*
+ParseRegionRef exposes the parser's region-ref validation to other runtime
+paths that need the same config surface without duplicating syntax rules.
+Accepted forms are region, region[index], and region[index,span], for example
+"gradient[2,3]".
+*/
+func ParseRegionRef(raw string) (RegionRef, error) {
+	parser := NewParser(NewProgram(""))
+	ref, ok := parser.parseRegionRef(raw)
+	if !ok {
+		if parser.err != nil {
+			return RegionRef{}, parser.err
+		}
+
+		return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q", raw)
+	}
+
+	return ref, nil
+}
+
+/*
+Err returns the first parse error. Parse keeps the existing one-return API so
+callers that only need tokens stay simple.
+*/
+func (parser *Parser) Err() error {
+	if parser == nil {
+		return nil
+	}
+
+	return parser.err
+}
+
+/*
+Continuation returns the trailing scheduler directive captured during Parse.
+Nil means the source omitted a next-program line.
+*/
+func (parser *Parser) Continuation() *Continuation {
+	if parser == nil {
+		return nil
+	}
+
+	return parser.continuation
 }
 
 /*
@@ -9869,95 +9800,193 @@ or operation lines after `next` are errors. Lines whose first field starts
 with '#' are treated as comments and ignored, so YAML literal blocks can
 intermix explanatory prose with executable lines.
 */
-func (parser *Parser) Parse() (tokens []Token, trailing *Continuation, err error) {
+func (parser *Parser) Parse() (tokens []Token) {
 	parser.tokens = parser.tokens[:0]
-
-	var continuation *Continuation
+	parser.continuation = nil
+	parser.err = nil
 
 	lines := parser.program.Load()
+	sawContinuation := false
 
-	for rowIndex, fields := range lines {
+	for _, fields := range lines {
+		if len(fields) == 0 {
+			continue
+		}
+
 		if strings.HasPrefix(fields[0], "#") {
 			continue
 		}
 
-		if fields[0] == "next" {
-			if continuation != nil {
-				return nil, nil, fmt.Errorf("line %d: duplicate next directive", rowIndex+1)
+		if strings.EqualFold(strings.TrimSpace(fields[0]), "next") {
+			if sawContinuation {
+				parser.err = fmt.Errorf("programmer: multiple next directives")
+				return parser.tokens
 			}
 
-			if len(fields) < 2 {
-				return nil, nil, fmt.Errorf("line %d: next requires a target", rowIndex+1)
+			if len(fields) != 2 {
+				parser.err = fmt.Errorf("programmer: malformed next directive")
+				return parser.tokens
 			}
 
-			if fields[1] == "self" {
-				continuation = &Continuation{Kind: ContinuationSelf}
+			sawContinuation = true
+			parser.continuation = &Continuation{}
 
+			if strings.EqualFold(strings.TrimSpace(fields[1]), "self") {
+				parser.continuation.Self = true
 				continue
 			}
 
-			valueID, parseErr := strconv.ParseUint(fields[1], 10, 64)
-
-			if parseErr != nil {
-				return nil, nil, fmt.Errorf("line %d: invalid next value ID: %w", rowIndex+1, parseErr)
+			valueID, err := strconv.ParseUint(strings.TrimSpace(fields[1]), 10, 64)
+			if err != nil {
+				parser.err = fmt.Errorf("programmer: invalid next target %q", fields[1])
+				return parser.tokens
 			}
 
-			continuation = &Continuation{Kind: ContinuationValueID, ValueID: valueID}
-
+			parser.continuation.ValueID = valueID
 			continue
 		}
 
-		if continuation != nil {
-			return nil, nil, fmt.Errorf("line %d: operation after next directive", rowIndex+1)
+		if sawContinuation {
+			parser.err = fmt.Errorf("programmer: operation after next directive")
+			return parser.tokens
 		}
 
-		if len(fields) != 5 {
-			return nil, nil, fmt.Errorf("line %d: want 5 fields (srcA srcB dst op mode), got %d: %v",
-				rowIndex+1, len(fields), fields)
+		if len(fields) < 5 {
+			parser.err = fmt.Errorf("programmer: expected five fields, got %d", len(fields))
+			return parser.tokens
 		}
 
-		srcARef, refErr := ParseRegionRef(fields[0])
-
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("line %d: srcA: %w", rowIndex+1, refErr)
+		srcA, ok := parser.parseRegionRef(fields[0])
+		if !ok {
+			return parser.tokens
 		}
 
-		srcBRef, refErr := ParseRegionRef(fields[1])
-
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("line %d: srcB: %w", rowIndex+1, refErr)
+		srcB, ok := parser.parseRegionRef(fields[1])
+		if !ok {
+			return parser.tokens
 		}
 
-		dstRef, refErr := ParseRegionRef(fields[2])
-
-		if refErr != nil {
-			return nil, nil, fmt.Errorf("line %d: dst: %w", rowIndex+1, refErr)
-		}
-
-		if opErr := parser.validateOperationMnemonic(fields[3]); opErr != nil {
-			return nil, nil, fmt.Errorf("line %d: unknown op %q", rowIndex+1, fields[3])
-		}
-
-		modeBit, modeErr := parseExecutionMode(fields[4])
-
-		if modeErr != nil {
-			return nil, nil, fmt.Errorf("line %d: %w", rowIndex+1, modeErr)
+		dst, ok := parser.parseRegionRef(fields[2])
+		if !ok {
+			return parser.tokens
 		}
 
 		parser.tokens = append(parser.tokens, Token{
-			SrcA:    fields[0],
-			SrcB:    fields[1],
-			Dst:     fields[2],
-			Op:      fields[3],
-			Mode:    fields[4],
-			SrcARef: srcARef,
-			SrcBRef: srcBRef,
-			DstRef:  dstRef,
-			ModeBit: modeBit,
+			SrcA: srcA,
+			SrcB: srcB,
+			Dst:  dst,
+			Op:   parser.parseOperationType(fields[3]),
+			Mode: parser.parseExecutionMode(fields[4]),
 		})
 	}
 
-	return parser.tokens, continuation, nil
+	return parser.tokens
+}
+
+/*
+parseRegionRef accepts bare region names, region[index], and
+region[index,span]. Offsets are relative to that named region.
+*/
+func (parser *Parser) parseRegionRef(raw string) (RegionRef, bool) {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	name := text
+	offset := 0
+	span := -1
+
+	if open := strings.IndexByte(text, '['); open >= 0 {
+		if !strings.HasSuffix(text, "]") {
+			parser.err = fmt.Errorf("programmer: malformed region ref %q", raw)
+			return RegionRef{}, false
+		}
+
+		name = strings.TrimSpace(text[:open])
+		body := strings.TrimSpace(text[open+1 : len(text)-1])
+		left, right, hasSpan := strings.Cut(body, ",")
+
+		parsedOffset, err := strconv.Atoi(strings.TrimSpace(left))
+		if err != nil || parsedOffset < 0 {
+			parser.err = fmt.Errorf("programmer: invalid region offset %q", raw)
+			return RegionRef{}, false
+		}
+
+		offset = parsedOffset
+		span = 1
+
+		if hasSpan {
+			parsedSpan, err := strconv.Atoi(strings.TrimSpace(right))
+			if err != nil || parsedSpan <= 0 {
+				parser.err = fmt.Errorf("programmer: invalid region span %q", raw)
+				return RegionRef{}, false
+			}
+
+			span = parsedSpan
+		}
+	}
+
+	region, ok := primitive.RegionNames[name]
+	if !ok {
+		parser.err = fmt.Errorf("programmer: unknown region %q", raw)
+		return RegionRef{}, false
+	}
+
+	start, words := region.WordExtent()
+	if span < 0 {
+		span = words
+	}
+
+	if offset+span > words {
+		parser.err = fmt.Errorf("programmer: region ref %q exceeds %d words", raw, words)
+		return RegionRef{}, false
+	}
+
+	return RegionRef{
+		Region: region,
+		Start:  start + offset,
+		Span:   span,
+	}, true
+}
+
+/*
+parseOperationType maps the surface op keyword onto the OperationType enum.
+Unknown keywords are rejected so typos fail at parse time instead of silently
+defaulting.
+*/
+func (parser *Parser) parseOperationType(op string) OperationType {
+	switch strings.ToLower(strings.TrimSpace(op)) {
+	case "false":
+		return FALSE
+	case "and":
+		return AND
+	case "aandnotb":
+		return AANDNOTB
+	case "a":
+		return A
+	case "notandb":
+		return NOTANDB
+	case "b":
+		return B
+	case "xor":
+		return XOR
+	case "or":
+		return OR
+	case "nor":
+		return NOR
+	case "xnor":
+		return XNOR
+	case "notb":
+		return NOTB
+	case "ifbthena":
+		return IFBTHENA
+	case "nota":
+		return NOTA
+	case "ifathenb":
+		return IFA_THEN_B
+	case "nand":
+		return NAND
+	case "true":
+		return TRUE
+	}
+	return FALSE
 }
 
 /*
@@ -9965,15 +9994,15 @@ parseExecutionMode maps the surface mode keyword onto the ExecutionMode
 enum. Unknown keywords are rejected so typos fail at parse time instead
 of silently defaulting.
 */
-func parseExecutionMode(mode string) (ExecutionMode, error) {
+func (parser *Parser) parseExecutionMode(mode string) ExecutionMode {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "accumulate":
-		return ModeAccumulate, nil
+		return ModeAccumulate
 	case "reduce":
-		return ModeReduce, nil
+		return ModeReduce
 	}
 
-	return 0, fmt.Errorf("unknown execution mode %q", mode)
+	return ModeAccumulate
 }
 
 <<<END>>>
@@ -10081,193 +10110,13 @@ func (program *Program) ResetParseState() {
 }
 
 <<<END>>>
-<<<FILE ./pkg/compute/programmer/regionref.go>>>
-package programmer
-
-import (
-	"fmt"
-	"strconv"
-	"strings"
-
-	"github.com/theapemachine/six/pkg/core"
-)
-
-/*
-RegionRef is a parsed region[start,span] slice — the DSL's only way to
-point at Value state. Name indexes into core.Cfg.Value.Region, Start is a
-word offset inside that region, Span is a word count. Span >= 1 always;
-a bare region[index] parses as Span=1.
-*/
-type RegionRef struct {
-	Name     string
-	Start    int
-	Span     int
-	absStart int
-}
-
-/*
-regionLayout is the absolute word range a named region occupies inside a
-Value. StartWord is 0..127, WordCount is the region's size in 64-bit words.
-Lookup is routed through core.Cfg so configuration can still move regions.
-*/
-type regionLayout struct {
-	StartWord int
-	WordCount int
-}
-
-/*
-ParseRegionRef turns a single DSL operand string into a validated RegionRef.
-It resolves the region layout against core.Cfg so an out-of-range start or
-span is caught at parse time rather than at staging time.
-*/
-func ParseRegionRef(label string) (RegionRef, error) {
-	label = strings.TrimSpace(label)
-
-	openIdx := strings.IndexByte(label, '[')
-	if openIdx < 0 || !strings.HasSuffix(label, "]") {
-		return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q", label)
-	}
-
-	name := label[:openIdx]
-	inner := label[openIdx+1 : len(label)-1]
-
-	commaIdx := strings.IndexByte(inner, ',')
-	var startStr, spanStr string
-	if commaIdx >= 0 {
-		startStr = strings.TrimSpace(inner[:commaIdx])
-		spanStr = strings.TrimSpace(inner[commaIdx+1:])
-	} else {
-		startStr = strings.TrimSpace(inner)
-	}
-
-	start, err := strconv.Atoi(startStr)
-	if err != nil {
-		return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q: %w", label, err)
-	}
-
-	span := 1
-	if spanStr != "" {
-		span, err = strconv.Atoi(spanStr)
-		if err != nil {
-			return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q: %w", label, err)
-		}
-	}
-
-	if span < 1 {
-		return RegionRef{}, fmt.Errorf("programmer: region ref %q span must be >= 1", label)
-	}
-
-	ref := RegionRef{Name: name, Start: start, Span: span}
-
-	layout, err := regionLayoutByName(ref.Name)
-	if err != nil {
-		return RegionRef{}, err
-	}
-
-	if start < 0 || start+span > layout.WordCount {
-		return RegionRef{}, fmt.Errorf(
-			"programmer: region ref %q out of range (region %q holds %d words)",
-			label, ref.Name, layout.WordCount,
-		)
-	}
-
-	ref.absStart = layout.StartWord + ref.Start
-
-	return ref, nil
-}
-
-/*
-AbsStart is the absolute word index of the slice's first word in a Value.
-Used by staging/writeback paths that need a raw uint64 offset.
-*/
-func (ref RegionRef) AbsStart() int {
-	return ref.absStart
-}
-
-/*
-regionLayoutByName resolves a DSL region name against the live core.Cfg
-layout. The "reserved" band (words 56..117) is named implicitly because it
-does not have its own offset struct: it is whatever is left between Properties
-and the kernel-transport/identity words, which today means 62 words.
-*/
-func regionLayoutByName(name string) (regionLayout, error) {
-	if core.Cfg == nil {
-		return regionLayout{}, fmt.Errorf("programmer: core.Cfg not initialized")
-	}
-
-	region := core.Cfg.Value.Region
-
-	switch name {
-	case "tokens":
-		return layoutFrom(region.Tokens), nil
-	case "program":
-		return layoutFrom(region.Program), nil
-	case "signals":
-		return layoutFrom(region.Signals), nil
-	case "context":
-		return layoutFrom(region.Context), nil
-	case "gradient":
-		return layoutFrom(region.Gradient), nil
-	case "properties":
-		return layoutFrom(region.Properties), nil
-	case "prev":
-		return layoutFrom(region.Prev), nil
-	case "next":
-		return layoutFrom(region.Next), nil
-	case "id":
-		return layoutFrom(region.ID), nil
-	case "affinity":
-		return layoutFrom(region.Affinity), nil
-	case "reserved":
-		return regionLayout{StartWord: 56, WordCount: 62}, nil
-	}
-
-	return regionLayout{}, fmt.Errorf("programmer: unknown region %q", name)
-}
-
-/*
-layoutFrom converts a ValueOffsetConfig (start word + bit width) into the
-word-count form staging/writeback need. Fractional-bit regions like the
-257-bit affinity round up to the containing word count.
-*/
-func layoutFrom(offset core.ValueOffsetConfig) regionLayout {
-	return regionLayout{
-		StartWord: offset.Start,
-		WordCount: int((offset.Bits + 63) / 64),
-	}
-}
-
-<<<END>>>
 <<<FILE ./pkg/compute/programmer/token.go>>>
 package programmer
 
-/*
-RegionType names coarse Value regions for later lowering from region refs.
-
-Source text uses string refs (e.g. tokens[0,16]); lowering maps those into
-the packed Value layout via RegionRef.
-*/
-type RegionType uint8
-
-const (
-	TokenRegion RegionType = iota
-	ProgramRegion
-	SignalsRegion
-	ContextRegion
-	GradientRegion
-	PropertiesRegion
-	ReservedRegion
-	PrevRegion
-	NextRegion
-	IDRegion
-	AffinityRegion
-)
+import "github.com/theapemachine/six/pkg/primitive"
 
 /*
 OperationType is the 4-bit universal bitwise opcode space (value.opcodes).
-
-Source mnemonics may name non-truth-table ops (e.g. popcount); those stay on
-Token as strings until lowering selects a concrete kernel path.
 */
 type OperationType uint8
 
@@ -10291,10 +10140,7 @@ const (
 )
 
 /*
-ExecutionMode controls how the ALU signal output is folded back into the
-dst region after a frame runs. Accumulate XORs signals into dst so a chain
-of lines builds up state; Reduce collapses signals to a popcount written
-into dst[start] and leaves the rest of the span untouched.
+ExecutionMode controls how the ALU folds signal output into the dst region.
 */
 type ExecutionMode uint8
 
@@ -10304,26 +10150,51 @@ const (
 )
 
 /*
-Token is one source line after parse: parsed region refs for operands and
-destination, a mnemonic op, and an execution mode. SrcA/SrcB/Dst keep the
-original source strings for diagnostics; SrcARef/SrcBRef/DstRef are the
-resolved slices Staging/Writeback consume.
+RegionRef is one absolute word span inside a Value. Source uses region-local
+refs like tokens[0,16]; the parser resolves them before lowering.
+*/
+type RegionRef struct {
+	Region primitive.RegionType
+	Start  int
+	Span   int
+}
 
-Syntax matches cmd/cfg/config.yml programs: blocks, e.g.:
+/*
+NewRegionRef returns a ref covering the whole configured region.
+*/
+func NewRegionRef(region primitive.RegionType) RegionRef {
+	start, span := region.WordExtent()
 
-	srcA srcB dst op mode
-	tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
+	return RegionRef{
+		Region: region,
+		Start:  start,
+		Span:   span,
+	}
+}
+
+/*
+FullRegionRef is kept as the shorter test/helper spelling.
+*/
+func FullRegionRef(region primitive.RegionType) RegionRef {
+	return NewRegionRef(region)
+}
+
+/*
+WordExtent returns the absolute span consumed by kernel.PackRegionRef.
+*/
+func (ref RegionRef) WordExtent() (start int, span int) {
+	return ref.Start, ref.Span
+}
+
+/*
+Token is one parsed source line: region refs, op mnemonic, execution mode.
 */
 type Token struct {
-	SrcA    string
-	SrcB    string
-	Dst     string
-	Op      string
-	Mode    string
-	SrcARef RegionRef
-	SrcBRef RegionRef
-	DstRef  RegionRef
-	ModeBit ExecutionMode
+	SrcA RegionRef
+	SrcB RegionRef
+	Dst  RegionRef
+	Op   OperationType
+	Mode ExecutionMode
 }
 
 <<<END>>>
@@ -10408,6 +10279,59 @@ type ValueConfig struct {
 	NumRotations int                `mapstructure:"num_rotations"`
 	Region       ValueRegionConfig  `mapstructure:"region"`
 	Opcodes      ValueOpcodesConfig `mapstructure:"opcodes"`
+	Rules        []ValueRulesConfig `mapstructure:"rules"`
+}
+
+/*
+ValueRulesConfig is one row in value.rules: AND over conditions, then select
+Firmware (a key in programs:). Condition values are compared as booleans or
+strings ("true"/"false") so YAML may use unquoted true/false.
+*/
+type ValueRulesConfig struct {
+	Name       string         `mapstructure:"name"`
+	Conditions map[string]any `mapstructure:"conditions"`
+	Firmware   string         `mapstructure:"firmware"`
+}
+
+/*
+FinalizerRuleConfig defines one generic post-ALU action rule. Scope selects
+where the rule runs: value, community, or global. Regions reuse the
+value.rules-style has-bits checks implemented by programmer.Firmware.HasBits,
+while the numeric thresholds let fields react to resonance without hardcoding
+per-algorithm Go branches.
+*/
+type FinalizerRuleConfig struct {
+	Name             string                  `mapstructure:"name"`
+	Scope            string                  `mapstructure:"scope"`
+	Regions          map[string]bool         `mapstructure:"regions"`
+	MinMembers       int                     `mapstructure:"min_members"`
+	MinCommunities   int                     `mapstructure:"min_communities"`
+	MinConcentration float64                 `mapstructure:"min_concentration"`
+	Actions          []FinalizerActionConfig `mapstructure:"actions"`
+}
+
+/*
+FinalizerActionConfig describes one generic finalizer action. Reprogram runs a
+named config program on the current Value; emit clones the current Value into a
+fresh ephemeral Value, applies any configured copies, and optionally runs a
+named program on that emission.
+*/
+type FinalizerActionConfig struct {
+	Type    string                `mapstructure:"type"`
+	Program string                `mapstructure:"program"`
+	TTL     uint64                `mapstructure:"ttl"`
+	Copies  []FinalizerCopyConfig `mapstructure:"copies"`
+}
+
+/*
+FinalizerCopyConfig copies already-existing in-band state into another region
+before reprogramming or emission. Sources are strings such as
+"value.signals[0,8]" or "field.affinity[0,5]"; destination uses the standard
+region-ref syntax without a source prefix, for example "asset[0,8]".
+*/
+type FinalizerCopyConfig struct {
+	Source      string `mapstructure:"source"`
+	Destination string `mapstructure:"destination"`
 }
 
 /*
@@ -10421,7 +10345,7 @@ Layout (128 uint64 words = 1 KiB):
 	Context:    words  32–39  (512 bits)
 	Gradient:   words  40–47  (512 bits)
 	Properties: words  48–55  (512 bits; canonical property / forward-transition band)
-	Reserved:   words 56–117
+	Asset:      words 56–117  (4096 bits; scratch + bundled program payload; see programmer.Asset)
 	Kernel transport (correlation, residency): words 118–119
 	Prev:     word  120
 	Next:     word  121
@@ -10435,6 +10359,7 @@ type ValueRegionConfig struct {
 	Context    ValueOffsetConfig `mapstructure:"context"`
 	Gradient   ValueOffsetConfig `mapstructure:"gradient"`
 	Properties ValueOffsetConfig `mapstructure:"properties"`
+	Asset      ValueOffsetConfig `mapstructure:"asset"`
 	Prev       ValueOffsetConfig `mapstructure:"prev"`
 	Next       ValueOffsetConfig `mapstructure:"next"`
 	ID         ValueOffsetConfig `mapstructure:"id"`
@@ -10463,6 +10388,15 @@ for a Value's offset.
 type ValueOffsetConfig struct {
 	Start int    `mapstructure:"start"`
 	Bits  uint64 `mapstructure:"bits"`
+}
+
+/*
+WordExtent returns the absolute uint64 word index where the region begins and
+how many words cover Bits (rounded up). Region slices and ALU operand packing
+both use this shape.
+*/
+func (cfg ValueOffsetConfig) WordExtent() (start int, words int) {
+	return cfg.Start, int((cfg.Bits + 63) / 64)
 }
 
 /*
@@ -10513,6 +10447,12 @@ type Config struct {
 	// Parsing is deferred to pkg/compute/programmer so this package stays
 	// free of the programmer IR and avoids an import cycle.
 	Programs map[string]string
+
+	// Finalizers holds generic post-ALU action rules loaded from `finalizers:`.
+	// These rules do not define new algorithms in Go; they only tell the runtime
+	// when to reprogram the current Value or emit an ephemeral clone that will
+	// execute an already-defined config program.
+	Finalizers []FinalizerRuleConfig
 }
 
 func NewConfig() *Config {
@@ -10555,6 +10495,10 @@ func NewConfig() *Config {
 					Start: WithDefault(viper.GetInt("value.region.properties.start"), 48),
 					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 512),
 				},
+				Asset: ValueOffsetConfig{
+					Start: WithDefault(viper.GetInt("value.region.asset.start"), 56),
+					Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 4096),
+				},
 				Prev: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
 					Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
@@ -10590,11 +10534,13 @@ func NewConfig() *Config {
 				NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
 				TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
 			},
+			Rules: loadValueRules(),
 		},
 		TelemetryEnabled:               WithDefault(viper.GetBool("telemetry.enabled"), false),
 		TelemetryEndpoint:              WithDefault(viper.GetString("telemetry.udp_endpoint"), ""),
 		TelemetryUniversalBitwiseSlots: WithDefault(viper.GetBool("telemetry.universal_bitwise_slots"), false),
 		Programs:                       loadPrograms(),
+		Finalizers:                     loadFinalizers(),
 	}
 
 	if programLoader != nil && len(Cfg.Programs) > 0 {
@@ -10602,6 +10548,24 @@ func NewConfig() *Config {
 	}
 
 	return Cfg
+}
+
+/*
+loadValueRules unmarshals the value.rules sequence from config (ordered list
+of {name, conditions, firmware}). Empty or missing block yields nil.
+*/
+func loadValueRules() []ValueRulesConfig {
+	if !viper.IsSet("value.rules") {
+		return nil
+	}
+
+	var out []ValueRulesConfig
+
+	if err := viper.UnmarshalKey("value.rules", &out); err != nil {
+		return nil
+	}
+
+	return out
 }
 
 /*
@@ -10627,6 +10591,24 @@ func loadPrograms() map[string]string {
 		}
 
 		out[name] = source
+	}
+
+	return out
+}
+
+/*
+loadFinalizers unmarshals the ordered `finalizers:` sequence. Missing or invalid
+blocks yield nil so callers can cheaply skip post-ALU field work.
+*/
+func loadFinalizers() []FinalizerRuleConfig {
+	if !viper.IsSet("finalizers") {
+		return nil
+	}
+
+	var out []FinalizerRuleConfig
+
+	if err := viper.UnmarshalKey("finalizers", &out); err != nil {
+		return nil
 	}
 
 	return out
@@ -12686,7 +12668,6 @@ import (
 	"math/cmplx"
 	"sort"
 
-	"github.com/theapemachine/six/pkg/core/numeric"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/tphakala/simd/f64"
 	"gonum.org/v1/gonum/mat"
@@ -12801,62 +12782,6 @@ func NewEigenModeToroidal(opts ...eigenOpts) (*EigenModeToroidal, error) {
 	}
 
 	return emt, nil
-}
-
-/*
-buildMultiScaleCooccurrence superimposes Fibonacci-windowed co-occurrence
-eigen phases. For each window w in fibWindows, it computes the (v2, v3)
-eigenplane and derives Phase[i] and Frequency[i]. The final Phase is the
-weighted circular mean across all scales; Frequency is the weighted sum.
-
-Smaller windows → fine-grained local correlation.
-Larger windows  → longer-range coupling.
-The composite starting state gives every oscillator knowledge of both scales.
-*/
-func (emt *EigenModeToroidal) buildMultiScaleCooccurrence(corpus []uint64) {
-	sinAcc := make([]float64, 512)
-	cosAcc := make([]float64, 512)
-	freqAcc := make([]float64, 512)
-
-	for wi, w := range numeric.FibWindows {
-		weight := numeric.FibWeights[wi]
-
-		var C [512][512]float64
-		emt.buildCooccurrenceInto(&C, corpus, w)
-		_, v2, v3 := emt.top3Eigenvectors(&C)
-
-		// Magnitude in (v2,v3) eigenplane → per-scale frequency contribution.
-		var maxMag float64
-		mags := make([]float64, 512)
-
-		for i := range 512 {
-			mags[i] = math.Sqrt(v2[i]*v2[i] + v3[i]*v3[i])
-
-			if mags[i] > maxMag {
-				maxMag = mags[i]
-			}
-		}
-
-		for i := range 512 {
-			phase := math.Atan2(v3[i], v2[i])
-			sinAcc[i] += weight * math.Sin(phase)
-			cosAcc[i] += weight * math.Cos(phase)
-
-			freq := 1.0
-
-			if maxMag > 0 {
-				freq = 1.0 + (mags[i]/maxMag)*math.Log2(512.0)
-			}
-
-			freqAcc[i] += weight * freq
-		}
-	}
-
-	// Circular mean of the weighted phase contributions.
-	for i := range 512 {
-		emt.phase[i] = math.Atan2(sinAcc[i], cosAcc[i])
-		emt.frequency[i] = freqAcc[i]
-	}
 }
 
 /*
@@ -17747,10 +17672,12 @@ import (
 	"context"
 	"io"
 	"runtime"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
 )
 
 /*
@@ -17771,8 +17698,10 @@ address a specific community by affinity proximity.
 */
 type Conn struct {
 	intake   *data.Ring
-	affinity [5]uint64
+	affinity []uint64
 	route    PriorityRoute
+	nodeID   uint64
+	epoch    atomic.Uint64
 }
 
 /*
@@ -17850,7 +17779,7 @@ func (conn *Conn) Close() error {
 Affinity returns this node's 5-word affinity fingerprint, used by
 AffinityFilter to decide whether to forward a received Value.
 */
-func (conn *Conn) Affinity() [5]uint64 {
+func (conn *Conn) Affinity() []uint64 {
 	return conn.affinity
 }
 
@@ -17859,7 +17788,7 @@ SetAffinity updates the node's affinity fingerprint. Called once at startup
 after the node's identity Value has been minted and its affinity region
 computed.
 */
-func (conn *Conn) SetAffinity(words [5]uint64) {
+func (conn *Conn) SetAffinity(words []uint64) {
 	conn.affinity = words
 }
 
@@ -17879,11 +17808,15 @@ AddPeer registers an outbound io.ReadWriteCloser peer. The peer's affinity is
 used by AffinityFilter wrappers to decide whether a given Value frame should
 be forwarded to it.
 */
-func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity [5]uint64) {
-	conn.route = append(conn.route, ScoredPeer{
-		dst:      peer,
-		affinity: affinity,
-	})
+func (conn *Conn) AddPeer(peer io.ReadWriteCloser, affinity []uint64) {
+	conn.route.AddPeer(peer, affinity)
+}
+
+/*
+SetNodeID assigns the node identity used for viz events.
+*/
+func (conn *Conn) SetNodeID(id uint64) {
+	conn.nodeID = id
 }
 
 /*
@@ -17892,6 +17825,11 @@ convenience wrapper around conn.Route().Write(p) for callers that do not need
 the full io.MultiWriter composition.
 */
 func (conn *Conn) Broadcast(p []byte) (int, error) {
+	if viz.DefaultBus.IsActive() {
+		epoch := conn.epoch.Add(1)
+		viz.DefaultBus.Publish(viz.GossipSent(conn.nodeID, epoch))
+	}
+
 	return conn.route.Write(p)
 }
 
@@ -17902,6 +17840,11 @@ rather than raw bytes. It serialises the Value and calls Write.
 func (conn *Conn) Receive(value *primitive.Value) {
 	if value == nil {
 		return
+	}
+
+	if viz.DefaultBus.IsActive() {
+		epoch := conn.epoch.Load()
+		viz.DefaultBus.Publish(viz.GossipReceived(conn.nodeID, value.ID(), epoch))
 	}
 
 	var buf [connFrameSize]byte
@@ -17975,8 +17918,20 @@ explicit configuration.
 */
 type ScoredPeer struct {
 	dst      io.ReadWriteCloser
-	affinity [5]uint64
+	affinity []uint64
 	score    float64
+}
+
+func (sp *ScoredPeer) Dst() io.ReadWriteCloser {
+	return sp.dst
+}
+
+func (sp *ScoredPeer) Affinity() []uint64 {
+	return sp.affinity
+}
+
+func (sp *ScoredPeer) Score() float64 {
+	return sp.score
 }
 
 /*
@@ -17990,6 +17945,18 @@ in an io.LimitedWriter or similar combinator that stops after the first
 successful write.
 */
 type PriorityRoute []ScoredPeer
+
+/*
+AddPeer registers an outbound io.ReadWriteCloser peer. The peer's affinity is
+used by AffinityFilter wrappers to decide whether a given Value frame should
+be forwarded to it.
+*/
+func (route *PriorityRoute) AddPeer(peer io.ReadWriteCloser, affinity []uint64) {
+	*route = append(*route, ScoredPeer{
+		dst:      peer,
+		affinity: affinity,
+	})
+}
 
 /*
 Write serialises p to every peer in priority order. Each peer's score is
@@ -18074,7 +18041,7 @@ Affinity words live at a fixed offset (words 123–127, bytes 984–1024) in the
 */
 type AffinityFilter struct {
 	dst           io.Writer
-	target        [5]uint64
+	target        []uint64
 	hammingBudget int
 }
 
@@ -18082,7 +18049,7 @@ type AffinityFilter struct {
 NewAffinityFilter wraps dst so only frames addressed to target (within
 hammingBudget bits Hamming distance) are forwarded.
 */
-func NewAffinityFilter(dst io.Writer, target [5]uint64, hammingBudget int) *AffinityFilter {
+func NewAffinityFilter(dst io.Writer, target []uint64, hammingBudget int) *AffinityFilter {
 	return &AffinityFilter{
 		dst:           dst,
 		target:        target,
@@ -18108,7 +18075,7 @@ func (filter *AffinityFilter) Write(p []byte) (int, error) {
 		return 0, io.ErrShortBuffer
 	}
 
-	var frameAffinity [5]uint64
+	var frameAffinity [affinityWordCount]uint64
 
 	src := (*primitive.Value)(unsafe.Pointer(&p[0]))
 
@@ -20848,6 +20815,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/compute/programmer"
 )
 
 /*
@@ -20855,7 +20824,7 @@ Slot is a single slot for a worker in Pool.
 */
 type Slot struct {
 	threadPtr unsafe.Pointer
-	task      func()
+	task      func() *programmer.Executable
 }
 
 /*
@@ -20868,13 +20837,24 @@ type Pool struct {
 	maxSize  uint64
 	_p2      [cacheLinePadSize - unsafe.Sizeof(uint64(0))]byte
 	// using a stack keeps cpu caches warm based on FILO property
-	top atomic.Pointer[Node]
-	_p3 [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[Node]{})]byte
+	top      atomic.Pointer[Node]
+	_p3      [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[Node]{})]byte
+	dispatch func(*programmer.Executable)
 }
 
-// NewPool returns a new thread pool
-func NewPool(size uint64) *Pool {
-	return &Pool{maxSize: size}
+/*
+NewPool returns a new thread pool. The optional dispatch handler receives
+every non-nil Executable returned by a task — this is how the compute
+Backend picks up work without the task closure knowing about substrates.
+*/
+func NewPool(size uint64, dispatch ...func(*programmer.Executable)) *Pool {
+	pool := &Pool{maxSize: size}
+
+	if len(dispatch) > 0 {
+		pool.dispatch = dispatch[0]
+	}
+
+	return pool
 }
 
 // Submit submits a new task to the pool
@@ -20883,7 +20863,7 @@ func NewPool(size uint64) *Pool {
 // new goroutine to the pool if the pool capacity is not exceeded
 // in case the pool capacity hit its maximum limit, this function yields the processor to other
 // goroutines and loops again for finding available workers
-func (self *Pool) Submit(task func()) {
+func (self *Pool) Submit(task func() *programmer.Executable) {
 	var slot *Slot
 
 	for {
@@ -20903,16 +20883,15 @@ func (self *Pool) Submit(task func()) {
 	}
 }
 
-// loopQ is the looping function for every worker goroutine
 func (self *Pool) loopQ(slot *Slot) {
-	// store self goroutine pointer
 	slot.threadPtr = GetG()
+
 	for {
-		// exec task
-		slot.task()
-		// notify availability by pushing self reference into stack
+		if executable := slot.task(); executable != nil && self.dispatch != nil {
+			self.dispatch(executable)
+		}
+
 		self.push(slot)
-		// park and wait for call
 		mcall(fast_park)
 	}
 }
@@ -20986,41 +20965,14 @@ package pool
 
 import (
 	"context"
-	"errors"
-	"io"
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
-	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/viz"
 )
-
-/*
-cascadeSafetyCeiling is the hard upper bound on scheduler hops. Thermodynamic
-halting (convergence, Shannon death) is the real regulator; this is only a
-circuit breaker that should never fire under normal operation.
-*/
-const cascadeSafetyCeiling = uint32(32)
-
-func queueWorkerCount() int {
-	return max(runtime.NumCPU()-1, 1)
-}
-
-/*
-QueueBackend runs pre-layout ALU work: the Value must already carry the
-program bits (and operands) the substrate expects; dispatch is opcode-driven.
-*/
-type QueueBackend interface {
-	Execute(frames []unsafe.Pointer) error
-}
 
 /*
 Queue is the universal work scheduler. It owns the goroutine pool and
@@ -21030,108 +20982,29 @@ rather than a raw Pool — this centralizes backpressure, priority, and
 spill management in one place.
 */
 type Queue struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	pool      *Pool
-	backend   QueueBackend
-	field     *geometry.Field
-	global    *geometry.Field
-	normal    *data.Ring
-	priority  *data.Ring
-	spill     *data.Ring
-	inflight  atomic.Int64
-	drainMu   sync.Mutex
-	drainWait *sync.Cond
-}
-
-/*
-publishFramePool gives Queue.publishLabeledFrame ownership of the frame handed
-to backend workers; tokenizers may close and recycle the original Value before
-async ALU work runs.
-*/
-var publishFramePool = sync.Pool{
-	New: func() any {
-		return new(primitive.Value)
-	},
-}
-
-var queuePropertyWordMetaKeys = [8]string{
-	"properties_w48_labels",
-	"properties_w49_confidence",
-	"properties_w50_epoch",
-	"properties_w51_ttl",
-	"properties_w52_noise",
-	"properties_w53_probe_state",
-	"properties_w54_probe_window",
-	"properties_w55_probe_depth",
-}
-
-func queueWordHex(word uint64) string {
-	const digits = "0123456789abcdef"
-
-	var out [16]byte
-
-	for index := len(out) - 1; index >= 0; index-- {
-		out[index] = digits[word&0x0f]
-		word >>= 4
-	}
-
-	return string(out[:])
-}
-
-func (queue *Queue) publishQueueSubmitEvent(inflight int64, frame *primitive.Value, content string) {
-	if !viz.DefaultBus.IsActive() {
-		return
-	}
-
-	var valueID uint64
-	var prevID uint64
-	var nextID uint64
-
-	if frame != nil {
-		valueID = frame.ID()
-		prevID = (*frame)[kernel.PrevStartWord]
-		nextID = (*frame)[kernel.NextStartWord]
-	}
-
-	ev := viz.QueueSubmitEvent(inflight, valueID, prevID, nextID, content)
-
-	if frame != nil {
-		ev.Meta["scheduler_next_w117"] = queueWordHex((*frame)[kernel.SchedulingNextProgramWord])
-
-		for offset, key := range queuePropertyWordMetaKeys {
-			ev.Meta[key] = queueWordHex((*frame)[kernel.PropertiesStartWord+offset])
-		}
-
-		ev.Meta["affinity"] = viz.AffinityHexFromFrame(frame)
-	}
-
-	viz.DefaultBus.Publish(ev)
-
-	if frame != nil {
-		buf := make([]byte, core.Cfg.Value.Bytes)
-		n, readErr := frame.Read(buf)
-
-		if errors.Is(readErr, io.EOF) && n == len(buf) {
-			viz.PublishWireValueFrame(valueID, buf)
-		}
-	}
+	ctx      context.Context
+	cancel   context.CancelFunc
+	err      error
+	pool     *Pool
+	normal   *data.Ring
+	priority *data.Ring
+	spill    *data.Ring
 }
 
 /*
 NewQueue constructs a Queue that owns its own goroutine pool sized to
-the available CPU cores minus one (leaving the main thread free).
+the available CPU cores minus one (leaving the main thread free). The
+optional dispatch handler is called by pool workers whenever a task
+returns a non-nil Executable — this is how the compute Backend receives
+work.
 */
-func NewQueue(ctx context.Context) (*Queue, error) {
+func NewQueue(ctx context.Context, dispatch ...func(*programmer.Executable)) (*Queue, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	queue := &Queue{
 		ctx:    ctx,
 		cancel: cancel,
-		pool:   NewPool(uint64(queueWorkerCount())),
-		field:  geometry.NewField(geometry.Mod8191),
-		global: geometry.NewField(geometry.Mod65537),
+		pool:   NewPool(uint64(runtime.NumCPU()-1), dispatch...),
 	}
 
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
@@ -21141,8 +21014,6 @@ func NewQueue(ctx context.Context) (*Queue, error) {
 	if queue.err != nil {
 		return nil, errnie.Error(queue.err)
 	}
-
-	queue.drainWait = sync.NewCond(&queue.drainMu)
 
 	return queue, validate.Require(map[string]any{
 		"ctx":      queue.ctx,
@@ -21159,7 +21030,6 @@ Close cancels the queue context.
 */
 func (queue *Queue) Close() error {
 	queue.cancel()
-
 	return queue.err
 }
 
@@ -21171,235 +21041,10 @@ func (queue *Queue) Error() error {
 }
 
 /*
-publishTask avoids closure allocations in PublishLabeled and PublishTracked.
+Submit dispatches a task to the goroutine pool for immediate execution.
+This is the fast path for CPU-bound work that should not queue.
 */
-type publishTask struct {
-	queue      *Queue
-	frame      *primitive.Value
-	label      string
-	tracked    bool
-	hopsUsed   uint32
-	completion func(*primitive.Value)
-	run        func()
-	ptrs       [1]unsafe.Pointer
-}
-
-var taskPool *sync.Pool
-
-func init() {
-	taskPool = &sync.Pool{
-		New: func() any {
-			t := &publishTask{}
-			t.run = func() { t.execute() }
-			return t
-		},
-	}
-}
-
-func (t *publishTask) execute() error {
-	queue := t.queue
-	frame := t.frame
-	label := t.label
-	tracked := t.tracked
-	completion := t.completion
-
-	// EXECUTE — run whatever program is installed on this Value.
-	t.ptrs[0] = unsafe.Pointer(frame)
-
-	if err := queue.backend.Execute(t.ptrs[:]); err != nil {
-		return errnie.Error(err)
-	}
-
-	if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
-		if kernel.ProbeStatus((*frame)[kernel.PropertiesProbeStateWord]) == kernel.CausalProbeStatusSettled {
-			(*frame)[kernel.SchedulingNextProgramWord] = 0
-		}
-	}
-
-	if (*frame)[kernel.SchedulingNextProgramWord] != 0 {
-		hops := t.hopsUsed + 1
-
-		if hops >= cascadeSafetyCeiling {
-			probeState := (*frame)[kernel.PropertiesProbeStateWord]
-			probeKind := kernel.ProbeKind(probeState)
-
-			(*frame)[kernel.PropertiesProbeStateWord] = kernel.PackProbeState(
-				probeKind,
-				kernel.CausalProbeStatusCeiling,
-			)
-			(*frame)[kernel.SchedulingNextProgramWord] = 0
-		} else {
-			if tracked {
-				queue.republishTracked(frame, label, hops, completion)
-			} else {
-				// Re-enqueue without making a copy since we already own the frame
-				inflight := queue.inflight.Add(1)
-				queue.publishQueueSubmitEvent(inflight, frame, "")
-
-				newTask := taskPool.Get().(*publishTask)
-				newTask.queue = queue
-				newTask.frame = frame
-				newTask.label = label
-				newTask.tracked = false
-				newTask.hopsUsed = hops
-				newTask.completion = nil
-
-				queue.pool.Submit(newTask.run)
-			}
-		}
-	}
-
-	if (*frame)[kernel.SchedulingNextProgramWord] == 0 && completion != nil {
-		completion(frame)
-	}
-
-	if (*frame)[kernel.SchedulingNextProgramWord] == 0 && !tracked {
-		for i := range *frame {
-			(*frame)[i] = 0
-		}
-		publishFramePool.Put(frame)
-	}
-
-	if queue.inflight.Add(-1) == 0 {
-		queue.drainMu.Lock()
-		queue.drainWait.Broadcast()
-		queue.drainMu.Unlock()
-	}
-
-	t.completion = nil
-	taskPool.Put(t)
-	return nil
-}
-
-/*
-republishTracked re-enqueues a tracked frame carrying the cumulative hop
-counter so the safety ceiling spans the full cascade lifetime.
-*/
-func (queue *Queue) republishTracked(
-	frame *primitive.Value,
-	label string,
-	hopsUsed uint32,
-	completion func(*primitive.Value),
-) {
-	inflight := queue.inflight.Add(1)
-	queue.publishQueueSubmitEvent(inflight, frame, "")
-
-	task := taskPool.Get().(*publishTask)
-	task.queue = queue
-	task.frame = frame
-	task.label = label
-	task.tracked = true
-	task.hopsUsed = hopsUsed
-	task.completion = completion
-
-	queue.pool.Submit(task.run)
-}
-
-/*
-Publish implements transport.Publishable with an empty label.
-*/
-func (queue *Queue) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
-	return queue.PublishLabeled("", values...)
-}
-
-/*
-PublishLabeled enqueues one task per value to the normal-priority ring buffer.
-It implements transport.LabelingPublishable for tokenizer paths that thread a
-sample label into publishTask.
-*/
-func (queue *Queue) PublishLabeled(label string, values ...*primitive.Value) ([]*primitive.Value, error) {
-	if queue == nil {
-		return nil, errors.New("queue: nil")
-	}
-
-	if queue.backend == nil {
-		return nil, errors.New("queue: no backend")
-	}
-
-	for _, value := range values {
-		if err := queue.publishLabeledFrame(value, label); err != nil {
-			return nil, err
-		}
-	}
-
-	return nil, nil
-}
-
-func (queue *Queue) publishLabeledFrame(value *primitive.Value, label string) error {
-	frame := publishFramePool.Get().(*primitive.Value)
-
-	if value == nil {
-		*frame = primitive.Value{}
-	} else {
-		*frame = *value
-	}
-
-	inflight := queue.inflight.Add(1)
-	queue.publishQueueSubmitEvent(inflight, frame, "")
-
-	task := taskPool.Get().(*publishTask)
-	task.queue = queue
-	task.frame = frame
-	task.label = label
-	task.tracked = false
-	task.hopsUsed = 0
-	task.completion = nil
-
-	queue.pool.Submit(task.run)
-
-	return nil
-}
-
-/*
-PublishTracked enqueues a task to the normal-priority ring buffer WITHOUT
-making a copy. The caller retains ownership of the Value and MUST NOT close
-it until the queue drains. Cascade halting is driven by thermodynamics
-(convergence / Shannon death); the safety ceiling lives on the task counter.
-*/
-func (queue *Queue) PublishTracked(frame *primitive.Value, label string) error {
-	return queue.PublishTrackedWithCompletion(frame, label, nil)
-}
-
-/*
-PublishTrackedWithCompletion enqueues a live Value and calls completion on the
-pool worker after the Value's scheduler cascade has settled. This gives
-subsystems a pool-bound way to emit follow-on Values from in-band program
-results without running the backend inline on the caller's goroutine.
-*/
-func (queue *Queue) PublishTrackedWithCompletion(
-	frame *primitive.Value,
-	label string,
-	completion func(*primitive.Value),
-) error {
-	if queue == nil {
-		return errors.New("queue: nil")
-	}
-
-	if queue.backend == nil {
-		return errors.New("queue: no backend")
-	}
-
-	if frame == nil {
-		return errors.New("queue: nil frame")
-	}
-
-	inflight := queue.inflight.Add(1)
-	queue.publishQueueSubmitEvent(inflight, frame, "")
-
-	task := taskPool.Get().(*publishTask)
-	task.queue = queue
-	task.frame = frame
-	task.label = label
-	task.tracked = true
-	task.hopsUsed = 0
-	task.completion = completion
-
-	queue.pool.Submit(task.run)
-
-	return nil
-}
-
-func (queue *Queue) Submit(task func()) {
+func (queue *Queue) Submit(task func() *programmer.Executable) {
 	if queue == nil {
 		return
 	}
@@ -21408,77 +21053,11 @@ func (queue *Queue) Submit(task func()) {
 }
 
 /*
-SubmitTracked runs task on the pool and includes it in inflight so
-Drain waits for completion — same lifecycle as Execute, without a
-compute backend.
-*/
-func (queue *Queue) SubmitTracked(task func()) {
-	if queue == nil || task == nil {
-		return
-	}
-
-	queue.inflight.Add(1)
-
-	queue.pool.Submit(func() {
-		defer func() {
-			if queue.inflight.Add(-1) == 0 {
-				queue.drainMu.Lock()
-				queue.drainWait.Broadcast()
-				queue.drainMu.Unlock()
-			}
-		}()
-
-		task()
-	})
-}
-
-/*
-SetBackend wires the compute backend into the queue for Publish.
-*/
-func (queue *Queue) SetBackend(backend QueueBackend) {
-	queue.backend = backend
-}
-
-/*
-ExecuteInline runs the backend synchronously on the provided frames without
-copying or scheduling. The caller retains full ownership of the frames.
-This lets subsystems (e.g. the orchestrator) materialize a Value's installed
-program before inspecting the result — essential when program output (such as
-affinity words) must be available before routing.
-*/
-func (queue *Queue) ExecuteInline(frames []unsafe.Pointer) error {
-	if queue == nil || queue.backend == nil {
-		return nil
-	}
-
-	return queue.backend.Execute(frames)
-}
-
-/*
-Drain spins until all inflight Execute and SubmitTracked tasks have
-completed. This lets callers ensure prior GPU dispatches and pooled
-side effects finish before triggering work that would contend on the
-same resources.
-*/
-func (queue *Queue) Drain() {
-	if queue == nil {
-		return
-	}
-
-	queue.drainMu.Lock()
-	defer queue.drainMu.Unlock()
-
-	for queue.inflight.Load() > 0 {
-		queue.drainWait.Wait()
-	}
-}
-
-/*
 Schedule enqueues work onto the normal-priority ring buffer.
 Returns false when the ring is full.
 */
 func (queue *Queue) Schedule(
-	ctx context.Context, task func(),
+	ctx context.Context, task func() *programmer.Executable,
 ) bool {
 	if queue == nil {
 		return false
@@ -21490,26 +21069,6 @@ func (queue *Queue) Schedule(
 			task:      task,
 		},
 	))
-}
-
-<<<END>>>
-<<<FILE ./pkg/primitive/classification_stamp.go>>>
-package primitive
-
-import "github.com/theapemachine/six/pkg/compute/kernel"
-
-/*
-StampGoldClassificationClass sets Properties word 0 for discrete supervised
-classes. Dataset-scale ingest should use vm.Tokenizer.AdoptLabeledSample so
-stamping stays on the same path as NewValue minting; this helper exists for
-narrow host wiring or tests when no tokenizer batch is involved.
-*/
-func StampGoldClassificationClass(value *Value, classIdx int) {
-	if value == nil {
-		return
-	}
-
-	value.Set(kernel.PropertiesStartWord, kernel.GoldLabelWord(classIdx))
 }
 
 <<<END>>>
@@ -22132,6 +21691,60 @@ func MortonMSB(code uint64) int {
 }
 
 <<<END>>>
+<<<FILE ./pkg/primitive/properties.go>>>
+package primitive
+
+import (
+	"errors"
+
+	"github.com/theapemachine/six/pkg/core"
+)
+
+type StateType uint64
+
+const (
+	PENDING StateType = iota
+	READY
+	BUSY
+	WAITING
+	DONE
+	RESOLVED
+	ERROR
+)
+
+type PropertyType uint64
+
+/*
+PropertyType indexes words inside the properties region (512 bits = 8 words),
+matching DSL properties[k] and pkg/compute/kernel/layout.go absolute words
+48+k (e.g. TTL is properties[3] → word 51).
+*/
+const (
+	LABELS PropertyType = iota
+	CONFIDENCE
+	EPOCH
+	TTL
+	NOISE
+	STATE
+	WINDOW
+	DEPTH
+)
+
+func (value *Value) Property(property PropertyType) (uint64, error) {
+	if value == nil {
+		return 0, errors.New("value is nil")
+	}
+
+	if property > DEPTH {
+		return 0, errors.New("property out of range")
+	}
+
+	start := core.Cfg.Value.Region.Properties.Start
+
+	return (*value)[start+int(property)], nil
+}
+
+<<<END>>>
 <<<FILE ./pkg/primitive/value.go>>>
 //go:generate go run gen.go
 package primitive
@@ -22144,12 +21757,48 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
+/*
+RegionType names coarse Value regions for later lowering from region refs.
+
+Source text uses string refs (e.g. tokens[0,16]); lowering maps those into
+the packed Value layout via RegionRef.
+*/
+type RegionType uint8
+
+const (
+	TokenRegion RegionType = iota
+	ProgramRegion
+	SignalsRegion
+	ContextRegion
+	GradientRegion
+	PropertiesRegion
+	AssetRegion
+	PrevRegion
+	NextRegion
+	IDRegion
+	AffinityRegion
+)
+
 var (
-	valueTo   func(*Value, []byte)
-	valueFrom func([]byte, *Value)
+	valueTo     func(*Value, []byte)
+	valueFrom   func([]byte, *Value)
+	RegionNames = map[string]RegionType{
+		"tokens":     TokenRegion,
+		"program":    ProgramRegion,
+		"signals":    SignalsRegion,
+		"context":    ContextRegion,
+		"gradient":   GradientRegion,
+		"properties": PropertiesRegion,
+		"asset":      AssetRegion,
+		"prev":       PrevRegion,
+		"next":       NextRegion,
+		"id":         IDRegion,
+		"affinity":   AffinityRegion,
+	}
 )
 
 /*
@@ -22237,7 +21886,11 @@ var valuePool = sync.Pool{
 var valueIDSeq atomic.Uint64
 
 /*
-NewValue requires a non-empty payload. The Morton token slab is written into
+NewValue requires a non-empty payload. Optional variadic label slices are
+supervision metadata: the first non-empty label stamps PropertiesStartWord via
+kernel.LabelPropertiesWord (later non-empty entries are ignored so the word
+stays a single fingerprint). Call NewValue(p) with no extra args when no label
+applies. The Morton token slab is written into
 the configured tokens region, the full wire frame is materialized, and stampID
 assigns a new ID. The result is ready for backend execution, Publish, and
 trie storage.
@@ -22268,8 +21921,8 @@ when the Morton slab fills, packing continues in a fresh segment.
 
 CloseAll closes every non-nil pointer in the slice.
 */
-func NewValue(p []byte) ([]*Value, error) {
-	return newValuesFromPayload(p, nil)
+func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
+	return newValuesFromPayload(p, nil, labels...)
 }
 
 /*
@@ -22321,6 +21974,7 @@ const newValueMaxSlotProbeSteps = 1 << 22
 func newValuesFromPayload(
 	p []byte,
 	geometry *geometry,
+	labels ...[]byte,
 ) ([]*Value, error) {
 	if len(p) == 0 {
 		return nil, io.ErrShortBuffer
@@ -22335,9 +21989,6 @@ func newValuesFromPayload(
 	if geometry == nil {
 		geometry = newBalancedGeometry(tokenBytes/2, 2)
 	}
-
-	prevWord := core.Cfg.Value.Region.Prev.Start
-	nextWord := core.Cfg.Value.Region.Next.Start
 
 	idx := 0
 
@@ -22432,15 +22083,27 @@ func newValuesFromPayload(
 		valueFrom(wire, value)
 
 		stamped := value.stampID()
-		out = append(out, stamped)
 
-		if len(out) >= 2 {
-			prev := out[len(out)-2]
-			next := out[len(out)-1]
+		var label []byte
 
-			prev.Set(nextWord, next.ID())
-			next.Set(prevWord, prev.ID())
+		for _, candidate := range labels {
+			if len(candidate) == 0 {
+				continue
+			}
+
+			label = candidate
+
+			break
 		}
+
+		if len(label) > 0 {
+			stamped.Set(
+				kernel.PropertiesStartWord,
+				kernel.LabelPropertiesWord(label),
+			)
+		}
+
+		out = append(out, stamped)
 	}
 
 	return out, nil
@@ -22476,7 +22139,6 @@ func (value *Value) stampID() *Value {
 		return nil
 	}
 
-	// One full uint64 lane at Region.ID — never truncated; viz string forms use %016x.
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
 	return value
 }
@@ -22557,6 +22219,64 @@ func (value *Value) Set(region int, data uint64) {
 	}
 
 	(*value)[region] = data
+}
+
+/*
+WordExtent returns the absolute start word index and word count for this
+coarse region name, matching Value.Get slicing for the active config.
+*/
+func (region RegionType) WordExtent() (start int, words int) {
+	r := core.Cfg.Value.Region
+
+	switch region {
+	case TokenRegion:
+		return r.Tokens.WordExtent()
+	case ProgramRegion:
+		return r.Program.WordExtent()
+	case SignalsRegion:
+		return r.Signals.WordExtent()
+	case ContextRegion:
+		return r.Context.WordExtent()
+	case GradientRegion:
+		return r.Gradient.WordExtent()
+	case PropertiesRegion:
+		return r.Properties.WordExtent()
+	case AssetRegion:
+		return r.Asset.WordExtent()
+	case PrevRegion:
+		return r.Prev.WordExtent()
+	case NextRegion:
+		return r.Next.WordExtent()
+	case IDRegion:
+		return r.ID.WordExtent()
+	case AffinityRegion:
+		return r.Affinity.WordExtent()
+	}
+
+	return 0, 0
+}
+
+/*
+Get returns the uint64 words backing the given coarse region.
+*/
+func (value *Value) Get(region RegionType) []uint64 {
+	if value == nil {
+		return nil
+	}
+
+	start, words := region.WordExtent()
+
+	if words == 0 {
+		return nil
+	}
+
+	end := start + words
+
+	if start < 0 || end > len(*value) || start > end {
+		return nil
+	}
+
+	return (*value)[start:end]
 }
 
 /*
@@ -24659,7 +24379,8 @@ func TokenizerChunkEvent(bytesWritten int) Event {
 
 /*
 TokenizerEmitEvent fires after InstallProgram has stamped the affinity firmware
-on the Value so meta carries program name and the live affinity-region words.
+on the Value. Layout words (affinity, chain, properties) are not duplicated in
+JSON — the viz server also ships WireFrameValue with the full Value.Bytes image.
 */
 func TokenizerEmitEvent(seg *primitive.Value, label string) Event {
 	ev := NewEvent(EventTokenizerEmit, "tokenizer")
@@ -24678,22 +24399,33 @@ func TokenizerEmitEvent(seg *primitive.Value, label string) Event {
 		"program":  "affinity",
 	}
 
-	ev.Meta["affinity"] = AffinityHexFromFrame(seg)
-
 	applyVizLayout(&ev, "tokenizer_emit", vizBandTokenizerVal, fmt.Sprintf("%s|%s", vidHex, label))
 
 	return ev
 }
 
 /*
-QueueSubmitEvent fires when the pool queue accepts a new work item.
+queueSubmitChainMeta mirrors the frontend chain resolution: committed prev/next
+words first, else the first two asset words where the orchestrator stages ids.
+Same memory as WireFrameValue at this instant — included so JSON consumers see
+links even when a binary frame is short or reordered on the socket.
 */
-func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content string) Event {
-	ev := NewEvent(EventQueueSubmit, "queue")
-	ev.Label = truncate(content, 128)
-	ev.Values["inflight"] = float64(inflight)
-	ev.Meta["value_id"] = FormatValueIDHex(valueID)
-	ev.Meta["program"] = "affinity"
+func queueSubmitChainMeta(ev *Event, value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	assetStart, _ := primitive.AssetRegion.WordExtent()
+	prevStart, _ := primitive.PrevRegion.WordExtent()
+	nextStart, _ := primitive.NextRegion.WordExtent()
+
+	prevID := (*value)[prevStart]
+	nextID := (*value)[nextStart]
+
+	if prevID == 0 && nextID == 0 {
+		prevID = (*value)[assetStart]
+		nextID = (*value)[assetStart+1]
+	}
 
 	if prevID != 0 {
 		ev.Meta["prev_id"] = FormatValueIDHex(prevID)
@@ -24702,8 +24434,29 @@ func QueueSubmitEvent(inflight int64, valueID, prevID, nextID uint64, content st
 	if nextID != 0 {
 		ev.Meta["next_id"] = FormatValueIDHex(nextID)
 	}
+}
 
-	applyVizLayoutQueue(&ev, inflight, valueID)
+/*
+QueueSubmitEvent fires when the pool queue accepts a new work item. Meta
+prev_id/next_id are read from the live Value (same words as the following
+WireFrameValue).
+*/
+func QueueSubmitEvent(inflight int64, value *primitive.Value, content string) Event {
+	ev := NewEvent(EventQueueSubmit, "queue")
+	ev.Label = truncate(content, 128)
+	ev.Values["inflight"] = float64(inflight)
+	ev.Meta["program"] = "affinity"
+
+	if value == nil {
+		applyVizLayoutQueue(&ev, inflight, 0)
+
+		return ev
+	}
+
+	ev.Meta["value_id"] = FormatValueIDHex(value.ID())
+	queueSubmitChainMeta(&ev, value)
+	applyVizLayoutQueue(&ev, inflight, value.ID())
+
 	return ev
 }
 
@@ -25551,16 +25304,521 @@ func (err *VmError) Unwrap() error {
 }
 
 <<<END>>>
+<<<FILE ./pkg/vm/finalizer.go>>>
+package vm
+
+import (
+	"strings"
+
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
+	"github.com/theapemachine/six/pkg/primitive"
+)
+
+/*
+ActionFinalizer interprets generic config-driven post-ALU rules. It never
+recomputes algorithm semantics in Go; it only copies already-written in-band
+state, optionally reprograms the current Value, or emits an ephemeral clone
+that will execute a named config program.
+*/
+type ActionFinalizer struct {
+	orchestrator *Orchestrator
+}
+
+const (
+	valueFinalizerScope     = "value"
+	communityFinalizerScope = "community"
+	globalFinalizerScope    = "global"
+)
+
+type actionContext struct {
+	scope       string
+	value       *primitive.Value
+	field       *geometry.Field
+	communities int
+}
+
+/*
+NewActionFinalizer binds the generic post-ALU runtime to one orchestrator.
+*/
+func NewActionFinalizer(orchestrator *Orchestrator) *ActionFinalizer {
+	return &ActionFinalizer{orchestrator: orchestrator}
+}
+
+/*
+FinalizeValue runs value-scope rules immediately after one ALU pass. It returns
+true when one of those rules reprogrammed the current Value and consumed normal
+re-entry into the orchestrator.
+*/
+func (finalizer *ActionFinalizer) FinalizeValue(value *primitive.Value) bool {
+	context := actionContext{
+		scope: valueFinalizerScope,
+		value: value,
+	}
+
+	return finalizer.apply(context)
+}
+
+/*
+FinalizeField runs community/global rules after a routed Value has updated the
+local field state.
+*/
+func (finalizer *ActionFinalizer) FinalizeField(
+	scope string,
+	value *primitive.Value,
+	field *geometry.Field,
+) bool {
+	context := actionContext{
+		scope:       scope,
+		value:       value,
+		field:       field,
+		communities: finalizer.communityCount(),
+	}
+
+	return finalizer.apply(context)
+}
+
+func (finalizer *ActionFinalizer) apply(context actionContext) bool {
+	if finalizer == nil || finalizer.orchestrator == nil || context.value == nil {
+		return false
+	}
+
+	consumed := false
+
+	for _, rule := range core.Cfg.Finalizers {
+		if !finalizer.matches(rule, context) {
+			continue
+		}
+
+		for _, action := range rule.Actions {
+			if finalizer.runAction(action, context) {
+				consumed = true
+			}
+		}
+	}
+
+	return consumed
+}
+
+func (finalizer *ActionFinalizer) matches(
+	rule core.FinalizerRuleConfig,
+	context actionContext,
+) bool {
+	if context.value == nil {
+		return false
+	}
+
+	scope := strings.ToLower(strings.TrimSpace(rule.Scope))
+	if scope == "" {
+		scope = valueFinalizerScope
+	}
+
+	if scope != context.scope {
+		return false
+	}
+
+	if !finalizer.matchRegions(rule.Regions, context.value) {
+		return false
+	}
+
+	if rule.MinMembers > 0 {
+		if context.field == nil || len(context.field.Values) < rule.MinMembers {
+			return false
+		}
+	}
+
+	if rule.MinCommunities > 0 && context.communities < rule.MinCommunities {
+		return false
+	}
+
+	if rule.MinConcentration > 0 {
+		if context.field == nil {
+			return false
+		}
+
+		if context.field.Dominant().Concentration < rule.MinConcentration {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (finalizer *ActionFinalizer) matchRegions(
+	regions map[string]bool,
+	value *primitive.Value,
+) bool {
+	if len(regions) == 0 {
+		return true
+	}
+
+	firmware := finalizer.orchestrator.firmware
+	if firmware == nil {
+		firmware = programmer.NewFirmware()
+	}
+
+	for rawName, want := range regions {
+		regionType, ok := primitive.RegionNames[strings.ToLower(strings.TrimSpace(rawName))]
+		if !ok {
+			return false
+		}
+
+		hasBits := firmware.HasBits(value.Get(regionType))
+		if hasBits != want {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (finalizer *ActionFinalizer) runAction(
+	action core.FinalizerActionConfig,
+	context actionContext,
+) bool {
+	switch strings.ToLower(strings.TrimSpace(action.Type)) {
+	case "reprogram":
+		if strings.TrimSpace(action.Program) == "" {
+			return false
+		}
+
+		finalizer.reprogram(context.value, action, context)
+		return true
+	case "emit":
+		_ = finalizer.emit(context.value, action, context)
+		return false
+	}
+
+	return false
+}
+
+func (finalizer *ActionFinalizer) reprogram(
+	value *primitive.Value,
+	action core.FinalizerActionConfig,
+	context actionContext,
+) {
+	if value == nil || strings.TrimSpace(action.Program) == "" {
+		return
+	}
+
+	finalizer.applyCopies(value, action.Copies, context)
+	finalizer.submitExecutable(value, action.Program)
+}
+
+func (finalizer *ActionFinalizer) emit(
+	source *primitive.Value,
+	action core.FinalizerActionConfig,
+	context actionContext,
+) *primitive.Value {
+	if source == nil {
+		return nil
+	}
+
+	emitted, err := primitive.ValueFromWireFrame(source.Bytes())
+	if err != nil {
+		return nil
+	}
+
+	emitted.StampNewID()
+	finalizer.prepareEmission(emitted, source, action, context)
+
+	if strings.TrimSpace(action.Program) != "" {
+		finalizer.submitExecutable(emitted, action.Program)
+		return emitted
+	}
+
+	finalizer.orchestrator.publishPrepared(emitted)
+	return emitted
+}
+
+func (finalizer *ActionFinalizer) prepareEmission(
+	emitted *primitive.Value,
+	source *primitive.Value,
+	action core.FinalizerActionConfig,
+	context actionContext,
+) {
+	if emitted == nil {
+		return
+	}
+
+	finalizer.zeroRegion(emitted, primitive.ProgramRegion)
+	finalizer.zeroRegion(emitted, primitive.SignalsRegion)
+	finalizer.zeroRegion(emitted, primitive.AssetRegion)
+
+	emitted.Set(kernel.SchedulingNextProgramWord, 0)
+	emitted.Set(kernel.PrevStartWord, source.ID())
+	emitted.Set(kernel.NextStartWord, 0)
+
+	if action.TTL > 0 {
+		emitted.Set(kernel.PropertiesTTLWord, action.TTL)
+	}
+
+	finalizer.applyCopies(emitted, action.Copies, context)
+}
+
+func (finalizer *ActionFinalizer) submitExecutable(
+	value *primitive.Value,
+	program string,
+) {
+	if value == nil || finalizer == nil || finalizer.orchestrator == nil {
+		return
+	}
+
+	executable := programmer.NewExecutable(value, program, nil)
+	executable.SetFinalizer(finalizer.orchestrator.executableFinalizer)
+
+	finalizer.orchestrator.queue.Submit(func() *programmer.Executable {
+		return executable
+	})
+}
+
+func (finalizer *ActionFinalizer) applyCopies(
+	target *primitive.Value,
+	copies []core.FinalizerCopyConfig,
+	context actionContext,
+) {
+	for _, copyConfig := range copies {
+		sourceWords := finalizer.resolveSource(copyConfig.Source, context)
+		if len(sourceWords) == 0 {
+			continue
+		}
+
+		destination, err := programmer.ParseRegionRef(copyConfig.Destination)
+		if err != nil {
+			continue
+		}
+
+		destinationWords := valueSpan(target, destination)
+		if len(destinationWords) == 0 {
+			continue
+		}
+
+		clear(destinationWords)
+		copy(destinationWords, sourceWords)
+	}
+}
+
+func (finalizer *ActionFinalizer) resolveSource(
+	raw string,
+	context actionContext,
+) []uint64 {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	if text == "" {
+		return nil
+	}
+
+	if strings.HasPrefix(text, "field.") {
+		return finalizer.fieldSource(strings.TrimPrefix(text, "field."), context.field)
+	}
+
+	if strings.HasPrefix(text, "value.") {
+		text = strings.TrimPrefix(text, "value.")
+	}
+
+	ref, err := programmer.ParseRegionRef(text)
+	if err != nil {
+		return nil
+	}
+
+	return valueSpan(context.value, ref)
+}
+
+func (finalizer *ActionFinalizer) fieldSource(
+	raw string,
+	field *geometry.Field,
+) []uint64 {
+	if field == nil {
+		return nil
+	}
+
+	ref, err := programmer.ParseRegionRef(raw)
+	if err != nil {
+		return nil
+	}
+
+	if ref.Region != primitive.AffinityRegion {
+		return nil
+	}
+
+	start, _ := primitive.AffinityRegion.WordExtent()
+	if ref.Start < start {
+		return nil
+	}
+
+	offset := ref.Start - start
+	end := offset + ref.Span
+
+	if offset < 0 || end > len(field.Affinity) || offset > end {
+		return nil
+	}
+
+	return field.Affinity[offset:end]
+}
+
+func (finalizer *ActionFinalizer) communityCount() int {
+	if finalizer == nil || finalizer.orchestrator == nil || finalizer.orchestrator.router == nil {
+		return 0
+	}
+
+	return finalizer.orchestrator.router.CommunityCount()
+}
+
+func (finalizer *ActionFinalizer) zeroRegion(
+	value *primitive.Value,
+	region primitive.RegionType,
+) {
+	words := value.Get(region)
+	clear(words)
+}
+
+func valueSpan(value *primitive.Value, ref programmer.RegionRef) []uint64 {
+	if value == nil {
+		return nil
+	}
+
+	end := ref.Start + ref.Span
+	if ref.Start < 0 || end > len(*value) || ref.Start > end {
+		return nil
+	}
+
+	return (*value)[ref.Start:end]
+}
+
+<<<END>>>
+<<<FILE ./pkg/vm/linker.go>>>
+package vm
+
+import (
+	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/primitive"
+)
+
+/*
+Linker buffers incoming Values to provide a sliding window.
+It ensures that each Value can be linked to its predecessor and successor.
+*/
+type Linker struct {
+	err    error
+	values []*primitive.Value
+	lastID uint64
+}
+
+/*
+linkerOpts configures Linker with options.
+*/
+type linkerOpts func(*Linker)
+
+/*
+NewLinker instantiates a new Linker.
+It provides a sliding window over a stream of Values.
+*/
+func NewLinker(opts ...linkerOpts) *Linker {
+	linker := &Linker{
+		values: make([]*primitive.Value, 0),
+	}
+
+	for _, opt := range opts {
+		opt(linker)
+	}
+
+	return linker
+}
+
+/*
+Push adds new Values to the sliding window.
+*/
+func (linker *Linker) Push(values ...*primitive.Value) {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		linker.values = append(linker.values, value)
+	}
+}
+
+/*
+Flush forces the remaining Values in the sliding window to be popped.
+It should be called when the stream of Values is complete.
+*/
+func (linker *Linker) Flush() (*primitive.Value, []*programmer.Asset) {
+	if len(linker.values) == 0 {
+		return nil, nil
+	}
+
+	value := linker.values[0]
+
+	assetValue := &primitive.Value{}
+	assetStart, _ := primitive.AssetRegion.WordExtent()
+
+	if linker.lastID != 0 {
+		assetValue.Set(assetStart, linker.lastID)
+	}
+
+	assets := []*programmer.Asset{
+		programmer.NewAsset(assetValue, primitive.AssetRegion),
+	}
+
+	linker.lastID = value.ID()
+	linker.values = linker.values[1:]
+	if len(linker.values) == 0 {
+		linker.values = nil
+	}
+
+	return value, assets
+}
+
+/*
+Pop returns the next ready Value and its linking assets.
+It returns nil if the window does not have enough Values to form a link.
+*/
+func (linker *Linker) Pop() (*primitive.Value, []*programmer.Asset) {
+	if len(linker.values) < 2 {
+		return nil, nil
+	}
+
+	value := linker.values[0]
+	nextValue := linker.values[1]
+
+	assetValue := &primitive.Value{}
+	assetStart, _ := primitive.AssetRegion.WordExtent()
+
+	if linker.lastID != 0 {
+		assetValue.Set(assetStart, linker.lastID)
+	}
+
+	if nextValue != nil {
+		assetValue.Set(assetStart+1, nextValue.ID())
+	}
+
+	assets := []*programmer.Asset{
+		programmer.NewAsset(assetValue, primitive.AssetRegion),
+	}
+
+	linker.lastID = value.ID()
+	linker.values = linker.values[1:]
+	if len(linker.values) == 0 {
+		linker.values = nil
+	}
+
+	return value, assets
+}
+
+<<<END>>>
 <<<FILE ./pkg/vm/machine.go>>>
 package vm
 
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -25568,7 +25826,6 @@ import (
 	"github.com/theapemachine/six/pkg/network"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/transport"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
@@ -25588,7 +25845,6 @@ type Machine struct {
 	conn         *gossip.Conn
 	field        *geometry.Field
 	orchestrator *Orchestrator
-	programReady chan struct{}
 	remSleep     *time.Ticker
 	remDone      chan struct{}
 }
@@ -25616,25 +25872,25 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	if machine.queue, machine.err = pool.NewQueue(ctx); machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
-
-	machine.programReady = make(chan struct{}, 1)
-
-	machine.orchestrator, machine.err = NewOrchestrator(ctx, machine.conn, machine.queue, machine.programReady)
-	if machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
-
 	machine.backend = compute.NewBackend(
 		ctx,
-		machine.queue,
 		compute.WithExploreEvery(128),
 	)
 
+	if machine.queue, machine.err = pool.NewQueue(
+		ctx, machine.backend.Dispatch,
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
+	if machine.orchestrator, machine.err = NewOrchestrator(
+		ctx, machine.conn, machine.queue, WithField(machine.field),
+	); machine.err != nil {
+		return nil, errnie.Error(machine.err)
+	}
+
 	if machine.tokenizer, machine.err = NewTokenizer(
-		ctx, machine.queue,
+		ctx,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -25652,16 +25908,11 @@ func NewMachine(
 /*
 Close the machine.
 
-Outstanding queue work (trie/replica tasks scheduled from Publish) is
-allowed to finish before contexts are cancelled so shutdown matches the
-post-Load guarantee as closely as practical for a shared Queue.
+Cancels the shared pool.Queue (owned here for Backend construction) once host
+and tokenizer are closed so goroutine-pool work does not outlive dependents.
 */
 func (machine *Machine) Close() error {
 	var errs []error
-
-	if machine.queue != nil {
-		machine.queue.Drain()
-	}
 
 	if machine.remSleep != nil {
 		machine.remSleep.Stop()
@@ -25701,11 +25952,11 @@ func (machine *Machine) Error() error {
 /*
 Load walks Generate(), mints Morton-packed Values from each sample’s Text via
 primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
-Properties word when Label is present, then publishes through the queue and
-orchestrator. Resets tokenizer ingest state when finished so later Prompt paths
+Properties word when Label is present, then runs orchestrator.Publish per
+segment. Resets tokenizer ingest state when finished so later Prompt paths
 see a clean pipe.
 */
-func (machine *Machine) Load(dataset data.Provider) error {
+func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
 		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
@@ -25713,20 +25964,60 @@ func (machine *Machine) Load(dataset data.Provider) error {
 		return errnie.Error(err)
 	}
 
-	publishers := []transport.Publishable{
-		machine.queue,
-		machine.orchestrator,
+	linker := NewLinker()
+
+	publishLinked := func(value *primitive.Value, assets []*programmer.Asset) error {
+		if value == nil {
+			return nil
+		}
+
+		for _, asset := range assets {
+			if asset == nil {
+				continue
+			}
+
+			if err := asset.Bundle(value); err != nil {
+				return errnie.Error(err)
+			}
+		}
+
+		machine.orchestrator.publishPrepared(value)
+		return nil
 	}
 
+	var segments []*primitive.Value
+
 	for sample := range dataset.Generate() {
-		if ingestErr := machine.tokenizer.IngestSample(
-			machine.ctx, sample, publishers,
-		); ingestErr != nil {
-			return errnie.Error(ingestErr)
+		if segments, err = machine.tokenizer.IngestSample(
+			machine.ctx, sample,
+		); err != nil {
+			return errnie.Error(err)
+		}
+
+		linker.Push(segments...)
+
+		for {
+			value, assets := linker.Pop()
+			if value == nil {
+				break
+			}
+
+			if err := publishLinked(value, assets); err != nil {
+				return err
+			}
 		}
 	}
 
-	machine.tokenizer.ResetAfterEOF()
+	for {
+		value, assets := linker.Flush()
+		if value == nil {
+			break
+		}
+
+		if err := publishLinked(value, assets); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -25739,19 +26030,9 @@ returned Values are the prompt outcome. The only normal exit is gap closure;
 use context cancellation or deadline on NewMachine’s context to bound work if
 the substrate never reaches epsilon.
 */
-func (machine *Machine) Prompt(values ...*primitive.Value) ([]*primitive.Value, error) {
-	if len(values) == 0 {
-		return nil, errnie.Error(errors.New("vm.Machine.Prompt: empty values"))
-	}
-
-	for _, value := range values {
-		if value == nil {
-			return nil, errnie.Error(errors.New("vm.Machine.Prompt: nil value"))
-		}
-	}
-
+func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitive.Value, err error) {
 	if err := validate.Require(map[string]any{
-		"value": values[0],
+		"values": values,
 	}); err != nil {
 		return nil, errnie.Error(err)
 	}
@@ -25760,25 +26041,42 @@ func (machine *Machine) Prompt(values ...*primitive.Value) ([]*primitive.Value, 
 		viz.DefaultBus.Publish(viz.PromptEvent(string(values[0].Bytes())))
 	}
 
-	ingress := values
+	machine.orchestrator.Publish(values...)
 
-	for {
+	// Clear values so we don't push them again
+	values = nil
+
+	for len(resolved) == 0 {
 		select {
 		case <-machine.ctx.Done():
 			return nil, machine.ctx.Err()
 		default:
-			resolved, err := machine.orchestrator.Cycle(ingress...)
-			ingress = nil
-
-			if err != nil {
+			// Feedback loop, values go in, values come out, which then go in again, etc.
+			if values, err = machine.orchestrator.Cycle(
+				slices.Clone(values)...,
+			); err != nil {
 				return nil, errnie.Error(err)
 			}
 
-			if len(resolved) > 0 {
-				return resolved, nil
+			// Check for any resolved values, which indicates the prompt has been resolved
+			// and we have reached the stop condition.
+			for _, value := range values {
+				if stateWord, err := value.Property(
+					primitive.STATE,
+				); err == nil && stateWord == uint64(primitive.RESOLVED) {
+					resolved = append(resolved, value)
+				}
 			}
 		}
 	}
+
+	if viz.DefaultBus.IsActive() && len(resolved) > 0 {
+		for _, res := range resolved {
+			viz.DefaultBus.Publish(viz.PromptResultEvent(string(res.Bytes()), nil))
+		}
+	}
+
+	return resolved, nil
 }
 
 <<<END>>>
@@ -25787,11 +26085,13 @@ package vm
 
 import (
 	"context"
-	"math"
+	"runtime"
+	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
-	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/gossip"
@@ -25801,56 +26101,89 @@ import (
 )
 
 /*
-Orchestrator is a component that orchestrates the different components of the machine.
+Orchestrator is the single rule evaluator for the Value pipeline. For each
+Value it evaluates config rules. When a rule matches it wraps the Value
+in an Executable with a Finalizer and submits a task to the pool. The pool
+worker produces the Executable, the Backend compiles it for the picked
+substrate, executes, and calls the Finalizer. The Finalizer re-enters
+submitStep so the next rule can fire. When no rule matches the Value is
+routed to a community field.
 */
 type Orchestrator struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-	conn   *gossip.Conn
-	queue  *pool.Queue
-	field  *geometry.Field
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	queue     *pool.Queue
+	firmware  *programmer.Firmware
+	router    *Router
+	field     *geometry.Field
+	finalizer *ActionFinalizer
+	inbox     *data.Ring
+	lastID    uint64
+	enqueued  atomic.Uint64
+	draining  atomic.Uint32
+}
+
+type orchestratorOption func(*Orchestrator)
+
+/*
+WithField installs the global field that community routing should aggregate
+into. Nil keeps the orchestrator's default Mod65537 root field.
+*/
+func WithField(field *geometry.Field) orchestratorOption {
+	return func(orchestrator *Orchestrator) {
+		if field == nil {
+			return
+		}
+
+		orchestrator.field = field
+	}
 }
 
 /*
-affinityMatchBitBudget is the maximum Hamming distance (in bits) between a
-Value’s affinity words and a community’s aggregate for the Value to join that
-community instead of starting a new one.
-*/
-const affinityMatchBitBudget = 64
-
-/*
-NewOrchestrator creates a new orchestrator.
-
-programReady, when non-nil, receives a coalesced wakeup whenever a cycle
-observes at least one settled value (SchedulingNextProgramWord zeroed) so
-Machine.Prompt can block instead of spinning until the kernel clears scheduling.
+NewOrchestrator creates a new orchestrator wired to the queue.
 */
 func NewOrchestrator(
 	ctx context.Context,
 	conn *gossip.Conn,
 	queue *pool.Queue,
-	programReady chan struct{},
+	options ...orchestratorOption,
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	orchestrator := &Orchestrator{
-		ctx:    ctx,
-		cancel: cancel,
-		conn:   conn,
-		queue:  queue,
-		field:  geometry.NewField(geometry.Mod65537),
+		ctx:      ctx,
+		cancel:   cancel,
+		queue:    queue,
+		firmware: programmer.NewFirmware(),
+		field:    geometry.NewField(geometry.Mod65537),
+	}
+
+	for _, option := range options {
+		option(orchestrator)
+	}
+
+	orchestrator.router = NewRouter(orchestrator.field)
+	orchestrator.finalizer = NewActionFinalizer(orchestrator)
+
+	orchestrator.inbox, orchestrator.err = data.NewRing(ctx, data.RingCapacity)
+
+	if orchestrator.err != nil {
+		cancel()
+		return nil, orchestrator.err
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":    orchestrator.ctx,
-		"cancel": orchestrator.cancel,
-		"conn":   orchestrator.conn,
-		"queue":  orchestrator.queue,
-		"field":  orchestrator.field,
+		"ctx":       orchestrator.ctx,
+		"cancel":    orchestrator.cancel,
+		"queue":     orchestrator.queue,
+		"firmware":  orchestrator.firmware,
+		"router":    orchestrator.router,
+		"field":     orchestrator.field,
+		"finalizer": orchestrator.finalizer,
+		"inbox":     orchestrator.inbox,
 	}); err != nil {
 		cancel()
-
 		return nil, err
 	}
 
@@ -25863,6 +26196,10 @@ Close the orchestrator.
 func (orchestrator *Orchestrator) Close() error {
 	orchestrator.cancel()
 
+	if orchestrator.inbox != nil {
+		_ = orchestrator.inbox.Close()
+	}
+
 	return orchestrator.err
 }
 
@@ -25873,392 +26210,426 @@ func (orchestrator *Orchestrator) Error() error {
 	return orchestrator.err
 }
 
-/*
-Publish implements the Publishable interface.
-It sends the value on the pending queue for the next Cycle.
-*/
-func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
-	return orchestrator.Cycle(values...)
+func (orchestrator *Orchestrator) publishPrepared(value *primitive.Value) {
+	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+			1,
+			value,
+			value.String(),
+		))
+		viz.PublishWireValueFrame(value.ID(), value.Bytes())
+	}
+
+	orchestrator.publishExecuted(value)
 }
 
 /*
-Cycle runs one full processing pass: route incoming Values into communities,
-cycle the global field (which cascades into each community's eigenmode
-detection and rotational pressure), then evaluate every community for
-gap resolution and emission readiness. Returns the Values whose belief gap
-has dropped below epsilon — the stop condition that tells the experiment
-pipeline the system has resolved the prompt.
+Publish stages the predecessor ID into the asset region so the link program
+can copy it into prev, then hands the Value to the rule evaluator.
+*/
+func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
+	for index, value := range values {
+		if value == nil {
+			continue
+		}
+
+		assetStart, _ := primitive.AssetRegion.WordExtent()
+		previousID := orchestrator.lastID
+		nextID := uint64(0)
+
+		if index+1 < len(values) && values[index+1] != nil {
+			nextID = values[index+1].ID()
+		}
+
+		if viz.DefaultBus.IsActive() {
+			viz.DefaultBus.Publish(viz.QueueSubmitEvent(
+				int64(len(values)),
+				value,
+				value.String(),
+			))
+		}
+
+		value.Set(assetStart, previousID)
+		value.Set(assetStart+1, nextID)
+		orchestrator.lastID = value.ID()
+		orchestrator.publishPrepared(value)
+	}
+
+	return nil, nil
+}
+
+/*
+Cycle is the prompt-time heartbeat. Values re-enter the rule evaluator.
 */
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) ([]*primitive.Value, error) {
-	orchestrator.route(values...)
-
-	if _, err := orchestrator.field.Cycle(); err != nil {
-		return nil, err
-	}
-
-	active := viz.DefaultBus.IsActive()
-	epsilon := core.Cfg.System.BeliefEpsilon
-	stateIdx := core.Cfg.Value.Region.Properties.Start + 4
-
-	var resolved []*primitive.Value
-
-	for slotIndex, community := range orchestrator.field.Fields {
-		if community == nil || len(community.Values) < 2 {
+	for _, value := range values {
+		if value == nil {
 			continue
 		}
 
-		dominant := community.Dominant()
-
-		if active && dominant.Index >= 0 {
-			viz.DefaultBus.Publish(viz.EigenmodeDetected(
-				0, community.MemberCount(), dominant.Concentration,
-			))
-		}
-
-		for _, value := range community.Values {
-			if value == nil {
-				continue
-			}
-
-			affinity := affinityWordsFromValue(value)
-
-			if affinityIsEmpty(affinity) {
-				continue
-			}
-
-			valueID := (*value)[core.Cfg.Value.Region.ID.Start]
-			gap := community.BeliefGap(affinity)
-
-			if active {
-				viz.DefaultBus.Publish(viz.BeliefGapEvaluatedEvent(
-					valueID, slotIndex, gap,
-				))
-			}
-
-			if gap <= epsilon {
-				(*value)[stateIdx] = 4
-				resolved = append(resolved, value)
-
-				if active {
-					viz.DefaultBus.Publish(viz.ValueResolvedEvent(
-						valueID, slotIndex, gap,
-					))
-				}
-			} else if (*value)[stateIdx] == 4 {
-				resolved = append(resolved, value)
-			}
-		}
-
-		if !community.EmissionReady() {
-			continue
-		}
-
-		if active {
-			viz.DefaultBus.Publish(viz.CommunityEmissionEvent(
-				slotIndex, community.MemberCount(), dominant.Concentration,
-			))
-		}
-
-		emitted := orchestrator.emitFromCommunity(community)
-
-		if emitted != nil {
-			orchestrator.queue.Publish(emitted)
-
-			if active {
-				emittedID := (*emitted)[core.Cfg.Value.Region.ID.Start]
-				viz.DefaultBus.Publish(viz.CommunityActionEvent(
-					slotIndex, emittedID, "aggregate", dominant.Concentration,
-				))
-			}
-		}
-
-		if communityNeedsSelfKnowledge(community) {
-			inputs := make([]*primitive.Value, 0, 2)
-			for _, v := range community.Values {
-				if v != nil {
-					labelWord := (*v)[core.Cfg.Value.Region.Properties.Start]
-					if labelWord>>16 == 0 {
-						inputs = append(inputs, v)
-						if len(inputs) == 2 {
-							break
-						}
-					}
-				}
-			}
-
-			if len(inputs) == 2 {
-				tokens, cont, err := programmer.NewParser(programmer.NewProgram("unsupervised_learn")).Parse()
-				if err == nil {
-					compiler := programmer.NewCompiler(tokens, programmer.WithContinuation(cont))
-					finalizer := func(settled *primitive.Value) ([]*primitive.Value, error) {
-						return nil, nil
-					}
-					exec := programmer.NewExecutable(compiler, finalizer).WithInputs(inputs)
-					_ = orchestrator.Emit(exec)
-				}
-			}
-		}
-
-		community.Values = community.Values[:0]
+		orchestrator.publishExecuted(value)
 	}
 
-	return resolved, nil
+	return nil, nil
 }
 
 /*
-Emit fires ephemeral Values into the compute substrate. It compiles the provided
-Executable, publishes the resulting frames to the queue, and wires the queue's
-completion hook to the Executable's finalizer. Any follow-on Values emitted by
-the finalizer are automatically published back into the queue.
+publishExecuted publishes a Value back to the orchestrator's single-writer
+rule lane. Backend workers may call this concurrently; the router and
+community fields are only touched by drainInbox.
 */
-func (orchestrator *Orchestrator) Emit(executable *programmer.Executable) error {
-	if executable == nil {
-		return nil
+func (orchestrator *Orchestrator) publishExecuted(value *primitive.Value) {
+	if orchestrator == nil || value == nil {
+		return
 	}
 
-	frames, err := executable.Execute(programmer.CPU)
-	if err != nil {
-		return err
+	for !orchestrator.inbox.Push(unsafe.Pointer(value)) {
+		runtime.Gosched()
 	}
 
-	for _, ptr := range frames {
-		frame := (*primitive.Value)(ptr)
+	orchestrator.enqueued.Add(1)
+	orchestrator.drainInbox()
+}
 
-		err := orchestrator.queue.PublishTrackedWithCompletion(frame, "emit", func(settled *primitive.Value) {
-			if emitted, err := executable.Finalize(settled); err == nil && len(emitted) > 0 {
-				orchestrator.queue.Publish(emitted...)
+func (orchestrator *Orchestrator) executableFinalizer(value *primitive.Value) {
+	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if orchestrator.finalizer != nil && orchestrator.finalizer.FinalizeValue(value) {
+		return
+	}
+
+	orchestrator.publishExecuted(value)
+}
+
+/*
+drainInbox serializes rule evaluation and routing without taking a mutex.
+The generation check closes the race where a producer enqueues after the
+last Pop but before the active drainer releases ownership.
+*/
+func (orchestrator *Orchestrator) drainInbox() {
+	if !orchestrator.draining.CompareAndSwap(0, 1) {
+		return
+	}
+
+	for {
+		observed := orchestrator.enqueued.Load()
+
+		for {
+			ptr := orchestrator.inbox.Pop()
+
+			if ptr == nil {
+				break
 			}
+
+			orchestrator.submitStep((*primitive.Value)(ptr))
+		}
+
+		if orchestrator.enqueued.Load() != observed {
+			continue
+		}
+
+		orchestrator.draining.Store(0)
+
+		if orchestrator.enqueued.Load() == observed {
+			return
+		}
+
+		if !orchestrator.draining.CompareAndSwap(0, 1) {
+			return
+		}
+	}
+}
+
+/*
+submitStep evaluates firmware rules for the Value. When a rule matches it
+wraps the Value in an Executable whose Finalizer re-enters submitStep, then
+submits a task that returns the Executable. The pool worker runs the task,
+the Backend receives the Executable via the dispatch handler, compiles for
+the chosen substrate, executes, and calls the Finalizer — which lands back
+here for the next firmware pass. When no rule matches the Value is routed
+to a community field.
+*/
+func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	name := orchestrator.firmware.Next(value)
+
+	if name == "" && value[kernel.SchedulingNextProgramWord] == value.ID() {
+		executable := programmer.NewResidentExecutable(value)
+
+		executable.SetFinalizer(orchestrator.executableFinalizer)
+
+		orchestrator.queue.Submit(func() *programmer.Executable {
+			return executable
 		})
 
-		if err != nil {
-			return err
+		return
+	}
+
+	if name == "" {
+		orchestrator.clearProgram(value)
+		communities := orchestrator.router.Route(value)
+		orchestrator.finalizeFields(value, communities...)
+		return
+	}
+
+	executable := programmer.NewExecutable(value, name, nil)
+
+	executable.SetFinalizer(orchestrator.executableFinalizer)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.CompilerCompileEvent(
+			"queued", 0, 0, 0, false, 0,
+		))
+	}
+
+	orchestrator.queue.Submit(func() *programmer.Executable {
+		return executable
+	})
+}
+
+func (orchestrator *Orchestrator) finalizeFields(
+	value *primitive.Value,
+	communities ...*geometry.Field,
+) {
+	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if orchestrator.field != nil {
+		_, _ = orchestrator.field.Cycle()
+	}
+
+	for _, community := range communities {
+		if community == nil || orchestrator.finalizer == nil {
+			continue
 		}
+
+		_ = orchestrator.finalizer.FinalizeField(
+			communityFinalizerScope,
+			value,
+			community,
+		)
+	}
+
+	if orchestrator.finalizer == nil || orchestrator.field == nil {
+		return
+	}
+
+	_ = orchestrator.finalizer.FinalizeField(
+		globalFinalizerScope,
+		value,
+		orchestrator.field,
+	)
+}
+
+/*
+clearProgram removes stale in-Value firmware when no rule validates.
+*/
+func (orchestrator *Orchestrator) clearProgram(value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	start, words := primitive.ProgramRegion.WordExtent()
+
+	for offset := range words {
+		value.Set(start+offset, 0)
+	}
+
+	value.Set(kernel.SchedulingNextProgramWord, 0)
+}
+
+<<<END>>>
+<<<FILE ./pkg/vm/router.go>>>
+package vm
+
+import (
+	"io"
+
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/gossip"
+	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/viz"
+)
+
+/*
+Router routes Values to the most appropriate community field using affinity
+distance as the metric. Communities are tracked by sequential ID so the
+visualization layer can display them as discrete clusters.
+*/
+type Router struct {
+	route          gossip.PriorityRoute
+	communityIDs   map[io.ReadWriteCloser]int
+	nextID         int
+	distanceBudget int
+	global         *geometry.Field
+}
+
+/*
+NewRouter creates a new router with an empty community registry.
+*/
+func NewRouter(global *geometry.Field) *Router {
+	return &Router{
+		communityIDs:   make(map[io.ReadWriteCloser]int),
+		distanceBudget: 60,
+		global:         global,
+	}
+}
+
+/*
+Route a settled Value to the most appropriate community field
+using the gossip-based fast path. It wraps the PriorityRoute in an
+AffinityFilter and copies the Value. If no community accepts the Value,
+a new community is spawned and added to the route.
+*/
+func (router *Router) Route(values ...*primitive.Value) []*geometry.Field {
+	assigned := make([]*geometry.Field, 0, len(values))
+
+	for _, value := range values {
+		community := router.findCommunity(value)
+
+		if community == nil {
+			community = router.spawnCommunity(value)
+		}
+
+		community.Values = append(community.Values, value)
+		assigned = append(assigned, community)
+	}
+
+	return assigned
+}
+
+/*
+spawnCommunity creates a new community field from the Value's affinity,
+registers it in the route, assigns a stable ID, and emits the viz event.
+*/
+func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
+	community := geometry.NewCommunityField(geometry.Mod8191)
+	affinity := value.Get(primitive.AffinityRegion)
+	community.MergeAffinity(affinity)
+
+	router.route.AddPeer(community, affinity[:])
+
+	cid := router.nextID
+	router.communityIDs[community] = cid
+	router.nextID++
+	router.registerCommunity(cid, community, affinity)
+
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.CommunityCreatedEvent(cid, affinity[:]))
+		viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(value.ID(), cid, 0))
+	}
+
+	return community
+}
+
+/*
+findCommunity finds the most appropriate community for a Value within the
+distance budget, writes the Value into it via AffinityFilter, and emits
+routing viz events.
+*/
+func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
+	var frameAffinity [5]uint64
+	copy(frameAffinity[:], value.Get(primitive.AffinityRegion))
+
+	for _, peer := range router.route {
+		peerAffinity := peer.Affinity()
+		dist := geometry.AffinityHammingDistance(frameAffinity[:], peerAffinity[:])
+
+		if dist > router.distanceBudget {
+			continue
+		}
+
+		filter := gossip.NewAffinityFilter(peer.Dst(), peerAffinity, router.distanceBudget)
+
+		if _, err := io.Copy(filter, value); err != nil {
+			errnie.Error(err)
+			return nil
+		}
+
+		communityField, ok := peer.Dst().(*geometry.Field)
+		if !ok {
+			return nil
+		}
+
+		communityField.MergeAffinity(frameAffinity[:])
+		router.mergeGlobal(frameAffinity[:])
+
+		if viz.DefaultBus.IsActive() {
+			cid, known := router.communityIDs[peer.Dst()]
+			if known {
+				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(
+					value.ID(), cid, dist,
+				))
+			}
+		}
+
+		return communityField
 	}
 
 	return nil
 }
 
 /*
-communityNeedsSelfKnowledge determines if a community should emit probes to
-increase its coherence.
+CommunityCount reports the number of routed community fields known to this router.
 */
-func communityNeedsSelfKnowledge(community *geometry.Field) bool {
-	if community == nil {
-		return false
+func (router *Router) CommunityCount() int {
+	if router == nil {
+		return 0
 	}
-	unlabeled := 0
-	for _, value := range community.Values {
-		if value == nil {
-			continue
-		}
-		labelWord := (*value)[core.Cfg.Value.Region.Properties.Start]
-		if labelWord>>16 == 0 {
-			unlabeled++
-		}
-	}
-	return unlabeled >= 2
+
+	return router.nextID
 }
 
-/*
-emitFromCommunity mints a new Value that carries the community's aggregate
-affinity state. The emitted Value is published back to the queue so it
-re-enters the compute pipeline — this is the mechanism through which
-concentrated communities drive further computation.
-*/
-func (orchestrator *Orchestrator) emitFromCommunity(community *geometry.Field) *primitive.Value {
-	if community == nil || len(community.Affinity) == 0 {
-		return nil
-	}
-
-	var emitted primitive.Value
-
-	cfg := core.Cfg.Value.Region.Affinity
-
-	for wordIndex, word := range community.Affinity {
-		if cfg.Start+wordIndex >= 128 {
-			break
-		}
-
-		emitted[cfg.Start+wordIndex] = word
-	}
-
-	return &emitted
-}
-
-/*
-route places each Value into a community field: the sparse children of the
-root phase field whose aggregate affinity is nearby (Hamming) and whose Shannon
-saturation stays below the configured limit after an XOR merge.
-*/
-func (orchestrator *Orchestrator) route(
-	values ...*primitive.Value,
+func (router *Router) registerCommunity(
+	communityID int,
+	community *geometry.Field,
+	affinity []uint64,
 ) {
-	root := orchestrator.field
-	if root == nil {
+	if router == nil || router.global == nil || community == nil {
 		return
 	}
 
-	shannon := core.Cfg.System.ShannonLimit
-
-	for _, value := range values {
-		if value == nil {
-			continue
-		}
-
-		affinity := affinityWordsFromValue(value)
-
-		if affinityIsEmpty(affinity) {
-			orchestrator.materializeAffinity(value)
-
-			affinity = affinityWordsFromValue(value)
-
-			if affinityIsEmpty(affinity) {
-				continue
-			}
-		}
-
-		bestSlot := -1
-		bestDistance := math.MaxInt
-
-		for slotIndex, community := range root.Fields {
-			if community == nil {
-				continue
-			}
-
-			if community.AffinitySaturation() >= shannon {
-				continue
-			}
-
-			distance := geometry.AffinityHammingDistance(community.Affinity, affinity)
-			if distance >= affinityMatchBitBudget {
-				continue
-			}
-
-			if community.PredictAffinitySaturationAfterMerge(affinity) >= shannon {
-				continue
-			}
-
-			if distance < bestDistance {
-				bestDistance = distance
-				bestSlot = slotIndex
-			}
-		}
-
-		if bestSlot >= 0 {
-			community := root.Fields[bestSlot]
-			community.Values = append(community.Values, value)
-			community.MergeAffinity(affinity)
-
-			if viz.DefaultBus.IsActive() {
-				viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(
-					(*value)[core.Cfg.Value.Region.ID.Start],
-					bestSlot,
-					bestDistance,
-				))
-
-				sat := community.AffinitySaturation()
-				if sat >= shannon {
-					viz.DefaultBus.Publish(viz.CommunitySaturatedEvent(bestSlot, sat))
-				}
-			}
-
-			continue
-		}
-
-		freeSlot := firstFreeCommunitySlot(root)
-		if freeSlot < 0 {
-			continue
-		}
-
-		community := geometry.NewCommunityField(root.Modulus())
-		community.Values = append(community.Values, value)
-		community.MergeAffinity(affinity)
-		root.Fields[freeSlot] = community
-
-		if viz.DefaultBus.IsActive() {
-			viz.DefaultBus.Publish(viz.CommunityCreatedEvent(freeSlot, community.Affinity))
-			viz.DefaultBus.Publish(viz.ValueJoinedCommunityEvent(
-				(*value)[core.Cfg.Value.Region.ID.Start],
-				freeSlot,
-				0,
-			))
-		}
+	if communityID >= 0 {
+		router.ensureGlobalSlot(communityID)
+		router.global.Fields[communityID] = community
 	}
+
+	router.mergeGlobal(affinity)
 }
 
-/*
-materializeAffinity installs the affinity program on the Value and executes
-it synchronously through the queue's backend. This guarantees the affinity
-region (words 123-127) is populated before the orchestrator reads it for
-routing, regardless of what program the caller originally installed.
-*/
-func (orchestrator *Orchestrator) materializeAffinity(value *primitive.Value) {
-	installer := programmer.Installer{}
-
-	if err := installer.InstallProgram(value, "affinity"); err != nil {
+func (router *Router) mergeGlobal(affinity []uint64) {
+	if router == nil || router.global == nil {
 		return
 	}
 
-	orchestrator.queue.ExecuteInline(
-		[]unsafe.Pointer{unsafe.Pointer(value)},
-	)
+	router.global.MergeAffinity(affinity)
 }
 
-/*
-affinityIsEmpty returns true when every word in the affinity slice is zero,
-meaning the compute backend has not yet run the affinity kernel on this Value.
-A zero-affinity Value produces a trivially zero gap against a zero-aggregate
-community and must not be counted as resolved.
-*/
-func affinityIsEmpty(words []uint64) bool {
-	for _, word := range words {
-		if word != 0 {
-			return false
-		}
+func (router *Router) ensureGlobalSlot(communityID int) {
+	if router == nil || router.global == nil || communityID < 0 {
+		return
 	}
 
-	return true
-}
-
-/*
-affinityWordsFromValue copies the configured Affinity region words from the wire frame.
-*/
-func affinityWordsFromValue(value *primitive.Value) []uint64 {
-	cfg := core.Cfg.Value.Region.Affinity
-	wordCount := int(cfg.Bits+63) / 64
-
-	if wordCount < 1 {
-		wordCount = 1
+	if communityID < len(router.global.Fields) {
+		return
 	}
 
-	out := make([]uint64, wordCount)
-	start := cfg.Start
-
-	for wordIndex := range out {
-		out[wordIndex] = (*value)[start+wordIndex]
-	}
-
-	return out
-}
-
-/*
-firstFreeCommunitySlot returns the lowest index in the root phase vector that
-is still nil and can host a new community leaf.
-*/
-func firstFreeCommunitySlot(root *geometry.Field) int {
-	if root == nil || len(root.Fields) == 0 {
-		return -1
-	}
-
-	for slotIndex := range root.Fields {
-		if root.Fields[slotIndex] == nil {
-			return slotIndex
-		}
-	}
-
-	return -1
+	grown := make([]*geometry.Field, communityID+1)
+	copy(grown, router.global.Fields)
+	router.global.Fields = grown
 }
 
 <<<END>>>
@@ -26268,564 +26639,69 @@ package vm
 import (
 	"context"
 	"errors"
-	"io"
-	"sync"
-	"sync/atomic"
 
-	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
-	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/transport"
 	"github.com/theapemachine/six/pkg/viz"
 )
 
-var bufPool = sync.Pool{
-	New: func() any {
-		return make([]byte, core.Cfg.Value.Region.MaxTokenIngestBytes())
-	},
-}
-
-/*
-wireFrameBufPool holds buffers sized for Value.Bytes egress when a Pipeline
-tees wire frames while Publish runs on live *Value instances.
-*/
-var wireFrameBufPool = sync.Pool{
-	New: func() any {
-		return make([]byte, core.Cfg.Value.Bytes)
-	},
-}
-
 type Tokenizer struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-	rb     *ringbuffer.RingBuffer
-	pr     *ringbuffer.PipeReader
-	pw     *ringbuffer.PipeWriter
-	// pipeWriterClosed gates ClosePipeWriter so Load can unblock the ingest
-	// side when the drain path fails while the ring is full.
-	pipeWriterClosed uint32
-	queue            *pool.Queue
-	current          *primitive.Value
-	mintGoldClass    int
-	mintGoldOK       bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	current *primitive.Value
 }
 
-type tokenizerOption func(*Tokenizer)
-
-func NewTokenizer(
-	ctx context.Context,
-	queue *pool.Queue,
-	opts ...tokenizerOption,
-) (*Tokenizer, error) {
-	if err := validate.Require(map[string]any{
-		"queue": queue,
-	}); err != nil {
-		return nil, errnie.Error(err)
-	}
-
+func NewTokenizer(ctx context.Context) (*Tokenizer, error) {
 	ctx, cancel := context.WithCancel(ctx)
-
-	rb := ringbuffer.New(
-		int(
-			uint64(core.Cfg.Value.Region.MaxTokenIngestBytes()) * uint64(core.Cfg.Value.Bytes),
-		),
-	)
-
-	pr, pw := rb.Pipe()
 
 	tokenizer := &Tokenizer{
 		ctx:    ctx,
 		cancel: cancel,
-		rb:     rb,
-		pr:     pr,
-		pw:     pw,
-		queue:  queue,
 	}
 
-	for _, opt := range opts {
-		opt(tokenizer)
-	}
-
-	return tokenizer, validate.Require(map[string]any{
-		"tokenizer": tokenizer,
-		"ctx":       tokenizer.ctx,
-		"cancel":    tokenizer.cancel,
-		"rb":        tokenizer.rb,
-		"queue":     tokenizer.queue,
-	})
+	return tokenizer, nil
 }
 
-func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	buf := bufPool.Get().([]byte)
-	buf = buf[:cap(buf)]
-	defer bufPool.Put(buf[:0])
-
-	rbN, rbErr := tokenizer.rb.Read(buf)
-
-	if rbN > 0 {
-		if _, adoptErr := tokenizer.adoptChunk(buf[:rbN]); adoptErr != nil {
-			return 0, adoptErr
-		}
-
-		frameN, frameErr := tokenizer.current.Read(p)
-
-		// Value.Read returns io.EOF after each full frame (single-shot Reader).
-		// That is not tokenizer end-of-stream while the ring still has bytes.
-		if frameN > 0 && errors.Is(frameErr, io.EOF) {
-			frameErr = nil
-		}
-
-		if rbErr != nil && frameN > 0 && errors.Is(rbErr, io.EOF) {
-			rbErr = nil
-		}
-
-		if rbErr != nil {
-			return frameN, errnie.Error(rbErr)
-		}
-
-		return frameN, frameErr
-	}
-
-	if rbErr != nil {
-		return 0, errnie.Error(rbErr)
-	}
-
-	return 0, nil
+func (tokenizer *Tokenizer) Close() error {
+	tokenizer.cancel()
+	return nil
 }
 
-/*
-adoptChunk mints one or more *primitive.Value segments from a raw ingest chunk
-(via primitive.NewValue), chains Prev/Next across segments, then links the
-first new segment to the previous tokenizer.current (if any). The previous
-current is closed after writing its Next to the new head.
-
-Chunk length is at most MaxTokenIngestBytes so a single chunk usually yields
-one segment; longer logical payloads still never truncate because NewValue
-splits across segments inside one call.
-
-Returns every new segment (ordered); tokenizer.current becomes the tail.
-*/
-func (tokenizer *Tokenizer) adoptChunk(chunk []byte) ([]*primitive.Value, error) {
-	segments, err := primitive.NewValue(chunk)
-
-	if err != nil {
-		tokenizer.err = err
-
-		return nil, errnie.Error(err)
-	}
-
-	if tokenizer.mintGoldOK {
-		word := kernel.GoldLabelWord(tokenizer.mintGoldClass)
-
-		for _, seg := range segments {
-			seg.Set(kernel.PropertiesStartWord, word)
-		}
-	}
-
-	old := tokenizer.current
-	first := segments[0]
-	last := segments[len(segments)-1]
-
-	if old != nil {
-		first.Set(
-			core.Cfg.Value.Region.Prev.Start,
-			old.ID(),
-		)
-
-		old.Set(
-			core.Cfg.Value.Region.Next.Start,
-			first.ID(),
-		)
-
-		_ = old.Close()
-	}
-
-	tokenizer.current = last
-
-	return segments, nil
+func (tokenizer *Tokenizer) Error() error {
+	return tokenizer.err
 }
 
-/*
-AdoptLabeledSample runs adoptChunk for one dataset row and, when goldOK is true,
-stamps kernel.PropertiesStartWord with kernel.GoldLabelWord(goldClass) on every
-minted segment before Prev/Next chaining.
-
-This is the ingest path for discrete supervision: the ring-buffer Copy path cannot
-attach a per-sample class without chunk straddling, so Machine.Load calls this
-synchronously when the provider implements data.LabeledIngestFeed.
-*/
-func (tokenizer *Tokenizer) AdoptLabeledSample(payload []byte, goldClass int, goldOK bool) ([]*primitive.Value, error) {
-	tokenizer.mintGoldClass = goldClass
-	tokenizer.mintGoldOK = goldOK
-
-	defer func() {
-		tokenizer.mintGoldOK = false
-		tokenizer.mintGoldClass = 0
-	}()
-
-	return tokenizer.adoptChunk(payload)
-}
-
-/*
-IngestSample mints Values from sample.Text with primitive.NewValue (Morton-coded
-token slabs). When Label is non-empty, every minted segment receives the same
-Properties word from kernel.LabelPropertiesWord. Segments chain into the
-tokenizer’s Prev/Next list; each is affinity-installed and published like
-DrainPublishedValues, without using the ring buffer.
-*/
 func (tokenizer *Tokenizer) IngestSample(
-	ctx context.Context,
-	sample data.Sample,
-	publishers []transport.Publishable,
-) error {
+	ctx context.Context, sample data.Sample,
+) ([]*primitive.Value, error) {
 	if tokenizer == nil {
-		return errnie.Error(errors.New("vm.Tokenizer.IngestSample: nil Tokenizer"))
-	}
-
-	if len(publishers) == 0 {
-		return errnie.Error(errors.New("vm.Tokenizer.IngestSample: need at least one Publishable"))
-	}
-
-	if ctx != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
+		return nil, errnie.Error(errors.New("vm.Tokenizer.IngestSample: nil Tokenizer"))
 	}
 
 	if len(sample.Text) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	segments, err := primitive.NewValue(sample.Text)
+	if viz.DefaultBus.IsActive() {
+		viz.DefaultBus.Publish(viz.TokenizerChunkEvent(len(sample.Text)))
+	}
+
+	segments, err := primitive.NewValue(sample.Text, sample.Label)
 
 	if err != nil {
-		tokenizer.err = err
-
-		return errnie.Error(err)
+		return nil, errnie.Error(err)
 	}
 
-	if len(sample.Label) > 0 {
-		word := kernel.LabelPropertiesWord(sample.Label)
-
-		for _, seg := range segments {
-			seg.Set(kernel.PropertiesStartWord, word)
+	if viz.DefaultBus.IsActive() {
+		for _, segment := range segments {
+			viz.PublishWireValueFrame(segment.ID(), segment.Bytes())
+			viz.DefaultBus.Publish(viz.TokenizerEmitEvent(segment, string(sample.Label)))
 		}
 	}
 
-	old := tokenizer.current
-	first := segments[0]
-	last := segments[len(segments)-1]
-
-	if old != nil {
-		first.Set(
-			core.Cfg.Value.Region.Prev.Start,
-			old.ID(),
-		)
-
-		old.Set(
-			core.Cfg.Value.Region.Next.Start,
-			first.ID(),
-		)
-
-		_ = old.Close()
-	}
-
-	tokenizer.current = last
-
-	traceLabel := ""
-
-	for _, seg := range segments {
-		installer := programmer.Installer{}
-		if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {
-			return errnie.Error(installErr)
-		}
-
-		viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg, traceLabel))
-
-		for _, publisher := range publishers {
-			var pubErr error
-
-			if labeling, ok := publisher.(transport.LabelingPublishable); ok {
-				_, pubErr = labeling.PublishLabeled(traceLabel, seg)
-			} else {
-				_, pubErr = publisher.Publish(seg)
-			}
-
-			if pubErr != nil {
-				return pubErr
-			}
-		}
-	}
-
-	return nil
+	return segments, nil
 }
-
-/*
-DrainPublishedValues drains raw ingest from the ring into NewValue-sized
-chunks, publishes each live *Value to every sink, and optionally writes one
-wire frame per value to frameTee for Pipeline egress.
-
-It mirrors Read's chunking and prev/next linking without ValueFromWireFrame.
-*/
-func (tokenizer *Tokenizer) DrainPublishedValues(
-	ctx context.Context,
-	label string,
-	publishers []transport.Publishable,
-	frameTee io.Writer,
-) (err error) {
-	if tokenizer == nil {
-		return errnie.Error(errors.New("vm.Tokenizer.DrainPublishedValues: nil Tokenizer"))
-	}
-
-	buf := bufPool.Get().([]byte)
-	buf = buf[:cap(buf)]
-	defer bufPool.Put(buf[:0])
-
-	frameNeed := core.Cfg.Value.Bytes
-
-	var frameBacking []byte
-
-	if frameTee != nil {
-		raw := wireFrameBufPool.Get().([]byte)
-		raw = raw[:cap(raw)]
-
-		if cap(raw) < frameNeed {
-			raw = make([]byte, frameNeed)
-		}
-
-		frameBacking = raw
-
-		defer func() {
-			wireFrameBufPool.Put(raw)
-		}()
-	}
-
-	for {
-		if ctx != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-		}
-
-		rbN, rbErr := tokenizer.rb.Read(buf)
-
-		if rbN > 0 {
-			minted, adoptErr := tokenizer.adoptChunk(buf[:rbN])
-
-			if adoptErr != nil {
-				return adoptErr
-			}
-
-			for _, seg := range minted {
-				installer := programmer.Installer{}
-				if installErr := installer.InstallProgram(seg, "affinity"); installErr != nil {
-					return errnie.Error(installErr)
-				}
-
-				viz.DefaultBus.Publish(viz.TokenizerEmitEvent(seg, label))
-
-				for _, publisher := range publishers {
-					var pubErr error
-
-					if labeling, ok := publisher.(transport.LabelingPublishable); ok {
-						_, pubErr = labeling.PublishLabeled(label, seg)
-					} else {
-						_, pubErr = publisher.Publish(seg)
-					}
-
-					if pubErr != nil {
-						return pubErr
-					}
-				}
-
-				if frameTee != nil {
-					frameBuf := frameBacking[:frameNeed]
-					frameN, readErr := seg.Read(frameBuf)
-
-					if frameN > 0 && errors.Is(readErr, io.EOF) {
-						readErr = nil
-					}
-
-					if readErr != nil {
-						return errnie.Error(readErr)
-					}
-
-					if _, wErr := frameTee.Write(frameBuf[:frameN]); wErr != nil {
-						return wErr
-					}
-				}
-			}
-
-			if rbErr != nil {
-				if errors.Is(rbErr, io.EOF) {
-					return nil
-				}
-
-				return errnie.Error(rbErr)
-			}
-
-			continue
-		}
-
-		if rbErr != nil {
-			if errors.Is(rbErr, io.EOF) {
-				return nil
-			}
-
-			return errnie.Error(rbErr)
-		}
-
-		return nil
-	}
-}
-
-/*
-IngestReader copies r through the tokenizer write side, closes the pipe
-writer once, drains minted *primitive.Value records to publishers with
-label, then ResetAfterEOF for another bounded reader.
-
-One label applies to every Publish for that reader, so a logical sample
-split across multiple fixed-width Values needs no delimiter bytes—only
-that those bytes are copied before the next IngestReader call with the
-next label.
-
-Do not use IngestReader concurrently with transport.Pipeline on the same
-Tokenizer; Pipeline already runs a background DrainPublishedValues on this
-ring.
-*/
-func (tokenizer *Tokenizer) IngestReader(
-	ctx context.Context,
-	r io.Reader,
-	label string,
-	publishers []transport.Publishable,
-	frameTee io.Writer,
-) (err error) {
-	if tokenizer == nil {
-		return errnie.Error(errors.New("vm.Tokenizer.IngestReader: nil Tokenizer"))
-	}
-
-	if len(publishers) == 0 {
-		return errnie.Error(errors.New("vm.Tokenizer.IngestReader: need at least one Publishable"))
-	}
-
-	if err := validate.Require(map[string]any{
-		"pw": tokenizer.pw,
-		"rb": tokenizer.rb,
-	}); err != nil {
-		return errnie.Error(err)
-	}
-
-	errChan := make(chan error, 1)
-	go func() {
-		_, copyErr := io.Copy(tokenizer, r)
-		if closeErr := tokenizer.ClosePipeWriter(); closeErr != nil && copyErr == nil {
-			copyErr = closeErr
-		}
-		errChan <- copyErr
-	}()
-
-	drainErr := tokenizer.DrainPublishedValues(ctx, label, publishers, frameTee)
-	copyErr := <-errChan
-
-	if drainErr != nil {
-		if copyErr != nil {
-			return errnie.Error(errors.Join(drainErr, copyErr))
-		}
-
-		return errnie.Error(drainErr)
-	}
-
-	if copyErr != nil {
-		return errnie.Error(copyErr)
-	}
-
-	tokenizer.ResetAfterEOF()
-
-	return nil
-}
-
-func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
-	n, err = tokenizer.pw.Write(p)
-	if n > 0 {
-		viz.DefaultBus.Publish(viz.TokenizerChunkEvent(n))
-	}
-	return
-}
-
-/*
-CloseWrite satisfies transport.FramedBytePipe: end the raw ingest side after
-io.Copy from the dataset finishes.
-*/
-func (tokenizer *Tokenizer) CloseWrite() error {
-	return tokenizer.ClosePipeWriter()
-}
-
-var _ transport.FramedBytePipe = (*Tokenizer)(nil)
-
-/*
-ClosePipeWriter signals end-of-stream to readers so blocked Read calls
-unblock after the ring drains. Pair with ResetAfterEOF before reuse.
-*/
-func (tokenizer *Tokenizer) ClosePipeWriter() error {
-	if tokenizer == nil || tokenizer.pw == nil {
-		return nil
-	}
-
-	if !atomic.CompareAndSwapUint32(&tokenizer.pipeWriterClosed, 0, 1) {
-		return nil
-	}
-
-	return tokenizer.pw.Close()
-}
-
-/*
-ResetAfterEOF clears tokenizer-side state and resets the ring after the
-write end was closed and reads have drained. The same PipeReader and
-PipeWriter handles remain valid for the next ingest.
-*/
-func (tokenizer *Tokenizer) ResetAfterEOF() {
-	if tokenizer == nil || tokenizer.rb == nil {
-		return
-	}
-
-	if tokenizer.current != nil {
-		_ = tokenizer.current.Close()
-		tokenizer.current = nil
-	}
-
-	atomic.StoreUint32(&tokenizer.pipeWriterClosed, 0)
-	tokenizer.rb.Reset()
-}
-
-func (tokenizer *Tokenizer) Close() (err error) {
-	tokenizer.cancel()
-
-	var curClose error
-
-	if tokenizer.current != nil {
-		curClose = tokenizer.current.Close()
-		tokenizer.current = nil
-	}
-
-	return errors.Join(
-		err,
-		curClose,
-		tokenizer.pw.Close(),
-		tokenizer.pr.Close(),
-	)
-}
-
-var _ transport.PublishedValueDrainer = (*Tokenizer)(nil)
 
 <<<END>>>
