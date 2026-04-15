@@ -74,7 +74,7 @@ func NewMachine(
 	}
 
 	if machine.orchestrator, machine.err = NewOrchestrator(
-		ctx, machine.conn, machine.queue,
+		ctx, machine.conn, machine.queue, WithField(machine.field),
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}

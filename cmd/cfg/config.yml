@@ -248,3 +248,29 @@ programs:
   measure_field: |
     asset[0,8] asset[0,8] signals[7,1] or reduce
     next self
+
+finalizers:
+  - name: community_resonance_emit
+    scope: community
+    min_members: 3
+    min_concentration: 0.6
+    actions:
+      - type: emit
+        program: beam_swarm_step
+        ttl: 1
+        copies:
+          # Region refs use [start,span], not [start,end].
+          - source: field.affinity[0,5]
+            destination: gradient[0,5]
+          - source: value.signals[0,8]
+            destination: context[0,8]
+  - name: global_resonance_reprogram
+    scope: global
+    min_communities: 2
+    min_concentration: 0.3
+    actions:
+      - type: reprogram
+        program: active_inference
+        copies:
+          - source: field.affinity[0,5]
+            destination: gradient[0,5]

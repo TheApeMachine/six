@@ -57,6 +57,26 @@ type Continuation struct {
 }
 
 /*
+ParseRegionRef exposes the parser's region-ref validation to other runtime
+paths that need the same config surface without duplicating syntax rules.
+Accepted forms are region, region[index], and region[index,span], for example
+"gradient[2,3]".
+*/
+func ParseRegionRef(raw string) (RegionRef, error) {
+	parser := NewParser(NewProgram(""))
+	ref, ok := parser.parseRegionRef(raw)
+	if !ok {
+		if parser.err != nil {
+			return RegionRef{}, parser.err
+		}
+
+		return RegionRef{}, fmt.Errorf("programmer: invalid region ref %q", raw)
+	}
+
+	return ref, nil
+}
+
+/*
 Err returns the first parse error. Parse keeps the existing one-return API so
 callers that only need tokens stay simple.
 */

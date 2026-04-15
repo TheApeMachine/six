@@ -589,6 +589,8 @@ value:
 
 **`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
 
+**`finalizers:`** blocks hold generic post-ALU orchestration rules. They do not define new Go-side algorithms. Instead they specify when the runtime should either **reprogram the current Value** with an existing named program or **emit an ephemeral clone** of the current Value, optionally copying already-written in-band regions (for example `value.signals` or `field.affinity`) into another region before the next ALU pass.
+
 ---
 
 ## Infrastructure

@@ -59,13 +59,19 @@ func TestNewConfig(t *testing.T) {
 				rules := cfg.Value.Rules
 
 				So(len(rules), ShouldBeGreaterThan, 0)
-				So(rules[0].Name, ShouldEqual, "affinity")
-				So(rules[0].Firmware, ShouldEqual, "affinity")
+				So(rules[0].Name, ShouldEqual, "link")
+				So(rules[0].Firmware, ShouldEqual, "link")
 
-				affinityWant, ok := rules[0].Conditions["affinity"]
+				prevWant, ok := rules[0].Conditions["prev"]
 
 				So(ok, ShouldBeTrue)
-				So(affinityWant, ShouldEqual, false)
+				So(prevWant, ShouldEqual, false)
+			})
+
+			Convey("It should decode generic post-ALU finalizer rules", func() {
+				So(len(cfg.Finalizers), ShouldBeGreaterThan, 0)
+				So(cfg.Finalizers[0].Scope, ShouldEqual, "community")
+				So(len(cfg.Finalizers[0].Actions), ShouldBeGreaterThan, 0)
 			})
 		})
 
