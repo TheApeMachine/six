@@ -24,6 +24,10 @@ const (
 	IFA_THEN_B OperationType = 0b1101
 	NAND       OperationType = 0b1110
 	TRUE       OperationType = 0b1111
+
+	COMPOSE  OperationType = 0x10
+	SANDWICH OperationType = 0x20
+	REVERSE  OperationType = 0x30
 )
 
 /*

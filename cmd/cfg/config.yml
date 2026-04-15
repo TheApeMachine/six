@@ -181,6 +181,30 @@ programs:
     tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
     signals[0,8] signals[0,8] properties[0,1] xor reduce
 
+  # Geometric beam-gap step: compose the current attractor in context with the
+  # current motor in gradient and write the resulting phase-gap multivector to
+  # signals. This is the smallest substrate-native reasoning primitive: the
+  # program expresses the geometric step directly instead of relying on Go-side
+  # orchestration to interpret the lanes.
+  beam_gap_step: |
+    context[0,8] gradient[0,8] signals[0,8] compose accumulate
+
+  # Class projection: project the current target through the active class motor.
+  # A matching classifier can later reduce the emitted signals to an in-band
+  # score without leaving the Value substrate.
+  class_projection: |
+    context[0,8] gradient[0,8] signals[0,8] sandwich accumulate
+
+  # Causal projection: use the current causal rotor in gradient to push the
+  # present context forward into a predicted next-state multivector.
+  causal_projection: |
+    context[0,8] gradient[0,8] signals[0,8] sandwich accumulate
+
+  # Phase alignment: reverse the current context rotor into signals so later
+  # programs can compose against a locally normalized frame of reference.
+  phase_align: |
+    context[0,8] context[0,8] signals[0,8] reverse accumulate
+
   # Popperian Test: XORs tokens against a predicted-absent pattern in context.
   # A high popcount in properties[1] means the claim held (they differ); a low
   # popcount refutes it. If refuted, we zero the TTL word (properties[3]).

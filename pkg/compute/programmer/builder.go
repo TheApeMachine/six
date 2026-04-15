@@ -14,6 +14,10 @@ func NewBuilder(tokens []Token) *Builder {
 }
 
 func (builder *Builder) contractFor(tok Token) FrameContract {
+	if tok.Op == COMPOSE || tok.Op == SANDWICH || tok.Op == REVERSE {
+		return ContractGeometric
+	}
+
 	if tok.Mode == ModeReduce {
 		return ContractReduceBinary
 	}
@@ -70,6 +74,16 @@ func (builder *Builder) encodeMode(contract FrameContract, mode ExecutionMode) u
 }
 
 func (builder *Builder) packTruth(frame *Frame, op OperationType, tok Token) {
+	if frame.Contract == ContractGeometric {
+		frame.Program[0] = uint64(op)
+		frame.Program[1] = 0
+		frame.Program[2] = builder.encodeMode(frame.Contract, tok.Mode)
+		frame.Program[3] = kernel.PackRegionRef(tok.SrcA.WordExtent())
+		frame.Program[4] = kernel.PackRegionRef(tok.SrcB.WordExtent())
+		frame.Program[5] = kernel.PackRegionRef(tok.Dst.WordExtent())
+		return
+	}
+
 	nibble := uint64(op) & 0xF
 
 	frame.Program[0] = nibble

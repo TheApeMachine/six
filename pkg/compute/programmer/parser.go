@@ -44,7 +44,8 @@ passes this gate.
 func (*Parser) validateOperationMnemonic(mnemonic string) error {
 	switch strings.ToLower(strings.TrimSpace(mnemonic)) {
 	case "false", "and", "aandnotb", "a", "notandb", "b", "xor", "or", "nor", "xnor",
-		"notb", "ifbthena", "nota", "ifathenb", "nand", "true":
+		"notb", "ifbthena", "nota", "ifathenb", "nand", "true",
+		"compose", "sandwich", "reverse":
 		return nil
 	default:
 		return fmt.Errorf("programmer: unknown operation %q", mnemonic)
@@ -281,6 +282,12 @@ func (parser *Parser) parseOperationType(op string) OperationType {
 		return NAND
 	case "true":
 		return TRUE
+	case "compose":
+		return COMPOSE
+	case "sandwich":
+		return SANDWICH
+	case "reverse":
+		return REVERSE
 	}
 	return FALSE
 }

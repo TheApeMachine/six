@@ -104,6 +104,23 @@ func TestBuilder_packTruth(t *testing.T) {
 			So(frame.Program[2]&0xFF, ShouldEqual, uint64(ModeReduce))
 			So((frame.Program[2]>>kernel.ProgramContractShift)&0xFF, ShouldEqual, kernel.ProgramContractReduce)
 		})
+
+		Convey("packTruth should preserve full geometric opcode bytes", func() {
+			geometric := Token{
+				SrcA: FullRegionRef(primitive.ContextRegion),
+				SrcB: FullRegionRef(primitive.GradientRegion),
+				Dst:  FullRegionRef(primitive.SignalsRegion),
+				Op:   COMPOSE,
+				Mode: ModeAccumulate,
+			}
+
+			frame = Frame{Contract: ContractGeometric}
+			builder.packTruth(&frame, geometric.Op, geometric)
+
+			So(frame.Program[0], ShouldEqual, uint64(kernel.OpcodeGeometricCompose))
+			So(frame.Program[1], ShouldEqual, uint64(0))
+			So((frame.Program[2]>>kernel.ProgramContractShift)&0xFF, ShouldEqual, kernel.ProgramContractGeometric)
+		})
 	})
 }
 
@@ -167,6 +184,18 @@ func TestBuilder_contractFor(t *testing.T) {
 			})
 
 			So(contract, ShouldEqual, ContractSweepSignal)
+		})
+
+		Convey("contractFor should classify compose as geometric", func() {
+			contract := builder.contractFor(Token{
+				SrcA: FullRegionRef(primitive.ContextRegion),
+				SrcB: FullRegionRef(primitive.GradientRegion),
+				Dst:  FullRegionRef(primitive.SignalsRegion),
+				Op:   COMPOSE,
+				Mode: ModeAccumulate,
+			})
+
+			So(contract, ShouldEqual, ContractGeometric)
 		})
 	})
 }
