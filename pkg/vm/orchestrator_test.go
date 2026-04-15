@@ -208,58 +208,6 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 	})
 }
 
-/*
-TestOrchestratorCycleProjectsCommunities verifies the missing field heartbeat:
-once routing has created resident communities, Cycle must advance the attached
-global field so community state projects upward instead of staying stranded in
-the router only.
-*/
-func TestOrchestratorCycleProjectsCommunities(t *testing.T) {
-	Convey("Given an orchestrator with an attached global field and routed resident Values", t, func() {
-		ctx := context.Background()
-		queue, err := pool.NewQueue(ctx, func(*programmer.Executable) {})
-
-		So(err, ShouldBeNil)
-		defer func() {
-			So(queue.Close(), ShouldBeNil)
-		}()
-
-		orchestrator, err := NewOrchestrator(ctx, nil, queue)
-
-		So(err, ShouldBeNil)
-		defer func() {
-			So(orchestrator.Close(), ShouldBeNil)
-		}()
-
-		root := geometry.NewField(geometry.Mod65537)
-		orchestrator.router.AttachRoot(root)
-
-		first, err := primitive.FirstSegment(primitive.NewValue([]byte("field one")))
-		So(err, ShouldBeNil)
-		defer first.Close()
-
-		second, err := primitive.FirstSegment(primitive.NewValue([]byte("field two")))
-		So(err, ShouldBeNil)
-		defer second.Close()
-
-		affinityStart, _ := primitive.AffinityRegion.WordExtent()
-		for offset, word := range []uint64{0x11, 0x22, 0x33, 0x44, 0x1} {
-			first.Set(affinityStart+offset, word)
-			second.Set(affinityStart+offset, word)
-		}
-
-		orchestrator.router.Route(first, second)
-
-		_, err = orchestrator.Cycle()
-		So(err, ShouldBeNil)
-
-		Convey("Cycle should project the routed communities into the attached global field", func() {
-			So(len(root.Children), ShouldBeGreaterThan, 0)
-			So(root.Dominant().Index, ShouldBeGreaterThanOrEqualTo, 0)
-		})
-	})
-}
-
 func BenchmarkSubmitStep(b *testing.B) {
 	ctx := context.Background()
 	queue, err := pool.NewQueue(ctx, func(*programmer.Executable) {})

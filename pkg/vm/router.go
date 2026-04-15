@@ -20,7 +20,6 @@ type Router struct {
 	communityIDs   map[io.ReadWriteCloser]int
 	nextID         int
 	distanceBudget int
-	root           *geometry.Field
 }
 
 /*
@@ -31,22 +30,6 @@ func NewRouter() *Router {
 		communityIDs:   make(map[io.ReadWriteCloser]int),
 		distanceBudget: 60,
 	}
-}
-
-func (router *Router) AttachRoot(root *geometry.Field) {
-	if router == nil {
-		return
-	}
-
-	router.root = root
-}
-
-func (router *Router) Root() *geometry.Field {
-	if router == nil {
-		return nil
-	}
-
-	return router.root
 }
 
 /*
@@ -81,10 +64,6 @@ func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
 	cid := router.nextID
 	router.communityIDs[community] = cid
 	router.nextID++
-
-	if router.root != nil {
-		router.root.Children = append(router.root.Children, community)
-	}
 
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.CommunityCreatedEvent(cid, affinity[:]))

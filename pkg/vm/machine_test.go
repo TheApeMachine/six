@@ -259,7 +259,6 @@ func TestMachineLoad(t *testing.T) {
 		So((*secondValue)[120], ShouldEqual, firstValue.ID())
 		So((*firstValue)[123] != 0 || (*firstValue)[124] != 0 || (*firstValue)[125] != 0 || (*firstValue)[126] != 0 || (*firstValue)[127] != 0, ShouldBeTrue)
 		So((*secondValue)[123] != 0 || (*secondValue)[124] != 0 || (*secondValue)[125] != 0 || (*secondValue)[126] != 0 || (*secondValue)[127] != 0, ShouldBeTrue)
-		So(len(machine.field.Children), ShouldBeGreaterThan, 0)
 	})
 }
 
@@ -362,7 +361,7 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 			affinityNonZero := false
 			for word := 123; word <= 127; word++ {
 				off := word * 8
-				got := binary.LittleEndian.Uint64(last[off:off+8])
+				got := binary.LittleEndian.Uint64(last[off : off+8])
 				affinityWords = append(affinityWords, fmt.Sprintf("%016x", got))
 				if got != 0 {
 					affinityNonZero = true

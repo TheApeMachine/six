@@ -164,12 +164,6 @@ func (orchestrator *Orchestrator) Cycle(
 		orchestrator.publishExecuted(value)
 	}
 
-	if orchestrator != nil && orchestrator.router != nil {
-		if root := orchestrator.router.Root(); root != nil {
-			return root.Cycle()
-		}
-	}
-
 	return nil, nil
 }
 
