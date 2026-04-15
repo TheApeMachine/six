@@ -11,6 +11,8 @@ import (
 
 var udpOnce sync.Once
 
+const maxUDPPayloadBytes = 65507
+
 /*
 ConfigureFromConfig activates telemetry publishing and, when configured, forwards
 all wire frames to the configured UDP endpoint for the visualizer bridge.
@@ -27,8 +29,6 @@ func ConfigureUDP(enabled bool, endpoint string) {
 		return
 	}
 
-	DefaultBus.Activate()
-
 	if strings.TrimSpace(endpoint) == "" {
 		return
 	}
@@ -39,20 +39,30 @@ func ConfigureUDP(enabled bool, endpoint string) {
 			errnie.Warn("telemetry.ConfigureUDP: dial failed", "endpoint", endpoint, "err", err)
 			return
 		}
-
-		channel := DefaultBus.Subscribe(8192, nil)
+		frameChannel := make(chan []byte, 8192)
 
 		go func() {
-			for event := range channel {
-				if _, err := conn.Write(MarshalWireEvent(event)); err != nil {
-					errnie.Warn("telemetry.ConfigureUDP: event write failed", "endpoint", endpoint, "err", err)
+			for payload := range frameChannel {
+				if len(payload) > maxUDPPayloadBytes {
+					continue
+				}
+
+				if _, err := conn.Write(payload); err != nil {
+					errnie.Warn("telemetry.ConfigureUDP: frame write failed", "endpoint", endpoint, "err", err)
 				}
 			}
 		}()
 
 		SetWireValueFrameSink(func(payload []byte) {
-			if _, err := conn.Write(payload); err != nil {
-				errnie.Warn("telemetry.ConfigureUDP: frame write failed", "endpoint", endpoint, "err", err)
+			if len(payload) > maxUDPPayloadBytes {
+				return
+			}
+
+			copyPayload := append([]byte(nil), payload...)
+
+			select {
+			case frameChannel <- copyPayload:
+			default:
 			}
 		})
 

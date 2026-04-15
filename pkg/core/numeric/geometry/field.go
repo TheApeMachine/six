@@ -568,17 +568,6 @@ func (field *Field) Dominant() PhaseMode {
 		return PhaseMode{Index: -1}
 	}
 
-	if field.lastMode != -1 && bestIndex != -1 && field.lastMode != bestIndex {
-		if field.Cooccurrence[field.lastMode] == nil {
-			field.Cooccurrence[field.lastMode] = make(map[int]uint32)
-		}
-		field.Cooccurrence[field.lastMode][bestIndex]++
-	}
-
-	if bestIndex != -1 {
-		field.lastMode = bestIndex
-	}
-
 	return PhaseMode{
 		Index:         bestIndex,
 		Amplitude:     bestSignal,

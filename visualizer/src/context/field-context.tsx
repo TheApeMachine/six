@@ -141,6 +141,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 	const selectValueById = useCallback(
 		(id: string) => {
 			if (!id) {
+				setSelection(null);
 				return false;
 			}
 

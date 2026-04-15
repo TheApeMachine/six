@@ -19,6 +19,7 @@ and works even when the engine is not processing.
 */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { telemetryHttpBase } from "@/features/telemetry/endpoint";
 import { cn } from "@/lib/utils";
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -389,13 +390,7 @@ export function ProgramViewer({
 	// Fetch firmware programs from the viz server once on mount.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional one-shot fetch; initialProgram changes are handled by the effect below
 	useEffect(() => {
-		const meta = import.meta as unknown as {
-			env?: Record<string, string>;
-		};
-		const host = meta.env?.VITE_VIZ_HOST || "localhost";
-		const port = meta.env?.VITE_VIZ_PORT || "6600";
-
-		fetch(`http://${host}:${port}/api/programs`)
+		fetch(`${telemetryHttpBase()}/api/programs`)
 			.then((r) => {
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
 				return r.json() as Promise<Record<string, string>>;

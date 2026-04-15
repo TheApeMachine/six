@@ -1,10 +1,11 @@
 package vm
 
 import (
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
@@ -44,6 +45,11 @@ func (router *Router) Route(values ...*primitive.Value) []*geometry.Field {
 	assigned := make([]*geometry.Field, 0, len(values))
 
 	for _, value := range values {
+		if existing := router.assignedCommunity(value); existing != nil {
+			assigned = append(assigned, existing)
+			continue
+		}
+
 		community := router.findCommunity(value)
 
 		if community == nil {
@@ -55,6 +61,61 @@ func (router *Router) Route(values ...*primitive.Value) []*geometry.Field {
 	}
 
 	return assigned
+}
+
+func (router *Router) assignedCommunity(value *primitive.Value) *geometry.Field {
+	if router == nil || router.global == nil || value == nil {
+		return nil
+	}
+
+	for _, community := range router.global.Fields {
+		if community == nil {
+			continue
+		}
+
+		for _, member := range community.Values {
+			if member == value || (member != nil && member.ID() == value.ID()) {
+				return community
+			}
+		}
+	}
+
+	return nil
+}
+
+/*
+PublishGraphSnapshot emits the current routed community membership graph.
+*/
+func (router *Router) PublishGraphSnapshot() {
+	if router == nil || router.global == nil || !telemetry.DefaultBus.IsActive() {
+		return
+	}
+
+	communities := make([]telemetry.CommunityGraphSnapshot, 0, len(router.global.Fields))
+
+	for communityID, community := range router.global.Fields {
+		if community == nil {
+			continue
+		}
+
+		snapshot := telemetry.CommunityGraphSnapshot{
+			ID:          communityID,
+			AffinityHex: affinityHex(community.Affinity),
+			MemberIDs:   make([]string, 0, len(community.Values)),
+		}
+
+		for _, value := range community.Values {
+			if value == nil {
+				continue
+			}
+
+			snapshot.MemberIDs = append(snapshot.MemberIDs, telemetry.FormatValueIDHex(value.ID()))
+		}
+
+		communities = append(communities, snapshot)
+	}
+
+	telemetry.DefaultBus.Publish(telemetry.TrieGraphSnapshotEvent(communities))
 }
 
 /*
@@ -96,13 +157,6 @@ func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
 
 		if dist > router.distanceBudget {
 			continue
-		}
-
-		filter := gossip.NewAffinityFilter(peer.Dst(), peerAffinity, router.distanceBudget)
-
-		if _, err := io.Copy(filter, value); err != nil {
-			errnie.Error(err)
-			return nil
 		}
 
 		communityField, ok := peer.Dst().(*geometry.Field)
@@ -180,4 +234,19 @@ func (router *Router) ensureGlobalSlot(communityID int) bool {
 	copy(grown, router.global.Fields)
 	router.global.Fields = grown
 	return true
+}
+
+func affinityHex(words []uint64) string {
+	if len(words) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(words) * 16)
+
+	for _, word := range words {
+		fmt.Fprintf(&builder, "%016x", word)
+	}
+
+	return builder.String()
 }

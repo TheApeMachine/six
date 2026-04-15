@@ -63,9 +63,15 @@ func appendStringU32(buffer []byte, value string) []byte {
 /*
 MarshalWireEvent encodes one telemetry event as a VZB frame.
 */
-func MarshalWireEvent(event Event) []byte {
+func MarshalWireEvent(event Event) (buffer []byte) {
+	defer func() {
+		if recover() != nil {
+			buffer = nil
+		}
+	}()
+
 	body := marshalEventPayload(event)
-	buffer := make([]byte, 0, 5+len(body))
+	buffer = make([]byte, 0, 5+len(body))
 	buffer = append(buffer, wireHeader(WireFrameEvent)...)
 	buffer = append(buffer, body...)
 

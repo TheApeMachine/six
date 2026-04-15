@@ -2,11 +2,14 @@ package task
 
 import (
 	"context"
+	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -116,12 +119,93 @@ the Go telemetry publisher path.
 func PipelineWithViz(addr string) pipelineOpts {
 	return func(_ *Pipeline) {
 		vizOnce.Do(func() {
-			if addr != "" {
-				errnie.Info("task.PipelineWithViz", "bridge_addr", addr)
+			endpoint := resolveVizTelemetryEndpoint(addr)
+
+			if endpoint == "" {
+				telemetry.ConfigureFromConfig()
+				return
 			}
 
-			telemetry.ConfigureFromConfig()
+			errnie.Info("task.PipelineWithViz", "bridge_addr", addr, "telemetry_endpoint", endpoint)
+			telemetry.ConfigureUDP(true, endpoint)
 		})
+	}
+}
+
+func resolveVizTelemetryEndpoint(addr string) string {
+	configuredEndpoint := ""
+
+	if core.Cfg != nil {
+		configuredEndpoint = strings.TrimSpace(core.Cfg.TelemetryEndpoint)
+	}
+
+	if strings.TrimSpace(addr) == "" {
+		return configuredEndpoint
+	}
+
+	host := normalizeVizHost(hostFromAddr(addr))
+
+	if host == "" {
+		host = normalizeVizHost(hostFromAddr(configuredEndpoint))
+	}
+
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	port := portFromAddr(configuredEndpoint)
+
+	if port == "" {
+		port = "8258"
+	}
+
+	return net.JoinHostPort(host, port)
+}
+
+func hostFromAddr(addr string) string {
+	trimmed := strings.TrimSpace(addr)
+
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmed, ":") {
+		return ""
+	}
+
+	host, _, err := net.SplitHostPort(trimmed)
+	if err == nil {
+		return host
+	}
+
+	return trimmed
+}
+
+func portFromAddr(addr string) string {
+	trimmed := strings.TrimSpace(addr)
+
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmed, ":") {
+		return strings.TrimPrefix(trimmed, ":")
+	}
+
+	_, port, err := net.SplitHostPort(trimmed)
+	if err != nil {
+		return ""
+	}
+
+	return port
+}
+
+func normalizeVizHost(host string) string {
+	switch strings.TrimSpace(host) {
+	case "", "0.0.0.0", "::", "[::]":
+		return ""
+	default:
+		return strings.TrimSpace(host)
 	}
 }
 

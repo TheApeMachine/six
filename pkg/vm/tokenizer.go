@@ -58,9 +58,12 @@ func (tokenizer *Tokenizer) IngestSample(
 		return nil, errnie.Error(err)
 	}
 
-	if telemetry.DefaultBus.IsActive() {
-		for _, segment := range segments {
+	for _, segment := range segments {
+		if telemetry.HasWireValueFrameSink() {
 			telemetry.PublishWireValueFrame(segment.ID(), segment.Bytes())
+		}
+
+		if telemetry.DefaultBus.IsActive() {
 			telemetry.DefaultBus.Publish(telemetry.TokenizerEmitEvent(segment, string(sample.Label)))
 		}
 	}

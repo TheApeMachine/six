@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -96,6 +97,15 @@ type Event struct {
 	Label     string             `json:"lbl"`
 	Values    map[string]float64 `json:"vals"`
 	Meta      map[string]string  `json:"meta"`
+}
+
+/*
+CommunityGraphSnapshot describes the current routed contents of one community.
+*/
+type CommunityGraphSnapshot struct {
+	ID          int      `json:"id"`
+	AffinityHex string   `json:"affinity_hex"`
+	MemberIDs   []string `json:"member_ids"`
 }
 
 /*
@@ -365,6 +375,28 @@ func ValueJoinedCommunityEvent(valueID uint64, communityID int, distance int) Ev
 	event.Values["community_id"] = float64(communityID)
 	event.Values["distance"] = float64(distance)
 	event.Meta["value_id"] = FormatValueIDHex(valueID)
+
+	return event
+}
+
+/*
+TrieGraphSnapshotEvent records the current routed community membership graph.
+*/
+func TrieGraphSnapshotEvent(communities []CommunityGraphSnapshot) Event {
+	event := NewEvent(EventTrieGraphSnapshot, "orchestrator")
+	event.Values["communities"] = float64(len(communities))
+
+	totalMembers := 0
+	for _, community := range communities {
+		totalMembers += len(community.MemberIDs)
+	}
+
+	event.Values["members"] = float64(totalMembers)
+
+	payload, err := json.Marshal(communities)
+	if err == nil {
+		event.Meta["communities"] = string(payload)
+	}
 
 	return event
 }

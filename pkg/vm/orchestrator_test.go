@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -204,6 +205,183 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 				assigned += len(community.Values)
 			}
 			So(assigned, ShouldBeGreaterThanOrEqualTo, 2)
+		})
+	})
+}
+
+func TestOrchestratorRoutesAffinityEstablishedValueImmediately(t *testing.T) {
+	Convey("Given a Value whose affinity has already been established", t, func() {
+		dispatched := make(chan *programmer.Executable, 1)
+
+		queue, err := pool.NewQueue(context.Background(), func(executable *programmer.Executable) {
+			dispatched <- executable
+		})
+
+		So(err, ShouldBeNil)
+		defer func() {
+			So(queue.Close(), ShouldBeNil)
+		}()
+
+		orchestrator, err := NewOrchestrator(context.Background(), nil, queue)
+
+		So(err, ShouldBeNil)
+		defer func() {
+			So(orchestrator.Close(), ShouldBeNil)
+		}()
+
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("affinity-routed")))
+		So(err, ShouldBeNil)
+		defer value.Close()
+
+		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		value.Set(affinityStart, 0xfeedbeef)
+		value.Set(kernel.SchedulingNextProgramWord, value.ID())
+
+		orchestrator.submitStep(value)
+
+		Convey("It should route the Value immediately instead of re-entering firmware", func() {
+			select {
+			case executable := <-dispatched:
+				t.Fatalf("unexpected executable dispatch for affinity-established value: %#v", executable)
+			case <-time.After(150 * time.Millisecond):
+			}
+
+			So(orchestrator.router.CommunityCount(), ShouldEqual, 1)
+
+			community := orchestrator.communityForValue(value)
+			So(community, ShouldNotBeNil)
+			So(len(community.Values), ShouldEqual, 1)
+			So(community.Values[0], ShouldEqual, value)
+		})
+	})
+}
+
+func TestOrchestratorBootstrapGate(t *testing.T) {
+	Convey("Given aggressive field finalizers during bootstrap", t, func() {
+		originalRules := core.Cfg.Finalizers
+		Reset(func() {
+			core.Cfg.Finalizers = originalRules
+		})
+
+		core.Cfg.Finalizers = []core.FinalizerRuleConfig{
+			{
+				Name:       "bootstrap-emit",
+				Scope:      communityFinalizerScope,
+				MinMembers: 1,
+				Actions: []core.FinalizerActionConfig{
+					{
+						Type:    "emit",
+						Program: "beam_swarm_step",
+						TTL:     1,
+					},
+				},
+			},
+		}
+
+		dispatched := make(chan *programmer.Executable, 2)
+		queue, err := pool.NewQueue(context.Background(), func(executable *programmer.Executable) {
+			dispatched <- executable
+		})
+		So(err, ShouldBeNil)
+		defer func() {
+			So(queue.Close(), ShouldBeNil)
+		}()
+
+		orchestrator, err := NewOrchestrator(context.Background(), nil, queue)
+		So(err, ShouldBeNil)
+		defer func() {
+			So(orchestrator.Close(), ShouldBeNil)
+		}()
+
+		value, err := primitive.FirstSegment(primitive.NewValue([]byte("bootstrap gate")))
+		So(err, ShouldBeNil)
+		defer value.Close()
+
+		community := geometry.NewCommunityField(geometry.Mod8191)
+		community.Values = append(community.Values, value)
+		community.Affinity = []uint64{1, 2, 3, 4, 5}
+
+		orchestrator.BeginBootstrap()
+		orchestrator.finalizeFields(value, community)
+		orchestrator.EndBootstrap()
+
+		Convey("It should not dispatch autonomous field actions until bootstrap ends", func() {
+			select {
+			case executable := <-dispatched:
+				t.Fatalf("unexpected executable during bootstrap: %#v", executable)
+			case <-time.After(150 * time.Millisecond):
+			}
+		})
+
+		Convey("It should dispatch field actions once bootstrap has ended", func() {
+			orchestrator.finalizeFields(value, community)
+
+			select {
+			case executable := <-dispatched:
+				So(executable, ShouldNotBeNil)
+				So(executable.Value(), ShouldNotEqual, value)
+			case <-time.After(2 * time.Second):
+				t.Fatal("expected field action after bootstrap")
+			}
+		})
+	})
+}
+
+func TestOrchestratorCycle(t *testing.T) {
+	Convey("Given a routed prompt value", t, func() {
+		ctx := context.Background()
+		backend := compute.NewBackend(ctx)
+		queue, err := pool.NewQueue(ctx, backend.Dispatch)
+		So(err, ShouldBeNil)
+		defer func() {
+			So(queue.Close(), ShouldBeNil)
+		}()
+
+		orchestrator, err := NewOrchestrator(ctx, nil, queue)
+		So(err, ShouldBeNil)
+		defer func() {
+			So(orchestrator.Close(), ShouldBeNil)
+		}()
+
+		first, err := primitive.FirstSegment(primitive.NewValue([]byte("cycle prompt first")))
+		So(err, ShouldBeNil)
+		defer first.Close()
+
+		second, err := primitive.FirstSegment(primitive.NewValue([]byte("cycle prompt second")))
+		So(err, ShouldBeNil)
+		defer second.Close()
+
+		_, publishErr := orchestrator.Publish(first, second)
+		So(publishErr, ShouldBeNil)
+
+		Convey("It should surface a resolved value from the cycled field state", func() {
+			var processed []*primitive.Value
+			deadline := time.Now().Add(2 * time.Second)
+
+			for time.Now().Before(deadline) {
+				processed, err = orchestrator.Cycle()
+				So(err, ShouldBeNil)
+
+				if len(processed) == 0 {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+
+				stateWord, err := processed[0].Property(primitive.STATE)
+				So(err, ShouldBeNil)
+
+				if stateWord == uint64(primitive.RESOLVED) {
+					break
+				}
+
+				time.Sleep(10 * time.Millisecond)
+			}
+
+			So(len(processed), ShouldBeGreaterThan, 0)
+
+			stateWord, err := processed[0].Property(primitive.STATE)
+			So(err, ShouldBeNil)
+			So(stateWord, ShouldEqual, uint64(primitive.RESOLVED))
 		})
 	})
 }

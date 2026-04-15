@@ -43,6 +43,12 @@ interface TelemetryCommunity {
 	memberIds: Set<string>;
 }
 
+interface TelemetryGraphSnapshot {
+	id: number;
+	affinity_hex?: string;
+	member_ids?: string[];
+}
+
 export interface TelemetryState {
 	events: VizEvent[];
 	selection: VizInspectSnapshot | null;
@@ -296,6 +302,66 @@ function removeValueFromCommunities(
 	}
 }
 
+function applyGraphSnapshot(
+	values: Map<string, TelemetryValue>,
+	communities: Map<number, TelemetryCommunity>,
+	valueStore: ValueStore,
+	event: VizEvent,
+) {
+	const payload = event.meta?.communities;
+	if (!payload) {
+		return;
+	}
+
+	let snapshots: TelemetryGraphSnapshot[];
+
+	try {
+		snapshots = JSON.parse(payload) as TelemetryGraphSnapshot[];
+	} catch {
+		return;
+	}
+
+	for (const community of communities.values()) {
+		community.memberIds.clear();
+	}
+
+	for (const value of values.values()) {
+		if (value.role === "action" || value.role === "reaction") {
+			continue;
+		}
+
+		value.communityId = -1;
+		value.communityAffinityHex = "";
+	}
+
+	for (const snapshot of snapshots) {
+		if (typeof snapshot?.id !== "number" || snapshot.id < 0) {
+			continue;
+		}
+
+		const community = ensureCommunity(communities, snapshot.id);
+		community.affinityHex = snapshot.affinity_hex || community.affinityHex;
+		community.memberIds.clear();
+
+		for (const memberID of snapshot.member_ids ?? []) {
+			if (!memberID) {
+				continue;
+			}
+
+			const value = ensureValue(
+				values,
+				valueStore,
+				memberID,
+				values.get(memberID)?.role || "data",
+			);
+
+			value.communityId = snapshot.id;
+			value.communityAffinityHex = community.affinityHex;
+			community.memberIds.add(memberID);
+		}
+	}
+}
+
 function applyEvent(
 	values: Map<string, TelemetryValue>,
 	communities: Map<number, TelemetryCommunity>,
@@ -463,6 +529,11 @@ function applyEvent(
 		const community = ensureCommunity(communities, communityId);
 		community.concentration =
 			event.vals?.concentration ?? community.concentration;
+		return;
+	}
+
+	if (event.kind === EK.TrieGraphSnapshot) {
+		applyGraphSnapshot(values, communities, valueStore, event);
 		return;
 	}
 

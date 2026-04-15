@@ -8,6 +8,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -35,10 +36,12 @@ type Orchestrator struct {
 	router    *Router
 	field     *geometry.Field
 	finalizer *ActionFinalizer
+	lifecycle *LifecycleEngine
 	inbox     *data.Ring
 	lastID    uint64
 	enqueued  atomic.Uint64
 	draining  atomic.Uint32
+	bootstrap atomic.Bool
 }
 
 type orchestratorOption func(*Orchestrator)
@@ -82,6 +85,11 @@ func NewOrchestrator(
 
 	orchestrator.router = NewRouter(orchestrator.field)
 	orchestrator.finalizer = NewActionFinalizer(orchestrator)
+	orchestrator.lifecycle = NewLifecycleEngine(
+		orchestrator,
+		orchestrator.firmware,
+		orchestrator.finalizer,
+	)
 
 	orchestrator.inbox, orchestrator.err = data.NewRing(ctx, data.RingCapacity)
 
@@ -98,6 +106,7 @@ func NewOrchestrator(
 		"router":    orchestrator.router,
 		"field":     orchestrator.field,
 		"finalizer": orchestrator.finalizer,
+		"lifecycle": orchestrator.lifecycle,
 		"inbox":     orchestrator.inbox,
 	}); err != nil {
 		cancel()
@@ -127,9 +136,38 @@ func (orchestrator *Orchestrator) Error() error {
 	return orchestrator.err
 }
 
+/*
+BeginBootstrap marks the orchestrator as being in ingest bootstrap mode.
+During bootstrap the runtime still performs link, affinity, and routing, but
+field-level autonomous actions are held back until bootstrap completes.
+*/
+func (orchestrator *Orchestrator) BeginBootstrap() {
+	if orchestrator == nil {
+		return
+	}
+
+	orchestrator.bootstrap.Store(true)
+}
+
+/*
+EndBootstrap clears ingest bootstrap mode so field-level autonomous actions may
+resume.
+*/
+func (orchestrator *Orchestrator) EndBootstrap() {
+	if orchestrator == nil {
+		return
+	}
+
+	orchestrator.bootstrap.Store(false)
+}
+
 func (orchestrator *Orchestrator) publishPrepared(value *primitive.Value) {
 	if orchestrator == nil || value == nil {
 		return
+	}
+
+	if telemetry.HasWireValueFrameSink() {
+		telemetry.PublishWireValueFrame(value.ID(), value.Bytes())
 	}
 
 	if telemetry.DefaultBus.IsActive() {
@@ -138,7 +176,6 @@ func (orchestrator *Orchestrator) publishPrepared(value *primitive.Value) {
 			value,
 			value.String(),
 		))
-		telemetry.PublishWireValueFrame(value.ID(), value.Bytes())
 	}
 
 	orchestrator.publishExecuted(value)
@@ -193,7 +230,51 @@ func (orchestrator *Orchestrator) Cycle(
 		orchestrator.publishExecuted(value)
 	}
 
-	return nil, nil
+	if orchestrator == nil || orchestrator.field == nil {
+		return nil, nil
+	}
+
+	processed, err := orchestrator.field.Cycle()
+	if err != nil {
+		return nil, err
+	}
+
+	if orchestrator.bootstrap.Load() {
+		return processed, nil
+	}
+
+	if orchestrator.lifecycle != nil {
+		for _, community := range orchestrator.field.Fields {
+			if community == nil {
+				continue
+			}
+
+			value := orchestrator.representativeValue(community)
+			if value == nil {
+				continue
+			}
+
+			_ = orchestrator.lifecycle.FinalizeField(
+				communityFinalizerScope,
+				value,
+				community,
+			)
+		}
+
+		if value := orchestrator.representativeValue(orchestrator.field); value != nil {
+			_ = orchestrator.lifecycle.FinalizeField(
+				globalFinalizerScope,
+				value,
+				orchestrator.field,
+			)
+		}
+	}
+
+	if orchestrator.router != nil {
+		orchestrator.router.PublishGraphSnapshot()
+	}
+
+	return orchestrator.resolveValues(processed), nil
 }
 
 /*
@@ -219,7 +300,7 @@ func (orchestrator *Orchestrator) finalizeExecutedValue(value *primitive.Value) 
 		return
 	}
 
-	if orchestrator.finalizer != nil && orchestrator.finalizer.FinalizeValue(value) {
+	if orchestrator.lifecycle != nil && orchestrator.lifecycle.FinalizeValue(value) {
 		return
 	}
 
@@ -279,7 +360,13 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 		return
 	}
 
-	name := orchestrator.firmware.Next(value)
+	if orchestrator.affinityEstablished(value) {
+		value.Set(kernel.SchedulingNextProgramWord, 0)
+		orchestrator.router.Route(value)
+		return
+	}
+
+	name := orchestrator.lifecycle.SelectProgram(value)
 
 	if name == "" && value[kernel.SchedulingNextProgramWord] == value.ID() {
 		executable := programmer.NewResidentExecutable(value)
@@ -295,8 +382,7 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 
 	if name == "" {
 		orchestrator.clearProgram(value)
-		communities := orchestrator.router.Route(value)
-		orchestrator.finalizeFields(value, communities...)
+		orchestrator.router.Route(value)
 		return
 	}
 
@@ -315,6 +401,14 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 	})
 }
 
+func (orchestrator *Orchestrator) affinityEstablished(value *primitive.Value) bool {
+	if orchestrator == nil || orchestrator.firmware == nil || value == nil {
+		return false
+	}
+
+	return orchestrator.firmware.HasBits(value.Get(primitive.AffinityRegion))
+}
+
 func (orchestrator *Orchestrator) finalizeFields(
 	value *primitive.Value,
 	communities ...*geometry.Field,
@@ -323,31 +417,150 @@ func (orchestrator *Orchestrator) finalizeFields(
 		return
 	}
 
+	if orchestrator.bootstrap.Load() {
+		return
+	}
+
 	if orchestrator.field != nil {
 		_, _ = orchestrator.field.Cycle()
 	}
 
 	for _, community := range communities {
-		if community == nil || orchestrator.finalizer == nil {
+		if community == nil || orchestrator.lifecycle == nil {
 			continue
 		}
 
-		_ = orchestrator.finalizer.FinalizeField(
+		_ = orchestrator.lifecycle.FinalizeField(
 			communityFinalizerScope,
 			value,
 			community,
 		)
 	}
 
-	if orchestrator.finalizer == nil || orchestrator.field == nil {
+	if orchestrator.lifecycle == nil || orchestrator.field == nil {
+		if orchestrator.router != nil {
+			orchestrator.router.PublishGraphSnapshot()
+		}
 		return
 	}
 
-	_ = orchestrator.finalizer.FinalizeField(
+	_ = orchestrator.lifecycle.FinalizeField(
 		globalFinalizerScope,
 		value,
 		orchestrator.field,
 	)
+
+	if orchestrator.router != nil {
+		orchestrator.router.PublishGraphSnapshot()
+	}
+}
+
+func (orchestrator *Orchestrator) resolveValues(
+	values []*primitive.Value,
+) []*primitive.Value {
+	if orchestrator == nil || len(values) == 0 {
+		return values
+	}
+
+	resolved := make([]*primitive.Value, 0, len(values))
+	propertiesStart, _ := primitive.PropertiesRegion.WordExtent()
+	bestGap := 2.0
+	var bestValue *primitive.Value
+
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		community := orchestrator.communityForValue(value)
+		if community == nil {
+			continue
+		}
+
+		gap := community.BeliefGap(value.Get(primitive.AffinityRegion))
+
+		if gap < bestGap {
+			bestGap = gap
+			bestValue = value
+		}
+
+		if gap > core.Cfg.System.BeliefEpsilon {
+			continue
+		}
+
+		value.Set(propertiesStart+int(primitive.STATE), uint64(primitive.RESOLVED))
+		resolved = append(resolved, value)
+	}
+
+	if len(resolved) > 0 {
+		return resolved
+	}
+
+	if bestValue != nil {
+		bestValue.Set(propertiesStart+int(primitive.STATE), uint64(primitive.RESOLVED))
+		return []*primitive.Value{bestValue}
+	}
+
+	return values
+}
+
+func (orchestrator *Orchestrator) communityForValue(
+	value *primitive.Value,
+) *geometry.Field {
+	if orchestrator == nil || orchestrator.field == nil || value == nil {
+		return nil
+	}
+
+	for _, community := range orchestrator.field.Fields {
+		if community == nil {
+			continue
+		}
+
+		for _, member := range community.Values {
+			if member == value || (member != nil && member.ID() == value.ID()) {
+				return community
+			}
+		}
+	}
+
+	return nil
+}
+
+func (orchestrator *Orchestrator) representativeValue(
+	field *geometry.Field,
+) *primitive.Value {
+	if field == nil {
+		return nil
+	}
+
+	bestGap := 2.0
+	var bestValue *primitive.Value
+
+	for _, value := range field.Values {
+		if value == nil {
+			continue
+		}
+
+		gap := field.BeliefGap(value.Get(primitive.AffinityRegion))
+		if gap >= bestGap {
+			continue
+		}
+
+		bestGap = gap
+		bestValue = value
+	}
+
+	if bestValue != nil {
+		return bestValue
+	}
+
+	for _, community := range field.Fields {
+		if value := orchestrator.representativeValue(community); value != nil {
+			return value
+		}
+	}
+
+	return nil
 }
 
 /*

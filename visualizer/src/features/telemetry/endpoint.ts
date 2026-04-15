@@ -3,18 +3,36 @@ function envValue(name: string): string | undefined {
 	return meta.env?.[name];
 }
 
+function browserHost(): string | undefined {
+	if (typeof window === "undefined") {
+		return undefined;
+	}
+
+	return window.location.hostname || undefined;
+}
+
+function browserProtocol(): string {
+	if (typeof window === "undefined") {
+		return "http:";
+	}
+
+	return window.location.protocol;
+}
+
 export function telemetryHost(): string {
-	return envValue("VITE_VIZ_HOST") || "localhost";
+	return envValue("VITE_VIZ_HOST") || browserHost() || "localhost";
 }
 
 export function telemetryPort(): string {
-	return envValue("VITE_VIZ_PORT") || "6600";
+	return envValue("VITE_VIZ_PORT") || (typeof window !== "undefined" ? window.location.port : "3000");
 }
 
 export function telemetryHttpBase(): string {
-	return `http://${telemetryHost()}:${telemetryPort()}`;
+	const protocol = browserProtocol() === "https:" ? "https" : "http";
+	return `${protocol}://${telemetryHost()}:${telemetryPort()}`;
 }
 
 export function telemetryWebSocketURL(): string {
-	return `ws://${telemetryHost()}:${telemetryPort()}/ws`;
+	const protocol = browserProtocol() === "https:" ? "wss" : "ws";
+	return `${protocol}://${telemetryHost()}:${telemetryPort()}/ws`;
 }

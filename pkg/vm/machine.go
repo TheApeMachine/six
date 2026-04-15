@@ -154,6 +154,11 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		return errnie.Error(err)
 	}
 
+	if machine.orchestrator != nil {
+		machine.orchestrator.BeginBootstrap()
+		defer machine.orchestrator.EndBootstrap()
+	}
+
 	linker := NewLinker()
 
 	publishLinked := func(value *primitive.Value, assets []*programmer.Asset) error {

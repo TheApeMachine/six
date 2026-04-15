@@ -180,8 +180,7 @@ func (finalizer *ActionFinalizer) runAction(
 		finalizer.reprogram(context.value, action, context)
 		return true
 	case "emit":
-		_ = finalizer.emit(context.value, action, context)
-		return false
+		return finalizer.emit(context.value, action, context) != nil
 	}
 
 	return false
@@ -209,10 +208,8 @@ func (finalizer *ActionFinalizer) emit(
 		return nil
 	}
 
-	emitted, err := primitive.ValueFromWireFrame(source.Bytes())
-	if err != nil {
-		return nil
-	}
+	emitted := &primitive.Value{}
+	*emitted = *source
 
 	emitted.StampNewID()
 	finalizer.prepareEmission(emitted, source, action, context)
@@ -306,9 +303,7 @@ func (finalizer *ActionFinalizer) resolveSource(
 		return finalizer.fieldSource(strings.TrimPrefix(text, "field."), context.field)
 	}
 
-	if strings.HasPrefix(text, "value.") {
-		text = strings.TrimPrefix(text, "value.")
-	}
+	text = strings.TrimPrefix(text, "value.")
 
 	ref, err := programmer.ParseRegionRef(text)
 	if err != nil {

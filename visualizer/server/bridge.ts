@@ -16,7 +16,7 @@ const BRIDGE_PORT = Number(
 );
 const UDP_HOST = process.env.TELEMETRY_UDP_HOST || "127.0.0.1";
 const UDP_PORT = Number(process.env.TELEMETRY_UDP_PORT || "8258");
-const FRAME_HISTORY_LIMIT = Number(process.env.VIZ_FRAME_HISTORY || "20000");
+const FRAME_HISTORY_LIMIT = Number(process.env.VIZ_FRAME_HISTORY || "0");
 const CONTROL_URL = (process.env.TELEMETRY_CONTROL_URL || "").trim();
 const CONFIG_PATH =
 	process.env.SIX_CONFIG_PATH ||
@@ -48,11 +48,14 @@ const frameHistory: Buffer[] = [];
 
 function pushFrame(frame: Buffer) {
 	const copy = Buffer.from(frame);
-	frameHistory.push(copy);
 
-	if (frameHistory.length > FRAME_HISTORY_LIMIT) {
-		frameHistory.shift();
-		diagnostics.droppedFrames += 1;
+	if (FRAME_HISTORY_LIMIT > 0) {
+		frameHistory.push(copy);
+
+		if (frameHistory.length > FRAME_HISTORY_LIMIT) {
+			frameHistory.shift();
+			diagnostics.droppedFrames += 1;
+		}
 	}
 
 	diagnostics.framesReceived += 1;
@@ -186,8 +189,10 @@ server.on("upgrade", (request, socket, head) => {
 websocketServer.on("connection", (client) => {
 	diagnostics.clients = websocketServer.clients.size;
 
-	for (const frame of frameHistory) {
-		client.send(frame);
+	if (FRAME_HISTORY_LIMIT > 0) {
+		for (const frame of frameHistory) {
+			client.send(frame);
+		}
 	}
 
 	client.on("close", () => {
