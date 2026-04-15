@@ -87,7 +87,7 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 ```text
 ┌─────────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
-│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │ Reserved/K  │ Prev │ Next │ ID  │   Affinity   │
+│   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │   Assets    │ Prev │ Next │ ID  │   Affinity   │
 │  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │   512 bits   │  4096 bits  │  64  │  64  │ 64  │   257 bits   │
 │ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │  words48-55  │ words56-119 │ 120  │ 121  │ 122 │ words123-127 │
 └─────────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
