@@ -99,6 +99,27 @@ func TestParser_Parse(t *testing.T) {
 	})
 }
 
+func TestParseRegionRef(t *testing.T) {
+	Convey("Given an exported region-ref parser", t, func() {
+		Convey("It should resolve a valid region ref to the absolute frame span", func() {
+			ref, err := ParseRegionRef("gradient[2,3]")
+
+			gradientStart, _ := primitive.GradientRegion.WordExtent()
+
+			So(err, ShouldBeNil)
+			So(ref.Region, ShouldEqual, primitive.GradientRegion)
+			So(ref.Start, ShouldEqual, gradientStart+2)
+			So(ref.Span, ShouldEqual, 3)
+		})
+
+		Convey("It should reject malformed refs", func() {
+			_, err := ParseRegionRef("gradient[2")
+
+			So(err, ShouldNotBeNil)
+		})
+	})
+}
+
 /*
 TestParser_validateOperationMnemonic gates allowed surface op spellings.
 */

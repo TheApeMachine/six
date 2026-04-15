@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/pool"
@@ -26,16 +27,34 @@ submitStep so the next rule can fire. When no rule matches the Value is
 routed to a community field.
 */
 type Orchestrator struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	err      error
-	queue    *pool.Queue
-	firmware *programmer.Firmware
-	router   *Router
-	inbox    *data.Ring
-	lastID   uint64
-	enqueued atomic.Uint64
-	draining atomic.Uint32
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	queue     *pool.Queue
+	firmware  *programmer.Firmware
+	router    *Router
+	field     *geometry.Field
+	finalizer *ActionFinalizer
+	inbox     *data.Ring
+	lastID    uint64
+	enqueued  atomic.Uint64
+	draining  atomic.Uint32
+}
+
+type orchestratorOption func(*Orchestrator)
+
+/*
+WithField installs the global field that community routing should aggregate
+into. Nil keeps the orchestrator's default GF(65537) root field.
+*/
+func WithField(field *geometry.Field) orchestratorOption {
+	return func(orchestrator *Orchestrator) {
+		if field == nil {
+			return
+		}
+
+		orchestrator.field = field
+	}
 }
 
 /*
@@ -45,6 +64,7 @@ func NewOrchestrator(
 	ctx context.Context,
 	conn *gossip.Conn,
 	queue *pool.Queue,
+	options ...orchestratorOption,
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -53,8 +73,15 @@ func NewOrchestrator(
 		cancel:   cancel,
 		queue:    queue,
 		firmware: programmer.NewFirmware(),
-		router:   NewRouter(),
+		field:    geometry.NewField(geometry.Mod65537),
 	}
+
+	for _, option := range options {
+		option(orchestrator)
+	}
+
+	orchestrator.router = NewRouter(orchestrator.field)
+	orchestrator.finalizer = NewActionFinalizer(orchestrator)
 
 	orchestrator.inbox, orchestrator.err = data.NewRing(ctx, data.RingCapacity)
 
@@ -64,12 +91,14 @@ func NewOrchestrator(
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":      orchestrator.ctx,
-		"cancel":   orchestrator.cancel,
-		"queue":    orchestrator.queue,
-		"firmware": orchestrator.firmware,
-		"router":   orchestrator.router,
-		"inbox":    orchestrator.inbox,
+		"ctx":       orchestrator.ctx,
+		"cancel":    orchestrator.cancel,
+		"queue":     orchestrator.queue,
+		"firmware":  orchestrator.firmware,
+		"router":    orchestrator.router,
+		"field":     orchestrator.field,
+		"finalizer": orchestrator.finalizer,
+		"inbox":     orchestrator.inbox,
 	}); err != nil {
 		cancel()
 		return nil, err
@@ -185,6 +214,18 @@ func (orchestrator *Orchestrator) publishExecuted(value *primitive.Value) {
 	orchestrator.drainInbox()
 }
 
+func (orchestrator *Orchestrator) executableFinalizer(value *primitive.Value) {
+	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if orchestrator.finalizer != nil && orchestrator.finalizer.FinalizeValue(value) {
+		return
+	}
+
+	orchestrator.publishExecuted(value)
+}
+
 /*
 drainInbox serializes rule evaluation and routing without taking a mutex.
 The generation check closes the race where a producer enqueues after the
@@ -243,7 +284,7 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 	if name == "" && value[kernel.SchedulingNextProgramWord] == value.ID() {
 		executable := programmer.NewResidentExecutable(value)
 
-		executable.SetFinalizer(orchestrator.publishExecuted)
+		executable.SetFinalizer(orchestrator.executableFinalizer)
 
 		orchestrator.queue.Submit(func() *programmer.Executable {
 			return executable
@@ -254,13 +295,14 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 
 	if name == "" {
 		orchestrator.clearProgram(value)
-		orchestrator.router.Route(value)
+		communities := orchestrator.router.Route(value)
+		orchestrator.finalizeFields(value, communities...)
 		return
 	}
 
 	executable := programmer.NewExecutable(value, name, nil)
 
-	executable.SetFinalizer(orchestrator.publishExecuted)
+	executable.SetFinalizer(orchestrator.executableFinalizer)
 
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.CompilerCompileEvent(
@@ -271,6 +313,41 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 	orchestrator.queue.Submit(func() *programmer.Executable {
 		return executable
 	})
+}
+
+func (orchestrator *Orchestrator) finalizeFields(
+	value *primitive.Value,
+	communities ...*geometry.Field,
+) {
+	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if orchestrator.field != nil {
+		_, _ = orchestrator.field.Cycle()
+	}
+
+	for _, community := range communities {
+		if community == nil || orchestrator.finalizer == nil {
+			continue
+		}
+
+		_ = orchestrator.finalizer.FinalizeField(
+			communityFinalizerScope,
+			value,
+			community,
+		)
+	}
+
+	if orchestrator.finalizer == nil || orchestrator.field == nil {
+		return
+	}
+
+	_ = orchestrator.finalizer.FinalizeField(
+		globalFinalizerScope,
+		value,
+		orchestrator.field,
+	)
 }
 
 /*

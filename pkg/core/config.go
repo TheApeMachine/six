@@ -93,6 +93,46 @@ type ValueRulesConfig struct {
 }
 
 /*
+FinalizerRuleConfig defines one generic post-ALU action rule. Scope selects
+where the rule runs: value, community, or global. Regions reuse the
+value.rules boolean has-bits checks, while the numeric thresholds let fields
+react to resonance without hardcoding per-algorithm Go branches.
+*/
+type FinalizerRuleConfig struct {
+	Name             string                  `mapstructure:"name"`
+	Scope            string                  `mapstructure:"scope"`
+	Regions          map[string]bool         `mapstructure:"regions"`
+	MinMembers       int                     `mapstructure:"min_members"`
+	MinCommunities   int                     `mapstructure:"min_communities"`
+	MinConcentration float64                 `mapstructure:"min_concentration"`
+	Actions          []FinalizerActionConfig `mapstructure:"actions"`
+}
+
+/*
+FinalizerActionConfig describes one generic finalizer action. Reprogram runs a
+named config program on the current Value; emit clones the current Value into a
+fresh ephemeral Value, applies any configured copies, and optionally runs a
+named program on that emission.
+*/
+type FinalizerActionConfig struct {
+	Type    string                `mapstructure:"type"`
+	Program string                `mapstructure:"program"`
+	TTL     uint64                `mapstructure:"ttl"`
+	Copies  []FinalizerCopyConfig `mapstructure:"copies"`
+}
+
+/*
+FinalizerCopyConfig copies already-existing in-band state into another region
+before reprogramming or emission. Sources are strings such as
+"value.signals[0,8]" or "field.affinity[0,5]"; destination uses the standard
+region-ref syntax, for example "asset[0,8]".
+*/
+type FinalizerCopyConfig struct {
+	Source      string `mapstructure:"source"`
+	Destination string `mapstructure:"destination"`
+}
+
+/*
 ValueRegionConfig holds the configuration for a Value's region.
 
 Layout (128 uint64 words = 1 KiB):
@@ -205,6 +245,12 @@ type Config struct {
 	// Parsing is deferred to pkg/compute/programmer so this package stays
 	// free of the programmer IR and avoids an import cycle.
 	Programs map[string]string
+
+	// Finalizers holds generic post-ALU action rules loaded from `finalizers:`.
+	// These rules do not define new algorithms in Go; they only tell the runtime
+	// when to reprogram the current Value or emit an ephemeral clone that will
+	// execute an already-defined config program.
+	Finalizers []FinalizerRuleConfig
 }
 
 func NewConfig() *Config {
@@ -292,6 +338,7 @@ func NewConfig() *Config {
 		TelemetryEndpoint:              WithDefault(viper.GetString("telemetry.udp_endpoint"), ""),
 		TelemetryUniversalBitwiseSlots: WithDefault(viper.GetBool("telemetry.universal_bitwise_slots"), false),
 		Programs:                       loadPrograms(),
+		Finalizers:                     loadFinalizers(),
 	}
 
 	if programLoader != nil && len(Cfg.Programs) > 0 {
@@ -342,6 +389,24 @@ func loadPrograms() map[string]string {
 		}
 
 		out[name] = source
+	}
+
+	return out
+}
+
+/*
+loadFinalizers unmarshals the ordered `finalizers:` sequence. Missing or invalid
+blocks yield nil so callers can cheaply skip post-ALU field work.
+*/
+func loadFinalizers() []FinalizerRuleConfig {
+	if !viper.IsSet("finalizers") {
+		return nil
+	}
+
+	var out []FinalizerRuleConfig
+
+	if err := viper.UnmarshalKey("finalizers", &out); err != nil {
+		return nil
 	}
 
 	return out

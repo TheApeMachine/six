@@ -20,15 +20,17 @@ type Router struct {
 	communityIDs   map[io.ReadWriteCloser]int
 	nextID         int
 	distanceBudget int
+	global         *geometry.Field
 }
 
 /*
 NewRouter creates a new router with an empty community registry.
 */
-func NewRouter() *Router {
+func NewRouter(global *geometry.Field) *Router {
 	return &Router{
 		communityIDs:   make(map[io.ReadWriteCloser]int),
 		distanceBudget: 60,
+		global:         global,
 	}
 }
 
@@ -38,7 +40,9 @@ using the gossip-based fast path. It wraps the PriorityRoute in an
 AffinityFilter and copies the Value. If no community accepts the Value,
 a new community is spawned and added to the route.
 */
-func (router *Router) Route(values ...*primitive.Value) {
+func (router *Router) Route(values ...*primitive.Value) []*geometry.Field {
+	assigned := make([]*geometry.Field, 0, len(values))
+
 	for _, value := range values {
 		community := router.findCommunity(value)
 
@@ -47,7 +51,10 @@ func (router *Router) Route(values ...*primitive.Value) {
 		}
 
 		community.Values = append(community.Values, value)
+		assigned = append(assigned, community)
 	}
+
+	return assigned
 }
 
 /*
@@ -55,7 +62,7 @@ spawnCommunity creates a new community field from the Value's affinity,
 registers it in the route, assigns a stable ID, and emits the viz event.
 */
 func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
-	community := geometry.NewField(geometry.Mod8191)
+	community := geometry.NewCommunityField(geometry.Mod8191)
 	affinity := value.Get(primitive.AffinityRegion)
 	community.MergeAffinity(affinity)
 
@@ -64,6 +71,7 @@ func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
 	cid := router.nextID
 	router.communityIDs[community] = cid
 	router.nextID++
+	router.registerCommunity(cid, community, affinity)
 
 	if viz.DefaultBus.IsActive() {
 		viz.DefaultBus.Publish(viz.CommunityCreatedEvent(cid, affinity[:]))
@@ -103,6 +111,7 @@ func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
 		}
 
 		communityField.MergeAffinity(frameAffinity[:])
+		router.mergeGlobal(frameAffinity[:])
 
 		if viz.DefaultBus.IsActive() {
 			cid, known := router.communityIDs[peer.Dst()]
@@ -117,4 +126,39 @@ func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
 	}
 
 	return nil
+}
+
+/*
+CommunityCount reports the number of routed community fields known to this router.
+*/
+func (router *Router) CommunityCount() int {
+	if router == nil {
+		return 0
+	}
+
+	return router.nextID
+}
+
+func (router *Router) registerCommunity(
+	communityID int,
+	community *geometry.Field,
+	affinity []uint64,
+) {
+	if router == nil || router.global == nil || community == nil {
+		return
+	}
+
+	if communityID >= 0 && communityID < len(router.global.Fields) {
+		router.global.Fields[communityID] = community
+	}
+
+	router.mergeGlobal(affinity)
+}
+
+func (router *Router) mergeGlobal(affinity []uint64) {
+	if router == nil || router.global == nil {
+		return
+	}
+
+	router.global.MergeAffinity(affinity)
 }
