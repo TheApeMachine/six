@@ -3,14 +3,12 @@ Word indices match pkg/compute/kernel/layout.go (128 × uint64 little-endian).
 */
 
 export const WORD = {
-	PROPERTIES_0: 48,
-	PROGRAM_0: 16,
 	/*
 	Orchestrator and linker stage predecessor/successor into the first two asset
 	words (kernel.AssetStartWord..+1) before link firmware copies into Prev/Next.
 	*/
-	ASSET_PREV: 56,
-	ASSET_NEXT: 57,
+	ASSET_PREV: 72,
+	ASSET_NEXT: 73,
 	PREV: 120,
 	NEXT: 121,
 	ID: 122,

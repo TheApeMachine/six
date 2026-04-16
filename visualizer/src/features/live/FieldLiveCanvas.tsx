@@ -2,17 +2,14 @@ import p5 from "p5";
 import { useEffect, useRef } from "react";
 import type {
 	FieldSnapshot,
+	FieldValueSnapshot,
 	VizGraphSnapshot,
 } from "@/features/telemetry/types";
-
-const PROGRAM_COLORS: Record<string, [number, number, number]> = {
-	beam_swarm: [0, 255, 150],
-	causal_explore: [255, 200, 0],
-	active_inference: [255, 150, 50],
-	classification: [100, 180, 255],
-	surprisal: [0, 200, 255],
-	falsification: [255, 80, 80],
-};
+import {
+	PROGRAM_CATEGORIES,
+	type ProgramCategory,
+	type Shape,
+} from "@/lib/programClassifier";
 
 const TAU = Math.PI * 2;
 const MIN_FIELD_DISTANCE = 180;
@@ -22,6 +19,7 @@ const ORBIT_RADIUS_MIN = 20;
 const ORBIT_RADIUS_MAX = 70;
 const ORBIT_TANGENT_FORCE = 0.005;
 const MAX_PARTICLES = 300;
+const TRAIL_LENGTH = 18;
 
 function fnvHash(input: string, salt = 0) {
 	let h = 2166136261 ^ salt;
@@ -32,18 +30,33 @@ function fnvHash(input: string, salt = 0) {
 	return (h >>> 0) / 4294967295;
 }
 
+/*
+Particle is the visualiser-side mirror of a live Value. Shape and colour
+come from the program category the classifier pulled out of the wire
+frame; trails and flashes key off category too so the operator sees
+"this is a beam step" at a glance, not a blob of equally weighted dots.
+*/
 interface Particle {
 	id: string;
 	pos: p5.Vector;
 	vel: p5.Vector;
 	role: string;
 	program: string;
+	category: ProgramCategory;
+	shape: Shape;
+	color: [number, number, number];
 	resonance: number;
 	nextId: string;
 	communityId: number;
 	label: string;
 	orbitRadius: number;
 	orbitAngle: number;
+	/** Program name as of the previous frame sync. When it changes we fire a transition flash. */
+	previousProgram: string;
+	/** Remaining frames of an expanding-ring flash triggered by a program swap. */
+	flashTtl: number;
+	/** Short rolling buffer of recent screen-space positions for the beam/inference trail. */
+	trail: Array<{ x: number; y: number }>;
 }
 
 interface FieldAnchor {
@@ -51,8 +64,9 @@ interface FieldAnchor {
 	pos: p5.Vector;
 	vel: p5.Vector;
 	memberCount: number;
-	actionName: string;
-	actionColor: [number, number, number];
+	dominantCategory: ProgramCategory;
+	dominantProgram: string;
+	color: [number, number, number];
 	resonanceLevel: number;
 	fieldRef: FieldSnapshot;
 }
@@ -63,6 +77,43 @@ interface FieldLiveCanvasProps {
 	snapshot: VizGraphSnapshot | null;
 	onSelectField?: (field: FieldSnapshot | null) => void;
 	onSelectValue?: (id: string) => void;
+}
+
+/*
+categoryForMember pulls the category off the FieldValueSnapshot. The
+value-store populates program names matching the classifier's table, so
+we just look the name up. Anything unexpected (or an empty string for
+an unclassified Value) drops back to "unknown" which the canvas renders
+as the historical data square.
+*/
+function categoryForMember(member: FieldValueSnapshot): ProgramCategory {
+	if (!member.program) return "unknown";
+
+	switch (member.program) {
+		case "link":
+		case "affinity":
+			return "plumbing";
+		case "beam_swarm_step":
+			return "beam";
+		case "active_inference":
+			return "inference";
+		case "classify_readout":
+			return "classify";
+		case "peer_gap":
+			return "peer_gap";
+		case "intervene":
+			return "intervene";
+		case "gap_probe":
+			return "gap_probe";
+		case "measure_field":
+			return "resident";
+		case "popcount":
+		case "coupling":
+		case "temperature":
+			return "util";
+		default:
+			return "unknown";
+	}
 }
 
 export function FieldLiveCanvas({
@@ -89,6 +140,7 @@ export function FieldLiveCanvas({
 		const particles = new Map<string, Particle>();
 		const fieldAnchors = new Map<number, FieldAnchor>();
 		const particleToField = new Map<string, number>();
+		let lastSyncedSnapshotTime: number | undefined;
 		let cameraX = 0;
 		let cameraY = 0;
 		let zoom = 1;
@@ -123,19 +175,23 @@ export function FieldLiveCanvas({
 				};
 			}
 
-			function colorForParticle(pt: Particle): [number, number, number] {
-				if (pt.program && PROGRAM_COLORS[pt.program])
-					return PROGRAM_COLORS[pt.program];
-				if (pt.role === "action") return [0, 255, 150];
-				if (pt.role === "reaction") return [255, 80, 80];
-				if (pt.role === "prompt") return [255, 200, 0];
-				const hue = (fnvHash(pt.id, 1) * 255) | 0;
-				return [hue, 200, Math.max(80, 255 - hue * 0.3)];
-			}
-
+			/*
+			syncFromTelemetry is the only place the simulation mirrors
+			the store. Per-frame category refresh picks up programs that
+			swapped on the Go side, and a mismatch against the previous
+			category triggers a transition flash so the operator sees
+			"this Value just started beam-searching" rather than having
+			to squint for a silent glyph change.
+			*/
 			function syncFromTelemetry() {
 				const snap = snapshotRef.current;
 				if (!snap) return;
+
+				if (snap.timestamp === lastSyncedSnapshotTime) {
+					return;
+				}
+
+				lastSyncedSnapshotTime = snap.timestamp;
 
 				const seen = new Set<string>();
 				const liveFieldIds = new Set<number>();
@@ -158,40 +214,76 @@ export function FieldLiveCanvas({
 							),
 							vel: p.createVector(0, 0),
 							memberCount: 0,
-							actionName: "beam_swarm",
-							actionColor: [0, 255, 150],
+							dominantCategory: "unknown",
+							dominantProgram: "",
+							color: PROGRAM_CATEGORIES.unknown.color,
 							resonanceLevel: 0.4,
 							fieldRef: field,
 						};
 						fieldAnchors.set(field.id, anchor);
 					}
 
-					const actionName =
-						field.lastAction && field.lastAction !== "affinity"
-							? field.lastAction
-							: "";
-					anchor.actionName = actionName;
-					if (actionName && PROGRAM_COLORS[actionName]) {
-						anchor.actionColor = PROGRAM_COLORS[actionName];
-					} else {
-						const hex = field.affinityHex
-							.replace(/[^0-9a-f]/gi, "")
-							.slice(0, 8);
-						const hue = hex ? Number.parseInt(hex, 16) % 255 : 180;
-						anchor.actionColor = [hue, 180, Math.max(80, 255 - hue * 0.25)];
+					anchor.fieldRef = field;
+					anchor.memberCount = 0;
+
+					/*
+					The anchor inherits the most populous program
+					category of its members: the ring colour tracks
+					whatever this community is collectively doing right
+					now. Ties break to the historical field action
+					published on the snapshot when present.
+					*/
+					const categoryCounts = new Map<ProgramCategory, number>();
+					const programCounts = new Map<string, number>();
+
+					for (const member of field.members) {
+						const cat = categoryForMember(member);
+						categoryCounts.set(cat, (categoryCounts.get(cat) ?? 0) + 1);
+						if (member.program) {
+							programCounts.set(
+								member.program,
+								(programCounts.get(member.program) ?? 0) + 1,
+							);
+						}
 					}
+
+					let dominantCat: ProgramCategory = "unknown";
+					let dominantCount = -1;
+
+					for (const [cat, count] of categoryCounts) {
+						if (cat === "unknown" || cat === "plumbing") continue;
+						if (count > dominantCount) {
+							dominantCount = count;
+							dominantCat = cat;
+						}
+					}
+
+					let dominantProgram = "";
+					let dominantProgramCount = -1;
+
+					for (const [name, count] of programCounts) {
+						if (count > dominantProgramCount) {
+							dominantProgramCount = count;
+							dominantProgram = name;
+						}
+					}
+
+					anchor.dominantCategory = dominantCat;
+					anchor.dominantProgram = dominantProgram;
+					anchor.color = PROGRAM_CATEGORIES[dominantCat].color;
 					anchor.resonanceLevel = Math.max(
 						0.35,
 						Math.min(1, field.concentration + 0.35),
 					);
-					anchor.fieldRef = field;
-					anchor.memberCount = 0;
 
 					for (const member of field.members) {
 						if (budget <= 0) break;
 						seen.add(member.id);
 						particleToField.set(member.id, field.id);
 						anchor.memberCount++;
+
+						const category = categoryForMember(member);
+						const style = PROGRAM_CATEGORIES[category];
 
 						let pt = particles.get(member.id);
 						if (!pt) {
@@ -204,6 +296,9 @@ export function FieldLiveCanvas({
 								vel: p5.Vector.random2D().mult(p.random(0.1, 0.25)),
 								role: member.role,
 								program: member.program,
+								category,
+								shape: style.shape,
+								color: style.color,
 								resonance: 0,
 								nextId: member.nextId,
 								communityId: field.id,
@@ -213,22 +308,34 @@ export function FieldLiveCanvas({
 									fnvHash(member.id, 30) *
 										(ORBIT_RADIUS_MAX - ORBIT_RADIUS_MIN),
 								orbitAngle: fnvHash(member.id, 31) * TAU,
+								previousProgram: member.program,
+								flashTtl: member.program ? 24 : 0,
+								trail: [],
 							};
 							particles.set(member.id, pt);
 						}
 
 						pt.role = member.role;
-						pt.program = member.program;
 						pt.nextId = member.nextId;
 						pt.communityId = field.id;
 
-						const targetRes = Math.min(1, member.resonance || 0);
-						pt.resonance += (targetRes - pt.resonance) * 0.08;
+						if (pt.program !== member.program) {
+							pt.previousProgram = pt.program;
+							pt.program = member.program;
+							pt.category = category;
+							pt.shape = style.shape;
+							pt.color = style.color;
+							pt.flashTtl = 24;
+						} else {
+							pt.category = category;
+							pt.shape = style.shape;
+							pt.color = style.color;
+						}
 
-						pt.label =
-							member.program && member.program !== "affinity"
-								? member.program
-								: "";
+						const targetRes = Math.min(1, member.resonance || 0);
+						pt.resonance += (targetRes - pt.resonance) * 0.15;
+
+						pt.label = pt.program || "";
 
 						budget--;
 					}
@@ -237,6 +344,9 @@ export function FieldLiveCanvas({
 				for (const orphan of snap.orphanValues) {
 					if (budget <= 0) break;
 					seen.add(orphan.id);
+
+					const category = categoryForMember(orphan);
+					const style = PROGRAM_CATEGORIES[category];
 
 					let pt = particles.get(orphan.id);
 					if (!pt) {
@@ -249,20 +359,43 @@ export function FieldLiveCanvas({
 							vel: p5.Vector.random2D().mult(p.random(0.1, 0.25)),
 							role: orphan.role,
 							program: orphan.program,
+							category,
+							shape: style.shape,
+							color: style.color,
 							resonance: 0,
 							nextId: orphan.nextId,
 							communityId: -1,
 							label: "",
 							orbitRadius: 0,
 							orbitAngle: 0,
+							previousProgram: orphan.program,
+							flashTtl: orphan.program ? 24 : 0,
+							trail: [],
 						};
 						particles.set(orphan.id, pt);
 					}
 
 					pt.role = orphan.role;
-					pt.program = orphan.program;
 					pt.nextId = orphan.nextId;
 					pt.communityId = -1;
+
+					if (pt.program !== orphan.program) {
+						pt.previousProgram = pt.program;
+						pt.program = orphan.program;
+						pt.category = category;
+						pt.shape = style.shape;
+						pt.color = style.color;
+						pt.flashTtl = 24;
+					} else {
+						pt.category = category;
+						pt.shape = style.shape;
+						pt.color = style.color;
+					}
+
+					const targetRes = Math.min(1, orphan.resonance || 0);
+					pt.resonance += (targetRes - pt.resonance) * 0.15;
+					pt.label = pt.program || "";
+
 					budget--;
 				}
 
@@ -308,6 +441,7 @@ export function FieldLiveCanvas({
 
 				for (const [, pt] of particles) {
 					pt.resonance *= 0.96;
+					if (pt.flashTtl > 0) pt.flashTtl--;
 
 					const fieldId = particleToField.get(pt.id);
 					const anchor =
@@ -324,7 +458,13 @@ export function FieldLiveCanvas({
 						pt.vel.x += dx * PARTICLE_ARRIVE_STRENGTH;
 						pt.vel.y += dy * PARTICLE_ARRIVE_STRENGTH;
 
-						pt.orbitAngle += ORBIT_TANGENT_FORCE + fnvHash(pt.id, 40) * 0.003;
+						const sweep =
+							pt.category === "beam"
+								? 0.012
+								: pt.category === "inference"
+									? 0.008
+									: ORBIT_TANGENT_FORCE;
+						pt.orbitAngle += sweep + fnvHash(pt.id, 40) * 0.003;
 					}
 
 					const dx = pointer.x - pt.pos.x;
@@ -339,14 +479,32 @@ export function FieldLiveCanvas({
 					pt.vel.mult(0.88);
 					pt.pos.add(pt.vel);
 					pt.vel.limit(3);
+
+					/*
+					Beam / inference Values keep a short position trail
+					so the operator can see directional exploration.
+					Other categories don't — static squares with trails
+					would just add noise.
+					*/
+					if (pt.category === "beam" || pt.category === "inference") {
+						pt.trail.push({ x: pt.pos.x, y: pt.pos.y });
+						if (pt.trail.length > TRAIL_LENGTH) pt.trail.shift();
+					} else if (pt.trail.length > 0) {
+						pt.trail.length = 0;
+					}
 				}
 			}
 
 			function drawPressureField() {
+				if (particles.size === 0) {
+					return;
+				}
+
 				p.stroke(255, 255, 255, 8);
 				p.strokeWeight(1);
-				for (let x = 0; x < p.width; x += 80) {
-					for (let y = 0; y < p.height; y += 80) {
+				const step = 96;
+				for (let x = 0; x < p.width; x += step) {
+					for (let y = 0; y < p.height; y += step) {
 						const angle = Math.atan2(p.mouseY - y, p.mouseX - x);
 						const d = p.dist(p.mouseX, p.mouseY, x, y);
 						const len = p.map(d, 0, p.width, 12, 3);
@@ -372,11 +530,26 @@ export function FieldLiveCanvas({
 				}
 			}
 
+			function drawTrails() {
+				for (const [, pt] of particles) {
+					if (pt.trail.length < 2) continue;
+					const [r, g, b] = pt.color;
+					for (let i = 1; i < pt.trail.length; i++) {
+						const alpha = (i / pt.trail.length) * 120;
+						const a = w2s(pt.trail[i - 1].x, pt.trail[i - 1].y);
+						const bw = w2s(pt.trail[i].x, pt.trail[i].y);
+						p.stroke(r, g, b, alpha);
+						p.strokeWeight(1);
+						p.line(a.x, a.y, bw.x, bw.y);
+					}
+				}
+			}
+
 			function drawCommunities() {
 				for (const [, anchor] of fieldAnchors) {
 					if (anchor.memberCount < 3) continue;
 
-					const [r, g, b] = anchor.actionColor;
+					const [r, g, b] = anchor.color;
 					const alpha = anchor.resonanceLevel * 200;
 					const cs = w2s(anchor.pos.x, anchor.pos.y);
 					const radius =
@@ -400,13 +573,74 @@ export function FieldLiveCanvas({
 					p.fill(r, g, b, alpha * 0.08);
 					p.ellipse(cs.x, cs.y, radius * 2.8);
 
-					if (anchor.actionName) {
+					const caption =
+						anchor.dominantProgram ||
+						PROGRAM_CATEGORIES[anchor.dominantCategory].label;
+					if (caption) {
 						p.fill(r, g, b, alpha * 0.5);
 						p.textSize(9);
 						p.textAlign(p.CENTER);
-						p.text(anchor.actionName, cs.x, cs.y + radius + 12);
+						p.text(caption, cs.x, cs.y + radius + 12);
 						p.textAlign(p.LEFT);
 					}
+				}
+			}
+
+			/*
+			drawGlyph renders a Value at world position (0,0) in the
+			current p5 matrix. The glyph vocabulary deliberately mirrors
+			the user's reference sketch — squares for data, triangles
+			for actions / reactions — and extends with diamonds, rings,
+			pentagons, hourglasses and asterisks for the richer program
+			palette. Each shape is kept tiny (~10px) so high-density
+			communities stay legible.
+			*/
+			function drawGlyph(shape: Shape) {
+				switch (shape) {
+					case "square":
+						p.rect(-4, -4, 8, 8);
+						break;
+					case "triangle_up":
+						p.triangle(0, -5, 5, 5, -5, 5);
+						break;
+					case "triangle_down":
+						p.triangle(0, 5, 5, -4, -5, -4);
+						break;
+					case "diamond":
+						p.quad(0, -6, 6, 0, 0, 6, -6, 0);
+						break;
+					case "pentagon":
+						p.beginShape();
+						for (let i = 0; i < 5; i++) {
+							const a = -Math.PI / 2 + (i * TAU) / 5;
+							p.vertex(Math.cos(a) * 5.5, Math.sin(a) * 5.5);
+						}
+						p.endShape(p.CLOSE);
+						break;
+					case "hourglass":
+						p.beginShape();
+						p.vertex(-5, -5);
+						p.vertex(5, -5);
+						p.vertex(-5, 5);
+						p.vertex(5, 5);
+						p.endShape(p.CLOSE);
+						break;
+					case "asterisk":
+						for (let i = 0; i < 6; i++) {
+							const a = (i * TAU) / 6;
+							p.line(0, 0, Math.cos(a) * 6, Math.sin(a) * 6);
+						}
+						break;
+					case "ring":
+						p.ellipse(0, 0, 10, 10);
+						p.ellipse(0, 0, 5, 5);
+						break;
+					case "bar":
+						p.rect(-6, -1.5, 12, 3);
+						break;
+					case "circle":
+						p.ellipse(0, 0, 7, 7);
+						break;
 				}
 			}
 
@@ -415,34 +649,40 @@ export function FieldLiveCanvas({
 
 				for (const [, pt] of particles) {
 					const s = w2s(pt.pos.x, pt.pos.y);
-					const [r, g, b] = colorForParticle(pt);
+					const [r, g, b] = pt.color;
 					const isSelected = pt.id === selected;
 					const alpha = 120 + pt.resonance * 135;
 
 					p.push();
 					p.translate(s.x, s.y);
 
-					if (pt.resonance > 0.2 || isSelected) {
+					// Soft aura proportional to signals-popcount resonance.
+					if (pt.resonance > 0.15 || isSelected) {
 						p.noStroke();
-						p.fill(r, g, b, pt.resonance * 25 + (isSelected ? 15 : 0));
-						p.ellipse(0, 0, 18 + pt.resonance * 20 + (isSelected ? 16 : 0));
+						p.fill(r, g, b, pt.resonance * 30 + (isSelected ? 20 : 0));
+						p.ellipse(0, 0, 20 + pt.resonance * 28 + (isSelected ? 18 : 0));
+					}
+
+					// Program-swap flash: an expanding ring that fades
+					// over 24 frames, so the instant a Value picks up a
+					// new behaviour it's visually obvious.
+					if (pt.flashTtl > 0) {
+						const t = 1 - pt.flashTtl / 24;
+						p.noFill();
+						p.stroke(r, g, b, (1 - t) * 180);
+						p.strokeWeight(1);
+						p.ellipse(0, 0, 8 + t * 38);
 					}
 
 					p.stroke(r, g, b, alpha);
 					p.strokeWeight(isSelected ? 2 : 1);
 					p.noFill();
 
-					if (pt.role === "action") {
-						p.triangle(0, -5, 5, 5, -5, 5);
-					} else if (pt.role === "reaction") {
-						p.triangle(0, 5, 5, -4, -5, -4);
-					} else {
-						p.rect(-4, -4, 8, 8);
-					}
+					drawGlyph(pt.shape);
 
 					if (pt.label) {
 						p.noStroke();
-						p.fill(r, g, b, alpha * 0.7);
+						p.fill(r, g, b, alpha * 0.75);
 						p.textSize(8);
 						p.textAlign(p.LEFT);
 						p.text(pt.label, 8, 3);
@@ -452,10 +692,9 @@ export function FieldLiveCanvas({
 				}
 			}
 
-			function drawHUD() {}
-
 			p.draw = () => {
-				p.background(5, 5, 15, 120);
+				// Opaque clear — RGBA background with alpha < 255 causes motion trails / ghosting.
+				p.background(5, 5, 15);
 
 				syncFromTelemetry();
 				repelFieldAnchors();
@@ -463,9 +702,9 @@ export function FieldLiveCanvas({
 
 				drawPressureField();
 				drawEdges();
+				drawTrails();
 				drawCommunities();
 				drawValues();
-				drawHUD();
 			};
 
 			p.mousePressed = () => {

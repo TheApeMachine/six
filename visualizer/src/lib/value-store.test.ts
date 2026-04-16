@@ -3,6 +3,13 @@ import test from "node:test";
 import { decodeValueFrame, ValueStore } from "./value-store";
 import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT, WORD } from "./valueLayout";
 
+/*
+PROPERTIES_COMMUNITY_WORD matches kernel.PropertiesCommunityWord = 56 (absolute
+word index). The mesh routing layer stamps the community index here via an
+ephemeral CopyMaskMerge program.
+*/
+const PROPERTIES_COMMUNITY_WORD = 56;
+
 function writeWord(frame: Uint8Array, wordIndex: number, word: bigint) {
 	const offset = wordIndex * 8;
 	const view = new DataView(frame.buffer, frame.byteOffset + offset, 8);
@@ -50,6 +57,7 @@ function makeValueFrame(init?: {
 	prev?: bigint;
 	next?: bigint;
 	content?: string;
+	communityId?: bigint;
 }) {
 	const frame = new Uint8Array(VALUE_FRAME_BYTE_LENGTH);
 
@@ -67,6 +75,10 @@ function makeValueFrame(init?: {
 
 	if (init?.content) {
 		writeTokenBytes(frame, init.content);
+	}
+
+	if (init?.communityId !== undefined) {
+		writeWord(frame, PROPERTIES_COMMUNITY_WORD, init.communityId);
 	}
 
 	return frame;
@@ -87,6 +99,8 @@ test("decodeValueFrame reads id, chain ids, and token text from raw Value bytes"
 	assert.equal(decoded.nextId, "0000000000000020");
 	assert.equal(decoded.content, "hello");
 	assert.equal(decoded.words.length, VALUE_WORD_COUNT);
+	assert.equal(decoded.regions.id.words[0], 0xabn);
+	assert.equal(decoded.regions.program.startWord, 16);
 });
 
 test("ValueStore attaches a pending frame when the value is created later", () => {
@@ -120,4 +134,51 @@ test("ValueStore updates the stored frame when a newer wire image arrives", () =
 
 	assert.ok(value);
 	assert.equal(value?.decoded?.content, "two");
+});
+
+test("ValueStore reads community id from the on-wire properties word", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000001");
+	store.applyWireFrame(
+		0x1n,
+		makeValueFrame({ id: 0x1n, communityId: 7n }),
+	);
+
+	store.ensure("0000000000000002");
+	store.applyWireFrame(
+		0x2n,
+		makeValueFrame({ id: 0x2n, communityId: 7n }),
+	);
+
+	store.ensure("0000000000000003");
+	store.applyWireFrame(
+		0x3n,
+		makeValueFrame({ id: 0x3n, communityId: 42n }),
+	);
+
+	const snapshot = store.getState().snapshot;
+
+	assert.equal(snapshot.fields.length, 2);
+	assert.equal(snapshot.orphanValues.length, 0);
+
+	const field7 = snapshot.fields.find((field) => field.id === 7);
+	const field42 = snapshot.fields.find((field) => field.id === 42);
+
+	assert.ok(field7);
+	assert.ok(field42);
+	assert.equal(field7?.members.length, 2);
+	assert.equal(field42?.members.length, 1);
+});
+
+test("Values without a community word land in orphanValues", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000001");
+	store.applyWireFrame(0x1n, makeValueFrame({ id: 0x1n }));
+
+	const snapshot = store.getState().snapshot;
+
+	assert.equal(snapshot.fields.length, 0);
+	assert.equal(snapshot.orphanValues.length, 1);
 });

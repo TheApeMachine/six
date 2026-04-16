@@ -128,10 +128,18 @@ FinalizerCopyConfig copies already-existing in-band state into another region
 before reprogramming or emission. Sources are strings such as
 "value.signals[0,8]" or "field.affinity[0,5]"; destination uses the standard
 region-ref syntax without a source prefix, for example "asset[0,8]".
+
+Rotate, when non-zero, applies a GF(257) affine rotation by the given step
+count to the source words before they land at the destination. This is the
+single knob N-beam emission leans on: a finalizer can stage N copies of the
+same source with Rotate = k*step for k in [0,N), producing non-degenerate
+phase-rotated views of one eigenmode. Zero is the identity and matches the
+pre-existing straight-copy behaviour.
 */
 type FinalizerCopyConfig struct {
 	Source      string `mapstructure:"source"`
 	Destination string `mapstructure:"destination"`
+	Rotate      int    `mapstructure:"rotate"`
 }
 
 /*
@@ -230,16 +238,11 @@ type Config struct {
 	System SystemConfig
 	Value  ValueConfig
 
-	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
-	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
+	// TelemetryEnabled controls whether the WebSocket client for raw Value wire frames is started.
 	TelemetryEnabled bool
 
-	// TelemetryEndpoint is the UDP address for experiment/visualizer telemetry (e.g. "127.0.0.1:8258").
-	TelemetryEndpoint string
-
-	// TelemetryUniversalBitwiseSlots emits one Backend/UniversalBitwise event per LGP slot per CPU
-	// dispatch (very high volume). Use only with viz / short runs.
-	TelemetryUniversalBitwiseSlots bool
+	// TelemetryWebSocketURL is the bridge WebSocket URL (e.g. ws://127.0.0.1:3000/ws).
+	TelemetryWebSocketURL string
 
 	// Programs holds raw program source keyed by name, loaded from the
 	// `programs:` block of config.yml. These are the in-band programs the
@@ -336,11 +339,10 @@ func NewConfig() *Config {
 			},
 			Rules: loadValueRules(),
 		},
-		TelemetryEnabled:               WithDefault(viper.GetBool("telemetry.enabled"), false),
-		TelemetryEndpoint:              WithDefault(viper.GetString("telemetry.udp_endpoint"), ""),
-		TelemetryUniversalBitwiseSlots: WithDefault(viper.GetBool("telemetry.universal_bitwise_slots"), false),
-		Programs:                       loadPrograms(),
-		Finalizers:                     loadFinalizers(),
+		TelemetryEnabled:      WithDefault(viper.GetBool("telemetry.enabled"), false),
+		TelemetryWebSocketURL: WithDefault(viper.GetString("telemetry.ws_url"), ""),
+		Programs:              loadPrograms(),
+		Finalizers:            loadFinalizers(),
 	}
 
 	if programLoader != nil && len(Cfg.Programs) > 0 {

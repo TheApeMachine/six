@@ -155,6 +155,10 @@ func (backend *Backend) SetObserver(observer kernel.Observer) {
 	backend.observer = kernel.NormalizeObserver(observer)
 }
 
+func (backend *Backend) Shutdown() {
+	cleanupMetalPools()
+}
+
 /*
 Available returns the number of Metal-capable GPUs present on this system,
 or an error if the Metal runtime failed to initialize.
@@ -228,8 +232,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
-
-		primitive.HydrateLearnerPeers(value)
 
 		if kernel.IsGeometricOpcode(rawOpcode) {
 			if err := flushUnified(); err != nil {

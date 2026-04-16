@@ -8,21 +8,14 @@ import (
 )
 
 /*
-Weight is a self-adapting rate. It watches the delta
-between what it predicted and what actually happened,
-and adjusts itself accordingly. When the prediction
-error is large, the weight moves faster — it has more
-to learn. When the error is small, the weight barely
-moves — it has already converged.
-
-This is second-order dynamics: a value that learns
-how fast to change by observing how wrong it was.
-
-Weight expects two signals per call: the predicted
-value and the actual observed value. The weight
-output represents how much trust to place in the
-current model — high when predictions match reality,
-low when they diverge.
+Weight is a self-adapting rate. It watches the delta between what it predicted
+and what actually happened, and adjusts itself accordingly. When the prediction
+error is large, the weight moves faster — it has more to learn. When the error
+is small, the weight barely moves — it has already converged. This is second-order
+dynamics: a value that learns how fast to change by observing how wrong it was.
+Weight expects two signals per call: the predicted value and the actual observed
+value. The weight output represents how much trust to place in the current model,
+high when predictions match reality, low when they diverge.
 */
 type Weight struct {
 	value    float64
@@ -31,9 +24,8 @@ type Weight struct {
 }
 
 /*
-NewWeight creates a new Weight. All internal rates
-are derived from the prediction errors the weight
-observes — no initial configuration is needed.
+NewWeight creates a new Weight. All internal rates are derived from the prediction
+errors the weight observes — no initial configuration is needed.
 */
 func NewWeight() *Weight {
 	return &Weight{
@@ -43,16 +35,11 @@ func NewWeight() *Weight {
 }
 
 /*
-Next accepts two values — predicted and actual — and
-returns the current weight. The weight adjusts itself
-based on how large the prediction error is relative
-to the error's own history.
-
-When the current error is larger than the smoothed
-historical error, the weight decreases — the model
-is getting worse, trust less. When the current error
-is smaller, the weight increases — the model is
-improving, trust more.
+Next accepts two values — predicted and actual — and returns the current weight.
+The weight adjusts itself based on how large the prediction error is relative to
+the error's own history. When the current error is larger than the smoothed historical
+error, the weight decreases — the model is getting worse, trust less. When the current
+error is smaller, the weight increases — the model is improving, trust more.
 */
 func (weight *Weight) Next(
 	out float64, values ...float64,

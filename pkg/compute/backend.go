@@ -16,7 +16,6 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -47,6 +46,7 @@ the substrate reads the opcode and dispatches to the appropriate kernel.
 type Backend struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
+	err             error
 	states          []*substrateState
 	transferPenalty int64
 	// exploreEvery, when non-zero, zeros the transfer penalty on every Nth
@@ -153,6 +153,18 @@ func NewBackend(
 	}
 
 	return backend
+}
+
+func (backend *Backend) Close() error {
+	if backend == nil {
+		return nil
+	}
+
+	return backend.err
+}
+
+func (backend *Backend) Error() error {
+	return backend.err
 }
 
 /*
@@ -365,42 +377,6 @@ func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, corr
 	return 0, 0, 0
 }
 
-func (backend *Backend) publishALUDispatch(st *substrateState, frames []unsafe.Pointer, elapsed time.Duration) {
-	if !telemetry.DefaultBus.IsActive() {
-		return
-	}
-
-	op, corr, valID := firstFrameOpcodeAndCorrelation(frames)
-
-	telemetry.DefaultBus.Publish(telemetry.ALUDispatchEvent(
-		st.substrate.Name(),
-		op,
-		corr,
-		elapsed.Nanoseconds(),
-		valID,
-	))
-}
-
-func (backend *Backend) publishWireFrames(frames []unsafe.Pointer) {
-	const frameBytes = 128 * 8
-
-	for _, ptr := range frames {
-		if ptr == nil {
-			continue
-		}
-
-		valueID := kernel.FrameID(ptr)
-		if valueID == 0 {
-			continue
-		}
-
-		telemetry.PublishWireValueFrame(
-			valueID,
-			unsafe.Slice((*byte)(ptr), frameBytes),
-		)
-	}
-}
-
 /*
 Dispatch is the pool handler: it receives an Executable from a worker,
 picks the best substrate, compiles for the matching target, writes the
@@ -469,16 +445,6 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 	}
 
 	st.inflight.Add(1)
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PoolScheduleEvent(
-			st.substrate.Name(),
-			int(st.inflight.Load()),
-			len(backend.states),
-			value.ID(),
-		))
-	}
-
 	start := time.Now()
 
 	for idx := range frames {
@@ -511,17 +477,6 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 	st.inflight.Add(-1)
 	st.observe(elapsed)
 
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PoolCompleteEvent(
-			st.substrate.Name(),
-			elapsed.Nanoseconds(),
-			value.ID(),
-		))
-	}
-
-	backend.publishALUDispatch(st, ptrs, elapsed)
-	backend.publishWireFrames(ptrs)
-
 	executable.Finalize()
 }
 
@@ -540,7 +495,7 @@ func (backend *Backend) Execute(indices []uint32) error {
 
 	// Force CPU substrate for OpcodeRegionProgram and OpcodeCopyMaskMerge since
 	// they are only implemented on the CPU path today.
-	op, _, valID := firstFrameOpcodeAndCorrelation(ptrs)
+	op, _, _ := firstFrameOpcodeAndCorrelation(ptrs)
 	var st *substrateState
 	if uint64(op) == kernel.OpcodeRegionProgram || kernel.IsCopyMaskMergeOpcode(uint64(op)) {
 		for _, state := range backend.states {
@@ -556,16 +511,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 	}
 
 	st.inflight.Add(1)
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PoolScheduleEvent(
-			st.substrate.Name(),
-			int(st.inflight.Load()),
-			len(backend.states),
-			valID,
-		))
-	}
-
 	start := time.Now()
 
 	err = st.substrate.Execute(indices)
@@ -573,17 +518,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 	elapsed := time.Since(start)
 	st.inflight.Add(-1)
 	st.observe(elapsed)
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PoolCompleteEvent(
-			st.substrate.Name(),
-			elapsed.Nanoseconds(),
-			valID,
-		))
-	}
-
-	backend.publishALUDispatch(st, ptrs, elapsed)
-	backend.publishWireFrames(ptrs)
 
 	return err
 }
@@ -609,7 +543,7 @@ func (backend *Backend) executeHeapFramesOnCPU(frames []unsafe.Pointer) error {
 
 	backend.ensureCorrelationIDs(frames)
 
-	_, _, valID := firstFrameOpcodeAndCorrelation(frames)
+	_, _, _ = firstFrameOpcodeAndCorrelation(frames)
 
 	var st *substrateState
 
@@ -626,16 +560,6 @@ func (backend *Backend) executeHeapFramesOnCPU(frames []unsafe.Pointer) error {
 	}
 
 	st.inflight.Add(1)
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PoolScheduleEvent(
-			st.substrate.Name(),
-			int(st.inflight.Load()),
-			len(backend.states),
-			valID,
-		))
-	}
-
 	start := time.Now()
 
 	execErr := cb.ExecutePointers(frames)
@@ -643,17 +567,6 @@ func (backend *Backend) executeHeapFramesOnCPU(frames []unsafe.Pointer) error {
 	elapsed := time.Since(start)
 	st.inflight.Add(-1)
 	st.observe(elapsed)
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PoolCompleteEvent(
-			st.substrate.Name(),
-			elapsed.Nanoseconds(),
-			valID,
-		))
-	}
-
-	backend.publishALUDispatch(st, frames, elapsed)
-	backend.publishWireFrames(frames)
 
 	return execErr
 }

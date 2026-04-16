@@ -543,6 +543,105 @@ func TestCloseAll(t *testing.T) {
 }
 
 /*
+TestValue_StageAssetFrom verifies the in-band gossip primitive: a source
+Value's Signals+Context+Gradient+Properties block lands verbatim in the
+receiver's Asset region. S+C+G+P fills asset exactly (48 into 48) so
+the four outbound regions live contiguously and a single copy covers
+them all.
+*/
+func TestValue_StageAssetFrom(t *testing.T) {
+	Convey("Given a source Value with known S/C/G/P bits", t, func() {
+		receiver := AllocValue()
+		source := AllocValue()
+
+		defer receiver.Close()
+		defer source.Close()
+
+		signalsStart, signalsWords := SignalsRegion.WordExtent()
+		_, contextWords := ContextRegion.WordExtent()
+		_, gradientWords := GradientRegion.WordExtent()
+		_, propertiesWords := PropertiesRegion.WordExtent()
+
+		stageWords := signalsWords + contextWords + gradientWords + propertiesWords
+		assetStart, assetWords := AssetRegion.WordExtent()
+
+		So(assetWords, ShouldBeGreaterThanOrEqualTo, stageWords)
+
+		// Paint every word in the contiguous S/C/G/P block with a
+		// deterministic, non-zero bit pattern so we can assert the
+		// exact copy on the other side and also rule out accidental
+		// zero-fills that would mask a silent no-op.
+		for offset := 0; offset < stageWords; offset++ {
+			(*source)[signalsStart+offset] = uint64(0xA5A5A500 | offset)
+		}
+
+		Convey("When StageAssetFrom copies source into receiver", func() {
+			receiver.StageAssetFrom(source)
+
+			Convey("It mirrors S/C/G/P into asset[0,stageWords]", func() {
+				for offset := 0; offset < stageWords; offset++ {
+					So((*receiver)[assetStart+offset], ShouldEqual, uint64(0xA5A5A500|offset))
+				}
+			})
+		})
+
+		Convey("When StageAssetFrom receives a nil source", func() {
+			before := make([]uint64, stageWords)
+			copy(before, (*receiver)[assetStart:assetStart+stageWords])
+
+			receiver.StageAssetFrom(nil)
+
+			Convey("It leaves the asset window untouched", func() {
+				for offset := 0; offset < stageWords; offset++ {
+					So((*receiver)[assetStart+offset], ShouldEqual, before[offset])
+				}
+			})
+		})
+
+		Convey("When StageAssetFrom is called on a nil receiver", func() {
+			var nilReceiver *Value
+
+			Convey("It does not panic", func() {
+				So(func() { nilReceiver.StageAssetFrom(source) }, ShouldNotPanic)
+			})
+		})
+
+		Convey("When StageAssetFrom is called with self as source", func() {
+			before := make([]uint64, stageWords)
+			copy(before, (*receiver)[assetStart:assetStart+stageWords])
+
+			receiver.StageAssetFrom(receiver)
+
+			Convey("It is a no-op (aliasing guard)", func() {
+				for offset := 0; offset < stageWords; offset++ {
+					So((*receiver)[assetStart+offset], ShouldEqual, before[offset])
+				}
+			})
+		})
+	})
+}
+
+/*
+BenchmarkValue_StageAssetFrom pins the hot-path cost of the in-band gossip
+primitive. Two stage-sized copies per call — regressions here mean every
+pool dispatch pays more than it should.
+*/
+func BenchmarkValue_StageAssetFrom(b *testing.B) {
+	receiver := AllocValue()
+	source := AllocValue()
+
+	defer receiver.Close()
+	defer source.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		receiver.StageAssetFrom(source)
+	}
+}
+
+/*
 BenchmarkNewValue measures the end-to-end mint path on a short payload so
 regressions in Morton packing or pool churn show up immediately.
 */

@@ -2,115 +2,129 @@ package vm
 
 import (
 	"context"
-	"runtime"
-	"sync/atomic"
-	"unsafe"
+	"errors"
+	"io"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/data"
-	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
+	"github.com/theapemachine/six/pkg/mesh"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
-Orchestrator is the single rule evaluator for the Value pipeline. For each
-Value it evaluates config rules. When a rule matches it wraps the Value
-in an Executable with a Finalizer and submits a task to the pool. The pool
-worker produces the Executable, the Backend compiles it for the picked
-substrate, executes, and calls the Finalizer. The Finalizer re-enters
-submitStep so the next rule can fire. When no rule matches the Value is
-routed to a community field.
+Orchestrator seeds the in-value pipeline. Its job is three things:
+owning the compute.Backend that runs ALU work, owning the root Field
+where published Values land, and kicking off the rule-driven firmware
+chain for each freshly ingested Value so neighborhood topology exists
+before any downstream Conn pulls from the Field. The rule walk itself
+lives in programmer.Firmware.Chain; the orchestrator just submits the
+first step on the pool and each firmware Executable re-enters Chain
+through the same scheduler until the Value reaches steady state and
+its resident program takes over.
+
+The Backend is wired into the pool.Queue at construction time as the
+dispatch callback. Without this the pool worker pulls a task, receives
+the Executable, and drops it — a silent stall that manifests in the
+visualizer as every Value parked at "awaiting first ALU dispatch".
 */
 type Orchestrator struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	err       error
+	backend   *compute.Backend
 	queue     *pool.Queue
 	firmware  *programmer.Firmware
-	router    *Router
-	field     *geometry.Field
-	finalizer *ActionFinalizer
-	lifecycle *LifecycleEngine
-	inbox     *data.Ring
-	lastID    uint64
-	enqueued  atomic.Uint64
-	draining  atomic.Uint32
-	bootstrap atomic.Bool
+	scheduler programmer.Scheduler
+	field     *mesh.Field
+	telemetry io.ReadWriteCloser
+	emitter   *Emitter
 }
 
 type orchestratorOption func(*Orchestrator)
 
 /*
-WithField installs the global field that community routing should aggregate
-into. Nil keeps the orchestrator's default Mod65537 root field.
-*/
-func WithField(field *geometry.Field) orchestratorOption {
-	return func(orchestrator *Orchestrator) {
-		if field == nil {
-			return
-		}
-
-		orchestrator.field = field
-	}
-}
-
-/*
-NewOrchestrator creates a new orchestrator wired to the queue.
+NewOrchestrator creates a new orchestrator wired to the queue and a
+compute.Backend whose Dispatch is registered with the pool so workers
+actually run Executables against a substrate.
 */
 func NewOrchestrator(
 	ctx context.Context,
-	conn *gossip.Conn,
-	queue *pool.Queue,
 	options ...orchestratorOption,
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	// The Backend must be live before the pool so its Dispatch is the
+	// very first thing workers see. A nil backend here is fatal — the
+	// orchestrator has nothing for the pool to run.
+	backend := compute.NewBackend(ctx)
+
+	if backend == nil {
+		cancel()
+		return nil, errnie.Error(errors.New("vm.NewOrchestrator: compute.NewBackend returned nil"))
+	}
+
+	queue, err := pool.NewQueue(ctx, backend.Dispatch)
+
+	if err != nil {
+		// Cancel the derived context so the parent doesn't retain a
+		// stranded child on the failure path — vet flags the leak.
+		cancel()
+		errors.Join(err, backend.Close())
+		return nil, errnie.Error(err)
+	}
+
+	telemetryClient, err := telemetry.NewClient(ctx, core.Cfg.TelemetryWebSocketURL)
+
+	if err != nil {
+		cancel()
+		return nil, errnie.Error(err)
+	}
+
+	emitter, err := NewEmitter(ctx)
+
+	if err != nil {
+		cancel()
+		return nil, errnie.Error(err)
+	}
+
 	orchestrator := &Orchestrator{
-		ctx:      ctx,
-		cancel:   cancel,
-		queue:    queue,
-		firmware: programmer.NewFirmware(),
-		field:    geometry.NewField(geometry.Mod65537),
+		ctx:       ctx,
+		cancel:    cancel,
+		backend:   backend,
+		queue:     queue,
+		firmware:  programmer.NewFirmware(),
+		scheduler: programmer.Scheduler(queue),
+		// The root field runs in routing mode: incoming Values land in a
+		// GF(8191) community child keyed by affinity Hamming distance,
+		// capped at a 48-bit budget before a new community is spawned.
+		// Leaf storage lives one level down in those children; the root
+		// only carries the XOR-folded parent fingerprint.
+		field:     mesh.NewField(ctx, 65537, mesh.WithCommunities(8191, 48)),
+		telemetry: telemetryClient,
+		emitter:   emitter,
 	}
 
 	for _, option := range options {
 		option(orchestrator)
 	}
 
-	orchestrator.router = NewRouter(orchestrator.field)
-	orchestrator.finalizer = NewActionFinalizer(orchestrator)
-	orchestrator.lifecycle = NewLifecycleEngine(
-		orchestrator,
-		orchestrator.firmware,
-		orchestrator.finalizer,
-	)
-
-	orchestrator.inbox, orchestrator.err = data.NewRing(ctx, data.RingCapacity)
-
-	if orchestrator.err != nil {
-		cancel()
-		return nil, orchestrator.err
-	}
-
 	if err := validate.Require(map[string]any{
-		"ctx":       orchestrator.ctx,
-		"cancel":    orchestrator.cancel,
-		"queue":     orchestrator.queue,
-		"firmware":  orchestrator.firmware,
-		"router":    orchestrator.router,
-		"field":     orchestrator.field,
-		"finalizer": orchestrator.finalizer,
-		"lifecycle": orchestrator.lifecycle,
-		"inbox":     orchestrator.inbox,
+		"ctx":      orchestrator.ctx,
+		"cancel":   orchestrator.cancel,
+		"backend":  orchestrator.backend,
+		"queue":    orchestrator.queue,
+		"firmware": orchestrator.firmware,
+		"field":    orchestrator.field,
 	}); err != nil {
 		cancel()
-		return nil, err
+		errors.Join(err, backend.Close())
+		return nil, errnie.Error(err)
 	}
 
 	return orchestrator, nil
@@ -122,8 +136,22 @@ Close the orchestrator.
 func (orchestrator *Orchestrator) Close() error {
 	orchestrator.cancel()
 
-	if orchestrator.inbox != nil {
-		_ = orchestrator.inbox.Close()
+	if orchestrator.emitter != nil {
+		if emitterErr := orchestrator.emitter.Close(); emitterErr != nil {
+			orchestrator.err = errors.Join(orchestrator.err, emitterErr)
+		}
+	}
+
+	if orchestrator.telemetry != nil {
+		if telErr := orchestrator.telemetry.Close(); telErr != nil {
+			orchestrator.err = errors.Join(orchestrator.err, telErr)
+		}
+	}
+
+	if orchestrator.backend != nil {
+		if backendErr := orchestrator.backend.Close(); backendErr != nil {
+			orchestrator.err = errors.Join(orchestrator.err, backendErr)
+		}
 	}
 
 	return orchestrator.err
@@ -137,561 +165,135 @@ func (orchestrator *Orchestrator) Error() error {
 }
 
 /*
-InboxLen returns the approximate number of Values waiting in the routing inbox.
+Cycle seeds the in-value pipeline with a wave of Values and lets the
+system develop. Each Value's asset region is pre-loaded with its
+predecessor and successor IDs so the link firmware has material to
+copy into prev/next on the first ALU pass.
+
+Pass 1 (raw): Conn.Read serialises each Value through the io pipeline
+(emitter → telemetry → field) for immediate visibility. For Values
+that are still STATUS_RAW, Read also tees them into the firmware chain
+(link → affinity → resident). The terminal finalizer stamps
+STATUS_READY and sends the Value to the loopback channel.
+
+Pass 2 (bootstrapped): after the first io.Copy drains, Cycle collects
+every loopback Value and re-cycles them. This time the Values carry
+real prev/next and affinity, so telemetry shows populated frames and
+the field routes with real Hamming distances. Conn.Read sees
+STATUS_READY and skips the firmware tee — the Value just flows through.
 */
-func (orchestrator *Orchestrator) InboxLen() int {
-	if orchestrator == nil || orchestrator.inbox == nil {
-		return 0
+func (orchestrator *Orchestrator) Cycle(
+	values ...*primitive.Value,
+) (resolved []*primitive.Value, err error) {
+	bundle := make([]*primitive.Value, 0, len(values))
+
+	for _, value := range values {
+		if value != nil {
+			bundle = append(bundle, value)
+		}
 	}
 
-	return orchestrator.inbox.Len()
-}
-
-/*
-IsDraining reports whether drainInbox is actively processing the inbox.
-*/
-func (orchestrator *Orchestrator) IsDraining() bool {
-	if orchestrator == nil {
-		return false
+	if len(bundle) == 0 {
+		return nil, nil
 	}
 
-	return orchestrator.draining.Load() != 0
-}
+	// Seed the link chain: stamp each Value's asset[0] with the
+	// predecessor's ID and asset[1] with the successor's ID so the
+	// link firmware (asset[0,1]→prev, asset[1,1]→next) has material
+	// to copy on the first ALU pass. Values at the head/tail of the
+	// wave get a zero in the missing direction, which is fine — the
+	// rule evaluator treats zero as "not linked" and the affinity rule
+	// only requires (prev OR next), not both.
+	assetStart, _ := core.Cfg.Value.Region.Asset.WordExtent()
 
-/*
-BeginBootstrap marks the orchestrator as being in ingest bootstrap mode.
-During bootstrap the runtime still performs link, affinity, and routing, but
-field-level autonomous actions are held back until bootstrap completes.
-*/
-func (orchestrator *Orchestrator) BeginBootstrap() {
-	if orchestrator == nil {
-		return
-	}
-
-	orchestrator.bootstrap.Store(true)
-}
-
-/*
-EndBootstrap clears ingest bootstrap mode so field-level autonomous actions may
-resume.
-*/
-func (orchestrator *Orchestrator) EndBootstrap() {
-	if orchestrator == nil {
-		return
-	}
-
-	orchestrator.bootstrap.Store(false)
-}
-
-func (orchestrator *Orchestrator) publishPrepared(value *primitive.Value) {
-	if orchestrator == nil || value == nil {
-		return
-	}
-
-	if telemetry.HasWireValueFrameSink() {
-		telemetry.PublishWireValueFrame(value.ID(), value.Bytes())
-	}
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.QueueSubmitEvent(
-			1,
-			value,
-			value.String(),
-		))
-	}
-
-	orchestrator.publishExecuted(value)
-}
-
-/*
-Publish stages the predecessor ID into the asset region so the link program
-can copy it into prev, then hands the Value to the rule evaluator.
-*/
-func (orchestrator *Orchestrator) Publish(values ...*primitive.Value) ([]*primitive.Value, error) {
-	for index, value := range values {
-		if value == nil {
-			continue
+	for idx, value := range bundle {
+		if idx > 0 {
+			value.Set(assetStart, bundle[idx-1].ID())
 		}
 
-		assetStart, _ := primitive.AssetRegion.WordExtent()
-		previousID := orchestrator.lastID
-		nextID := uint64(0)
-
-		if index+1 < len(values) && values[index+1] != nil {
-			nextID = values[index+1].ID()
+		if idx+1 < len(bundle) {
+			value.Set(assetStart+1, bundle[idx+1].ID())
 		}
+	}
 
-		if telemetry.DefaultBus.IsActive() {
-			telemetry.DefaultBus.Publish(telemetry.QueueSubmitEvent(
-				int64(len(values)),
-				value,
-				value.String(),
-			))
-		}
+	orchestrator.emitter.values = make([]*primitive.Value, 0)
 
-		value.Set(assetStart, previousID)
-		value.Set(assetStart+1, nextID)
-		orchestrator.lastID = value.ID()
-		orchestrator.publishPrepared(value)
+	// Loopback channel: the terminal finalizer sends bootstrapped
+	// values here after the firmware chain stamps STATUS_READY.
+	// Buffered to bundle size so finalizers never block the pool.
+	loopback := make(chan *primitive.Value, len(bundle))
+
+	conn, err := gossip.NewConn(
+		orchestrator.ctx,
+		orchestrator.scheduler,
+		bundle...,
+	)
+
+	if err != nil {
+		return nil, errnie.Error(err)
+	}
+
+	conn.Loopback(func(value *primitive.Value) {
+		loopback <- value
+	})
+
+	if err = orchestrator.pumpPipeline(conn, len(bundle), false); err != nil {
+		return nil, err
+	}
+
+	// Drain loopback: collect every bootstrapped Value and re-cycle.
+	// The firmware chain is async so we drain until the channel has
+	// as many values as we submitted (one loopback per raw value).
+	bootstrapped := make([]*primitive.Value, 0, len(bundle))
+
+	for range len(bundle) {
+		bootstrapped = append(bootstrapped, <-loopback)
+	}
+
+	close(loopback)
+
+	// Pass 2: bootstrapped values flow through the pipeline again.
+	// Conn.Read sees STATUS_READY and skips the firmware tee, so
+	// they just pass through to telemetry (visible) and field (routed).
+	conn2, err := gossip.NewConn(
+		orchestrator.ctx,
+		orchestrator.scheduler,
+		bootstrapped...,
+	)
+
+	if err != nil {
+		return nil, errnie.Error(err)
+	}
+
+	if err = orchestrator.pumpPipeline(conn2, len(bootstrapped), true); err != nil {
+		return nil, err
 	}
 
 	return nil, nil
 }
 
 /*
-Cycle is the prompt-time heartbeat. Values re-enter the rule evaluator.
+pumpPipeline drives one pass of the io pipeline. The full pass wires
+Conn → emitter → telemetry → field so downstream consumers see every
+frame. The drain-only variant (full=false) just reads Conn to
+completion — its only purpose is triggering Conn.Read's firmware tee
+for raw values that have no meaningful affinity yet.
 */
-func (orchestrator *Orchestrator) Cycle(
-	values ...*primitive.Value,
-) ([]*primitive.Value, error) {
-	for _, value := range values {
-		if value == nil {
-			continue
-		}
+func (orchestrator *Orchestrator) pumpPipeline(conn *gossip.Conn, count int, full bool) error {
+	limit := int64(count) * int64(core.Cfg.Value.Bytes)
+	src := io.LimitReader(gossip.FrameDelimitedReader(conn), limit)
 
-		orchestrator.publishExecuted(value)
+	if !full {
+		_, err := io.Copy(io.Discard, src)
+		return errnie.Error(err)
 	}
 
-	if orchestrator == nil || orchestrator.field == nil {
-		return nil, nil
-	}
-
-	processed, err := orchestrator.field.Cycle()
-	if err != nil {
-		return nil, err
-	}
-
-	if orchestrator.bootstrap.Load() {
-		return processed, nil
-	}
-
-	if orchestrator.lifecycle != nil {
-		for _, community := range orchestrator.field.Fields {
-			if community == nil {
-				continue
-			}
-
-			value := orchestrator.representativeValue(community)
-			if value == nil {
-				continue
-			}
-
-			_ = orchestrator.lifecycle.FinalizeField(
-				communityFinalizerScope,
-				value,
-				community,
-			)
-		}
-
-		if value := orchestrator.representativeValue(orchestrator.field); value != nil {
-			_ = orchestrator.lifecycle.FinalizeField(
-				globalFinalizerScope,
-				value,
-				orchestrator.field,
-			)
-		}
-	}
-
-	if !orchestrator.bootstrap.Load() {
-		orchestrator.stageUnsupervisedPairs()
-	}
-
-	if orchestrator.router != nil {
-		orchestrator.router.PublishGraphSnapshot()
-	}
-
-	return orchestrator.resolveValues(processed), nil
-}
-
-const (
-	unsupervisedPairBudget = 4
-	crystallizationFloor   = 0.35
-)
-
-/*
-stageUnsupervisedPairs iterates communities with low crystallization coverage
-and mints ephemeral learner Values that record peer IDs in asset[0] and
-asset[16]. Execute-time hydration copies token regions from the registry before
-the unsupervised_learn ALU program XOR-folds them — no Go-side token copy loop.
-*/
-func (orchestrator *Orchestrator) stageUnsupervisedPairs() {
-	if orchestrator == nil || orchestrator.field == nil {
-		return
-	}
-
-	budget := unsupervisedPairBudget
-
-	for _, community := range orchestrator.field.Fields {
-		if community == nil || len(community.Values) < 2 || budget <= 0 {
-			continue
-		}
-
-		if orchestrator.coverageOf(community) >= crystallizationFloor {
-			continue
-		}
-
-		for peerIndex := 0; peerIndex < len(community.Values)-1 && budget > 0; peerIndex++ {
-			peerA := community.Values[peerIndex]
-			peerB := community.Values[peerIndex+1]
-
-			if peerA == nil || peerB == nil {
-				continue
-			}
-
-			orchestrator.scheduleLearner(peerA, peerB)
-			budget--
-		}
-	}
-}
-
-/*
-scheduleLearner mints an ephemeral Value and stages two peers' token regions
-into its Asset scratchpad via the programmer.Asset system. PrevID/NextID
-point back to the source pair so the result can be traced.
-*/
-func (orchestrator *Orchestrator) scheduleLearner(
-	peerA *primitive.Value,
-	peerB *primitive.Value,
-) {
-	learner := primitive.AllocValue()
-	if learner == nil {
-		return
-	}
-
-	learner.StampNewID()
-	learner.Set(kernel.PrevStartWord, peerA.ID())
-	learner.Set(kernel.NextStartWord, peerB.ID())
-	learner.Set(kernel.AssetStartWord, peerA.ID())
-	learner.Set(kernel.AssetStartWord+16, peerB.ID())
-
-	executable := programmer.NewExecutable(
-		learner, "unsupervised_learn", nil,
-	)
-	executable.SetFinalizer(orchestrator.finalizeExecutedValue)
-
-	orchestrator.queue.Submit(func() *programmer.Executable {
-		return executable
-	})
-}
-
-/*
-coverageOf reports the fraction of community members that carry at least one
-non-zero label slot in properties word 48.
-*/
-func (orchestrator *Orchestrator) coverageOf(community *geometry.Field) float64 {
-	if community == nil || len(community.Values) == 0 {
-		return 1.0
-	}
-
-	labeled := 0
-
-	for _, value := range community.Values {
-		if value == nil {
-			continue
-		}
-
-		if (*value)[kernel.PropertiesStartWord] != 0 {
-			labeled++
-		}
-	}
-
-	return float64(labeled) / float64(len(community.Values))
-}
-
-/*
-publishExecuted publishes a Value back to the orchestrator's single-writer
-rule lane. Backend workers may call this concurrently; the router and
-community fields are only touched by drainInbox.
-*/
-func (orchestrator *Orchestrator) publishExecuted(value *primitive.Value) {
-	if orchestrator == nil || value == nil {
-		return
-	}
-
-	for !orchestrator.inbox.Push(unsafe.Pointer(value)) {
-		runtime.Gosched()
-	}
-
-	orchestrator.enqueued.Add(1)
-	orchestrator.drainInbox()
-}
-
-func (orchestrator *Orchestrator) finalizeExecutedValue(value *primitive.Value) {
-	if orchestrator == nil || value == nil {
-		return
-	}
-
-	if (*value)[kernel.PropertiesTTLWord] == kernel.TTLExpiredSentinel {
-		value.Set(kernel.PropertiesTTLWord, 0)
-
-		return
-	}
-
-	if orchestrator.lifecycle != nil && orchestrator.lifecycle.FinalizeValue(value) {
-		return
-	}
-
-	orchestrator.publishExecuted(value)
-}
-
-/*
-drainInbox serializes rule evaluation and routing without taking a mutex.
-The generation check closes the race where a producer enqueues after the
-last Pop but before the active drainer releases ownership.
-*/
-func (orchestrator *Orchestrator) drainInbox() {
-	if !orchestrator.draining.CompareAndSwap(0, 1) {
-		return
-	}
-
-	for {
-		observed := orchestrator.enqueued.Load()
-
-		for {
-			ptr := orchestrator.inbox.Pop()
-
-			if ptr == nil {
-				break
-			}
-
-			orchestrator.submitStep((*primitive.Value)(ptr))
-		}
-
-		if orchestrator.enqueued.Load() != observed {
-			continue
-		}
-
-		orchestrator.draining.Store(0)
-
-		if orchestrator.enqueued.Load() == observed {
-			return
-		}
-
-		if !orchestrator.draining.CompareAndSwap(0, 1) {
-			return
-		}
-	}
-}
-
-/*
-submitStep evaluates the next action for a Value. Priority order:
-
- 1. Firmware rules — the boot chain (link, affinity) always fires first.
- 2. In-band continuation — if word 117 = self, the Value's ALU program has
-    declared "run me again." This is the cognitive loop: beam_swarm_step,
-    active_inference, measure_field all use next self. Routing would kill
-    the loop after one pass.
- 3. Route — no firmware, no continuation. The Value is settled and joins
-    a community field.
-*/
-func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
-	if value == nil {
-		return
-	}
-
-	name := orchestrator.lifecycle.SelectProgram(value)
-
-	if name != "" {
-		executable := programmer.NewExecutable(value, name, nil)
-
-		executable.SetFinalizer(orchestrator.finalizeExecutedValue)
-
-		if telemetry.DefaultBus.IsActive() {
-			telemetry.DefaultBus.Publish(telemetry.CompilerCompileEvent(
-				"queued", 0, 0, 0, false, 0,
-			))
-		}
-
-		orchestrator.queue.Submit(func() *programmer.Executable {
-			return executable
-		})
-
-		return
-	}
-
-	if (*value)[kernel.SchedulingNextProgramWord] == value.ID() {
-		executable := programmer.NewResidentExecutable(value)
-
-		executable.SetFinalizer(orchestrator.finalizeExecutedValue)
-
-		orchestrator.queue.Submit(func() *programmer.Executable {
-			return executable
-		})
-
-		return
-	}
-
-	orchestrator.clearProgram(value)
-	orchestrator.router.Route(value)
-}
-
-func (orchestrator *Orchestrator) finalizeFields(
-	value *primitive.Value,
-	communities ...*geometry.Field,
-) {
-	if orchestrator == nil || value == nil {
-		return
-	}
-
-	if orchestrator.bootstrap.Load() {
-		return
-	}
-
-	if orchestrator.field != nil {
-		_, _ = orchestrator.field.Cycle()
-	}
-
-	for _, community := range communities {
-		if community == nil || orchestrator.lifecycle == nil {
-			continue
-		}
-
-		_ = orchestrator.lifecycle.FinalizeField(
-			communityFinalizerScope,
-			value,
-			community,
-		)
-	}
-
-	if orchestrator.lifecycle == nil || orchestrator.field == nil {
-		if orchestrator.router != nil {
-			orchestrator.router.PublishGraphSnapshot()
-		}
-		return
-	}
-
-	_ = orchestrator.lifecycle.FinalizeField(
-		globalFinalizerScope,
-		value,
-		orchestrator.field,
-	)
-
-	if orchestrator.router != nil {
-		orchestrator.router.PublishGraphSnapshot()
-	}
-}
-
-func (orchestrator *Orchestrator) resolveValues(
-	values []*primitive.Value,
-) []*primitive.Value {
-	if orchestrator == nil || len(values) == 0 {
-		return values
-	}
-
-	resolved := make([]*primitive.Value, 0, len(values))
-	propertiesStart, _ := primitive.PropertiesRegion.WordExtent()
-	bestGap := 2.0
-	var bestValue *primitive.Value
-
-	for _, value := range values {
-		if value == nil {
-			continue
-		}
-
-		community := orchestrator.communityForValue(value)
-		if community == nil {
-			continue
-		}
-
-		gap := community.BeliefGap(value.Get(primitive.AffinityRegion))
-
-		if gap < bestGap {
-			bestGap = gap
-			bestValue = value
-		}
-
-		if gap > core.Cfg.System.BeliefEpsilon {
-			continue
-		}
-
-		value.Set(propertiesStart+int(primitive.STATE), uint64(primitive.RESOLVED))
-		resolved = append(resolved, value)
-	}
-
-	if len(resolved) > 0 {
-		return resolved
-	}
-
-	if bestValue != nil {
-		bestValue.Set(propertiesStart+int(primitive.STATE), uint64(primitive.RESOLVED))
-		return []*primitive.Value{bestValue}
-	}
-
-	return values
-}
-
-func (orchestrator *Orchestrator) communityForValue(
-	value *primitive.Value,
-) *geometry.Field {
-	if orchestrator == nil || orchestrator.field == nil || value == nil {
-		return nil
-	}
-
-	for _, community := range orchestrator.field.Fields {
-		if community == nil {
-			continue
-		}
-
-		for _, member := range community.Values {
-			if member == value || (member != nil && member.ID() == value.ID()) {
-				return community
-			}
-		}
+	teeEmitter := io.TeeReader(src, orchestrator.emitter)
+	teeTelemetry := io.TeeReader(teeEmitter, orchestrator.telemetry)
+
+	if _, err := io.Copy(orchestrator.field, teeTelemetry); err != nil {
+		return errnie.Error(err)
 	}
 
 	return nil
-}
-
-func (orchestrator *Orchestrator) representativeValue(
-	field *geometry.Field,
-) *primitive.Value {
-	if field == nil {
-		return nil
-	}
-
-	bestGap := 2.0
-	var bestValue *primitive.Value
-
-	for _, value := range field.Values {
-		if value == nil {
-			continue
-		}
-
-		gap := field.BeliefGap(value.Get(primitive.AffinityRegion))
-		if gap >= bestGap {
-			continue
-		}
-
-		bestGap = gap
-		bestValue = value
-	}
-
-	if bestValue != nil {
-		return bestValue
-	}
-
-	for _, community := range field.Fields {
-		if value := orchestrator.representativeValue(community); value != nil {
-			return value
-		}
-	}
-
-	return nil
-}
-
-/*
-clearProgram removes stale in-Value firmware when no rule validates.
-*/
-func (orchestrator *Orchestrator) clearProgram(value *primitive.Value) {
-	if value == nil {
-		return
-	}
-
-	start, words := primitive.ProgramRegion.WordExtent()
-
-	for offset := range words {
-		value.Set(start+offset, 0)
-	}
-
-	value.Set(kernel.SchedulingNextProgramWord, 0)
 }

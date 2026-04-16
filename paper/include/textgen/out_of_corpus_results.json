@@ -11,9 +11,9 @@
   "name": "Out of Corpus",
   "outcome": {
     "actual": 0,
-    "message": "Expected '0' to be greater than or equal to '0.0048339809551825215' (but it wasn't)!",
+    "message": "Expected '0' to be greater than or equal to '0.00466373224714938' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.0048339809551825215
+    "threshold": 0.00466373224714938
   },
   "results": [],
   "score": 0,

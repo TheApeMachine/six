@@ -39,7 +39,7 @@ eigenSnap stores the last completed eigenmode partition for a community field.
 It is swapped in by a background pass so cycleLeaf can read slightly stale
 modes without blocking on DetectModes.
 */
-type eigenSnap struct {
+type EigenSnap struct {
 	modes       []Eigenmode
 	dominantIdx int
 }
@@ -53,41 +53,6 @@ type PhaseMode struct {
 	Index         int
 	Amplitude     uint32
 	Concentration float64
-}
-
-/*
-DetectPhaseMode extracts the dominant lane from any GF(p) phase field. The
-modulus is carried by the Field; there is no separate API per layer.
-*/
-func DetectPhaseMode(phaseVector *Field) PhaseMode {
-	if phaseVector == nil {
-		return PhaseMode{Index: -1}
-	}
-
-	return phaseModeFromDominant(phaseVector.Dominant())
-}
-
-/*
-DetectPhaseMode257, DetectPhaseMode8191, and DetectPhaseMode65537 are aliases
-for DetectPhaseMode — the Field already encodes which modulus applies.
-*/
-func DetectPhaseMode257(phaseVector *Field) PhaseMode {
-	return DetectPhaseMode(phaseVector)
-}
-
-func DetectPhaseMode8191(phaseVector *Field) PhaseMode {
-	return DetectPhaseMode(phaseVector)
-}
-
-func DetectPhaseMode65537(phaseVector *Field) PhaseMode {
-	return DetectPhaseMode(phaseVector)
-}
-
-/*
-PhaseAlignment measures circular agreement between two dominant phase lanes.
-*/
-func PhaseAlignment(leftMode PhaseMode, rightMode PhaseMode, field *Field) float64 {
-	return field.Alignment(leftMode.Index, rightMode.Index)
 }
 
 /*

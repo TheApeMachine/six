@@ -21,7 +21,6 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 const hfBase = "https://huggingface.co"
@@ -59,12 +58,11 @@ type Dataset struct {
 	cachedTokens  []byte
 	cachedSamples []data.Sample
 
-	readMu        sync.Mutex
-	readBuf       []byte
-	readPos       int
-	readErr       error
-	readDone      bool
-	readTotalSent int64
+	readMu   sync.Mutex
+	readBuf  []byte
+	readPos  int
+	readErr  error
+	readDone bool
 }
 
 var _ data.Provider = (*Dataset)(nil)
@@ -297,12 +295,6 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 
 	n = copy(p, dataset.readBuf[dataset.readPos:])
 	dataset.readPos += n
-
-	dataset.readTotalSent += int64(n)
-	total := dataset.readTotalSent
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.DatasetReadEvent(dataset.repo, int64(n), total, ""))
-	}
 
 	return n, nil
 }

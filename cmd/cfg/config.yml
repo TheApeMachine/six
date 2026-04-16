@@ -1,11 +1,9 @@
 loglevel: trace
 
-# UDP destination for experiment pipeline telemetry (Observer JSON + raw frames).
+# WebSocket URL for raw primitive.Value wire frames (same bridge the UI uses).
 telemetry:
   enabled: true
-  udp_endpoint: "127.0.0.1:8258"
-  # High volume: one UDP event per LGP slot per CPU UniversalBitwise dispatch (viz / debug only).
-  universal_bitwise_slots: true
+  ws_url: "ws://127.0.0.1:3000/ws"
 
 # Logging and trace shipping (see pkg/errnie/logging_config.go).
 logging:
@@ -68,10 +66,10 @@ value:
       bits: 512
     properties:
       start: 48
-      bits: 512
+      bits: 1536
     asset:
-      start: 56
-      bits: 4096
+      start: 72
+      bits: 3072
     prev:
       start: 120
       bits: 64
@@ -115,6 +113,48 @@ value:
             next: true
           affinity: false
       firmware: affinity
+    # Classify fires when a Value carries a dataset label (slot 0 of
+    # properties, which is word 48 in absolute layout) and has not yet
+    # broadcast a signal for it. The offset-span gates are the same
+    # region-ref syntax the five-column DSL uses, so the rule only
+    # matches the exact state it names — other bits set in the broader
+    # properties region do not accidentally trip the readout.
+    - name: classify
+      conditions:
+        and:
+          affinity: true
+          properties[0,1]: true
+          signals[0,1]: false
+      firmware: classify_readout
+    # Peer-gap fires whenever a carrier has been delivered via
+    # Conn.Write. StageAssetFrom lands the source's context in asset[8,8],
+    # and that sub-span going non-empty is the honest gate for running
+    # the comparison — predecessor or not, the primitive is the same XOR
+    # of local context against the staged peer context. signals[0,8]:
+    # false keeps the rule one-shot per delivery.
+    - name: peer_gap
+      conditions:
+        and:
+          affinity: true
+          asset[8,8]: true
+          signals[0,8]: false
+      firmware: unsupervised_learn
+    # Explore is the default post-bootstrap behaviour: a routed Value
+    # with nothing to classify and no peer staged starts walking Morton
+    # space via beam_swarm_step. context[0,8] being empty is the
+    # "has-not-been-through-the-ALU" gate; after the first beam pass
+    # context fills, the rule stops matching, and the program's own
+    # `next self` keeps the beam looping through the scheduler instead
+    # of back through the rule engine. Without this rule every Value
+    # settles with `affinity` as its resident program, which is why the
+    # visualiser saw 100% plumbing activity.
+    - name: explore
+      conditions:
+        and:
+          affinity: true
+          context[0,8]: false
+          signals[0,8]: false
+      firmware: beam_swarm_step
 
 
 programs:
@@ -227,15 +267,18 @@ programs:
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
     next self
 
-  # Unsupervised learning: XOR two token spans that the orchestrator has staged
-  # into asset[0,16] (peer A, tokens 0-15) and asset[16,16] (peer B,
-  # tokens 0-15). Zero bits in signals[0,8] mark positions shared by both
-  # Values; properties[1] carries the reduced self-knowledge metric in-band.
-  # The kernel XOR-folds the 16-word srcA into 4 lanes, then sweeps 16
-  # rotations against the cyclic srcB span; the 64-byte LSH result is
-  # XOR-accumulated into signals[0,8], then OR-reduced into properties[1].
+  # Unsupervised learning: the peer whose similarity we're measuring has
+  # landed here via Conn.Write, which invokes StageAssetFrom to copy the
+  # peer's contiguous Signals+Context+Gradient+Properties block into this
+  # Value's asset region:
+  #   asset[0,8]   = peer.signals    asset[16,8]  = peer.gradient
+  #   asset[8,8]   = peer.context    asset[24,8]  = peer.properties
+  # Self-knowledge is the XOR of my context (local eigenmode alignment)
+  # against the peer's context — shared structure shows up as a long
+  # zero-run in the 64-byte signature. Reduce that signature into
+  # properties[1,1] as the in-band similarity metric.
   unsupervised_learn: |
-    asset[0,16]  asset[16,16] signals[0,8]    xor accumulate
+    context[0,8] asset[8,8]   signals[0,8]    xor accumulate
     signals[0,8] signals[0,8] properties[1,1] or  reduce
 
   # Community label-energy fingerprint: the orchestrator stages up to 8
@@ -248,6 +291,40 @@ programs:
   measure_field: |
     asset[0,8] asset[0,8] signals[7,1] or reduce
     next self
+
+  # Classification readout: broadcast the 16-bit dataset label held in
+  # properties[0] (word 48, slot 0) into signals[0] so downstream observers
+  # can see the class without mutating the source Value. Firing is driven
+  # by the `classify` rule: properties non-empty AND signals empty, so the
+  # readout only runs on freshly settled Values that actually carry a label.
+  classify_readout: |
+    properties[0,1] properties[0,1] signals[0,1] or accumulate
+
+  # Episodic replay: the predecessor emits itself into this Value via a
+  # gossip.Conn (io.Copy from predecessor into a Conn that targets this
+  # Value by affinity). Conn.Write calls StageAssetFrom, so asset[0,32]
+  # now carries the predecessor's Signals+Context+Gradient+Properties.
+  # Chain-delta is the XOR of my context against the predecessor's
+  # context (asset[8,8]); the reduced signature lands in properties[1,1]
+  # as the per-link replay witness. No `next self` — replay is a single
+  # observation per delivered predecessor; a multi-hop walk is a chain
+  # of deliveries through the gossip substrate, not a program loop.
+  episodic_replay: |
+    context[0,8] asset[8,8]   signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8] properties[1,1] or  reduce
+
+  # Intervention (Pearl L2 do-operation): a carrier Value from a foreign
+  # community arrived here via Conn.Write with prev left unset — severed
+  # causal history — so StageAssetFrom populated asset[0,32] with the
+  # intervener's S+C+G+P. The XOR of my context against the injected
+  # gradient (asset[16,8]) is the do-direction: where the intervener
+  # pushes me relative to the attractor I was already converging on.
+  # The reduced signature sits in properties[0,1] as the intervention
+  # witness; whoever scheduled the do-op reads that word to decide
+  # whether to persist the perturbation or let it dissolve via TTL.
+  intervene: |
+    context[0,8] asset[16,8]  signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8] properties[0,1] or  reduce
 
 finalizers:
   - name: community_resonance_emit

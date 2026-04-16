@@ -1,4 +1,3 @@
-import dgram from "node:dgram";
 import { readFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
@@ -14,8 +13,6 @@ const BRIDGE_HOST = process.env.VIZ_BRIDGE_HOST || "0.0.0.0";
 const BRIDGE_PORT = Number(
 	process.env.VIZ_BRIDGE_PORT || process.env.VITE_VIZ_PORT || "6600",
 );
-const UDP_HOST = process.env.TELEMETRY_UDP_HOST || "127.0.0.1";
-const UDP_PORT = Number(process.env.TELEMETRY_UDP_PORT || "8258");
 const FRAME_HISTORY_LIMIT = Number(process.env.VIZ_FRAME_HISTORY || "0");
 const CONTROL_URL = (process.env.TELEMETRY_CONTROL_URL || "").trim();
 const CONFIG_PATH =
@@ -46,7 +43,7 @@ const diagnostics: BridgeDiagnostics = {
 
 const frameHistory: Buffer[] = [];
 
-function pushFrame(frame: Buffer) {
+function broadcastFromProducer(from: WebSocket, frame: Buffer) {
 	const copy = Buffer.from(frame);
 
 	if (FRAME_HISTORY_LIMIT > 0) {
@@ -64,6 +61,9 @@ function pushFrame(frame: Buffer) {
 	diagnostics.lastFrameAt = Date.now();
 
 	for (const client of websocketServer.clients) {
+		if (client === from) {
+			continue;
+		}
 		if (client.readyState !== WebSocket.OPEN) {
 			continue;
 		}
@@ -129,7 +129,8 @@ app.get("/", (_req, res) => {
 		bridge: "six-visualizer",
 		controlUrl: CONTROL_URL || null,
 		diagnostics,
-		udp: `${UDP_HOST}:${UDP_PORT}`,
+		ingest: "websocket",
+		path: "/ws",
 	});
 });
 
@@ -138,7 +139,8 @@ app.get("/api/diagnostics", (_req, res) => {
 		controlUrl: CONTROL_URL || null,
 		diagnostics,
 		frameHistoryLimit: FRAME_HISTORY_LIMIT,
-		udp: `${UDP_HOST}:${UDP_PORT}`,
+		ingest: "websocket",
+		path: "/ws",
 	});
 });
 
@@ -195,23 +197,19 @@ websocketServer.on("connection", (client) => {
 		}
 	}
 
+	client.on("message", (data, isBinary) => {
+		if (!isBinary) {
+			return;
+		}
+		const buf = Buffer.isBuffer(data)
+			? data
+			: Buffer.from(data as ArrayBuffer);
+		broadcastFromProducer(client, buf);
+	});
+
 	client.on("close", () => {
 		diagnostics.clients = websocketServer.clients.size;
 	});
-});
-
-const telemetrySocket = dgram.createSocket("udp4");
-
-telemetrySocket.on("message", (message) => {
-	pushFrame(message);
-});
-
-telemetrySocket.on("error", (error) => {
-	console.error("[bridge] udp error", error);
-});
-
-telemetrySocket.bind(UDP_PORT, UDP_HOST, () => {
-	console.log(`[bridge] udp listening on ${UDP_HOST}:${UDP_PORT}`);
 });
 
 server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
@@ -228,7 +226,6 @@ server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
 
 function shutdown(signal: string) {
 	console.log(`[bridge] shutting down on ${signal}`);
-	telemetrySocket.close();
 	websocketServer.close();
 	server.close(() => {
 		process.exit(0);

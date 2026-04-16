@@ -11,20 +11,18 @@ import {
 	telemetryHttpBase,
 	telemetryWebSocketURL,
 } from "@/features/telemetry/endpoint";
-import { createTelemetryStore } from "@/features/telemetry/store";
 import type {
 	VizGraphSnapshot,
 	VizInspectSnapshot,
 	VizRuntimeStats,
 } from "@/features/telemetry/types";
-import { decodeVizFrames, type VizEvent } from "@/lib/wire";
+import { ValueStore } from "@/lib/value-store";
+import { decodeValueWireMessage } from "@/lib/wire";
 
 interface FieldContextValue {
 	stats: VizRuntimeStats | null;
-	snapshot: VizGraphSnapshot | null;
-	snapshotHistory: VizGraphSnapshot[];
+	snapshot: VizGraphSnapshot;
 	selection: VizInspectSnapshot | null;
-	events: VizEvent[];
 	connectionError: string | null;
 	sendPrompt: (text: string) => void;
 	selectValueById: (id: string) => boolean;
@@ -33,14 +31,14 @@ interface FieldContextValue {
 const FieldContext = createContext<FieldContextValue | null>(null);
 
 export function FieldProvider({ children }: { children: React.ReactNode }) {
-	const store = useMemo(() => createTelemetryStore(), []);
-	const [stats, setStats] = useState<VizRuntimeStats | null>(null);
-	const [snapshot, setSnapshot] = useState<VizGraphSnapshot | null>(null);
-	const [snapshotHistory, setSnapshotHistory] = useState<VizGraphSnapshot[]>(
-		[],
+	const store = useMemo(() => new ValueStore(), []);
+	const [stats, setStats] = useState<VizRuntimeStats | null>(
+		() => store.getState().stats,
+	);
+	const [snapshot, setSnapshot] = useState<VizGraphSnapshot>(
+		() => store.getState().snapshot,
 	);
 	const [selection, setSelection] = useState<VizInspectSnapshot | null>(null);
-	const [events, setEvents] = useState<VizEvent[]>([]);
 	const [connectionError, setConnectionError] = useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
 	const retryTimerRef = useRef<number | null>(null);
@@ -52,9 +50,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 			const nextState = store.getState();
 			setStats(nextState.stats);
 			setSnapshot(nextState.snapshot);
-			setSnapshotHistory(nextState.snapshotHistory);
 			setSelection(nextState.selection);
-			setEvents(nextState.events);
 		}
 
 		function connect() {
@@ -75,8 +71,8 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 					return;
 				}
 
-				const frames = decodeVizFrames(message.data);
-				store.applyFrames(frames);
+				const frames = decodeValueWireMessage(message.data);
+				store.applyWireFrames(frames);
 				sync();
 			};
 
@@ -140,17 +136,10 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 
 	const selectValueById = useCallback(
 		(id: string) => {
-			if (!id) {
-				setSelection(null);
-				return false;
-			}
-
 			const nextState = store.selectValueById(id);
 			setSelection(nextState.selection);
 			setSnapshot(nextState.snapshot);
-			setSnapshotHistory(nextState.snapshotHistory);
 			setStats(nextState.stats);
-			setEvents(nextState.events);
 
 			return nextState.selection !== null;
 		},
@@ -162,9 +151,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 			value={{
 				stats,
 				snapshot,
-				snapshotHistory,
 				selection,
-				events,
 				connectionError,
 				sendPrompt,
 				selectValueById,

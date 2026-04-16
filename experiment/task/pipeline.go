@@ -2,16 +2,11 @@ package task
 
 import (
 	"context"
-	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 var vizOnce sync.Once
@@ -40,7 +35,7 @@ Current execution path (aligned with the substrate, not the historical
 Paper / eval runs use the same ingress as production vm.Machine: UniversalBitwise
 executes each batch, then HomologousCrossover on adjacent same-program pairs.
 Prompt frames stall Read until settle; system.evolutionBatchWindow in config must
-be long enough (see pkg/compute.Backend.gatherCoalesceDuration) or mates never
+be long enough (see pkg/compute/Backend.gatherCoalesceDuration) or mates never
 share a batch and crossover rarely sees pairs.
 
 A full stream recirculator can be reintroduced later; eval runs must not
@@ -111,102 +106,14 @@ func PipelineWithSnapshotReporter() pipelineOpts {
 	}
 }
 
-/*
-PipelineWithViz is the compatibility entrypoint for telemetry-enabled runs.
-The browser-facing bridge now lives under visualizer/; this hook only enables
-the Go telemetry publisher path.
-*/
-func PipelineWithViz(addr string) pipelineOpts {
-	return func(_ *Pipeline) {
-		vizOnce.Do(func() {
-			endpoint := resolveVizTelemetryEndpoint(addr)
+type PipelineError string
 
-			if endpoint == "" {
-				telemetry.ConfigureFromConfig()
-				return
-			}
+const (
+	PipelineErrNoPrompt PipelineError = "no prompt values generated"
+)
 
-			errnie.Info("task.PipelineWithViz", "bridge_addr", addr, "telemetry_endpoint", endpoint)
-			telemetry.ConfigureUDP(true, endpoint)
-		})
-	}
-}
-
-func resolveVizTelemetryEndpoint(addr string) string {
-	configuredEndpoint := ""
-
-	if core.Cfg != nil {
-		configuredEndpoint = strings.TrimSpace(core.Cfg.TelemetryEndpoint)
-	}
-
-	if strings.TrimSpace(addr) == "" {
-		return configuredEndpoint
-	}
-
-	host := normalizeVizHost(hostFromAddr(addr))
-
-	if host == "" {
-		host = normalizeVizHost(hostFromAddr(configuredEndpoint))
-	}
-
-	if host == "" {
-		host = "127.0.0.1"
-	}
-
-	port := portFromAddr(configuredEndpoint)
-
-	if port == "" {
-		port = "8258"
-	}
-
-	return net.JoinHostPort(host, port)
-}
-
-func hostFromAddr(addr string) string {
-	trimmed := strings.TrimSpace(addr)
-
-	if trimmed == "" {
-		return ""
-	}
-
-	if strings.HasPrefix(trimmed, ":") {
-		return ""
-	}
-
-	host, _, err := net.SplitHostPort(trimmed)
-	if err == nil {
-		return host
-	}
-
-	return trimmed
-}
-
-func portFromAddr(addr string) string {
-	trimmed := strings.TrimSpace(addr)
-
-	if trimmed == "" {
-		return ""
-	}
-
-	if strings.HasPrefix(trimmed, ":") {
-		return strings.TrimPrefix(trimmed, ":")
-	}
-
-	_, port, err := net.SplitHostPort(trimmed)
-	if err != nil {
-		return ""
-	}
-
-	return port
-}
-
-func normalizeVizHost(host string) string {
-	switch strings.TrimSpace(host) {
-	case "", "0.0.0.0", "::", "[::]":
-		return ""
-	default:
-		return strings.TrimSpace(host)
-	}
+func (e PipelineError) Error() string {
+	return string(e)
 }
 
 func (pipeline *Pipeline) writeStandardSummary() error {
@@ -216,27 +123,16 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 		return nil
 	}
 
-	holdoutDescription := "per dataset configuration"
-
-	if descriptor, typed := pipeline.experiment.(tools.SummaryHoldoutDescriptor); typed {
-		holdoutDescription = descriptor.SummaryHoldoutDescription()
+	holdoutDesc := ""
+	if d, ok := pipeline.experiment.(tools.SummaryHoldoutDescriptor); ok {
+		holdoutDesc = d.SummaryHoldoutDescription()
 	}
 
 	return WriteStandardSummary(
 		pipeline.experiment.Name(),
 		pipeline.experiment.Section(),
 		rows,
-		holdoutDescription,
+		holdoutDesc,
 		pipeline.timing,
 	)
-}
-
-type PipelineError string
-
-const (
-	PipelineErrNoPrompt PipelineError = "no prompt values generated"
-)
-
-func (e PipelineError) Error() string {
-	return string(e)
 }

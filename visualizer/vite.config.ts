@@ -1,4 +1,3 @@
-import dgram from "node:dgram";
 import { readFile } from "node:fs/promises";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -9,8 +8,6 @@ import { WebSocket, WebSocketServer } from "ws";
 import YAML from "yaml";
 
 function telemetryBridge(): Plugin {
-	const UDP_HOST = process.env.TELEMETRY_UDP_HOST || "127.0.0.1";
-	const UDP_PORT = Number(process.env.TELEMETRY_UDP_PORT || "8258");
 	const CONTROL_URL = (process.env.TELEMETRY_CONTROL_URL || "").trim();
 	const CONFIG_PATH =
 		process.env.SIX_CONFIG_PATH ||
@@ -18,7 +15,6 @@ function telemetryBridge(): Plugin {
 	const FRAME_HISTORY_LIMIT = Number(process.env.VIZ_FRAME_HISTORY || "0");
 
 	let wss: WebSocketServer;
-	let udp: dgram.Socket;
 	const frameHistory: Buffer[] = [];
 
 	const diagnostics = {
@@ -30,7 +26,7 @@ function telemetryBridge(): Plugin {
 		lastFrameAt: null as number | null,
 	};
 
-	function pushFrame(frame: Buffer) {
+	function broadcastFromProducer(from: WebSocket, frame: Buffer) {
 		const copy = Buffer.from(frame);
 
 		if (FRAME_HISTORY_LIMIT > 0) {
@@ -47,6 +43,9 @@ function telemetryBridge(): Plugin {
 		diagnostics.lastFrameAt = Date.now();
 
 		for (const client of wss.clients) {
+			if (client === from) {
+				continue;
+			}
 			if (client.readyState === WebSocket.OPEN) client.send(copy);
 		}
 	}
@@ -97,6 +96,15 @@ function telemetryBridge(): Plugin {
 				if (FRAME_HISTORY_LIMIT > 0) {
 					for (const frame of frameHistory) client.send(frame);
 				}
+				client.on("message", (data, isBinary) => {
+					if (!isBinary) {
+						return;
+					}
+					const buf = Buffer.isBuffer(data)
+						? data
+						: Buffer.from(data as ArrayBuffer);
+					broadcastFromProducer(client, buf);
+				});
 				client.on("close", () => {
 					diagnostics.clients = wss.clients.size;
 				});
@@ -109,13 +117,6 @@ function telemetryBridge(): Plugin {
 				});
 			});
 
-			udp = dgram.createSocket("udp4");
-			udp.on("message", pushFrame);
-			udp.on("error", (err) => console.error("[bridge] udp error", err));
-			udp.bind(UDP_PORT, UDP_HOST, () => {
-				console.log(`[bridge] udp listening on ${UDP_HOST}:${UDP_PORT}`);
-			});
-
 			server.middlewares.use("/api/diagnostics", (_req, res) => {
 				res.setHeader("content-type", "application/json");
 				res.end(
@@ -123,7 +124,8 @@ function telemetryBridge(): Plugin {
 						controlUrl: CONTROL_URL || null,
 						diagnostics,
 						frameHistoryLimit: FRAME_HISTORY_LIMIT,
-						udp: `${UDP_HOST}:${UDP_PORT}`,
+						ingest: "websocket",
+						path: "/ws",
 					}),
 				);
 			});
@@ -181,7 +183,6 @@ function telemetryBridge(): Plugin {
 			});
 		},
 		buildEnd() {
-			udp?.close();
 			wss?.close();
 		},
 	};

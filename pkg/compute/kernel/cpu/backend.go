@@ -31,6 +31,14 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 	return backend
 }
 
+func (backend *Backend) Shutdown() {
+	if backend == nil || backend.cancel == nil {
+		return
+	}
+
+	backend.cancel()
+}
+
 func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
@@ -136,8 +144,6 @@ func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
 			value := (*uint64)(ptr)
 
 			defer kernel.FinishFramePostALU(frameWords)
-
-			primitive.HydrateLearnerPeers((*primitive.Value)(ptr))
 
 			rawOpcode := frameWords[kernel.ProgramOpcodeWord] & 0xFF
 			opcode := rawOpcode & kernel.OpcodeBooleanMask

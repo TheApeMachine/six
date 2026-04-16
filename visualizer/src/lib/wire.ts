@@ -1,246 +1,38 @@
-const MAGIC = new Uint8Array([0x56, 0x5a, 0x42, 0x01]);
+/*
+Binary WebSocket payloads from the bridge are raw primitive.Value wire images:
+one or more contiguous frames (128 × uint64 LE each). No VZB envelope.
+*/
 
-export const FrameType = {
-    Event: 1,
-    Bootstrap: 2,
-    Stats: 3,
-    Scrub: 4,
-    JSONBlob: 5,
-    /** Raw primitive.Value.Bytes (see pkg/viz/wire.go WireFrameValue). */
-    Value: 6,
-} as const;
+import { readWordU64LE, VALUE_FRAME_BYTE_LENGTH, WORD } from "./valueLayout";
 
-export { EK, KIND_NAMES } from './viz_event_kinds';
-
-export interface VizEvent {
-    kind: number;
-    ts: number;
-    src: string;
-    tgt: string;
-    lbl: string;
-    vals: Record<string, number>;
-    meta: Record<string, string>;
-}
-
-export type DecodedFrame =
-  | { frameType: "event"; event: VizEvent }
-  | { frameType: "bootstrap"; nodes: string[] }
-  | { frameType: "stats"; dropped: number }
-  | { frameType: "scrub"; events: VizEvent[] }
-  | { frameType: "json"; text: string }
-  | { frameType: "value"; valueId: bigint; bytes: Uint8Array };
-
-const textDecoder = new TextDecoder();
-
-const matchMagic = (u8: Uint8Array): boolean => {
-    for (let i = 0; i < 4; i++) {
-        if (u8[i] !== MAGIC[i]) return false;
-    }
-    
-    return true;
-};
-
-const readString = (u8: Uint8Array, off: number): { s: string; off: number } => {
-    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-
-    if (off + 4 > u8.length) throw new Error('wire: truncated string len');
-
-    const len = dv.getUint32(off, true);
-    off += 4;
-
-    if (len > 1 << 28) throw new Error('wire: string too large');
-    if (off + len > u8.length) throw new Error('wire: truncated string data');
-
-    const s = textDecoder.decode(u8.subarray(off, off + len));
-    off += len;
-
-    return { s, off };
-}
-
-const decodeEventPayload = (u8: Uint8Array, off: number): { event: VizEvent; nextOff: number } => {
-    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-
-    if (off + 8 > u8.length) throw new Error('wire: event ts');
-
-    const tsBig = dv.getBigInt64(off, true);
-    off += 8;
-
-    if (off >= u8.length) throw new Error('wire: event kind');
-
-    const kind = u8[off];
-    off += 1;
-
-    let r = readString(u8, off); const src = r.s; off = r.off;
-    r = readString(u8, off); const tgt = r.s; off = r.off;
-    r = readString(u8, off); const lbl = r.s; off = r.off;
-
-    if (off + 4 > u8.length) throw new Error('wire: n_vals');
-
-    const nVals = dv.getUint32(off, true);
-    off += 4;
-
-    const MAX_N_VALS = 4096;
-
-    if (nVals > MAX_N_VALS) throw new Error('wire: n_vals too large');
-
-    const bytesRemaining = u8.length - off;
-    
-    if (nVals > 0 && bytesRemaining < nVals * 12) {
-        throw new Error('wire: vals truncated');
-    }
-
-    const vals: Record<string, number> = {};
-    
-    for (let i = 0; i < nVals; i++) {
-        r = readString(u8, off); off = r.off;
-    
-        if (off + 8 > u8.length) throw new Error('wire: val f64');
-    
-        vals[r.s] = dv.getFloat64(off, true);
-        off += 8;
-    }
-
-    if (off + 4 > u8.length) throw new Error('wire: n_meta');
-    
-    const nMeta = dv.getUint32(off, true);
-    off += 4;
-    const meta: Record<string, string> = {};
-    
-    for (let i = 0; i < nMeta; i++) {
-        r = readString(u8, off); const key = r.s; off = r.off;
-        r = readString(u8, off); meta[key] = r.s; off = r.off;
-    }
-
-    const event: VizEvent = { kind, ts: Number(tsBig), src, tgt, lbl, vals, meta };
-    return { event, nextOff: off };
+export interface RawValueFrame {
+	valueId: bigint;
+	bytes: Uint8Array;
 }
 
 /*
-decodeVizFrames walks a binary WebSocket payload that may concatenate multiple
-VZB frames (same magic each time). Each full frame is decoded in order.
+DecodeValueWireMessage splits a WebSocket binary message into full Value frames
+and reads the id word (122) for each.
 */
-export const decodeVizFrames = (input: Uint8Array | ArrayBuffer): DecodedFrame[] => {
-    const arr = input instanceof ArrayBuffer ? new Uint8Array(input) : input;
-    const out: DecodedFrame[] = [];
-    const dv = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
-    let i = 0;
+export function decodeValueWireMessage(
+	data: ArrayBuffer | Uint8Array,
+): RawValueFrame[] {
+	const u8 = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+	const wlen = VALUE_FRAME_BYTE_LENGTH;
+	const n = u8.byteLength;
 
-    while (i + 5 <= arr.length) {
-        if (!matchMagic(arr.subarray(i, i + 4))) {
-            i++;
-            continue;
-        }
+	if (n === 0 || n % wlen !== 0) {
+		return [];
+	}
 
-        const frameType = arr[i + 4];
-        const off0 = i + 5;
+	const out: RawValueFrame[] = [];
 
-        try {
-            if (frameType === FrameType.Event) {
-                const { event, nextOff } = decodeEventPayload(arr, off0);
-                out.push({ frameType: 'event', event });
-                i = nextOff;
-                continue;
-            }
+	for (let off = 0; off < n; off += wlen) {
+		const bytes = u8.subarray(off, off + wlen);
+		const valueId = readWordU64LE(bytes, WORD.ID);
 
-            if (frameType === FrameType.Bootstrap) {
-                let off = off0;
-                const n = dv.getUint32(off, true);
-                off += 4;
-                const nodes: string[] = [];
+		out.push({ valueId, bytes: new Uint8Array(bytes) });
+	}
 
-                for (let k = 0; k < n; k++) {
-                    const r = readString(arr, off); nodes.push(r.s); off = r.off;
-                }
-
-                out.push({ frameType: 'bootstrap', nodes });
-                i = off;
-                continue;
-            }
-
-            if (frameType === FrameType.Stats) {
-                if (off0 + 8 > arr.length) break;
-                const dropped = Number(dv.getBigUint64(off0, true));
-                out.push({ frameType: 'stats', dropped });
-                i = off0 + 8;
-                continue;
-            }
-
-            if (frameType === FrameType.Scrub) {
-                let off = off0;
-                const nEv = dv.getUint32(off, true);
-                off += 4;
-                const events: VizEvent[] = [];
-
-                for (let k = 0; k < nEv; k++) {
-                    if (off + 4 > arr.length) throw new Error('wire: scrub chunk len');
-                    const chunkLen = dv.getUint32(off, true);
-                    off += 4;
-                    if (off + chunkLen > arr.length) throw new Error('wire: scrub chunk truncated');
-
-                    const chunk = arr.subarray(off, off + chunkLen);
-                    const payloadStart = 0;
-                    const { event, nextOff } = decodeEventPayload(chunk, payloadStart);
-                    const decodedLen = nextOff - payloadStart;
-
-                    if (decodedLen !== chunkLen) {
-                        throw new Error(
-                            `wire: scrub chunk length mismatch: declared ${chunkLen} decoded ${decodedLen}`,
-                        );
-                    }
-
-                    events.push(event);
-                    off += chunkLen;
-                }
-
-                out.push({ frameType: 'scrub', events });
-                i = off;
-                continue;
-            }
-
-            if (frameType === FrameType.JSONBlob) {
-                let off = off0;
-                if (off + 4 > arr.length) break;
-                const jlen = dv.getUint32(off, true);
-                off += 4;
-                if (off + jlen > arr.length) break;
-                const text = textDecoder.decode(arr.subarray(off, off + jlen));
-                out.push({ frameType: 'json', text });
-                i = off + jlen;
-                continue;
-            }
-
-            if (frameType === FrameType.Value) {
-                if (off0 + 8 + 4 > arr.length) break;
-                const valueId = dv.getBigUint64(off0, true);
-                let off = off0 + 8;
-                const blen = dv.getUint32(off, true);
-                off += 4;
-                if (off + blen > arr.length) break;
-                const bytes = arr.subarray(off, off + blen);
-                out.push({ frameType: 'value', valueId, bytes });
-                i = off + blen;
-                continue;
-            }
-        } catch (err) {
-            if (import.meta.env?.DEV) {
-                const hint =
-                    i + 5 <= arr.length
-                        ? Array.from(arr.subarray(i, Math.min(i + 16, arr.length)))
-                              .map((b) => b.toString(16).padStart(2, '0'))
-                              .join(' ')
-                        : '';
-
-                console.debug('wire: decodeVizFrames frame error', { err, i, frameType, hint });
-            }
-
-            i++;
-            continue;
-        }
-
-        i++;
-    }
-
-    return out;
+	return out;
 }
-
-export const decodeVizMessage = (u8: Uint8Array | ArrayBuffer): DecodedFrame[] => decodeVizFrames(u8);

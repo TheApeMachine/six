@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import './components/node-graph/styles/node-graph.css';
 
 @layer base {
   :root {

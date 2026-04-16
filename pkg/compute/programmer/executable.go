@@ -77,6 +77,20 @@ func (executable *Executable) IsResidentProgram() bool {
 }
 
 /*
+Firmware returns the configured firmware name this Executable will run
+(empty when resident). Useful for observers and tests that need to
+verify which rule fired for a given Value without pulling open the
+parsed-token soup.
+*/
+func (executable *Executable) Firmware() string {
+	if executable == nil {
+		return ""
+	}
+
+	return executable.firmware
+}
+
+/*
 SetFinalizer attaches a post-execution callback.
 */
 func (executable *Executable) SetFinalizer(finalizer Finalizer) {

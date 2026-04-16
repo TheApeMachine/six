@@ -83,11 +83,34 @@ func TestFirmware_Next(t *testing.T) {
 			So(next, ShouldEqual, "affinity")
 		})
 
-		Convey("Next should return empty string when affinity is already set", func() {
+		Convey("Next should return beam_swarm_step after bootstrap when no behaviour rule supersedes it", func() {
+			/*
+			With link + affinity satisfied and no label / peer delivery /
+			context fill yet, the explore rule matches: it's the default
+			post-bootstrap behaviour and exists specifically so Values
+			don't settle on `affinity` as their resident program.
+			*/
 			prevStart, _ := primitive.PrevRegion.WordExtent()
 			affinityStart, _ := primitive.AffinityRegion.WordExtent()
 			value.Set(prevStart, 1)
 			value.Set(affinityStart, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "beam_swarm_step")
+		})
+
+		Convey("Next should return empty string once context has been populated", func() {
+			/*
+			After the first beam pass writes context[0,8], the explore
+			rule stops matching and the Chain walk hands off to the
+			resident program for in-place looping via `next self`.
+			*/
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			contextStart, _ := primitive.ContextRegion.WordExtent()
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+			value.Set(contextStart, 1)
 
 			next := firmware.Next(value)
 			So(next, ShouldEqual, "")
@@ -95,6 +118,228 @@ func TestFirmware_Next(t *testing.T) {
 
 		Reset(func() {
 			value.Close()
+		})
+	})
+}
+
+/*
+stubScheduler is an inline Scheduler — Submit runs the task and Finalizes
+the produced Executable on the caller's goroutine. That collapses the
+"pool dispatch → Backend.Dispatch → Finalize" loop to pure function calls
+so the test can measure terminal-finalizer propagation without lighting
+up a compute.Backend (which would drag in pool and its runtime-linkname
+constraints at link time). The ALU pass is faked by mutating the Value's
+rule-gate regions after each firmware observation so the rule evaluator
+actually progresses on re-entry — without this, link would match forever
+because no region state changes in a stubbed environment.
+*/
+type stubScheduler struct {
+	firmware *Firmware
+	names    []string
+}
+
+func (stub *stubScheduler) Submit(task func() *Executable) {
+	if task == nil {
+		return
+	}
+
+	executable := task()
+
+	if executable == nil {
+		return
+	}
+
+	name := executable.Firmware()
+	stub.names = append(stub.names, name)
+
+	// Simulate the ALU's effect on rule-gate regions so the recursive
+	// Chain call sees the next rule fire. The real substrate would
+	// write these bits as part of the firmware's program; the test
+	// cares about the scheduler wiring, not the ALU outputs.
+	value := executable.Value()
+
+	switch name {
+	case "link":
+		prevStart, _ := primitive.PrevRegion.WordExtent()
+		value.Set(prevStart, 1)
+	case "affinity":
+		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		value.Set(affinityStart, 1)
+	case "beam_swarm_step":
+		// The real beam program's first frame populates context[0,8];
+		// the stub mirrors that single word so the explore rule's
+		// context-empty gate flips and the chain advances to resident.
+		contextStart, _ := primitive.ContextRegion.WordExtent()
+		value.Set(contextStart, 1)
+	}
+
+	executable.Finalize()
+}
+
+/*
+TestFirmware_Chain covers the rule-walking scheduler entry point: first
+hop fires the matching firmware, the attached finalizer re-submits into
+Chain so the Value walks every rule until steady state, and the optional
+terminal Finalizer runs exactly once on the resident Executable.
+*/
+func TestFirmware_Chain(t *testing.T) {
+	Convey("Given a fresh Value that triggers the link rule", t, func() {
+		values, err := primitive.NewValue([]byte("chain test"))
+
+		So(err, ShouldBeNil)
+		So(len(values), ShouldBeGreaterThan, 0)
+
+		value := values[0]
+
+		defer value.Close()
+
+		// Strip prev/next so the rule engine picks link first. NewValue
+		// returns a single segment here so the stamps are already zero,
+		// but we zero explicitly to pin the precondition.
+		prevStart, prevWords := primitive.PrevRegion.WordExtent()
+		nextStart, nextWords := primitive.NextRegion.WordExtent()
+		affinityStart, affinityWords := primitive.AffinityRegion.WordExtent()
+
+		for offset := 0; offset < prevWords; offset++ {
+			value.Set(prevStart+offset, 0)
+		}
+		for offset := 0; offset < nextWords; offset++ {
+			value.Set(nextStart+offset, 0)
+		}
+		for offset := 0; offset < affinityWords; offset++ {
+			value.Set(affinityStart+offset, 0)
+		}
+
+		firmware := NewFirmware()
+
+		Convey("Chain returns nil when any required input is nil", func() {
+			So(firmware.Chain(nil, value), ShouldBeNil)
+
+			scheduler := &stubScheduler{firmware: firmware}
+			So(firmware.Chain(scheduler, nil), ShouldBeNil)
+
+			var nilFirmware *Firmware
+			So(nilFirmware.Chain(scheduler, value), ShouldBeNil)
+		})
+
+		Convey("When Chain is submitted with a terminal Finalizer", func() {
+			scheduler := &stubScheduler{firmware: firmware}
+
+			var terminalHits int
+			var terminalValue *primitive.Value
+
+			terminal := func(finalized *primitive.Value) {
+				terminalHits++
+				terminalValue = finalized
+			}
+
+			// Seed the first hop. The stub's Submit runs the task
+			// synchronously and finalizes the resulting Executable,
+			// which itself submits the next hop — so one Submit here
+			// unrolls the whole rule walk.
+			scheduler.Submit(func() *Executable {
+				return firmware.Chain(scheduler, value, terminal)
+			})
+
+			Convey("It walks link → affinity → beam_swarm_step → resident", func() {
+				So(scheduler.names, ShouldResemble, []string{"link", "affinity", "beam_swarm_step", ""})
+			})
+
+			Convey("The terminal Finalizer fires exactly once on the resident value", func() {
+				So(terminalHits, ShouldEqual, 1)
+				So(terminalValue, ShouldEqual, value)
+			})
+		})
+
+		Convey("When Chain is submitted without a terminal", func() {
+			scheduler := &stubScheduler{firmware: firmware}
+
+			scheduler.Submit(func() *Executable {
+				return firmware.Chain(scheduler, value)
+			})
+
+			Convey("It still walks through explore to resident and stops cleanly", func() {
+				So(
+					scheduler.names,
+					ShouldResemble,
+					[]string{"link", "affinity", "beam_swarm_step", ""},
+				)
+			})
+		})
+
+		Convey("When Chain starts at the affinity rule (prev is set)", func() {
+			value.Set(prevStart, 1)
+
+			scheduler := &stubScheduler{firmware: firmware}
+
+			var hits int
+			terminal := func(*primitive.Value) { hits++ }
+
+			scheduler.Submit(func() *Executable {
+				return firmware.Chain(scheduler, value, terminal)
+			})
+
+			Convey("It skips link, runs affinity, explores, then resident", func() {
+				So(
+					scheduler.names,
+					ShouldResemble,
+					[]string{"affinity", "beam_swarm_step", ""},
+				)
+				So(hits, ShouldEqual, 1)
+			})
+		})
+
+		Convey("When Chain starts post-bootstrap (prev + affinity set)", func() {
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+
+			scheduler := &stubScheduler{firmware: firmware}
+
+			var hits int
+			terminal := func(*primitive.Value) { hits++ }
+
+			scheduler.Submit(func() *Executable {
+				return firmware.Chain(scheduler, value, terminal)
+			})
+
+			Convey("It installs beam_swarm_step via explore and then lands on resident", func() {
+				So(
+					scheduler.names,
+					ShouldResemble,
+					[]string{"beam_swarm_step", ""},
+				)
+				So(hits, ShouldEqual, 1)
+			})
+		})
+
+		Convey("When context is already populated the chain settles on resident", func() {
+			/*
+			This pins the other direction: a Value whose ALU has already
+			filled context[0,8] (e.g. after the first beam pass) must
+			fall through every behaviour rule and land on the resident
+			Executable. That handoff is what lets `next self` keep the
+			beam looping without re-triggering the rule walk.
+			*/
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+
+			contextStart, _ := primitive.ContextRegion.WordExtent()
+			value.Set(contextStart, 1)
+
+			signalsStart, _ := primitive.SignalsRegion.WordExtent()
+			value.Set(signalsStart, 1)
+
+			scheduler := &stubScheduler{firmware: firmware}
+
+			var hits int
+			terminal := func(*primitive.Value) { hits++ }
+
+			scheduler.Submit(func() *Executable {
+				return firmware.Chain(scheduler, value, terminal)
+			})
+
+			So(scheduler.names, ShouldResemble, []string{""})
+			So(hits, ShouldEqual, 1)
 		})
 	})
 }

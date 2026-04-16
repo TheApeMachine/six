@@ -16,7 +16,18 @@ const (
 	PropertiesProbeStateWord  = 53 // properties[5], explicit runtime probe ABI only
 	PropertiesProbeWindowWord = 54 // properties[6], PackRegionRef over token words
 	PropertiesProbeDepthWord  = 55 // properties[7], final re-stabilization depth
-	AssetStartWord            = 56
+	PropertiesCommunityWord   = 56 // properties[8], stamped by mesh.Field community routing
+	PropertiesStatusWord      = 57 // properties[9], firmware lifecycle: 0=raw, READY=bootstrapped
+
+	// StatusRaw is the zero-value default: the Value has not been through
+	// the firmware chain yet. The field may store it tentatively but should
+	// expect a follow-up write once bootstrap completes.
+	StatusRaw   uint64 = 0
+	// StatusReady means the firmware chain (link → affinity → resident)
+	// has run to completion and the Value's regions are fully populated.
+	StatusReady uint64 = 1
+
+	AssetStartWord = 72
 	SchedulingNextProgramWord = 117
 	// ReservedStartWord is the legacy name for the asset scratch region base word.
 	ReservedStartWord = AssetStartWord
@@ -61,7 +72,7 @@ const (
 
 	NearestAffinityBatchWord = 124
 
-	NearestAffinityCandidatesStartWord = 56
+	NearestAffinityCandidatesStartWord = AssetStartWord
 	MaxNearestAffinityCandidates       = 256
 
 	SignalBestIdxOffset  = 0

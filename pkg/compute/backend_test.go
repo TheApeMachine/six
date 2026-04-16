@@ -9,8 +9,24 @@ import (
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
+
+type shutdownStubSubstrate struct {
+	shutdowns atomic.Int64
+}
+
+func (substrate *shutdownStubSubstrate) Execute(indices []uint32) error {
+	_ = indices
+	return nil
+}
+
+func (substrate *shutdownStubSubstrate) Name() string {
+	return "shutdown-stub"
+}
+
+func (substrate *shutdownStubSubstrate) Shutdown() {
+	substrate.shutdowns.Add(1)
+}
 
 func stubTwoSubstrateBackend() *Backend {
 	return &Backend{
@@ -97,40 +113,29 @@ func TestBackendPickExplorationIgnoresPenalty(t *testing.T) {
 	})
 }
 
-func TestBackendExecutePublishesWireFrame(t *testing.T) {
-	convey.Convey("Execute publishes raw Value wire frames for the visualizer", t, func() {
-		backend := NewBackend(context.Background())
-		framesOut := make(chan []byte, 1)
-		telemetry.SetWireValueFrameSink(func(payload []byte) {
-			framesOut <- payload
-		})
-		defer telemetry.SetWireValueFrameSink(nil)
+func TestBackendCloseShutsDownSubstrates(t *testing.T) {
+	convey.Convey("Close cancels the backend and shuts down substrates that support it", t, func() {
+		first := &shutdownStubSubstrate{}
+		second := &shutdownStubSubstrate{}
 
-		var frame [128]uint64
-		const xorNibble = kernel.OpcodeXOR
-		frame[kernel.ProgramOpcodeWord] = xorNibble
-		var packed uint64
-		for rotation := 0; rotation < 16; rotation++ {
-			packed |= xorNibble << (rotation * 4)
+		ctx, cancel := context.WithCancel(context.Background())
+		backend := &Backend{
+			ctx:    ctx,
+			cancel: cancel,
+			states: []*substrateState{
+				{idx: 0, substrate: first},
+				{idx: 1, substrate: second},
+			},
 		}
-		frame[kernel.ProgramRotTabWord] = packed
-		frame[kernel.ProgramSrcAWord] = kernel.PackRegionRef(0, 16)
-		frame[kernel.ProgramSrcBWord] = kernel.PackRegionRef(0, 16)
-		frame[kernel.ProgramDstWord] = kernel.PackRegionRef(kernel.AffinityStartWord, 5)
-		frame[kernel.IDStartWord] = 0xAB
 
-		ptr := unsafe.Pointer(&frame[0])
-		convey.So(backend.ExecutePointers([]unsafe.Pointer{ptr}), convey.ShouldBeNil)
+		convey.So(backend.Close(), convey.ShouldBeNil)
+		convey.So(first.shutdowns.Load(), convey.ShouldEqual, 1)
+		convey.So(second.shutdowns.Load(), convey.ShouldEqual, 1)
 
 		select {
-		case payload := <-framesOut:
-			ft, _, _, _, _, valueID, wire, err := telemetry.UnmarshalWireMessage(payload)
-			convey.So(err, convey.ShouldBeNil)
-			convey.So(ft, convey.ShouldEqual, byte(telemetry.WireFrameValue))
-			convey.So(valueID, convey.ShouldEqual, uint64(0xAB))
-			convey.So(len(wire), convey.ShouldEqual, 128*8)
+		case <-backend.ctx.Done():
 		case <-time.After(2 * time.Second):
-			t.Fatal("wire frame publish timed out")
+			t.Fatal("backend context was not canceled")
 		}
 	})
 }

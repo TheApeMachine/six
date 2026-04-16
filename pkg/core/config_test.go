@@ -77,14 +77,12 @@ func TestNewConfig(t *testing.T) {
 
 		Convey("loads telemetry settings from viper", func() {
 			viper.Set("telemetry.enabled", true)
-			viper.Set("telemetry.udp_endpoint", "127.0.0.1:9191")
-			viper.Set("telemetry.universal_bitwise_slots", true)
+			viper.Set("telemetry.ws_url", "ws://127.0.0.1:9191/ws")
 
 			cfg := NewConfig()
 
 			So(cfg.TelemetryEnabled, ShouldBeTrue)
-			So(cfg.TelemetryEndpoint, ShouldEqual, "127.0.0.1:9191")
-			So(cfg.TelemetryUniversalBitwiseSlots, ShouldBeTrue)
+			So(cfg.TelemetryWebSocketURL, ShouldEqual, "ws://127.0.0.1:9191/ws")
 		})
 	})
 }

@@ -68,64 +68,6 @@ func TestDetectModes(t *testing.T) {
 	})
 }
 
-func TestDetectPhaseMode(t *testing.T) {
-	t.Parallel()
-
-	Convey("An empty field has no dominant lane", t, func() {
-		vector := NewField(Mod257)
-
-		mode := DetectPhaseMode(vector)
-
-		So(mode.Index, ShouldEqual, -1)
-	})
-
-	Convey("The strongest occupied lane wins", t, func() {
-		vector := NewField(Mod257)
-
-		vector.Fields[17] = &Field{modulus: Mod257, amplitude: 900}
-		vector.Fields[18] = &Field{modulus: Mod257, amplitude: 100}
-
-		mode := DetectPhaseMode(vector)
-
-		So(mode.Index, ShouldEqual, 17)
-		So(mode.Amplitude, ShouldEqual, 900)
-		So(mode.Concentration, ShouldAlmostEqual, 0.9, 1e-9)
-	})
-
-	Convey("DetectPhaseMode aliases match DetectPhaseMode for each modulus", t, func() {
-		f8191 := NewField(Mod8191)
-
-		f8191.Fields[42] = &Field{modulus: Mod8191, amplitude: 100}
-
-		So(DetectPhaseMode8191(f8191), ShouldResemble, DetectPhaseMode(f8191))
-
-		f65537 := NewField(Mod65537)
-
-		f65537.Fields[5] = &Field{modulus: Mod65537, amplitude: 50}
-		f65537.Fields[6] = &Field{modulus: Mod65537, amplitude: 20}
-
-		So(DetectPhaseMode65537(f65537), ShouldResemble, DetectPhaseMode(f65537))
-	})
-}
-
-func TestPhaseAlignment(t *testing.T) {
-	t.Parallel()
-
-	Convey("PhaseAlignment uses the field ring width", t, func() {
-		field := NewField(Mod257)
-
-		left := PhaseMode{Index: 7}
-		right := PhaseMode{Index: 7}
-
-		So(PhaseAlignment(left, right, field), ShouldEqual, 1)
-
-		left.Index = 0
-		right.Index = 128
-
-		So(PhaseAlignment(left, right, field), ShouldEqual, 0)
-	})
-}
-
 func TestPhaseModeFromDominant(t *testing.T) {
 	t.Parallel()
 
@@ -171,21 +113,4 @@ func BenchmarkDetectModes(b *testing.B) {
 
 	_ = modes
 	_ = dominant
-}
-
-func BenchmarkDetectPhaseMode(b *testing.B) {
-	vector := NewField(Mod257)
-
-	vector.Fields[13] = &Field{modulus: Mod257, amplitude: 50}
-	vector.Fields[14] = &Field{modulus: Mod257, amplitude: 100}
-
-	var mode PhaseMode
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		mode = DetectPhaseMode(vector)
-	}
-
-	_ = mode
 }

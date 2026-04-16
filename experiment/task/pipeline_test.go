@@ -28,7 +28,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	_ = tryLoadConfigForTaskTests()
+	if err := tryLoadConfigForTaskTests(); err != nil {
+		fmt.Fprintf(os.Stderr, "experiment/task tests: tryLoadConfigForTaskTests: %v\n", err)
+		os.Exit(1)
+	}
 
 	if err := errnie.InitLoggerFromViper(); err != nil {
 		fmt.Fprintf(os.Stderr, "experiment/task tests: errnie.InitLoggerFromViper: %v\n", err)
@@ -40,6 +43,7 @@ func TestMain(m *testing.M) {
 
 func tryLoadConfigForTaskTests() error {
 	viper.SetConfigType("yml")
+	viper.Set("telemetry.webSocketURL", "ws://127.0.0.1:6600/ws")
 
 	candidates := []string{
 		filepath.Join("..", "..", "cmd", "cfg", "config.yml"),
@@ -138,7 +142,6 @@ func TestPipeline(t *testing.T) {
 					t.Context(),
 					PipelineWithExperiment(experiment),
 					PipelineWithReporter(NewProjectorReporter()),
-					PipelineWithViz(":6600"),
 				)
 
 				So(err, ShouldBeNil)

@@ -83,6 +83,8 @@ func (backend *Backend) Shutdown() {
 	if backend.cancel != nil {
 		backend.cancel()
 	}
+
+	C.cleanup_cuda_pools()
 }
 
 func (backend *Backend) init() {
@@ -132,8 +134,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
-
-		primitive.HydrateLearnerPeers(value)
 
 		if kernel.IsGeometricOpcode(rawOpcode) {
 			if C.geometric_cuda(

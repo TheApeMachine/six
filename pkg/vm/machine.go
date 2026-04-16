@@ -3,21 +3,12 @@ package vm
 import (
 	"context"
 	"errors"
-	"runtime"
-	"slices"
-	"time"
 
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/compute/programmer"
-	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/network"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -30,14 +21,8 @@ type Machine struct {
 	cancel       context.CancelFunc
 	err          error
 	host         *network.Host
-	queue        *pool.Queue
-	backend      *compute.Backend
 	tokenizer    *Tokenizer
-	conn         *gossip.Conn
-	field        *geometry.Field
 	orchestrator *Orchestrator
-	remSleep     *time.Ticker
-	remDone      chan struct{}
 }
 
 type machineOpts func(*Machine)
@@ -48,11 +33,8 @@ func NewMachine(
 	ctx, cancel := context.WithCancel(ctx)
 
 	machine := &Machine{
-		ctx:     ctx,
-		cancel:  cancel,
-		remDone: make(chan struct{}),
-		field:   geometry.NewField(geometry.Mod65537),
-		conn:    gossip.NewConn(ctx),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	for _, opt := range opts {
@@ -63,19 +45,8 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	machine.backend = compute.NewBackend(
-		ctx,
-		compute.WithExploreEvery(128),
-	)
-
-	if machine.queue, machine.err = pool.NewQueue(
-		ctx, machine.backend.Dispatch,
-	); machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
-
 	if machine.orchestrator, machine.err = NewOrchestrator(
-		ctx, machine.conn, machine.queue, WithField(machine.field),
+		ctx,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -90,8 +61,6 @@ func NewMachine(
 		"ctx":       machine.ctx,
 		"cancel":    machine.cancel,
 		"host":      machine.host,
-		"queue":     machine.queue,
-		"backend":   machine.backend,
 		"tokenizer": machine.tokenizer,
 	})
 }
@@ -104,11 +73,6 @@ and tokenizer are closed so goroutine-pool work does not outlive dependents.
 */
 func (machine *Machine) Close() error {
 	var errs []error
-
-	if machine.remSleep != nil {
-		machine.remSleep.Stop()
-		close(machine.remDone)
-	}
 
 	machine.cancel()
 
@@ -124,8 +88,8 @@ func (machine *Machine) Close() error {
 		}
 	}
 
-	if machine.queue != nil {
-		if err := machine.queue.Close(); err != nil {
+	if machine.orchestrator != nil {
+		if err := machine.orchestrator.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -141,37 +105,6 @@ func (machine *Machine) Error() error {
 }
 
 /*
-Settle spins until the routing inbox, scheduler rings, and compute substrates
-report no pending work. This is a cooperative quiescence probe: it does not
-add mutexes to producer paths.
-*/
-func (machine *Machine) Settle() {
-	if machine == nil || machine.orchestrator == nil || machine.queue == nil || machine.backend == nil {
-		return
-	}
-
-	for {
-		inboxLen := machine.orchestrator.InboxLen()
-		queueLen := machine.queue.Len()
-		inflight := machine.backend.Inflight()
-		draining := machine.orchestrator.IsDraining()
-
-		if inboxLen == 0 && queueLen == 0 && inflight == 0 && !draining {
-			time.Sleep(2 * time.Millisecond)
-
-			if machine.orchestrator.InboxLen() == 0 &&
-				machine.queue.Len() == 0 &&
-				machine.backend.Inflight() == 0 &&
-				!machine.orchestrator.IsDraining() {
-				return
-			}
-		}
-
-		runtime.Gosched()
-	}
-}
-
-/*
 Load walks Generate(), mints Morton-packed Values from each sample’s Text via
 primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
 Properties word when Label is present, then runs orchestrator.Publish per
@@ -180,36 +113,9 @@ see a clean pipe.
 */
 func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
-		"queue":     machine.queue,
 		"tokenizer": machine.tokenizer,
 	}); err != nil {
 		return errnie.Error(err)
-	}
-
-	if machine.orchestrator != nil {
-		machine.orchestrator.BeginBootstrap()
-		defer machine.orchestrator.EndBootstrap()
-	}
-
-	linker := NewLinker()
-
-	publishLinked := func(value *primitive.Value, assets []*programmer.Asset) error {
-		if value == nil {
-			return nil
-		}
-
-		for _, asset := range assets {
-			if asset == nil {
-				continue
-			}
-
-			if err := asset.Bundle(value); err != nil {
-				return errnie.Error(err)
-			}
-		}
-
-		machine.orchestrator.publishPrepared(value)
-		return nil
 	}
 
 	var segments []*primitive.Value
@@ -221,32 +127,8 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 			return errnie.Error(err)
 		}
 
-		linker.Push(segments...)
-
-		for {
-			value, assets := linker.Pop()
-			if value == nil {
-				break
-			}
-
-			if err := publishLinked(value, assets); err != nil {
-				return err
-			}
-		}
+		machine.orchestrator.Cycle(segments...)
 	}
-
-	for {
-		value, assets := linker.Flush()
-		if value == nil {
-			break
-		}
-
-		if err := publishLinked(value, assets); err != nil {
-			return err
-		}
-	}
-
-	machine.Settle()
 
 	return nil
 }
@@ -259,63 +141,14 @@ returned Values are the prompt outcome. The only normal exit is gap closure;
 use context cancellation or deadline on NewMachine’s context to bound work if
 the substrate never reaches epsilon.
 */
-func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitive.Value, err error) {
+func (machine *Machine) Prompt(values ...*primitive.Value) (
+	resolved []*primitive.Value, err error,
+) {
 	if err := validate.Require(map[string]any{
 		"values": values,
 	}); err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.PromptEvent(values[0].String()))
-	}
-
-	machine.orchestrator.Publish(values...)
-	machine.Settle()
-
-	promptCtx, cancel := context.WithTimeout(machine.ctx, 10*time.Second)
-	defer cancel()
-
-	var wave []*primitive.Value
-
-	for len(resolved) == 0 {
-		select {
-		case <-promptCtx.Done():
-			return nil, promptCtx.Err()
-		default:
-		}
-
-		processed, cycleErr := machine.orchestrator.Cycle(slices.Clone(wave)...)
-		if cycleErr != nil {
-			return nil, errnie.Error(cycleErr)
-		}
-
-		machine.Settle()
-
-		for _, value := range processed {
-			if value == nil {
-				continue
-			}
-
-			if stateWord, propErr := value.Property(
-				primitive.STATE,
-			); propErr == nil && stateWord == uint64(primitive.RESOLVED) {
-				resolved = append(resolved, value)
-			}
-		}
-
-		if len(resolved) == 0 && len(processed) == 0 {
-			break
-		}
-
-		wave = processed
-	}
-
-	if telemetry.DefaultBus.IsActive() && len(resolved) > 0 {
-		for _, res := range resolved {
-			telemetry.DefaultBus.Publish(telemetry.PromptResultEvent(res.String(), nil))
-		}
-	}
-
-	return resolved, nil
+	return machine.orchestrator.Cycle(values...)
 }

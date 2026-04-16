@@ -387,8 +387,6 @@ func ValueFromWireFrame(frame []byte) (*Value, error) {
 		return nil, err
 	}
 
-	RegisterValue(value)
-
 	return value, nil
 }
 
@@ -398,7 +396,6 @@ func (value *Value) stampID() *Value {
 	}
 
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
-	RegisterValue(value)
 
 	return value
 }
@@ -430,6 +427,7 @@ func (value *Value) Read(p []byte) (int, error) {
 	}
 
 	valueTo(value, p)
+
 	return core.Cfg.Value.Bytes, io.EOF
 }
 
@@ -458,14 +456,52 @@ func (value *Value) Close() error {
 		return nil
 	}
 
-	UnregisterValue(value)
-
 	// Wipe the Value, this is important to ensure
 	// that the Value is not leaked to the heap.
 	*value = Value{}
 	FreeValue(value)
 
 	return nil
+}
+
+/*
+StageAssetFrom copies the source Value's contiguous
+Signals+Context+Gradient+Properties block into the receiver's Asset
+region. S+C+G+P fills asset exactly (48 words into 48 words) so every
+bit of source state is available to the program that runs next. This is
+the primitive operation behind in-band gossip: one Value publishes its
+four outbound regions directly into another Value's Asset with no
+intermediate buffers and no locks.
+
+Nil, identical, or geometrically mismatched Values are silent no-ops —
+this is a hot-path helper that callers invoke from Finalizers, so a panic
+on a stray nil would tear down the pool worker.
+*/
+func (value *Value) StageAssetFrom(source *Value) {
+	if value == nil || source == nil || value == source {
+		return
+	}
+
+	signalsStart, signalsWords := SignalsRegion.WordExtent()
+	_, contextWords := ContextRegion.WordExtent()
+	_, gradientWords := GradientRegion.WordExtent()
+	_, propertiesWords := PropertiesRegion.WordExtent()
+
+	stageWords := signalsWords + contextWords + gradientWords + propertiesWords
+	assetStart, assetWords := AssetRegion.WordExtent()
+
+	if stageWords > assetWords {
+		return
+	}
+
+	// Stage the source's Signals+Context+Gradient+Properties into the
+	// receiver's Asset region. S+C+G+P fills asset exactly (48 words
+	// into 48 words) so every bit of source state is available to the
+	// program that runs next.
+	copy(
+		(*value)[assetStart:assetStart+stageWords],
+		(*source)[signalsStart:signalsStart+stageWords],
+	)
 }
 
 /*

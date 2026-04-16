@@ -248,19 +248,19 @@ Crystallization.Score = Coverage × Consensus × LabelDensity
 
 When a community's `Coverage` is below `crystallizationFloor` (0.35), `Unsupervised.Cycle` runs a labeling pass on it.
 
-**`measure_field` (firmware resident):** In parallel, a permanent resident Value running the `measure_field` program provides an LSH-based label-energy signal. The orchestrator stages up to 8 member label words (w48) into `reserved[0,8]` before each dispatch. The program runs an OR sweep over those staged words and writes a popcount of the resulting 64-byte LSH signature into `signals[7]`. Higher popcount = more label bits set across the community = higher crystallisation energy. The field's `Cycle` reads `signals[7]` to steer the GF(8191) eigenmode.
+**`measure_field` (firmware resident):** In parallel, a permanent resident Value running the `measure_field` program provides an LSH-based label-energy signal. Community members deliver their label words into the resident via the gossip substrate (`Conn.Write` → `StageAssetFrom`), so `asset[0,8]` carries the currently-routed peers' compressed state. The program runs an OR sweep over that staged window and writes a popcount of the resulting 64-byte LSH signature into `signals[7]`. Higher popcount = more label bits set across the community = higher crystallisation energy. The field's `Cycle` reads `signals[7]` to steer the GF(8191) eigenmode.
 
 ```yaml
 measure_field: |
-  reserved[0,8]  reserved[0,8]  signals[7,1]  or  reduce
+  asset[0,8]  asset[0,8]  signals[7,1]  or  reduce
   next self
 ```
 
 ### Global Crystallization and the Spawn Trigger
 
-The orchestrator's `Unsupervised.Cycle` iterates every community in the root field and schedules a bounded labeling pass on any community whose `Coverage` is below the floor. This is the **single Go-side trigger** for the unsupervised learning pipeline. The comparison work runs as queued learner Values carrying the `unsupervised_learn` program; each learner is aimed back at the source pair through `PrevID`/`NextID` and keeps its result in-band. The trigger caps learner emission per community and per root-field cycle so the global field creates continuous pressure instead of materializing the full O(U²) pair graph at once.
+When a community's `Coverage` falls below the floor, the field emits an ephemeral carrier Value aimed (by affinity) at the learners it wants to activate. Delivery goes through the same gossip substrate every other Value uses: `io.Copy` from the emitting field into a `gossip.Conn` whose bundle is the target learner population, with `io.MultiWriter` fanning the frame across additional peers where fast paths exist. `Conn.Write` calls `StageAssetFrom` on every receiver, so the learner wakes up with the emitter's Signals+Context+Gradient+Properties already in its asset window — no Go-side registry lookup, no orchestrator-side token copy. The field's carrier emission is the trigger; the community-wide pressure arises from many carriers landing in parallel rather than a central loop materializing the O(U²) pair graph.
 
-When `Coverage >= crystallizationFloor` across all communities, `Cycle` returns without spawning anything. The system is quiescent.
+When `Coverage >= crystallizationFloor` across all communities, no carriers are emitted and the system is quiescent.
 
 ### Firmware Programs
 
@@ -276,50 +276,51 @@ tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
 
 #### `unsupervised_learn`
 
-XOR-compare two peer token regions staged into a learner Value. Before each dispatch the orchestrator copies peer A's tokens (words 0–15) into `reserved[0,16]` and peer B's tokens into `reserved[16,16]` (absolute words 56–71 and 72–87 respectively). The learner is published to the Queue as tracked work. The ALU runs the XOR sweep across the two 16-word spans, accumulating the 64-byte LSH signature into `signals[0,8]`, then reduces that signature into `properties[1]` as the learner's in-band self-knowledge metric.
+Peer-similarity readout. The peer under comparison is delivered into the learner through the gossip substrate: `io.Copy` from the peer into a `gossip.Conn` that bundles the learner as its receiver. `Conn.Write` invokes `StageAssetFrom`, which copies the peer's contiguous Signals+Context+Gradient+Properties block into the learner's `asset[0,32]`:
+
+```text
+asset[0,8]   ← peer.signals
+asset[8,8]   ← peer.context
+asset[16,8]  ← peer.gradient
+asset[24,8]  ← peer.properties (canonical 8-word band)
+```
+
+The program XORs the learner's own context against the peer's context (`asset[8,8]`) and OR-reduces the 64-byte signature into `properties[1,1]` as the in-band similarity metric. Shared structure surfaces as a long zero-run; divergence as a long one-run.
 
 ```
-reserved[0,16]  reserved[16,16]  signals[0,8]  xor  accumulate
+context[0,8] asset[8,8]   signals[0,8]    xor accumulate
+signals[0,8] signals[0,8] properties[1,1] or  reduce
 ```
+
+#### `episodic_replay`
+
+Same primitive as `unsupervised_learn`, different routing convention: the carrier is the sequence predecessor (chosen by `PrevID` residency) rather than an unrelated community member. The chain delta — how this Value diverges from the one that preceded it — is the XOR of local context against the predecessor's staged context, reduced into `properties[1,1]`. No `next self`: one observation per delivered predecessor; multi-hop walks are chains of deliveries through the gossip substrate, not program loops.
+
+#### `intervene` (Pearl L2 `do(X)`)
+
+Counterfactual perturbation. A carrier from a foreign community is written into this Value with no `PrevID` stamp, severing causal history. `StageAssetFrom` delivers the foreign S+C+G+P into `asset[0,32]`, and the program XORs local context against the injected gradient (`asset[16,8]`) — the direction the do-operation is pushing the receiver relative to the attractor it was already converging on. Reduced signature lands in `properties[0,1]` as the intervention witness.
+
+#### `classify_readout`
+
+Tiny label readout. When a Value carries a dataset label in properties slot 0 (word 48), the `classify` rule fires this single OR line to broadcast the label into `signals[0,1]` so downstream observers can see the class without mutating the source Value.
 
 #### `measure_field`
 
 Permanent community resident. See **Field Crystallization** above.
 
-#### `inject_labels` (orchestrator-side)
+#### `inject_labels` (not implemented)
 
-Not implemented as a rotation-sweep program. Current unsupervised learning does not inject labels into source Values from Go. Settled learner Values keep their own result in-band until a future ALU word-write extension can express source label-slot updates as firmware.
+Unsupervised learning does not inject labels back into source Values from Go. Settled learner results stay in-band on the learner itself. A future ALU extension for word-level writes would let label slots 1–3 be written by firmware; until then, labels flow only through emitted carrier Values.
 
-### How Programs See Peer Data — the Reserved Scratchpad
+### How Programs See Peer Data — the Gossip Substrate
 
-The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data enters through the **Asset region (words 56–119)**, which the orchestrator uses as a staging scratchpad before dispatch.
-
-```text
-peer A tokens[0,15]  → executing Value's reserved[0,16]   (words 56–71)
-peer B tokens[0,15]  → executing Value's reserved[16,16]  (words 72–87)
-```
-
-The program then runs against those staged words with existing instructions — no new opcodes. The orchestrator selects peers and performs the copy; the ALU stays stateless and single-Value.
-
-### Unsupervised Learning Pipeline
+The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data reaches a program by being **written into that Value** through an `io.ReadWriter` composition:
 
 ```text
-orchestrator.Cycle() calls Unsupervised.Cycle(root) after field.Cycle()
-│
-▼
-For each community with Coverage < 0.35, within the cycle's learner budget:
-├─ labelCommunity(community)
-│    │
-│    ├─ scheduleLearner(peerA, peerB) for all pairs
-│    │    orchestrator stages peerA[0:15] → learner.reserved[0,16]
-│    │                        peerB[0:15] → learner.reserved[16,16]
-│    │    Queue runs learner with unsupervised_learn program
-│    │    learner.signals[0,8] carries the shared-structure signature
-│    │    learner.properties[1] carries the reduced self-knowledge metric
-│
-▼
-measure_field residents update signals[7] in parallel via next-self loop
+peer Value   ──io.Copy──▶   gossip.Conn   ──Write──▶   receiver.asset[0,32]
 ```
+
+`Value`, `gossip.Conn`, and `geometry.Field` all implement `io.ReadWriteCloser`, so `io.MultiWriter`, `io.MultiReader`, and `io.TeeReader` express fan-out, fan-in, and fast paths without any custom routing layer. `Conn.Write` invokes `StageAssetFrom` on every bundled receiver, copying the source's Signals+Context+Gradient+Properties (48 words) into `asset[0,48]`. The ALU then runs with peer state already in-band. No Go-side registry. No per-program staging path. Selection of who writes to whom is the field's job, expressed by which `io.ReadWriteCloser` ends up wired to which.
 
 ---
 

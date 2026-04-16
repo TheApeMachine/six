@@ -3,21 +3,14 @@ package vm
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
-	"errors"
-	"fmt"
 	"io"
 	"iter"
-	"sync"
 	"testing"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -98,13 +91,23 @@ func (provider *staticSampleProvider) Generate() iter.Seq[data.Sample] {
 	return provider.seq
 }
 
+/*
+setupTokenizerValueConfig pins the token region to the defaults the
+tokenizer expects. The shared core.Cfg is mutable across tests so any
+file that messes with it must reset the pieces it depends on.
+*/
 func setupTokenizerValueConfig() {
 	core.Cfg.Value.Region.Tokens.Start = 0
 	core.Cfg.Value.Region.Tokens.Bits = 1024
 }
 
+/*
+TestNewMachine verifies the full wiring contract. A Machine is only
+useful once host, tokenizer, and orchestrator are all live — any
+missing link should fail construction.
+*/
 func TestNewMachine(t *testing.T) {
-	Convey("NewMachine wires host, queue, backend, and tokenizer", t, func() {
+	Convey("NewMachine wires host, tokenizer, and orchestrator", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -116,27 +119,55 @@ func TestNewMachine(t *testing.T) {
 		}()
 
 		So(machine.tokenizer, ShouldNotBeNil)
-		So(machine.queue, ShouldNotBeNil)
-		So(machine.backend, ShouldNotBeNil)
 		So(machine.host, ShouldNotBeNil)
+		So(machine.orchestrator, ShouldNotBeNil)
 	})
 }
 
+/*
+TestMachineClose covers the teardown contract. Every subcomponent's
+Close must be invoked regardless of the others so the goroutine pool
+and network host do not outlive their owners.
+*/
 func TestMachineClose(t *testing.T) {
 	Convey("Close cancels and releases machine parts without panic", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
 		So(err, ShouldBeNil)
-
 		So(machine.Close(), ShouldBeNil)
 	})
 }
 
+/*
+TestMachineError verifies the trivial getter. It matters because
+callers surface machine errors into upstream pipelines.
+*/
+func TestMachineError(t *testing.T) {
+	Convey("Error is nil after successful NewMachine", t, func() {
+		ctx := context.Background()
+		machine, err := NewMachine(ctx)
+
+		So(err, ShouldBeNil)
+
+		defer func() {
+			So(machine.Close(), ShouldBeNil)
+		}()
+
+		So(machine.Error(), ShouldBeNil)
+	})
+}
+
+/*
+TestMachineLoad drives the tokenizer → orchestrator ingest path. Load
+pulls samples from the data.Provider, mints Values via the tokenizer,
+and hands each segment to the orchestrator's Cycle. The Values are
+fire-and-forget: Load returns as soon as the provider is drained.
+*/
 func TestMachineLoad(t *testing.T) {
 	setupTokenizerValueConfig()
 
-	Convey("Load ingests samples through tokenizer IngestSample", t, func() {
+	Convey("Load ingests bytes-provider samples without error", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -154,9 +185,7 @@ func TestMachineLoad(t *testing.T) {
 	})
 
 	Convey("Load ingests labeled samples", t, func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
+		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
 		So(err, ShouldBeNil)
@@ -173,14 +202,6 @@ func TestMachineLoad(t *testing.T) {
 		})
 
 		So(machine.Load(provider), ShouldBeNil)
-
-		segments, segErr := primitive.NewValue([]byte("orbital launch telemetry"))
-		So(segErr, ShouldBeNil)
-
-		cancel()
-		_, promptErr := machine.Prompt(segments[len(segments)-1])
-
-		So(errors.Is(promptErr, context.Canceled), ShouldBeTrue)
 	})
 
 	Convey("Load accepts unlabeled samples", t, func() {
@@ -202,187 +223,6 @@ func TestMachineLoad(t *testing.T) {
 		So(machine.Load(provider), ShouldBeNil)
 	})
 
-	Convey("Load should link sequential samples and compute affinity through the real runtime path", t, func() {
-		ctx := context.Background()
-		machine, err := NewMachine(ctx)
-
-		So(err, ShouldBeNil)
-
-		defer func() {
-			So(machine.Close(), ShouldBeNil)
-		}()
-
-		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
-			if !yield(data.Sample{Text: []byte("first")}) {
-				return
-			}
-
-			_ = yield(data.Sample{Text: []byte("second")})
-		})
-
-		So(machine.Load(provider), ShouldBeNil)
-
-		var firstValue *primitive.Value
-		var secondValue *primitive.Value
-
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			for _, peer := range machine.orchestrator.router.route {
-				community, ok := peer.Dst().(*geometry.Field)
-				if !ok || community == nil {
-					continue
-				}
-
-				for _, value := range community.Values {
-					if value == nil {
-						continue
-					}
-
-					switch value.String() {
-					case "first":
-						firstValue = value
-					case "second":
-						secondValue = value
-					}
-				}
-			}
-
-			if firstValue != nil && secondValue != nil {
-				break
-			}
-
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		So(firstValue, ShouldNotBeNil)
-		So(secondValue, ShouldNotBeNil)
-		So((*firstValue)[121], ShouldEqual, secondValue.ID())
-		So((*secondValue)[120], ShouldEqual, firstValue.ID())
-		So((*firstValue)[123] != 0 || (*firstValue)[124] != 0 || (*firstValue)[125] != 0 || (*firstValue)[126] != 0 || (*firstValue)[127] != 0, ShouldBeTrue)
-		So((*secondValue)[123] != 0 || (*secondValue)[124] != 0 || (*secondValue)[125] != 0 || (*secondValue)[126] != 0 || (*secondValue)[127] != 0, ShouldBeTrue)
-	})
-}
-
-func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
-	setupTokenizerValueConfig()
-
-	Convey("Machine.Load emits a later raw wire frame whose affinity words are non-zero", t, func() {
-		ctx := context.Background()
-		machine, err := NewMachine(ctx)
-		So(err, ShouldBeNil)
-		defer func() {
-			So(machine.Close(), ShouldBeNil)
-		}()
-
-		var framesMu sync.Mutex
-		framesByID := map[uint64][][]byte{}
-		telemetry.SetWireValueFrameSink(func(payload []byte) {
-			ft, _, _, _, _, valueID, wire, err := telemetry.UnmarshalWireMessage(payload)
-			if err != nil || ft != byte(telemetry.WireFrameValue) || valueID == 0 || len(wire) == 0 {
-				return
-			}
-
-			copyWire := append([]byte(nil), wire...)
-			framesMu.Lock()
-			framesByID[valueID] = append(framesByID[valueID], copyWire)
-			framesMu.Unlock()
-		})
-		defer telemetry.SetWireValueFrameSink(nil)
-
-		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
-			if !yield(data.Sample{Text: []byte("first")}) {
-				return
-			}
-			_ = yield(data.Sample{Text: []byte("second")})
-		})
-
-		So(machine.Load(provider), ShouldBeNil)
-
-		var firstValue *primitive.Value
-		var secondValue *primitive.Value
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			for _, peer := range machine.orchestrator.router.route {
-				community, ok := peer.Dst().(*geometry.Field)
-				if !ok || community == nil {
-					continue
-				}
-				for _, value := range community.Values {
-					if value == nil {
-						continue
-					}
-					switch value.String() {
-					case "first":
-						firstValue = value
-					case "second":
-						secondValue = value
-					}
-				}
-			}
-
-			if firstValue != nil && secondValue != nil {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		So(firstValue, ShouldNotBeNil)
-		So(secondValue, ShouldNotBeNil)
-
-		deadline = time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			ids := []uint64{firstValue.ID(), secondValue.ID()}
-			ready := 0
-			framesMu.Lock()
-			for _, valueID := range ids {
-				frames := framesByID[valueID]
-				if len(frames) < 2 {
-					continue
-				}
-				last := frames[len(frames)-1]
-				affinityNonZero := false
-				for word := 123; word <= 127; word++ {
-					off := word * 8
-					if binary.LittleEndian.Uint64(last[off:off+8]) != 0 {
-						affinityNonZero = true
-						break
-					}
-				}
-				if affinityNonZero {
-					ready++
-				}
-			}
-			framesMu.Unlock()
-			if ready == len(ids) {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		framesMu.Lock()
-		for _, value := range []*primitive.Value{firstValue, secondValue} {
-			frames := framesByID[value.ID()]
-			So(len(frames), ShouldBeGreaterThanOrEqualTo, 2)
-			last := frames[len(frames)-1]
-			affinityWords := make([]string, 0, 5)
-			affinityNonZero := false
-			for word := 123; word <= 127; word++ {
-				off := word * 8
-				got := binary.LittleEndian.Uint64(last[off : off+8])
-				affinityWords = append(affinityWords, fmt.Sprintf("%016x", got))
-				if got != 0 {
-					affinityNonZero = true
-				}
-			}
-			SoMsg(fmt.Sprintf("value %q (%x) final published frame affinity %v", value.String(), value.ID(), affinityWords), affinityNonZero, ShouldBeTrue)
-		}
-		framesMu.Unlock()
-	})
-}
-
-func TestMachineLoadPrompts(t *testing.T) {
-	setupTokenizerValueConfig()
-
 	Convey("Load ingests multiple samples in order", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
@@ -398,28 +238,29 @@ func TestMachineLoadPrompts(t *testing.T) {
 		textB := string(bytes.Repeat([]byte{'b'}, chunkBytes))
 
 		provider := newStaticSampleProvider(func(yield func(data.Sample) bool) {
-			if !yield(data.Sample{
-				Text: []byte(textA), Label: []byte("L1"),
-			}) {
+			if !yield(data.Sample{Text: []byte(textA), Label: []byte("L1")}) {
 				return
 			}
 
-			_ = yield(data.Sample{
-				Text: []byte(textB), Label: []byte("L2"),
-			})
+			_ = yield(data.Sample{Text: []byte(textB), Label: []byte("L2")})
 		})
 
 		So(machine.Load(provider), ShouldBeNil)
 	})
 }
 
+/*
+TestMachinePrompt covers the prompt surface. Under the current
+in-value model Prompt hands the segment Values to orchestrator.Cycle,
+which fire-and-forgets them onto the pool; the hook returns as soon
+as the enqueue finishes so the caller can wire a downstream Conn for
+the actual observation path.
+*/
 func TestMachinePrompt(t *testing.T) {
 	setupTokenizerValueConfig()
 
-	Convey("Prompt loops on Cycle until gap closure or context end", t, func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
+	Convey("Prompt returns cleanly when given a valid segment", t, func() {
+		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
 		So(err, ShouldBeNil)
@@ -430,17 +271,16 @@ func TestMachinePrompt(t *testing.T) {
 
 		segments, segErr := primitive.NewValue([]byte("prompt"))
 		So(segErr, ShouldBeNil)
+		So(len(segments), ShouldBeGreaterThan, 0)
 
-		cancel()
+		resolved, promptErr := machine.Prompt(segments[len(segments)-1])
 
-		_, promptErr := machine.Prompt(segments[len(segments)-1])
-
-		So(errors.Is(promptErr, context.Canceled), ShouldBeTrue)
+		So(promptErr, ShouldBeNil)
+		// Cycle is fire-and-forget — no synchronous resolution yet.
+		So(resolved, ShouldBeNil)
 	})
-}
 
-func TestMachineError(t *testing.T) {
-	Convey("Error is nil after successful NewMachine", t, func() {
+	Convey("Prompt rejects an empty Values slice", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -450,7 +290,9 @@ func TestMachineError(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
-		So(machine.Error(), ShouldBeNil)
+		_, promptErr := machine.Prompt()
+
+		So(promptErr, ShouldNotBeNil)
 	})
 }
 

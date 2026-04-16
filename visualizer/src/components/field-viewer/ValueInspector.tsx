@@ -6,18 +6,19 @@ fill bar, and its data. The identity strip and belief gap live in a thin row
 above the band.
 */
 
+import { type ReactNode, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { VizInspectSnapshot } from "@/features/telemetry/types";
 import { cn } from "@/lib/utils";
+import { affinityHexWords, VALUE_FRAME_BYTE_LENGTH } from "@/lib/valueLayout";
 import {
-	affinityHexWords,
-	chainIdFromWord,
-	formatWordHex64,
-	readWordU64LE,
-	VALUE_FRAME_BYTE_LENGTH,
-	WORD,
-} from "@/lib/valueLayout";
+	affinityHexFromRegions,
+	chainPreview,
+	decodeProgramWire,
+	decodeValueRegionsFromFrame,
+	formatWordHexAt,
+} from "@/lib/valueRegions";
 
 interface ValueInspectorProps {
 	snap: VizInspectSnapshot;
@@ -56,43 +57,68 @@ function formatValueWordId(id: string): string {
 }
 
 /*
-effectiveProgram shows the routing firmware name; data values always run the
-configured affinity program even when the wire has not stamped a name yet.
+effectiveProgram returns the last firmware name the ALU reported for this
+Value. When the wire hasn't yet carried an ALUDispatch event for this id
+the band shows "unscheduled" instead of lying about a routing default —
+with the rule-driven chain live, silence here is meaningful signal.
 */
 function effectiveProgram(snap: VizInspectSnapshot): string {
 	if (snap.program) return snap.program;
 
-	if (snap.role === "data") return "affinity";
-
 	return "";
 }
+
+/*
+FIRMWARE_CHAIN_STEPS is the canonical order the rule engine walks for a
+freshly minted Value. Rendering every step (lit or dim) makes it obvious
+which rules have already fired versus which are still pending.
+*/
+const FIRMWARE_CHAIN_STEPS = ["link", "affinity", "resident"] as const;
+
+type FirmwareChainStep = (typeof FIRMWARE_CHAIN_STEPS)[number];
+
+function latestFirmwareStepName(snap: VizInspectSnapshot): string {
+	if (snap.firmwareSteps.length === 0) return "";
+
+	return snap.firmwareSteps[snap.firmwareSteps.length - 1].name;
+}
+
+function stepIsObserved(
+	snap: VizInspectSnapshot,
+	step: FirmwareChainStep,
+): boolean {
+	return snap.firmwareSteps.some((entry) => entry.name === step);
+}
+
+const STEP_COLORS: Record<FirmwareChainStep, string> = {
+	link: "border-indigo-500/40 bg-indigo-500/20 text-indigo-200",
+	affinity: "border-pink-500/40 bg-pink-500/20 text-pink-200",
+	resident: "border-emerald-500/40 bg-emerald-500/20 text-emerald-200",
+};
+
+const STEP_IDLE_CLASS = "border-border/30 bg-muted/10 text-muted-foreground/40";
 
 interface RegionProps {
 	label: string;
 	words: string;
 	fill: number;
-	width: string;
 	headerClass: string;
 	barClass: string;
 	textClass: string;
-	children: React.ReactNode;
+	children: ReactNode;
 }
 
-function Region({
+const Region = ({
 	label,
 	words,
 	fill,
-	width,
 	headerClass,
 	barClass,
 	textClass,
 	children,
-}: RegionProps) {
+}: RegionProps) => {
 	return (
-		<div
-			className="flex flex-col shrink-0 border-r border-border/20 last:border-r-0 overflow-hidden"
-			style={{ width }}
-		>
+		<div className="flex flex-col shrink-0 border-r border-border/20 last:border-r-0 overflow-hidden">
 			<div
 				className={cn(
 					"px-2 pt-1.5 pb-1 border-b border-border/20",
@@ -119,7 +145,7 @@ function Region({
 			</div>
 			<div
 				className={cn(
-					"flex-1 p-2 text-[9px] font-mono space-y-0.5 overflow-hidden",
+					"flex-1 min-h-0 p-2 text-[9px] font-mono space-y-0.5 overflow-y-auto overflow-x-hidden",
 					textClass,
 				)}
 			>
@@ -127,9 +153,9 @@ function Region({
 			</div>
 		</div>
 	);
-}
+};
 
-function Dim({ children }: { children: React.ReactNode }) {
+function Dim({ children }: { children: ReactNode }) {
 	return <span className="opacity-25">{children}</span>;
 }
 
@@ -152,6 +178,39 @@ function KV({
 
 function hexOrDash(value: string | null): string {
 	return value ?? "—";
+}
+
+/*
+WordHexRows prints one row per word index using the same read path as the kernel
+(LE uint64 hex). Matches REGION_SPECS in valueRegions.ts — there is no separate
+“reserved” band; words 56–119 are the ASSET region.
+*/
+function WordHexRows({
+	from,
+	to,
+	wordAt,
+}: {
+	from: number;
+	to: number;
+	wordAt: (wordIndex: number) => string | null;
+}) {
+	const rows: ReactNode[] = [];
+
+	for (let wi = from; wi <= to; wi++) {
+		const hex = wordAt(wi);
+
+		rows.push(
+			<div
+				key={wi}
+				className="flex gap-1 font-mono text-[7px] leading-snug min-w-0"
+			>
+				<span className="text-muted-foreground/45 shrink-0 w-7">w{wi}</span>
+				<span className="break-all min-w-0">{hex ?? "—"}</span>
+			</div>,
+		);
+	}
+
+	return <div className="space-y-0.5 text-left">{rows}</div>;
 }
 
 function decodeProbeStatus(wordHex: string | null): string | null {
@@ -187,12 +246,20 @@ export function ValueInspector({
 		frame !== null &&
 		frame !== undefined &&
 		frame.byteLength >= VALUE_FRAME_BYTE_LENGTH;
+	/*
+	BigInt in region word slices breaks React DevTools (JSON.stringify on props).
+	Snapshots only carry wireFrame; decode regions locally from bytes.
+	*/
+	const regions = useMemo(() => {
+		if (!frameOk || !frame) {
+			return null;
+		}
 
-	const wordAt = (idx: number): string | null => {
-		if (!frameOk || !frame) return null;
+		return decodeValueRegionsFromFrame(frame);
+	}, [frame, frameOk]);
 
-		return formatWordHex64(readWordU64LE(frame, idx));
-	};
+	const wordAt = (idx: number): string | null =>
+		formatWordHexAt(regions, frame, idx);
 
 	const propertiesW48 = wordAt(48);
 	const propertiesW49 = wordAt(49);
@@ -202,12 +269,16 @@ export function ValueInspector({
 	const propertiesW53 = wordAt(53);
 	const propertiesW54 = wordAt(54);
 	const propertiesW55 = wordAt(55);
-	const schedulerNext = wordAt(117);
 	const probeStatus = decodeProbeStatus(propertiesW53);
 	const confidence = vals["confidence"] ?? null;
 	const epoch = vals["epoch"] !== undefined ? Math.round(vals["epoch"]) : null;
 
-	const affinityFromFrame = frameOk && frame ? affinityHexWords(frame) : null;
+	const affinityFromFrame =
+		regions && frameOk
+			? affinityHexFromRegions(regions)
+			: frameOk && frame
+				? affinityHexWords(frame)
+				: null;
 	const affinityHex = affinityFromFrame || snap.communityAffinityHex || null;
 
 	/*
@@ -215,36 +286,46 @@ export function ValueInspector({
 	the same logical ids at w56/w57 until then. Prefer committed words, else
 	staging, else last VisValue snapshot.
 	*/
-	const prevCommitted =
-		frameOk && frame ? chainIdFromWord(readWordU64LE(frame, WORD.PREV)) : "";
-	const nextCommitted =
-		frameOk && frame ? chainIdFromWord(readWordU64LE(frame, WORD.NEXT)) : "";
-	const prevStaged =
-		frameOk && frame
-			? chainIdFromWord(readWordU64LE(frame, WORD.ASSET_PREV))
-			: "";
-	const nextStaged =
-		frameOk && frame
-			? chainIdFromWord(readWordU64LE(frame, WORD.ASSET_NEXT))
-			: "";
-
-	const prevWire = prevCommitted || prevStaged;
-	const nextWire = nextCommitted || nextStaged;
+	const chain = chainPreview(regions, frame, frameOk);
+	const prevWire = chain.prevCommitted || chain.prevStaged;
+	const nextWire = chain.nextCommitted || chain.nextStaged;
 
 	const prevId = prevWire || snap.prevId;
 	const nextId = nextWire || snap.nextId;
 
-	const idFromFrame =
-		frameOk && frame ? formatWordHex64(readWordU64LE(frame, WORD.ID)) : null;
+	const idFromFrame = chain.idHex || null;
 
 	const affinityIsAllZero =
 		!!affinityHex && /^0+$/.test(affinityHex.replace(/\s+/g, ""));
 	const programShown = effectiveProgram(snap);
+	const currentFirmware = latestFirmwareStepName(snap);
 	const tokenizerLabel =
 		snap.label && snap.label !== snap.id && snap.label !== snap.content
 			? snap.label
 			: "";
-	const tokenBandFilled = !!(snap.content || tokenizerLabel);
+
+	const frameRevisionKey = useMemo(() => {
+		if (!frameOk || !frame) {
+			return "no-frame";
+		}
+
+		let hash = 2166136261;
+
+		for (let i = 0; i < frame.byteLength; i++) {
+			hash = Math.imul(hash ^ frame[i]!, 16777619) >>> 0;
+		}
+
+		return `${frame.byteLength}:${hash}`;
+	}, [frame, frameOk]);
+
+	const tokenBandFilled =
+		(frameOk &&
+			Array.from({ length: 16 }, (_, wi) => wordAt(wi)).some(
+				(hex) => hex && hex !== "0000000000000000",
+			)) ||
+		!!(snap.content || tokenizerLabel);
+
+	const programWire = regions ? decodeProgramWire(regions.program) : null;
 
 	return (
 		<div className={cn("space-y-2", className)}>
@@ -261,9 +342,6 @@ export function ValueInspector({
 								className="border-purple-500/30 bg-purple-500/20 text-purple-300"
 							>
 								{programShown}
-								{snap.role === "data" && !snap.program ? (
-									<span className="text-purple-200/50"> · default</span>
-								) : null}
 							</Badge>
 						)}
 						{snap.communityId >= 0 && (
@@ -318,29 +396,83 @@ export function ValueInspector({
 				</CardContent>
 			</Card>
 
-			{/* ── 1 KB memory band ─────────────────────────────────────────────── */}
-			<div className="flex rounded-lg overflow-hidden border border-border/40 bg-card min-h-[180px]">
-				{/* TOKEN 0–15 · 1024 bits */}
+			{/* ── Rule chain ──────────────────────────────────────────────────── */}
+			{snap.role === "data" && (
+				<Card>
+					<CardContent className="px-3 py-2 flex items-center gap-2 flex-wrap">
+						<span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/50">
+							rule chain
+						</span>
+						{FIRMWARE_CHAIN_STEPS.map((step, index) => {
+							const observed = stepIsObserved(snap, step);
+							const current = currentFirmware === step;
+
+							return (
+								<div key={step} className="flex items-center gap-1.5">
+									<span
+										className={cn(
+											"rounded-md border px-2 py-0.5 text-[9px] font-mono uppercase tracking-wider transition-colors",
+											observed ? STEP_COLORS[step] : STEP_IDLE_CLASS,
+											current ? "ring-1 ring-offset-0 ring-white/25" : "",
+										)}
+									>
+										{step}
+										{current ? (
+											<span className="ml-1 text-white/60">●</span>
+										) : null}
+									</span>
+									{index < FIRMWARE_CHAIN_STEPS.length - 1 && (
+										<span className="text-muted-foreground/30 text-[9px]">
+											→
+										</span>
+									)}
+								</div>
+							);
+						})}
+						{snap.firmwareSteps.length === 0 && (
+							<span className="text-[9px] font-mono text-muted-foreground/40 ml-2">
+								awaiting first ALU dispatch
+							</span>
+						)}
+						{snap.firmwareSteps.length > 0 && (
+							<span className="ml-auto text-[9px] font-mono text-muted-foreground/40">
+								last{" "}
+								<span className="text-foreground/60">
+									{snap.firmwareSteps[snap.firmwareSteps.length - 1].name}
+								</span>
+								{" · "}
+								<span className="text-foreground/40">
+									{snap.firmwareSteps[snap.firmwareSteps.length - 1]
+										.substrate || "—"}
+								</span>
+							</span>
+						)}
+					</CardContent>
+				</Card>
+			)}
+
+			{/* ── 1 KB memory band (REGION_SPECS / kernel layout) ─────────────── */}
+			<div
+				key={frameRevisionKey}
+				className="flex rounded-lg overflow-hidden border border-border/40 bg-card"
+			>
+				{/* TOKENS w0–w15 */}
 				<Region
-					label="TOKEN"
+					label="TOKENS"
 					words="0–15 · 1024b"
 					fill={tokenBandFilled ? 1 : 0.05}
-					width="16%"
 					headerClass="bg-sky-500/10"
 					barClass="bg-sky-400"
 					textClass="text-sky-200/80"
 				>
-					{tokenizerLabel && (
-						<KV k="lbl" v={tokenizerLabel} vClass="text-amber-200/80" />
-					)}
-					{snap.content ? (
-						<p className="leading-relaxed opacity-90 break-all">
-							&ldquo;{snap.content.substring(0, 160)}
-							{snap.content.length > 160 ? "…" : ""}&rdquo;
-						</p>
+					{frameOk ? (
+						<WordHexRows from={0} to={15} wordAt={wordAt} />
 					) : (
-						<Dim>no telemetry</Dim>
+						<Dim>no frame</Dim>
 					)}
+					{tokenizerLabel ? (
+						<KV k="lbl" v={tokenizerLabel} vClass="text-amber-200/80" />
+					) : null}
 				</Region>
 
 				{/* PROGRAM 16–23 · 512 bits */}
@@ -348,79 +480,114 @@ export function ValueInspector({
 					label="PROGRAM"
 					words="16–23 · 512b"
 					fill={programShown ? 1 : 0.05}
-					width="9%"
 					headerClass="bg-purple-500/10"
 					barClass="bg-purple-400"
 					textClass="text-purple-200/80"
 				>
 					{programShown ? (
-						<p className="font-semibold">
-							{programShown}
-							{snap.role === "data" && !snap.program ? (
-								<span className="text-purple-200/45 font-normal text-[8px]">
-									{" "}
-									(routing firmware)
-								</span>
-							) : null}
-						</p>
+						<>
+							<p className="font-semibold">{programShown}</p>
+							{snap.firmwareSteps.length > 1 && (
+								<p className="text-[8px] text-purple-200/40 leading-tight">
+									{snap.firmwareSteps
+										.slice(-3)
+										.map((step) => step.name)
+										.join(" → ")}
+								</p>
+							)}
+						</>
 					) : (
-						<Dim>no telemetry</Dim>
+						<Dim>unscheduled</Dim>
+					)}
+					{programWire && (
+						<div className="mt-1.5 space-y-0.5 border-t border-purple-500/25 pt-1.5">
+							<p className="text-[7px] font-mono uppercase tracking-wide text-muted-foreground/40">
+								alu wire
+							</p>
+							<div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[8px] font-mono leading-tight">
+								<KV
+									k="op"
+									v={`0x${programWire.opcodeLow.toString(16).padStart(2, "0")}`}
+									vClass="text-cyan-300"
+								/>
+								<KV
+									k="srcA"
+									v={`${programWire.srcA.start}+${programWire.srcA.span}`}
+								/>
+								<KV
+									k="srcB"
+									v={`${programWire.srcB.start}+${programWire.srcB.span}`}
+								/>
+								<KV
+									k="dst"
+									v={`${programWire.dst.start}+${programWire.dst.span}`}
+								/>
+							</div>
+						</div>
 					)}
 				</Region>
 
-				{/* SIGNALS 24–31 · 512 bits */}
+				{/* SIGNALS w24–w31 */}
 				<Region
 					label="SIGNALS"
 					words="24–31 · 512b"
 					fill={snap.actionResonance > 0 ? snap.actionResonance : 0.05}
-					width="9%"
 					headerClass="bg-emerald-500/10"
 					barClass="bg-emerald-400"
 					textClass="text-emerald-200/80"
 				>
-					{snap.actionResonance > 0 ? (
-						<KV k="wire" v={snap.actionResonance.toFixed(5)} />
+					{frameOk ? (
+						<WordHexRows from={24} to={31} wordAt={wordAt} />
 					) : (
-						<Dim>no telemetry</Dim>
+						<Dim>no frame</Dim>
 					)}
+					{snap.actionResonance > 0 ? (
+						<KV k="meta.wire" v={snap.actionResonance.toFixed(5)} />
+					) : null}
 				</Region>
 
-				{/* CONTEXT 32–39 · 512 bits */}
+				{/* CONTEXT w32–w39 */}
 				<Region
 					label="CONTEXT"
 					words="32–39 · 512b"
 					fill={snap.telemetry?.src ? 0.6 : 0.05}
-					width="9%"
 					headerClass="bg-cyan-500/10"
 					barClass="bg-cyan-400"
 					textClass="text-cyan-200/80"
 				>
-					{snap.telemetry?.src ? (
-						<KV k="src" v={snap.telemetry.src} />
-					) : vals["context_dot"] !== undefined ? (
-						<KV k="dot" v={(vals["context_dot"] as number).toFixed(5)} />
+					{frameOk ? (
+						<WordHexRows from={32} to={39} wordAt={wordAt} />
 					) : (
-						<Dim>no telemetry</Dim>
+						<Dim>no frame</Dim>
 					)}
+					{snap.telemetry?.src ? (
+						<KV k="evt.src" v={snap.telemetry.src} />
+					) : null}
+					{vals["context_dot"] !== undefined ? (
+						<KV k="evt.dot" v={(vals["context_dot"] as number).toFixed(5)} />
+					) : null}
 				</Region>
 
-				{/* GRADIENT 40–47 · 512 bits */}
+				{/* GRADIENT w40–w47 */}
 				<Region
 					label="GRADIENT"
 					words="40–47 · 512b"
 					fill={vals["gradient_norm"] !== undefined ? 0.7 : 0.05}
-					width="9%"
 					headerClass="bg-violet-500/10"
 					barClass="bg-violet-400"
 					textClass="text-violet-200/80"
 				>
-					{vals["gradient_norm"] !== undefined ? (
-						<KV k="norm" v={(vals["gradient_norm"] as number).toFixed(5)} />
-					) : snap.telemetry?.tgt ? (
-						<KV k="tgt" v={snap.telemetry.tgt} />
+					{frameOk ? (
+						<WordHexRows from={40} to={47} wordAt={wordAt} />
 					) : (
-						<Dim>no telemetry</Dim>
+						<Dim>no frame</Dim>
 					)}
+					{vals["gradient_norm"] !== undefined ? (
+						<KV k="evt.norm" v={(vals["gradient_norm"] as number).toFixed(5)} />
+					) : null}
+					{snap.telemetry?.tgt ? (
+						<KV k="evt.tgt" v={snap.telemetry.tgt} />
+					) : null}
 				</Region>
 
 				{/* PROPERTIES 48–55 · 512 bits — canonical band */}
@@ -428,7 +595,6 @@ export function ValueInspector({
 					label="PROPERTIES"
 					words="48–55 · 512b"
 					fill={1 - snap.gap}
-					width="16%"
 					headerClass="bg-amber-500/10"
 					barClass="bg-amber-400"
 					textClass="text-amber-200/80"
@@ -465,19 +631,20 @@ export function ValueInspector({
 					<KV k="w55 depth" v={hexOrDash(propertiesW55)} />
 				</Region>
 
-				{/* RESERVED 56–119 · 4096 bits */}
+				{/* ASSET w56–w119 (64 words — chain staging, scratch, scheduler, …) */}
 				<Region
-					label="RESERVED"
+					label="ASSET"
 					words="56–119 · 4096b"
-					fill={0}
-					width="8%"
-					headerClass="bg-muted/5"
+					fill={0.12}
+					headerClass="bg-muted/10"
 					barClass="bg-muted"
-					textClass="text-muted-foreground/25"
+					textClass="text-muted-foreground/85"
 				>
-					<KV k="w117 sched" v={hexOrDash(schedulerNext)} />
-					<p>K-store / scratchpad</p>
-					<p>reserved[0,64]</p>
+					{frameOk ? (
+						<WordHexRows from={56} to={119} wordAt={wordAt} />
+					) : (
+						<Dim>no frame</Dim>
+					)}
 				</Region>
 
 				{/* PREV 120 */}
@@ -485,7 +652,6 @@ export function ValueInspector({
 					label="PREV"
 					words="w120 · 64b"
 					fill={prevId ? 1 : 0.05}
-					width="6%"
 					headerClass="bg-indigo-500/10"
 					barClass="bg-indigo-400"
 					textClass="text-indigo-200/70"
@@ -513,7 +679,6 @@ export function ValueInspector({
 					label="NEXT"
 					words="w121 · 64b"
 					fill={nextId ? 1 : 0.05}
-					width="6%"
 					headerClass="bg-indigo-500/10"
 					barClass="bg-indigo-400"
 					textClass="text-indigo-200/70"
@@ -541,7 +706,6 @@ export function ValueInspector({
 					label="ID"
 					words="w122 · 64b"
 					fill={1}
-					width="6%"
 					headerClass="bg-indigo-600/15"
 					barClass="bg-indigo-300"
 					textClass="text-indigo-100/80"
@@ -556,7 +720,6 @@ export function ValueInspector({
 					label="AFFINITY"
 					words="123–127 · 257b"
 					fill={affinityHex ? 0.8 : 0.08}
-					width="6%"
 					headerClass="bg-pink-500/10"
 					barClass="bg-pink-400"
 					textClass="text-pink-200/70"
@@ -566,7 +729,7 @@ export function ValueInspector({
 							<p className="break-all text-[8px]">{affinityHex}</p>
 							{affinityIsAllZero ? (
 								<p className="text-[7px] text-muted-foreground/40 leading-tight">
-									all-zero lanes until substrate writes affinity
+									w123–w127 are zero
 								</p>
 							) : null}
 						</div>
