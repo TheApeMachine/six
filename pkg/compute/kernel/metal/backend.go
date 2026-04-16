@@ -15,20 +15,79 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
-
-//go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
+//go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -I. -c backend.metal -o backend.air
 //go:generate xcrun -sdk macosx metallib backend.air -o backend.metallib
 
 //go:embed backend.metallib
 var backendMetallib []byte
 
 var metalReady atomic.Bool
+
+var metalArenaInit sync.Once
+
+const spawnQueueCap = 4096
+
+func drainMetalSpawns() {
+	parents := make([]uint32, spawnQueueCap)
+	children := make([]uint32, spawnQueueCap)
+	var outCount C.uint32_t
+
+	if C.metal_drain_spawn_queue(
+		(*C.uint32_t)(unsafe.Pointer(&parents[0])),
+		(*C.uint32_t)(unsafe.Pointer(&children[0])),
+		C.uint32_t(spawnQueueCap),
+		&outCount,
+	) != 0 {
+		return
+	}
+
+	n := int(outCount)
+	if n <= 0 {
+		return
+	}
+
+	for idx := 0; idx < n; idx++ {
+		child := primitive.ValueAt(children[idx])
+		if child == nil {
+			continue
+		}
+
+		child.StampNewID()
+	}
+}
+
+func ensureMetalArena() error {
+	var initErr error
+
+	metalArenaInit.Do(func() {
+		primitive.EnsureArenaPinnedForGPU()
+
+		base, byteLen := primitive.ArenaBasePointer()
+		if base == nil || byteLen == 0 {
+			initErr = errors.New("metal: empty value arena")
+
+			return
+		}
+
+		if C.init_metal_arena(
+			base,
+			C.size_t(byteLen),
+			(*C.uint32_t)(unsafe.Pointer(primitive.ArenaLinearNextPtr())),
+		) != 0 {
+			initErr = errors.New("metal: init_metal_arena failed")
+		}
+	})
+
+	return initErr
+}
 
 /*
 Backend dispatches Value-native GPU kernels on Apple Silicon.
@@ -79,13 +138,11 @@ func Available() int {
 }
 
 /*
-Execute dispatches frames to the appropriate Metal kernel based on
-the opcode in each Value's program region (word 16). Batch distance
-frames (opcode 0x6 with count at word 124) route to the fused
-XOR+popcount kernel. Geometric opcodes route to the PGA kernel.
-All other frames go through the unified bitwise kernel.
+Execute dispatches arena slot indices to Metal: the GPU reads Value frames
+in-place from the pinned arena. Post-ALU refutation and TTL run in the
+shader; nearest-affinity reduction still completes on the host.
 */
-func (backend *Backend) Execute(frames []unsafe.Pointer) error {
+func (backend *Backend) Execute(indices []uint32) error {
 	if !metalReady.Load() {
 		return NewMetalKernelError(
 			kernel.KernelErrUnavailable,
@@ -94,57 +151,50 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		)
 	}
 
-	if len(frames) == 0 {
+	if len(indices) == 0 {
 		return nil
 	}
 
-	// Per-call scratch for the unified kernel staging copy. Stack-allocated
-	// via make on the current goroutine so concurrent Execute callers never
-	// share mutable state on the Go side. The Objective-C layer allocates a
-	// dedicated MTLBuffer per call too, so there is no shared resource left
-	// between workers and no mutex is required.
-	unifiedBatch := make([]unsafe.Pointer, 0, len(frames))
-	var unifiedBatchCount int
-	var batchBuffer []byte
+	if err := ensureMetalArena(); err != nil {
+		return NewMetalKernelError(kernel.KernelErrInitFailed, err, "Execute")
+	}
+
+	unifiedBatch := make([]uint32, 0, len(indices))
 
 	flushUnified := func() error {
-		if unifiedBatchCount == 0 {
+		if len(unifiedBatch) == 0 {
 			return nil
 		}
 
-		reqBytes := unifiedBatchCount * 1024
-		if cap(batchBuffer) < reqBytes {
-			batchBuffer = make([]byte, reqBytes)
-		}
-		batchBuffer = batchBuffer[:reqBytes]
-
-		for i, ptr := range unifiedBatch {
-			copy(batchBuffer[i*1024:(i+1)*1024], unsafe.Slice((*byte)(ptr), 1024))
-		}
-
-		if C.unified_bitwise_metal(unsafe.Pointer(&batchBuffer[0]), C.uint32_t(unifiedBatchCount)) != 0 {
+		if C.unified_bitwise_metal_indices(
+			(*C.uint32_t)(unsafe.Pointer(&unifiedBatch[0])),
+			C.uint32_t(len(unifiedBatch)),
+			C.uint32_t(primitive.ArenaSlotCount),
+		) != 0 {
 			err := NewMetalKernelError(
 				kernel.KernelErrDispatchFailed, nil, "Execute",
 			)
 			backend.observer.Error("metal.Backend.Execute", err)
+
 			return err
 		}
 
-		for i, ptr := range unifiedBatch {
-			copy(unsafe.Slice((*byte)(ptr), 1024), batchBuffer[i*1024:(i+1)*1024])
-		}
+		drainMetalSpawns()
 
 		unifiedBatch = unifiedBatch[:0]
-		unifiedBatchCount = 0
+
 		return nil
 	}
 
-	for _, ptr := range frames {
-		if ptr == nil {
+	for _, slot := range indices {
+		value := primitive.ValueAt(slot)
+		if value == nil {
 			continue
 		}
 
+		ptr := unsafe.Pointer(&value[0])
 		v := (*[128]uint64)(ptr)
+
 		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
 		opcode := rawOpcode & kernel.OpcodeBooleanMask
 		batchCount := v[kernel.NearestAffinityBatchWord]
@@ -153,12 +203,18 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
 
+		primitive.HydrateLearnerPeers(value)
+
 		if kernel.IsGeometricOpcode(rawOpcode) {
 			if err := flushUnified(); err != nil {
 				return err
 			}
 
-			if C.geometric_metal(ptr, 1) != 0 {
+			if C.geometric_metal_indices(
+				(*C.uint32_t)(unsafe.Pointer(&slot)),
+				C.uint32_t(1),
+				C.uint32_t(primitive.ArenaSlotCount),
+			) != 0 {
 				err := NewMetalKernelError(
 					kernel.KernelErrDispatchFailed,
 					errors.New("geometric dispatch failed"),
@@ -169,6 +225,17 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 				return err
 			}
+
+			continue
+		}
+
+		if kernel.IsCopyMaskMergeOpcode(rawOpcode) {
+			if err := flushUnified(); err != nil {
+				return err
+			}
+
+			kernel.ApplyCopyMaskMerge(v)
+			kernel.FinishFramePostALU(v)
 
 			continue
 		}
@@ -210,14 +277,29 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			v[kernel.SignalsStartWord+kernel.SignalBestIdxOffset] = bestIdx
 			v[kernel.SignalsStartWord+kernel.SignalBestDistOffset] = bestDist
 
+			kernel.FinishFramePostALU(v)
+
 			continue
 		}
 
-		unifiedBatch = append(unifiedBatch, ptr)
-		unifiedBatchCount++
+		unifiedBatch = append(unifiedBatch, slot)
 	}
 
 	return flushUnified()
+}
+
+/*
+ExecutePointers resolves host pointers to arena indices when the storage
+backs the contiguous slab; stack-allocated test frames must use AllocValue
+and Execute([]uint32) instead.
+*/
+func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
+	indices, err := primitive.IndicesFromPointers(frames)
+	if err != nil {
+		return err
+	}
+
+	return backend.Execute(indices)
 }
 
 /*

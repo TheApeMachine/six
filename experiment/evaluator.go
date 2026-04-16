@@ -140,6 +140,11 @@ Metrics computes accuracy, balanced accuracy, and macro-F1 from the
 confusion matrix built over data. numSamples is the total experiment
 sample count (used as the accuracy denominator so that unpredicted
 samples count as incorrect).
+
+Rows with ExecutionSettled and ReasoningResolved == false are omitted from
+the matrix (they count as misses for accuracy via numSamples, not as
+predictions). Macro-F1 averages over every label class, using F1=0 when a
+class has no support in the matrix.
 */
 func (evaluator *Evaluator) Metrics(data []ExperimentalData, numSamples int) ClassificationMetrics {
 	numClasses := len(evaluator.labels)
@@ -154,6 +159,10 @@ func (evaluator *Evaluator) Metrics(data []ExperimentalData, numSamples int) Cla
 			continue
 		}
 
+		if row.ExecutionSettled && !row.ReasoningResolved {
+			continue
+		}
+
 		trueIdx, predIdx := *row.TrueLabel, *row.PredLabel
 
 		if trueIdx >= 0 && trueIdx < numClasses && predIdx >= 0 && predIdx < numClasses {
@@ -164,7 +173,6 @@ func (evaluator *Evaluator) Metrics(data []ExperimentalData, numSamples int) Cla
 	total, correct := 0, 0
 	recallSum := 0.0
 	f1Sum := 0.0
-	validClasses := 0
 
 	for classIdx := range numClasses {
 		rowSum := 0
@@ -202,10 +210,13 @@ func (evaluator *Evaluator) Metrics(data []ExperimentalData, numSamples int) Cla
 			recall = float64(truePositive) / float64(truePositive+falseNegative)
 		}
 
+		f1 := 0.0
+
 		if precision+recall > 0 {
-			f1Sum += 2 * precision * recall / (precision + recall)
-			validClasses++
+			f1 = 2 * precision * recall / (precision + recall)
 		}
+
+		f1Sum += f1
 	}
 
 	accuracy := 0.0
@@ -219,8 +230,8 @@ func (evaluator *Evaluator) Metrics(data []ExperimentalData, numSamples int) Cla
 	}
 
 	macroF1 := 0.0
-	if validClasses > 0 {
-		macroF1 = f1Sum / float64(validClasses)
+	if numClasses > 0 {
+		macroF1 = f1Sum / float64(numClasses)
 	}
 
 	return ClassificationMetrics{

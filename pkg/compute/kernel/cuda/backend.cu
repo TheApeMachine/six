@@ -10,6 +10,7 @@
 #define OPCODE_GEOMETRIC_SANDWICH 0x20
 #define OPCODE_GEOMETRIC_REVERSE 0x30
 #define OPCODE_REGION_PROGRAM 0x40
+#define OPCODE_COPY_MASK_MERGE 0x50
 #define RESERVED_START_WORD 56
 #define PROGRAM_CONTRACT_SHIFT 8
 #define CONTRACT_EXACT_BINARY 1
@@ -90,6 +91,25 @@ static __device__ __forceinline__ uint64_t exact_binary_word(uint64_t op, uint64
            (a & ~b & m1) |
            (~a & b & m2) |
            (~a & ~b & m3);
+}
+
+static __device__ __forceinline__ void copy_mask_merge_device(uint64_t* frame) {
+    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
+    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+    int n = aSpan;
+    if (bSpan < n) n = bSpan;
+    if (dstSpan < n) n = dstSpan;
+    if (n <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    if (aStart + n > 128 || bStart + n > 128 || dstStart + n > 128) return;
+    for (int idx = 0; idx < n; idx++) {
+        uint64_t mask = frame[bStart + idx];
+        uint64_t src = frame[aStart + idx];
+        int dst = dstStart + idx;
+        frame[dst] = (src & mask) | (frame[dst] & ~mask);
+    }
 }
 
 static __device__ __forceinline__ void exact_binary_device(
@@ -209,7 +229,11 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
         return;
     }
 
-    uint64_t rawOpcode = frame[PROGRAM_START_WORD] & 0xFF;
+    if (rawOpcode == OPCODE_COPY_MASK_MERGE) {
+        copy_mask_merge_device(frame);
+        return;
+    }
+
     uint64_t opcode = rawOpcode & 0x0F;
     uint64_t rotationTable = frame[PROGRAM_START_WORD + 1];
     int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);

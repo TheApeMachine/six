@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -13,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -150,6 +152,38 @@ func NewBackend(
 	}
 
 	return backend
+}
+
+func (backend *Backend) cpuBackend() *cpu.Backend {
+	for _, st := range backend.states {
+		if st.substrate.Name() != "cpu" {
+			continue
+		}
+
+		cb, ok := st.substrate.(*cpu.Backend)
+		if !ok {
+			continue
+		}
+
+		return cb
+	}
+
+	return nil
+}
+
+func pointerSliceFromIndices(indices []uint32) []unsafe.Pointer {
+	out := make([]unsafe.Pointer, 0, len(indices))
+
+	for _, ix := range indices {
+		value := primitive.ValueAt(ix)
+		if value == nil {
+			continue
+		}
+
+		out = append(out, unsafe.Pointer(&value[0]))
+	}
+
+	return out
 }
 
 /*
@@ -357,8 +391,28 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 	framePtr := unsafe.Pointer(&value[0])
 	ptrs := []unsafe.Pointer{framePtr}
 
+	indices, arenaErr := primitive.IndicesFromPointers(ptrs)
+
 	if executable.IsResidentProgram() {
-		if err := backend.Execute(ptrs); err != nil {
+		if arenaErr != nil {
+			cb := backend.cpuBackend()
+			if cb == nil {
+				errnie.Error(errors.New("compute.Dispatch: heap Value without CPU substrate"))
+				executable.Finalize()
+
+				return
+			}
+
+			if err := cb.ExecutePointers(ptrs); err != nil {
+				errnie.Error(err)
+			}
+
+			executable.Finalize()
+
+			return
+		}
+
+		if err := backend.Execute(indices); err != nil {
 			errnie.Error(err)
 		}
 
@@ -405,8 +459,22 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 		frames[idx].WriteIntoProgramRegion(value)
 		executable.ApplyContinuation()
 
-		if err := st.substrate.Execute(ptrs); err != nil {
-			errnie.Error(err)
+		var execErr error
+
+		if arenaErr != nil {
+			cb := backend.cpuBackend()
+			if cb == nil {
+				errnie.Error(errors.New("compute.Dispatch: heap Value without CPU substrate"))
+				break
+			}
+
+			execErr = cb.ExecutePointers(ptrs)
+		} else {
+			execErr = st.substrate.Execute(indices)
+		}
+
+		if execErr != nil {
+			errnie.Error(execErr)
 			break
 		}
 	}
@@ -430,19 +498,19 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 }
 
 /*
-Execute dispatches pre-compiled Value frames to the best available
+Execute dispatches pre-compiled arena slot indices to the best available
 substrate. Each Value must already contain the program bits the ALU
 expects; the substrate reads the opcode from the program region.
 */
-func (backend *Backend) Execute(
-	frames []unsafe.Pointer,
-) error {
-	backend.ensureCorrelationIDs(frames)
+func (backend *Backend) Execute(indices []uint32) error {
+	ptrs := pointerSliceFromIndices(indices)
+	backend.ensureCorrelationIDs(ptrs)
 
-	// Force CPU substrate for OpcodeRegionProgram since it's only implemented there
-	op, _, valID := firstFrameOpcodeAndCorrelation(frames)
+	// Force CPU substrate for OpcodeRegionProgram and OpcodeCopyMaskMerge since
+	// they are only implemented on the CPU path today.
+	op, _, valID := firstFrameOpcodeAndCorrelation(ptrs)
 	var st *substrateState
-	if uint64(op) == kernel.OpcodeRegionProgram {
+	if uint64(op) == kernel.OpcodeRegionProgram || kernel.IsCopyMaskMergeOpcode(uint64(op)) {
 		for _, state := range backend.states {
 			if state.substrate.Name() == "cpu" {
 				st = state
@@ -452,7 +520,7 @@ func (backend *Backend) Execute(
 	}
 
 	if st == nil {
-		st = backend.pick(frames)
+		st = backend.pick(ptrs)
 	}
 
 	st.inflight.Add(1)
@@ -468,7 +536,77 @@ func (backend *Backend) Execute(
 
 	start := time.Now()
 
-	err := st.substrate.Execute(frames)
+	err := st.substrate.Execute(indices)
+
+	elapsed := time.Since(start)
+	st.inflight.Add(-1)
+	st.observe(elapsed)
+
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PoolCompleteEvent(
+			st.substrate.Name(),
+			elapsed.Nanoseconds(),
+			valID,
+		))
+	}
+
+	backend.publishALUDispatch(st, ptrs, elapsed)
+	backend.publishWireFrames(ptrs)
+
+	return err
+}
+
+/*
+ExecutePointers maps host pointers to arena indices when possible; heap Values
+run on the CPU substrate only with the same telemetry and wire hooks as Execute.
+*/
+func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
+	indices, err := primitive.IndicesFromPointers(frames)
+	if err != nil {
+		return backend.executeHeapFramesOnCPU(frames)
+	}
+
+	return backend.Execute(indices)
+}
+
+func (backend *Backend) executeHeapFramesOnCPU(frames []unsafe.Pointer) error {
+	cb := backend.cpuBackend()
+	if cb == nil {
+		return errors.New("compute.Backend.ExecutePointers: no CPU substrate for heap frame")
+	}
+
+	backend.ensureCorrelationIDs(frames)
+
+	_, _, valID := firstFrameOpcodeAndCorrelation(frames)
+
+	var st *substrateState
+
+	for _, state := range backend.states {
+		if state.substrate.Name() == "cpu" {
+			st = state
+
+			break
+		}
+	}
+
+	if st == nil {
+		return errors.New("compute.Backend.executeHeapFramesOnCPU: CPU substrate missing")
+	}
+
+	st.inflight.Add(1)
+
+	if telemetry.DefaultBus.IsActive() {
+		telemetry.DefaultBus.Publish(telemetry.PoolScheduleEvent(
+			st.substrate.Name(),
+			int(st.inflight.Load()),
+			len(backend.states),
+			valID,
+		))
+	}
+
+	start := time.Now()
+
+	execErr := cb.ExecutePointers(frames)
 
 	elapsed := time.Since(start)
 	st.inflight.Add(-1)
@@ -485,7 +623,7 @@ func (backend *Backend) Execute(
 	backend.publishALUDispatch(st, frames, elapsed)
 	backend.publishWireFrames(frames)
 
-	return err
+	return execErr
 }
 
 func (backend *Backend) Name() string {

@@ -1,9 +1,5 @@
 package kernel
 
-import (
-	"unsafe"
-)
-
 /*
 Substrate is the unified contract that every compute backend
 (CPU, CUDA, Metal) must satisfy. It combines the streaming IO
@@ -21,8 +17,12 @@ Memory contract: each pointer must reference a full Value frame
 (1024 bytes / 128×uint64 by default) aligned for uintptr use.
 Frames remain owned by the caller; the substrate mutates them in
 place and does not retain pointers after return.
+
+Indices refer to primitive.ArenaSlotCount slots inside the contiguous
+value arena (see primitive.ArenaIndex). Non-arena frames must use the
+CPU backend ExecutePointers escape hatch.
 */
 type Substrate interface {
-	Execute(frames []unsafe.Pointer) error
+	Execute(indices []uint32) error
 	Name() string
 }

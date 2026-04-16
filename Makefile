@@ -39,7 +39,7 @@ build:
 	go generate ./pkg/primitive/...
 
 	cd pkg/compute/kernel/metal \
-		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -I. -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 
 	cd pkg/compute/kernel/cuda \
@@ -65,7 +65,7 @@ coverage:
 metal:
 	go generate ./pkg/primitive/...
 	cd pkg/compute/kernel/metal \
-		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -I. -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 
 cuda:

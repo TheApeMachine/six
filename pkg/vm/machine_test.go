@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"sync"
 	"testing"
 	"time"
 
@@ -273,6 +274,7 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 			So(machine.Close(), ShouldBeNil)
 		}()
 
+		var framesMu sync.Mutex
 		framesByID := map[uint64][][]byte{}
 		telemetry.SetWireValueFrameSink(func(payload []byte) {
 			ft, _, _, _, _, valueID, wire, err := telemetry.UnmarshalWireMessage(payload)
@@ -281,7 +283,9 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 			}
 
 			copyWire := append([]byte(nil), wire...)
+			framesMu.Lock()
 			framesByID[valueID] = append(framesByID[valueID], copyWire)
+			framesMu.Unlock()
 		})
 		defer telemetry.SetWireValueFrameSink(nil)
 
@@ -329,6 +333,7 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 		for time.Now().Before(deadline) {
 			ids := []uint64{firstValue.ID(), secondValue.ID()}
 			ready := 0
+			framesMu.Lock()
 			for _, valueID := range ids {
 				frames := framesByID[valueID]
 				if len(frames) < 2 {
@@ -347,12 +352,14 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 					ready++
 				}
 			}
+			framesMu.Unlock()
 			if ready == len(ids) {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
 
+		framesMu.Lock()
 		for _, value := range []*primitive.Value{firstValue, secondValue} {
 			frames := framesByID[value.ID()]
 			So(len(frames), ShouldBeGreaterThanOrEqualTo, 2)
@@ -369,6 +376,7 @@ func TestMachineLoadPublishesUpdatedWireFrameWithNonZeroAffinity(t *testing.T) {
 			}
 			SoMsg(fmt.Sprintf("value %q (%x) final published frame affinity %v", value.String(), value.ID(), affinityWords), affinityNonZero, ShouldBeTrue)
 		}
+		framesMu.Unlock()
 	})
 }
 

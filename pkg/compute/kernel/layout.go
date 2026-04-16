@@ -32,6 +32,29 @@ const (
 	OpcodeGeometricSandwich uint64 = 0x20
 	OpcodeGeometricReverse  uint64 = 0x30
 	OpcodeRegionProgram     uint64 = 0x40
+	// OpcodeCopyMaskMerge copies srcA into dst with a per-word mask taken from
+	// srcB: dst = (srcA & srcB) | (dst & ^srcB). Bypasses the 16-rotation sweep.
+	OpcodeCopyMaskMerge uint64 = 0x50
+
+	// OpcodeEmitClone reserves a new arena slot, copies the frame, perturbs the
+	// affinity lane from properties noise, and records (parent, child) slots for
+	// the host drain path. Implemented on GPU substrates.
+	OpcodeEmitClone uint64 = 0x60
+
+	// TTLExpiredSentinel is stored in PropertiesTTLWord when an ephemeral Value's
+	// TTL has just reached zero in-kernel; finalize skips orchestrator publish.
+	TTLExpiredSentinel uint64 = 1 << 63
+
+	// PropertiesRefutationTargetWord holds another Value's ID (word 122 style)
+	// for native falsification checks against in-band XOR signals.
+	PropertiesRefutationTargetWord = 49
+
+	// FalsifiedBitNoiseWord is ORed into PropertiesNoiseWord when refutation fires.
+	FalsifiedBitNoiseWord uint64 = 1 << 62
+
+	// RefutationOneRunThreshold is the minimum longest one-run length (bits)
+	// across the eight signal words to count as a Popper-style refutation streak.
+	RefutationOneRunThreshold = 48
 
 	// OpcodeXOR is the universal-bitwise low nibble for XOR (truth table 0x6).
 	OpcodeXOR uint64 = 0x06
@@ -138,4 +161,19 @@ func IsGeometricOpcode(opcode uint64) bool {
 	}
 
 	return false
+}
+
+/*
+IsCopyMaskMergeOpcode reports whether the low opcode byte selects the masked
+word-copy lane (no rotation sweep).
+*/
+func IsCopyMaskMergeOpcode(opcode uint64) bool {
+	return opcode&0xFF == OpcodeCopyMaskMerge
+}
+
+/*
+IsEmitCloneOpcode reports whether the frame requests in-arena cloning on GPU.
+*/
+func IsEmitCloneOpcode(opcode uint64) bool {
+	return opcode&0xFF == OpcodeEmitClone
 }

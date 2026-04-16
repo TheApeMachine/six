@@ -35,6 +35,16 @@ type ModeParticipant struct {
 }
 
 /*
+eigenSnap stores the last completed eigenmode partition for a community field.
+It is swapped in by a background pass so cycleLeaf can read slightly stale
+modes without blocking on DetectModes.
+*/
+type eigenSnap struct {
+	modes       []Eigenmode
+	dominantIdx int
+}
+
+/*
 PhaseMode is the dominant finite-field phase extracted from a vector.
 The lane index acts as the phase angle; amplitude and concentration
 describe how collapsed the vector is around that lane.

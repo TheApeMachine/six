@@ -4,22 +4,42 @@ package geometry
 ScanZeroRun finds the longest contiguous run of zero bits across a slice of
 uint64 words and returns the run's starting bit index and its length in bits.
 
-This is the primary signal extraction primitive for the unsupervised learning
-pipeline. When two Values' token regions are XOR-ed together, zero bits mark
-positions where both Values encode identical information. The longest zero-run
-is the largest shared structural component — the candidate soft label.
-
-The scan is a single forward pass: O(n × 64) where n = len(words).
+All-zero words extend a run in O(1); mixed words fall back to a tight
+per-bit walk so cross-word boundaries stay exact.
 */
 func ScanZeroRun(words []uint64) (startBit, length int) {
 	bestStart, bestLen := 0, 0
 	curStart, curLen := 0, 0
+	bitBase := 0
 
-	for wordIdx, word := range words {
+	for _, word := range words {
+		if word == 0 {
+			if curLen == 0 {
+				curStart = bitBase
+			}
+
+			curLen += 64
+			bitBase += 64
+
+			continue
+		}
+
+		if word == ^uint64(0) {
+			if curLen > bestLen {
+				bestLen = curLen
+				bestStart = curStart
+			}
+
+			curLen = 0
+			bitBase += 64
+
+			continue
+		}
+
 		for bit := 0; bit < 64; bit++ {
 			if (word>>bit)&1 == 0 {
 				if curLen == 0 {
-					curStart = wordIdx*64 + bit
+					curStart = bitBase + bit
 				}
 
 				curLen++
@@ -32,6 +52,8 @@ func ScanZeroRun(words []uint64) (startBit, length int) {
 				curLen = 0
 			}
 		}
+
+		bitBase += 64
 	}
 
 	if curLen > bestLen {
@@ -51,12 +73,36 @@ consolidation rather than cancellation.
 func ScanOneRun(words []uint64) (startBit, length int) {
 	bestStart, bestLen := 0, 0
 	curStart, curLen := 0, 0
+	bitBase := 0
 
-	for wordIdx, word := range words {
+	for _, word := range words {
+		if word == ^uint64(0) {
+			if curLen == 0 {
+				curStart = bitBase
+			}
+
+			curLen += 64
+			bitBase += 64
+
+			continue
+		}
+
+		if word == 0 {
+			if curLen > bestLen {
+				bestLen = curLen
+				bestStart = curStart
+			}
+
+			curLen = 0
+			bitBase += 64
+
+			continue
+		}
+
 		for bit := 0; bit < 64; bit++ {
 			if (word>>bit)&1 == 1 {
 				if curLen == 0 {
-					curStart = wordIdx*64 + bit
+					curStart = bitBase + bit
 				}
 
 				curLen++
@@ -69,6 +115,8 @@ func ScanOneRun(words []uint64) (startBit, length int) {
 				curLen = 0
 			}
 		}
+
+		bitBase += 64
 	}
 
 	if curLen > bestLen {

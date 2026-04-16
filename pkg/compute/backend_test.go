@@ -120,7 +120,7 @@ func TestBackendExecutePublishesWireFrame(t *testing.T) {
 		frame[kernel.IDStartWord] = 0xAB
 
 		ptr := unsafe.Pointer(&frame[0])
-		convey.So(backend.Execute([]unsafe.Pointer{ptr}), convey.ShouldBeNil)
+		convey.So(backend.ExecutePointers([]unsafe.Pointer{ptr}), convey.ShouldBeNil)
 
 		select {
 		case payload := <-framesOut:

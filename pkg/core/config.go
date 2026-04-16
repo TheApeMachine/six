@@ -106,6 +106,7 @@ type FinalizerRuleConfig struct {
 	MinMembers       int                     `mapstructure:"min_members"`
 	MinCommunities   int                     `mapstructure:"min_communities"`
 	MinConcentration float64                 `mapstructure:"min_concentration"`
+	MaxConcentration float64                 `mapstructure:"max_concentration"`
 	Actions          []FinalizerActionConfig `mapstructure:"actions"`
 }
 

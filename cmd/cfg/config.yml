@@ -264,6 +264,29 @@ finalizers:
             destination: gradient[0,5]
           - source: value.signals[0,8]
             destination: context[0,8]
+  - name: belief_gap_drive
+    scope: community
+    min_members: 2
+    max_concentration: 0.6
+    actions:
+      - type: emit
+        program: beam_swarm_step
+        ttl: 5
+        copies:
+          - source: field.affinity[0,5]
+            destination: gradient[0,5]
+          - source: field.affinity[0,5]
+            destination: context[0,5]
+
+  - name: falsification_probe
+    scope: community
+    min_members: 3
+    max_concentration: 0.4
+    actions:
+      - type: emit
+        program: falsification
+        ttl: 5
+
   - name: global_resonance_reprogram
     scope: global
     min_communities: 2

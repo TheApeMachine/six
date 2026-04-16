@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/bits"
 	"sync"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -27,6 +28,9 @@ type Field struct {
 	amplitude    uint32
 	Cooccurrence map[int]map[int]uint32
 	lastMode     int
+
+	eigenSnapshot atomic.Pointer[eigenSnap]
+	eigenInflight atomic.Bool
 
 	intake *data.Ring
 	output *data.Ring
@@ -134,21 +138,34 @@ func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
 		return field.Values, nil
 	}
 
-	modes, dominantIdx := DetectModes(
-		participants,
-		0.3,
-		func(originA, originB uint64) float64 {
-			affA := affinityMap[originA]
-			affB := affinityMap[originB]
+	couplingFn := func(originA, originB uint64) float64 {
+		affA := affinityMap[originA]
+		affB := affinityMap[originB]
 
-			if len(affA) == 0 || len(affB) == 0 {
-				return 0
-			}
+		if len(affA) == 0 || len(affB) == 0 {
+			return 0
+		}
 
-			distance := AffinityHammingDistance(affA, affB)
-			return 1.0 - float64(distance)/257.0
-		},
-	)
+		distance := AffinityHammingDistance(affA, affB)
+
+		return 1.0 - float64(distance)/257.0
+	}
+
+	snap := field.eigenSnapshot.Load()
+
+	var modes []Eigenmode
+
+	var dominantIdx int
+
+	if snap != nil && len(snap.modes) > 0 && snap.dominantIdx >= 0 {
+		modes = snap.modes
+		dominantIdx = snap.dominantIdx
+	} else {
+		modes, dominantIdx = DetectModes(participants, 0.3, couplingFn)
+		field.eigenSnapshot.Store(&eigenSnap{modes: modes, dominantIdx: dominantIdx})
+	}
+
+	field.scheduleEigenRefresh(participants, affinityMap)
 
 	if dominantIdx >= 0 && len(modes) > 0 {
 		dominant := modes[dominantIdx]
@@ -164,6 +181,58 @@ func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
 	}
 
 	return field.Values, nil
+}
+
+/*
+scheduleEigenRefresh recomputes eigenmodes off the hot path so the next
+cycleLeaf can consume a fresher partition without waiting on clustering.
+*/
+func (field *Field) scheduleEigenRefresh(
+	participants []ModeParticipant,
+	affinityMap map[uint64][]uint64,
+) {
+	if field == nil {
+		return
+	}
+
+	if len(participants) == 0 {
+		return
+	}
+
+	if !field.eigenInflight.CompareAndSwap(false, true) {
+		return
+	}
+
+	partCopy := append([]ModeParticipant(nil), participants...)
+
+	affinityCopy := make(map[uint64][]uint64, len(affinityMap))
+
+	for ident, aff := range affinityMap {
+		affinityCopy[ident] = append([]uint64(nil), aff...)
+	}
+
+	go func() {
+		defer field.eigenInflight.Store(false)
+
+		modes, dominantIdx := DetectModes(
+			partCopy,
+			0.3,
+			func(originA, originB uint64) float64 {
+				affA := affinityCopy[originA]
+				affB := affinityCopy[originB]
+
+				if len(affA) == 0 || len(affB) == 0 {
+					return 0
+				}
+
+				distance := AffinityHammingDistance(affA, affB)
+
+				return 1.0 - float64(distance)/257.0
+			},
+		)
+
+		field.eigenSnapshot.Store(&eigenSnap{modes: modes, dominantIdx: dominantIdx})
+	}()
 }
 
 /*

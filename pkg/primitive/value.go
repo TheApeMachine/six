@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -121,20 +120,6 @@ func valueFromPortable(p []byte, v *Value) {
 	}
 }
 
-/*
-valuePool is a global pool of Values. It is used to recycle
-Values that have been closed. It should be safe to re-use ValueIDs
-because the Tomstone program should be clearing up any references to
-a discarded ValueID. Values should ALWAYS be tombstoned, never just
-discarded. You will receive an error from Close if you try to close
-a Value that has not been properly tombstoned.
-*/
-var valuePool = sync.Pool{
-	New: func() any {
-		return &Value{}
-	},
-}
-
 var valueIDSeq atomic.Uint64
 
 /*
@@ -155,7 +140,7 @@ geometry.SlotCode, geometry.PositionCode, and the per-segment positionOrdinal
 and idx scan in newValuesFromPayload). When no geometry is provided, NewValue
 uses a balanced default lattice sized to the segment capacity.
 
-If geometry.SlotCode(datum, positionOrdinal) collides with an occupied 16-bit
+If geometry.SlotCode(rollingDigest, rawByte, positionOrdinal) collides with an occupied 16-bit
 key, newValuesFromPayload advances through higher ordinals until a free key
 appears so duplicate stream bytes are preserved in additional slot pairs
 rather than being dropped; tokenBytes and offset still govern how many pairs
@@ -166,7 +151,8 @@ as Read produced), use Write on a pooled *Value — never a second NewValue on
 that frame.
 
 The returned slice is never empty on success. Each element is owned by the
-caller until CloseAll or Close returns them to valuePool. Segments are linked:
+caller until CloseAll or Close returns them to the arena (or heap fallback).
+Segments are linked:
 word Prev on segment i+1 holds segment i's ID; word Next on segment i holds
 segment i+1's ID (config value.region.prev / next). There is no truncation:
 when the Morton slab fills, packing continues in a fresh segment.
@@ -178,8 +164,7 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 }
 
 /*
-CloseAll returns every pooled Value in the slice to valuePool. Nil entries are
-skipped.
+CloseAll returns every Value in the slice to the arena. Nil entries are skipped.
 */
 func CloseAll(values []*Value) {
 	for _, value := range values {
@@ -223,6 +208,33 @@ func FirstSegment(values []*Value, err error) (*Value, error) {
 // Morton slot codes while packing a segment.
 const newValueMaxSlotProbeSteps = 1 << 22
 
+/*
+rollingNGramDigest folds a short byte window ending at idx into a 32-bit
+digest used as the Morton “rolling” axis. Four-byte windows use a small
+FNV-style mix so overlapping n-grams separate in slot space; shorter
+prefixes hash the consumed bytes only.
+*/
+func rollingNGramDigest(payload []byte, idx int) uint32 {
+	const prime uint32 = 0x01000193
+
+	if idx >= 3 {
+		w := uint32(payload[idx]) |
+			uint32(payload[idx-1])<<8 |
+			uint32(payload[idx-2])<<16 |
+			uint32(payload[idx-3])<<24
+
+		return (w * prime) ^ (w >> 17)
+	}
+
+	var hash uint32
+
+	for j := 0; j <= idx; j++ {
+		hash = hash*prime + uint32(payload[j])
+	}
+
+	return hash ^ (hash >> 9)
+}
+
 func newValuesFromPayload(
 	p []byte,
 	geometry *geometry,
@@ -253,7 +265,6 @@ func newValuesFromPayload(
 		occupied := make(map[uint16]struct{}, min(len(p)-idx, tokenBytes/2))
 
 		for idx < len(p) {
-			datum := p[idx]
 			probe := positionOrdinal
 
 			var code uint16
@@ -261,15 +272,15 @@ func newValuesFromPayload(
 			found := false
 
 			for range newValueMaxSlotProbeSteps {
-				slotCode, slotErr := geometry.SlotCode(datum, probe)
+				rolling := rollingNGramDigest(p, idx)
+				slotCode, slotErr := geometry.SlotCode(rolling, p[idx], probe)
 
 				if slotErr != nil {
 					// SlotCode only errors when the geometry is
 					// unusable. Wipe any segments we already minted so
 					// the pool stays clean and bubble the error up.
 					for _, minted := range out {
-						*minted = Value{}
-						valuePool.Put(minted)
+						FreeValue(minted)
 					}
 
 					return nil, slotErr
@@ -305,27 +316,22 @@ func newValuesFromPayload(
 
 		if offset == 0 {
 			for _, v := range out {
-				*v = Value{}
-				valuePool.Put(v)
+				FreeValue(v)
 			}
 
 			return nil, io.ErrShortBuffer
 		}
 
-		raw := valuePool.Get()
-		value := raw.(*Value)
-		*value = Value{}
+		value := AllocValue()
 
 		wire := make([]byte, core.Cfg.Value.Bytes)
 		tokenStart := core.Cfg.Value.Region.Tokens.Start * 8
 
 		if tokenStart+offset > len(wire) {
-			*value = Value{}
-			valuePool.Put(value)
+			FreeValue(value)
 
 			for _, v := range out {
-				*v = Value{}
-				valuePool.Put(v)
+				FreeValue(v)
 			}
 
 			return nil, io.ErrShortBuffer
@@ -366,22 +372,22 @@ ValueFromWireFrame restores a Value from a full Value.Bytes frame produced by
 Value.Read. ID, affinity, and every word match the frame; nothing is
 recomputed or re-stamped.
 
-The caller owns the returned pointer until Close returns it to valuePool.
+The caller owns the returned pointer until Close returns it to the arena.
 */
 func ValueFromWireFrame(frame []byte) (*Value, error) {
 	if len(frame) < core.Cfg.Value.Bytes {
 		return nil, io.ErrShortBuffer
 	}
 
-	raw := valuePool.Get()
-	value := raw.(*Value)
+	value := AllocValue()
 
 	if _, err := value.Write(frame); err != nil {
-		*value = Value{}
-		valuePool.Put(value)
+		FreeValue(value)
 
 		return nil, err
 	}
+
+	RegisterValue(value)
 
 	return value, nil
 }
@@ -392,6 +398,8 @@ func (value *Value) stampID() *Value {
 	}
 
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
+	RegisterValue(value)
+
 	return value
 }
 
@@ -450,10 +458,12 @@ func (value *Value) Close() error {
 		return nil
 	}
 
+	UnregisterValue(value)
+
 	// Wipe the Value, this is important to ensure
 	// that the Value is not leaked to the heap.
 	*value = Value{}
-	valuePool.Put(value)
+	FreeValue(value)
 
 	return nil
 }
@@ -588,8 +598,8 @@ func (value *Value) String() string {
 				continue
 			}
 
-			byteVal, _ := DecodeInterleaved8x8(code)
-			out = append(out, byte(byteVal))
+			_, rawByte := DecodeInterleaved8x8(code)
+			out = append(out, byte(rawByte))
 		}
 	}
 

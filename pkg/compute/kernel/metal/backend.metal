@@ -1,5 +1,7 @@
 #include <metal_stdlib>
 #include "../shared/primitives.h"
+#include "../shared/postexec_layout.h"
+#include "device_postexec.metal"
 using namespace metal;
 
 #define CONTEXT_START_WORD 32
@@ -9,6 +11,7 @@ using namespace metal;
 #define OPCODE_GEOMETRIC_SANDWICH 0x20
 #define OPCODE_GEOMETRIC_REVERSE 0x30
 #define OPCODE_REGION_PROGRAM 0x40
+#define OPCODE_COPY_MASK_MERGE 0x50
 #define RESERVED_START_WORD 56
 #define PROGRAM_CONTRACT_SHIFT 8
 #define CONTRACT_EXACT_BINARY 1
@@ -169,6 +172,25 @@ static inline ulong exact_binary_word(ulong op, ulong a, ulong b) {
            (~a & ~b & m3);
 }
 
+static inline void copy_mask_merge_device(device ulong* frame) {
+    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
+    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+    int n = aSpan;
+    if (bSpan < n) n = bSpan;
+    if (dstSpan < n) n = dstSpan;
+    if (n <= 0) return;
+    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
+    if (aStart + n > 128 || bStart + n > 128 || dstStart + n > 128) return;
+    for (int idx = 0; idx < n; idx++) {
+        ulong mask = frame[bStart + idx];
+        ulong src = frame[aStart + idx];
+        int dst = dstStart + idx;
+        frame[dst] = (src & mask) | (frame[dst] & ~mask);
+    }
+}
+
 static inline void exact_binary_device(
     device ulong* frame,
     ulong op,
@@ -258,6 +280,34 @@ static inline void universal_bitwise_v2_device(
     frame[dstStart] = total;
 }
 
+static inline void emit_clone_device_metal(
+    device ulong* arena,
+    device ulong* parent_frame,
+    uint parent_slot,
+    device atomic_uint* linear_next,
+    device uint* spawn_parent,
+    device uint* spawn_child,
+    device atomic_uint* spawn_tail,
+    uint max_slots
+) {
+    uint child_slot = atomic_fetch_add_explicit(linear_next, 1u, memory_order_relaxed);
+    if (child_slot >= max_slots) {
+        return;
+    }
+    device ulong* child = arena + (uint64_t)child_slot * (uint64_t)WORDS;
+    for (int i = 0; i < WORDS; i++) {
+        child[i] = parent_frame[i];
+    }
+    ulong noise = parent_frame[PROPERTIES_NOISE_WORD];
+    for (int w = 0; w < AFFINITY_WORDS; w++) {
+        child[AFFINITY_START_WORD + w] ^= noise ^ ((ulong)parent_slot << (ulong)(w * 13));
+    }
+    uint tail = atomic_fetch_add_explicit(spawn_tail, 1u, memory_order_relaxed);
+    uint pos = tail % SPAWN_QUEUE_CAP;
+    spawn_parent[pos] = parent_slot;
+    spawn_child[pos] = child_slot;
+}
+
 kernel void unified_bitwise_kernel(
     device ulong* A [[buffer(0)]],
     uint id [[thread_position_in_grid]]
@@ -284,6 +334,13 @@ kernel void unified_bitwise_kernel(
 
             universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
         }
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    if (rawOpcode == OPCODE_COPY_MASK_MERGE) {
+        copy_mask_merge_device(frame);
+        finish_frame_post_alu_device(frame);
         return;
     }
 
@@ -298,12 +355,17 @@ kernel void unified_bitwise_kernel(
 
     if (contract == CONTRACT_EXACT_BINARY) {
         exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
+        finish_frame_post_alu_device(frame);
         return;
     }
 
-    if (rotationTable == 0) return;
+    if (rotationTable == 0) {
+        finish_frame_post_alu_device(frame);
+        return;
+    }
 
     universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
+    finish_frame_post_alu_device(frame);
 }
 
 kernel void nearest_affinity_kernel(
@@ -341,16 +403,138 @@ kernel void geometric_kernel(
 
     if (op == OPCODE_GEOMETRIC_COMPOSE) {
         store_multivector(frame, SIGNALS_START_WORD, geometric_product(left, right));
+        finish_frame_post_alu_device(frame);
         return;
     }
 
     if (op == OPCODE_GEOMETRIC_SANDWICH) {
         store_multivector(frame, SIGNALS_START_WORD, sandwich(left, right));
+        finish_frame_post_alu_device(frame);
         return;
     }
 
     if (op == OPCODE_GEOMETRIC_REVERSE) {
         store_multivector(frame, SIGNALS_START_WORD, reverse(left));
+        finish_frame_post_alu_device(frame);
         return;
     }
+}
+
+kernel void geometric_arena_indices_kernel(
+    device ulong* arena [[buffer(0)]],
+    device const uint* indices [[buffer(1)]],
+    uint id [[thread_position_in_grid]]
+) {
+    uint slot = indices[id];
+    device ulong* frame = arena + (uint64_t)slot * (uint64_t)WORDS;
+    uchar op = (uchar)(frame[PROGRAM_START_WORD] & OPCODE_GEOMETRIC_MASK);
+
+    if (op != OPCODE_GEOMETRIC_COMPOSE &&
+        op != OPCODE_GEOMETRIC_SANDWICH &&
+        op != OPCODE_GEOMETRIC_REVERSE) {
+        return;
+    }
+
+    Multivector left = load_multivector(frame, CONTEXT_START_WORD);
+    Multivector right = load_multivector(frame, GRADIENT_START_WORD);
+
+    if (op == OPCODE_GEOMETRIC_COMPOSE) {
+        store_multivector(frame, SIGNALS_START_WORD, geometric_product(left, right));
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    if (op == OPCODE_GEOMETRIC_SANDWICH) {
+        store_multivector(frame, SIGNALS_START_WORD, sandwich(left, right));
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    if (op == OPCODE_GEOMETRIC_REVERSE) {
+        store_multivector(frame, SIGNALS_START_WORD, reverse(left));
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+}
+
+kernel void unified_bitwise_arena_indices_kernel(
+    device ulong* arena [[buffer(0)]],
+    device const uint* indices [[buffer(1)]],
+    device atomic_uint* linear_next [[buffer(2)]],
+    device uint* spawn_parent [[buffer(3)]],
+    device uint* spawn_child [[buffer(4)]],
+    device atomic_uint* spawn_tail [[buffer(5)]],
+    device const uint* max_slots_buf [[buffer(6)]],
+    uint id [[thread_position_in_grid]]
+) {
+    uint max_slots = max_slots_buf[0];
+    uint parent_slot = indices[id];
+    device ulong* frame = arena + (uint64_t)parent_slot * (uint64_t)WORDS;
+
+    uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
+    uchar opcode = rawOpcode & 0x0F;
+
+    if (rawOpcode == OPCODE_EMIT_CLONE) {
+        emit_clone_device_metal(
+            arena,
+            frame,
+            parent_slot,
+            linear_next,
+            spawn_parent,
+            spawn_child,
+            spawn_tail,
+            max_slots
+        );
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    if (rawOpcode == OPCODE_REGION_PROGRAM) {
+        for (int offset = 0; offset < 60; offset += 6) {
+            ulong op = frame[RESERVED_START_WORD + offset];
+            if (op == 0 && offset > 0) break;
+
+            ulong rotationTable = frame[RESERVED_START_WORD + offset + 1];
+            if (rotationTable == 0) continue;
+
+            int mode = (int)(frame[RESERVED_START_WORD + offset + 2] & 0xFF);
+            int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
+            unpack_region_ref(frame[RESERVED_START_WORD + offset + 3], &aStart, &aSpan);
+            unpack_region_ref(frame[RESERVED_START_WORD + offset + 4], &bStart, &bSpan);
+            unpack_region_ref(frame[RESERVED_START_WORD + offset + 5], &dstStart, &dstSpan);
+
+            universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
+        }
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    if (rawOpcode == OPCODE_COPY_MASK_MERGE) {
+        copy_mask_merge_device(frame);
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    ulong rotationTable = frame[PROGRAM_START_WORD + 1];
+    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
+
+    int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
+    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
+    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
+    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+
+    if (contract == CONTRACT_EXACT_BINARY) {
+        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    if (rotationTable == 0) {
+        finish_frame_post_alu_device(frame);
+        return;
+    }
+
+    universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
+    finish_frame_post_alu_device(frame);
 }

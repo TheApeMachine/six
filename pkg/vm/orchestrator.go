@@ -270,11 +270,106 @@ func (orchestrator *Orchestrator) Cycle(
 		}
 	}
 
+	if !orchestrator.bootstrap.Load() {
+		orchestrator.stageUnsupervisedPairs()
+	}
+
 	if orchestrator.router != nil {
 		orchestrator.router.PublishGraphSnapshot()
 	}
 
 	return orchestrator.resolveValues(processed), nil
+}
+
+const (
+	unsupervisedPairBudget = 4
+	crystallizationFloor   = 0.35
+)
+
+/*
+stageUnsupervisedPairs iterates communities with low crystallization coverage
+and mints ephemeral learner Values that record peer IDs in asset[0] and
+asset[16]. Execute-time hydration copies token regions from the registry before
+the unsupervised_learn ALU program XOR-folds them — no Go-side token copy loop.
+*/
+func (orchestrator *Orchestrator) stageUnsupervisedPairs() {
+	if orchestrator == nil || orchestrator.field == nil {
+		return
+	}
+
+	budget := unsupervisedPairBudget
+
+	for _, community := range orchestrator.field.Fields {
+		if community == nil || len(community.Values) < 2 || budget <= 0 {
+			continue
+		}
+
+		if orchestrator.coverageOf(community) >= crystallizationFloor {
+			continue
+		}
+
+		for i := 0; i < len(community.Values)-1 && budget > 0; i++ {
+			peerA := community.Values[i]
+			peerB := community.Values[i+1]
+
+			if peerA == nil || peerB == nil {
+				continue
+			}
+
+			orchestrator.scheduleLearner(peerA, peerB)
+			budget--
+		}
+	}
+}
+
+/*
+scheduleLearner mints an ephemeral Value and stages two peers' token regions
+into its Asset scratchpad via the programmer.Asset system. PrevID/NextID
+point back to the source pair so the result can be traced.
+*/
+func (orchestrator *Orchestrator) scheduleLearner(
+	peerA *primitive.Value,
+	peerB *primitive.Value,
+) {
+	learner := primitive.AllocValue()
+	learner.StampNewID()
+	learner.Set(kernel.PrevStartWord, peerA.ID())
+	learner.Set(kernel.NextStartWord, peerB.ID())
+	learner.Set(kernel.AssetStartWord, peerA.ID())
+	learner.Set(kernel.AssetStartWord+16, peerB.ID())
+
+	executable := programmer.NewExecutable(
+		learner, "unsupervised_learn", nil,
+	)
+	executable.SetFinalizer(orchestrator.finalizeExecutedValue)
+
+	orchestrator.queue.Submit(func() *programmer.Executable {
+		return executable
+	})
+}
+
+/*
+coverageOf reports the fraction of community members that carry at least one
+non-zero label slot in properties word 48.
+*/
+func (orchestrator *Orchestrator) coverageOf(community *geometry.Field) float64 {
+	if community == nil || len(community.Values) == 0 {
+		return 1.0
+	}
+
+	labeled := 0
+
+	for _, value := range community.Values {
+		if value == nil {
+			continue
+		}
+
+		if (*value)[kernel.PropertiesStartWord] != 0 {
+			labeled++
+		}
+	}
+
+	return float64(labeled) / float64(len(community.Values))
 }
 
 /*
@@ -297,6 +392,12 @@ func (orchestrator *Orchestrator) publishExecuted(value *primitive.Value) {
 
 func (orchestrator *Orchestrator) finalizeExecutedValue(value *primitive.Value) {
 	if orchestrator == nil || value == nil {
+		return
+	}
+
+	if (*value)[kernel.PropertiesTTLWord] == kernel.TTLExpiredSentinel {
+		value.Set(kernel.PropertiesTTLWord, 0)
+
 		return
 	}
 
@@ -347,28 +448,42 @@ func (orchestrator *Orchestrator) drainInbox() {
 }
 
 /*
-submitStep evaluates firmware rules for the Value. When a rule matches it
-wraps the Value in an Executable whose Finalizer re-enters submitStep, then
-submits a task that returns the Executable. The pool worker runs the task,
-the Backend receives the Executable via the dispatch handler, compiles for
-the chosen substrate, executes, and calls the Finalizer — which lands back
-here for the next firmware pass. When no rule matches the Value is routed
-to a community field.
+submitStep evaluates the next action for a Value. Priority order:
+
+ 1. Firmware rules — the boot chain (link, affinity) always fires first.
+ 2. In-band continuation — if word 117 = self, the Value's ALU program has
+    declared "run me again." This is the cognitive loop: beam_swarm_step,
+    active_inference, measure_field all use next self. Routing would kill
+    the loop after one pass.
+ 3. Route — no firmware, no continuation. The Value is settled and joins
+    a community field.
 */
 func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 	if value == nil {
 		return
 	}
 
-	if orchestrator.affinityEstablished(value) {
-		value.Set(kernel.SchedulingNextProgramWord, 0)
-		orchestrator.router.Route(value)
+	name := orchestrator.lifecycle.SelectProgram(value)
+
+	if name != "" {
+		executable := programmer.NewExecutable(value, name, nil)
+
+		executable.SetFinalizer(orchestrator.finalizeExecutedValue)
+
+		if telemetry.DefaultBus.IsActive() {
+			telemetry.DefaultBus.Publish(telemetry.CompilerCompileEvent(
+				"queued", 0, 0, 0, false, 0,
+			))
+		}
+
+		orchestrator.queue.Submit(func() *programmer.Executable {
+			return executable
+		})
+
 		return
 	}
 
-	name := orchestrator.lifecycle.SelectProgram(value)
-
-	if name == "" && value[kernel.SchedulingNextProgramWord] == value.ID() {
+	if (*value)[kernel.SchedulingNextProgramWord] == value.ID() {
 		executable := programmer.NewResidentExecutable(value)
 
 		executable.SetFinalizer(orchestrator.finalizeExecutedValue)
@@ -380,33 +495,8 @@ func (orchestrator *Orchestrator) submitStep(value *primitive.Value) {
 		return
 	}
 
-	if name == "" {
-		orchestrator.clearProgram(value)
-		orchestrator.router.Route(value)
-		return
-	}
-
-	executable := programmer.NewExecutable(value, name, nil)
-
-	executable.SetFinalizer(orchestrator.finalizeExecutedValue)
-
-	if telemetry.DefaultBus.IsActive() {
-		telemetry.DefaultBus.Publish(telemetry.CompilerCompileEvent(
-			"queued", 0, 0, 0, false, 0,
-		))
-	}
-
-	orchestrator.queue.Submit(func() *programmer.Executable {
-		return executable
-	})
-}
-
-func (orchestrator *Orchestrator) affinityEstablished(value *primitive.Value) bool {
-	if orchestrator == nil || orchestrator.firmware == nil || value == nil {
-		return false
-	}
-
-	return orchestrator.firmware.HasBits(value.Get(primitive.AffinityRegion))
+	orchestrator.clearProgram(value)
+	orchestrator.router.Route(value)
 }
 
 func (orchestrator *Orchestrator) finalizeFields(

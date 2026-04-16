@@ -38,11 +38,11 @@ func TestBackend_Execute(t *testing.T) {
 		})
 
 		Convey("Execute with empty slice should return nil", func() {
-			So(backend.Execute([]unsafe.Pointer{}), ShouldBeNil)
+			So(backend.Execute([]uint32{}), ShouldBeNil)
 		})
 
-		Convey("Execute with a nil frame pointer should return KernelErrNilPointer", func() {
-			err := backend.Execute([]unsafe.Pointer{nil})
+		Convey("ExecutePointers with a nil frame pointer should return KernelErrNilPointer", func() {
+			err := backend.ExecutePointers([]unsafe.Pointer{nil})
 
 			So(err, ShouldNotBeNil)
 
@@ -64,7 +64,7 @@ func TestBackend_Execute(t *testing.T) {
 
 			ptr := unsafe.Pointer(&frame[0])
 
-			So(backend.Execute([]unsafe.Pointer{ptr}), ShouldBeNil)
+			So(backend.ExecutePointers([]unsafe.Pointer{ptr}), ShouldBeNil)
 			So(frame[kernel.PrevStartWord], ShouldEqual, uint64(0x0fff0fff0fff0fff))
 		})
 
@@ -90,7 +90,7 @@ func TestBackend_Execute(t *testing.T) {
 
 			ptr := unsafe.Pointer(&frame[0])
 
-			So(backend.Execute([]unsafe.Pointer{ptr}), ShouldBeNil)
+			So(backend.ExecutePointers([]unsafe.Pointer{ptr}), ShouldBeNil)
 		})
 
 		Convey("Execute with two xor frames should succeed", func() {
@@ -101,7 +101,7 @@ func TestBackend_Execute(t *testing.T) {
 			// Both frames skip the universal-bitwise lane because their
 			// rotation opcode table is zero — the test only exercises the
 			// dispatch loop on two frames, not the ALU sweep itself.
-			err := backend.Execute([]unsafe.Pointer{
+			err := backend.ExecutePointers([]unsafe.Pointer{
 				unsafe.Pointer(&frameA[0]),
 				unsafe.Pointer(&frameB[0]),
 			})
@@ -122,7 +122,7 @@ func TestBackend_Execute(t *testing.T) {
 
 			ptr := unsafe.Pointer(&frame[0])
 
-			So(backend.Execute([]unsafe.Pointer{ptr}), ShouldBeNil)
+			So(backend.ExecutePointers([]unsafe.Pointer{ptr}), ShouldBeNil)
 			So(frame[kernel.SignalsStartWord+kernel.SignalBestIdxOffset], ShouldEqual, uint64(0))
 			So(frame[kernel.SignalsStartWord+kernel.SignalBestDistOffset], ShouldEqual, uint64(0))
 		})
@@ -143,7 +143,7 @@ func TestBackend_Execute_opcode0x40Frame(t *testing.T) {
 		ptr := unsafe.Pointer(&frame[0])
 
 		Convey("Execute should complete without error", func() {
-			So(backend.Execute([]unsafe.Pointer{ptr}), ShouldBeNil)
+			So(backend.ExecutePointers([]unsafe.Pointer{ptr}), ShouldBeNil)
 		})
 	})
 }
@@ -172,6 +172,6 @@ func BenchmarkBackend_Execute_xorFrame(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		_ = backend.Execute([]unsafe.Pointer{ptr})
+		_ = backend.ExecutePointers([]unsafe.Pointer{ptr})
 	}
 }

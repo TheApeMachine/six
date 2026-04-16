@@ -22,6 +22,13 @@ type Router struct {
 	nextID         int
 	distanceBudget int
 	global         *geometry.Field
+	// affinityBuckets maps a coarse 8-bit projection of the first affinity
+	// word so routing probes likely communities before scanning the tail.
+	affinityBuckets [256][]*geometry.Field
+	// allCommunities is the append-only registry used to build the VP tree.
+	allCommunities []*geometry.Field
+	vpRoot         *affinityVPNode
+	vpNeedsRebuild bool
 }
 
 /*
@@ -139,6 +146,12 @@ func (router *Router) spawnCommunity(value *primitive.Value) *geometry.Field {
 		telemetry.DefaultBus.Publish(telemetry.ValueJoinedCommunityEvent(value.ID(), cid, 0))
 	}
 
+	bucket := affinityBucketKey(affinity)
+	router.affinityBuckets[bucket] = append(router.affinityBuckets[bucket], community)
+
+	router.allCommunities = append(router.allCommunities, community)
+	router.vpNeedsRebuild = true
+
 	return community
 }
 
@@ -151,32 +164,101 @@ func (router *Router) findCommunity(value *primitive.Value) *geometry.Field {
 	var frameAffinity [5]uint64
 	copy(frameAffinity[:], value.Get(primitive.AffinityRegion))
 
-	for _, peer := range router.route {
-		peerAffinity := peer.Affinity()
-		dist := geometry.AffinityHammingDistance(frameAffinity[:], peerAffinity[:])
+	if len(router.allCommunities) >= affinityVPThreshold {
+		if router.vpRoot == nil || router.vpNeedsRebuild {
+			router.vpRoot = buildAffinityVP(append([]*geometry.Field(nil), router.allCommunities...))
+			router.vpNeedsRebuild = false
+		}
+
+		best, dist := nearestCommunityWithin(router.vpRoot, frameAffinity, router.distanceBudget)
+		if best != nil {
+			return router.finishJoin(best, frameAffinity, value, dist)
+		}
+	}
+
+	primary := affinityBucketKey(frameAffinity[:])
+
+	if hit := router.tryAffinityBucket(frameAffinity, primary, value); hit != nil {
+		return hit
+	}
+
+	for bucket := 0; bucket < 256; bucket++ {
+		if uint8(bucket) == primary {
+			continue
+		}
+
+		if hit := router.tryAffinityBucket(frameAffinity, uint8(bucket), value); hit != nil {
+			return hit
+		}
+	}
+
+	return nil
+}
+
+/*
+finishJoin merges the routed affinity into a community and mirrors telemetry.
+*/
+func (router *Router) finishJoin(
+	community *geometry.Field,
+	frameAffinity [5]uint64,
+	value *primitive.Value,
+	dist int,
+) *geometry.Field {
+	if community == nil || router == nil {
+		return nil
+	}
+
+	community.MergeAffinity(frameAffinity[:])
+	router.mergeGlobal(frameAffinity[:])
+	router.vpNeedsRebuild = true
+
+	if telemetry.DefaultBus.IsActive() {
+		cid, known := router.communityIDs[community]
+		if known {
+			telemetry.DefaultBus.Publish(telemetry.ValueJoinedCommunityEvent(
+				value.ID(), cid, dist,
+			))
+		}
+	}
+
+	return community
+}
+
+func affinityBucketKey(affinity []uint64) uint8 {
+	if len(affinity) == 0 {
+		return 0
+	}
+
+	return uint8(affinity[0] >> 56)
+}
+
+func (router *Router) tryAffinityBucket(
+	frameAffinity [5]uint64,
+	bucket uint8,
+	value *primitive.Value,
+) *geometry.Field {
+	if router == nil {
+		return nil
+	}
+
+	for _, communityField := range router.affinityBuckets[bucket] {
+		if communityField == nil {
+			continue
+		}
+
+		peerAffinity := communityField.Affinity
+
+		if len(peerAffinity) < 5 {
+			continue
+		}
+
+		dist := geometry.AffinityHammingDistance(frameAffinity[:], peerAffinity[:5])
 
 		if dist > router.distanceBudget {
 			continue
 		}
 
-		communityField, ok := peer.Dst().(*geometry.Field)
-		if !ok {
-			return nil
-		}
-
-		communityField.MergeAffinity(frameAffinity[:])
-		router.mergeGlobal(frameAffinity[:])
-
-		if telemetry.DefaultBus.IsActive() {
-			cid, known := router.communityIDs[peer.Dst()]
-			if known {
-				telemetry.DefaultBus.Publish(telemetry.ValueJoinedCommunityEvent(
-					value.ID(), cid, dist,
-				))
-			}
-		}
-
-		return communityField
+		return router.finishJoin(communityField, frameAffinity, value, dist)
 	}
 
 	return nil

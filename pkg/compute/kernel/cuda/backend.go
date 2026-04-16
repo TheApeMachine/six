@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
@@ -110,16 +111,18 @@ frames (opcode 0x6 with count at word 124) route to the fused
 XOR+popcount kernel. Geometric opcodes route to the PGA kernel.
 All other frames go through the unified bitwise kernel.
 */
-func (backend *Backend) Execute(frames []unsafe.Pointer) error {
-	if len(frames) == 0 {
+func (backend *Backend) Execute(indices []uint32) error {
+	if len(indices) == 0 {
 		return nil
 	}
 
-	for _, ptr := range frames {
-		if ptr == nil {
+	for _, slot := range indices {
+		value := primitive.ValueAt(slot)
+		if value == nil {
 			continue
 		}
 
+		ptr := unsafe.Pointer(&value[0])
 		v := (*[128]uint64)(ptr)
 		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
 		opcode := rawOpcode & kernel.OpcodeBooleanMask
@@ -128,6 +131,8 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
 			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 		}
+
+		primitive.HydrateLearnerPeers(value)
 
 		if kernel.IsGeometricOpcode(rawOpcode) {
 			if C.geometric_cuda(
@@ -151,6 +156,21 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 				return err
 			}
+
+			kernel.FinishFramePostALU(v)
+
+			continue
+		}
+
+		if kernel.IsCopyMaskMergeOpcode(rawOpcode) {
+			kernel.ApplyCopyMaskMerge(v)
+			kernel.FinishFramePostALU(v)
+
+			continue
+		}
+
+		if kernel.IsEmitCloneOpcode(rawOpcode) {
+			primitive.EmitCloneHost(value)
 
 			continue
 		}
@@ -197,6 +217,8 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 			v[kernel.SignalsStartWord+kernel.SignalBestIdxOffset] = bestIdx
 			v[kernel.SignalsStartWord+kernel.SignalBestDistOffset] = bestDist
 
+			kernel.FinishFramePostALU(v)
+
 			continue
 		}
 
@@ -221,9 +243,23 @@ func (backend *Backend) Execute(frames []unsafe.Pointer) error {
 
 			return err
 		}
+
+		kernel.FinishFramePostALU(v)
 	}
 
 	return nil
+}
+
+/*
+ExecutePointers resolves pointers to arena indices; non-arena frames error.
+*/
+func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
+	indices, err := primitive.IndicesFromPointers(frames)
+	if err != nil {
+		return err
+	}
+
+	return backend.Execute(indices)
 }
 
 /*

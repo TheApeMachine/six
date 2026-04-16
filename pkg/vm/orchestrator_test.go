@@ -210,7 +210,7 @@ func TestOrchestratorPublishLinkAffinityRoute(t *testing.T) {
 }
 
 func TestOrchestratorRoutesAffinityEstablishedValueImmediately(t *testing.T) {
-	Convey("Given a Value whose affinity has already been established", t, func() {
+	Convey("Given a settled Value whose affinity, prev, and next are all established", t, func() {
 		dispatched := make(chan *programmer.Executable, 1)
 
 		queue, err := pool.NewQueue(context.Background(), func(executable *programmer.Executable) {
@@ -233,9 +233,12 @@ func TestOrchestratorRoutesAffinityEstablishedValueImmediately(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer value.Close()
 
+		prevStart, _ := primitive.PrevRegion.WordExtent()
+		nextStart, _ := primitive.NextRegion.WordExtent()
 		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		value.Set(prevStart, 42)
+		value.Set(nextStart, 99)
 		value.Set(affinityStart, 0xfeedbeef)
-		value.Set(kernel.SchedulingNextProgramWord, value.ID())
 
 		orchestrator.submitStep(value)
 

@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -25,7 +26,7 @@ func encode32(op uint8, src, dst int) uint32 {
 	return uint32(op&0xF) | uint32(src&0x3FFF)<<4 | uint32(dst&0x3FFF)<<18
 }
 
-func installSlot(frame *[128]uint64, slot int, instr uint32) {
+func installSlot(frame *primitive.Value, slot int, instr uint32) {
 	wordIdx := core.Cfg.Value.Region.Program.Start + slot/2
 	shift := uint((slot % 2) * 32)
 	mask := uint64(0xFFFFFFFF) << shift
@@ -61,16 +62,23 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 
 		backend := NewBackend(0, BackendWithObserver(nil))
 
-		var frame [128]uint64
+		frame := primitive.AllocValue()
+		So(frame, ShouldNotBeNil)
+
+		defer primitive.FreeValue(frame)
+
 		frame[0] = 0xAAAAAAAAAAAAAAAA
 		frame[1] = 0xCCCCCCCCCCCCCCCC
 
 		frame[reservedProbeWordIndexA] = 11
 		frame[reservedProbeWordIndexB] = 42
 
-		installSlot(&frame, 0, encode32(0x6, 0, 1))
+		installSlot(frame, 0, encode32(0x6, 0, 1))
 
-		err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&frame)})
+		idx, ok := primitive.ArenaIndex(frame)
+		So(ok, ShouldBeTrue)
+
+		err := backend.Execute([]uint32{idx})
 
 		So(err, ShouldBeNil)
 		So(frame[1], ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
@@ -87,19 +95,26 @@ func TestBackendExecuteGeometric(t *testing.T) {
 
 		backend := NewBackend(0, BackendWithObserver(nil))
 
-		var frame [128]uint64
+		frame := primitive.AllocValue()
+		So(frame, ShouldNotBeNil)
+
+		defer primitive.FreeValue(frame)
+
 		left := geometry.Multivector{1, 2, 3, 4, 5, 6, 7, 8}
 		right := geometry.Multivector{2, -1, 4, 0, 1, 3, -2, 5}
 		expected := left.GeometricProduct(right)
 
 		frame[kernel.ProgramStartWord] = kernel.OpcodeGeometricCompose
-		writeMetalTestMultivector(&frame, kernel.ContextStartWord, left)
-		writeMetalTestMultivector(&frame, kernel.GradientStartWord, right)
+		writeMetalTestMultivector(frame, kernel.ContextStartWord, left)
+		writeMetalTestMultivector(frame, kernel.GradientStartWord, right)
 
-		err := backend.Execute([]unsafe.Pointer{unsafe.Pointer(&frame)})
+		idx, ok := primitive.ArenaIndex(frame)
+		So(ok, ShouldBeTrue)
+
+		err := backend.Execute([]uint32{idx})
 
 		So(err, ShouldBeNil)
-		So(readMetalTestMultivector(&frame, kernel.SignalsStartWord), ShouldResemble, expected)
+		So(readMetalTestMultivector(frame, kernel.SignalsStartWord), ShouldResemble, expected)
 	})
 }
 
@@ -124,33 +139,38 @@ func BenchmarkBackendExecuteGeometric(b *testing.B) {
 	}
 
 	backend := NewBackend(0, BackendWithObserver(nil))
-	var frame [128]uint64
+	frame := primitive.AllocValue()
 
 	writeMetalTestMultivector(
-		&frame,
+		frame,
 		kernel.ContextStartWord,
 		geometry.Multivector{1, 2, 3, 4, 5, 6, 7, 8},
 	)
 	writeMetalTestMultivector(
-		&frame,
+		frame,
 		kernel.GradientStartWord,
 		geometry.Multivector{2, -1, 4, 0, 1, 3, -2, 5},
 	)
 
 	frame[kernel.ProgramStartWord] = kernel.OpcodeGeometricCompose
-	ptr := unsafe.Pointer(&frame)
+	idx, ok := primitive.ArenaIndex(frame)
+	if !ok {
+		b.Fatal("benchmark frame not in arena")
+	}
 
 	b.ReportAllocs()
 
 	for b.Loop() {
-		_ = backend.Execute([]unsafe.Pointer{ptr})
+		_ = backend.Execute([]uint32{idx})
 	}
+
+	primitive.FreeValue(frame)
 }
 
-func writeMetalTestMultivector(frame *[128]uint64, start int, mv geometry.Multivector) {
-	*(*geometry.Multivector)(unsafe.Pointer(&frame[start])) = mv
+func writeMetalTestMultivector(frame *primitive.Value, start int, mv geometry.Multivector) {
+	*(*geometry.Multivector)(unsafe.Pointer(&(*frame)[start])) = mv
 }
 
-func readMetalTestMultivector(frame *[128]uint64, start int) geometry.Multivector {
-	return *(*geometry.Multivector)(unsafe.Pointer(&frame[start]))
+func readMetalTestMultivector(frame *primitive.Value, start int) geometry.Multivector {
+	return *(*geometry.Multivector)(unsafe.Pointer(&(*frame)[start]))
 }

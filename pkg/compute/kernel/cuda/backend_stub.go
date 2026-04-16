@@ -87,7 +87,7 @@ func Available() int {
 	return int(count)
 }
 
-func (backend *Backend) Execute(frames []unsafe.Pointer) error {
+func (backend *Backend) Execute(indices []uint32) error {
 	return NewCUDAKernelError(kernel.KernelErrUnavailable, nil, "Execute", 0)
 }
 

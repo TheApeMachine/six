@@ -3,44 +3,44 @@
 
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#include <string.h>
 #include "metal.h"
 #include "../shared/primitives.h"
+#include "../shared/postexec_layout.h"
 
 static id<MTLDevice>       device       = nil;
 static id<MTLCommandQueue> commandQueue = nil;
 
 static id<MTLComputePipelineState> pipelineUnifiedBitwise  = nil;
+static id<MTLComputePipelineState> pipelineUnifiedArenaIdx = nil;
 static id<MTLComputePipelineState> pipelineNearestAffinity = nil;
 static id<MTLComputePipelineState> pipelineGeometric       = nil;
+static id<MTLComputePipelineState> pipelineGeometricIdx    = nil;
 
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
 
+static id<MTLBuffer> bufArena = nil;
+static id<MTLBuffer> bufLinear = nil;
+static id<MTLBuffer> bufSpawnParent = nil;
+static id<MTLBuffer> bufSpawnChild = nil;
+static id<MTLBuffer> bufSpawnTail = nil;
+static id<MTLBuffer> bufMaxSlots = nil;
+
 #define VALUE_BYTES 1024
 
-/*
-No shared host-visible buffer. Every dispatch allocates its own MTLBuffer so
-concurrent calls from different goroutines never stomp on each other. Metal's
-MTLCommandQueue is documented as safe for multi-threaded submission when each
-thread builds its own command buffer with its own resources — which is now
-the pattern we follow on every dispatch path.
-*/
+static id<MTLComputePipelineState> makePipeline(id<MTLLibrary> lib, NSString* name, NSError** err) {
+    id<MTLFunction> fn = [lib newFunctionWithName:name];
+    if (!fn) { NSLog(@"metal: kernel not found: %@", name); return nil; }
+    return [device newComputePipelineStateWithFunction:fn error:err];
+}
 
-/*
-Device init
-*/
 int count_metal_devices(void) {
     NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
     if (!devices) return 0;
     int count = (int)[devices count];
     [devices release];
     return count;
-}
-
-static id<MTLComputePipelineState> makePipeline(id<MTLLibrary> lib, NSString* name, NSError** err) {
-    id<MTLFunction> fn = [lib newFunctionWithName:name];
-    if (!fn) { NSLog(@"metal: kernel not found: %@", name); return nil; }
-    return [device newComputePipelineStateWithFunction:fn error:err];
 }
 
 int init_metal(const char* metallib_path) {
@@ -62,23 +62,32 @@ int init_metal(const char* metallib_path) {
         }
 
         pipelineUnifiedBitwise = makePipeline(library, @"unified_bitwise_kernel", &error);
-
         if (!pipelineUnifiedBitwise) {
             NSLog(@"metal: failed to create unified_bitwise pipeline: %@", error);
             commandQueue = nil; device = nil; initResult = -4; return;
         }
 
-        pipelineNearestAffinity = makePipeline(library, @"nearest_affinity_kernel", &error);
+        pipelineUnifiedArenaIdx = makePipeline(library, @"unified_bitwise_arena_indices_kernel", &error);
+        if (!pipelineUnifiedArenaIdx) {
+            NSLog(@"metal: failed to create unified_bitwise_arena_indices pipeline: %@", error);
+            commandQueue = nil; device = nil; initResult = -4; return;
+        }
 
+        pipelineNearestAffinity = makePipeline(library, @"nearest_affinity_kernel", &error);
         if (!pipelineNearestAffinity) {
             NSLog(@"metal: failed to create nearest_affinity pipeline: %@", error);
             commandQueue = nil; device = nil; initResult = -5; return;
         }
 
         pipelineGeometric = makePipeline(library, @"geometric_kernel", &error);
-
         if (!pipelineGeometric) {
             NSLog(@"metal: failed to create geometric pipeline: %@", error);
+            commandQueue = nil; device = nil; initResult = -6; return;
+        }
+
+        pipelineGeometricIdx = makePipeline(library, @"geometric_arena_indices_kernel", &error);
+        if (!pipelineGeometricIdx) {
+            NSLog(@"metal: failed to create geometric_arena_indices pipeline: %@", error);
             commandQueue = nil; device = nil; initResult = -6; return;
         }
 
@@ -88,9 +97,6 @@ int init_metal(const char* metallib_path) {
     return initResult;
 }
 
-/*
-Dispatch helpers
-*/
 static void dispatchKernel(id<MTLComputeCommandEncoder> enc,
                            id<MTLComputePipelineState>   pipeline,
                            NSUInteger                    threadCount) {
@@ -112,80 +118,110 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
     return (cb.status == MTLCommandBufferStatusCompleted) ? 0 : -5;
 }
 
-/*
-Unified Bitwise dispatch — each Value carries its own 32-bit in-band program
-and the kernel executes the self-only slot sweep directly from the frame.
-*/
-int unified_bitwise_metal(void* a_host, uint32_t num_values) {
-    if (!pipelineUnifiedBitwise || !a_host || num_values == 0) return -1;
+int init_metal_arena(void* arena_base, size_t arena_bytes, uint32_t* linear_next_host) {
+    if (!device || !arena_base || arena_bytes == 0 || !linear_next_host) return -1;
+
+    if (bufArena) {
+        [bufArena release];
+        bufArena = nil;
+    }
+    if (bufLinear) {
+        [bufLinear release];
+        bufLinear = nil;
+    }
+    if (bufSpawnParent) { [bufSpawnParent release]; bufSpawnParent = nil; }
+    if (bufSpawnChild)  { [bufSpawnChild release];  bufSpawnChild = nil; }
+    if (bufSpawnTail)   { [bufSpawnTail release];   bufSpawnTail = nil; }
+    if (bufMaxSlots)    { [bufMaxSlots release];    bufMaxSlots = nil; }
+
+    bufArena = [device newBufferWithBytesNoCopy:arena_base
+                                         length:(NSUInteger)arena_bytes
+                                        options:MTLResourceStorageModeShared
+                                     deallocator:^(void *pointer, NSUInteger length) {
+                                         (void)pointer;
+                                         (void)length;
+                                     }];
+    if (!bufArena) return -2;
+
+    bufLinear = [device newBufferWithBytesNoCopy:linear_next_host
+                                          length:sizeof(uint32_t)
+                                         options:MTLResourceStorageModeShared
+                                      deallocator:^(void *pointer, NSUInteger length) {
+                                          (void)pointer;
+                                          (void)length;
+                                      }];
+    if (!bufLinear) return -3;
+
+    NSUInteger spawnBytes = (NSUInteger)SPAWN_QUEUE_CAP * sizeof(uint32_t);
+    bufSpawnParent = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
+    bufSpawnChild  = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
+    bufSpawnTail   = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+    if (!bufSpawnParent || !bufSpawnChild || !bufSpawnTail) return -4;
+
+    *(uint32_t*)[bufSpawnTail contents] = 0;
+
+    bufMaxSlots = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
+    if (!bufMaxSlots) return -5;
+
+    return 0;
+}
+
+int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots) {
+    if (!pipelineUnifiedArenaIdx || !indices || count == 0 || !bufArena || !bufLinear || !bufSpawnParent) return -1;
+
+    *(uint32_t*)[bufSpawnTail contents] = 0;
+
+    *(uint32_t*)[bufMaxSlots contents] = max_slots;
+
+    NSUInteger idxBytes = (NSUInteger)count * sizeof(uint32_t);
+    id<MTLBuffer> idxBuf = [device newBufferWithBytes:indices length:idxBytes options:MTLResourceStorageModeShared];
+    if (!idxBuf) return -2;
 
     @autoreleasepool {
-        NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
-
-        id<MTLBuffer> buf = [device newBufferWithBytes:a_host
-                                                length:reqBytes
-                                               options:MTLResourceStorageModeShared];
-        if (!buf) return -1;
-
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
-        [enc setBuffer:buf offset:0 atIndex:0];
+        [enc setBuffer:bufArena offset:0 atIndex:0];
+        [enc setBuffer:idxBuf offset:0 atIndex:1];
+        [enc setBuffer:bufLinear offset:0 atIndex:2];
+        [enc setBuffer:bufSpawnParent offset:0 atIndex:3];
+        [enc setBuffer:bufSpawnChild offset:0 atIndex:4];
+        [enc setBuffer:bufSpawnTail offset:0 atIndex:5];
+        [enc setBuffer:bufMaxSlots offset:0 atIndex:6];
 
-        dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
+        dispatchKernel(enc, pipelineUnifiedArenaIdx, (NSUInteger)count);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-
-        if (r == 0) {
-            memcpy(a_host, [buf contents], reqBytes);
-        }
-
-        [buf release];
+        [idxBuf release];
         return r;
     }
 }
 
-/*
-Geometric dispatch — each Value carries the high-nibble PGA opcode and the
-kernel preserves the in-frame 64-bit multivector ABI around Metal's native
-float arithmetic core.
-*/
-int geometric_metal(void* a_host, uint32_t num_values) {
-    if (!pipelineGeometric || !a_host || num_values == 0) return -1;
+int geometric_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots) {
+    (void)max_slots;
+    if (!pipelineGeometricIdx || !indices || count == 0 || !bufArena) return -1;
+
+    NSUInteger idxBytes = (NSUInteger)count * sizeof(uint32_t);
+    id<MTLBuffer> idxBuf = [device newBufferWithBytes:indices length:idxBytes options:MTLResourceStorageModeShared];
+    if (!idxBuf) return -2;
 
     @autoreleasepool {
-        NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
-
-        id<MTLBuffer> buf = [device newBufferWithBytes:a_host
-                                                length:reqBytes
-                                               options:MTLResourceStorageModeShared];
-        if (!buf) return -1;
-
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
-        [enc setBuffer:buf offset:0 atIndex:0];
+        [enc setBuffer:bufArena offset:0 atIndex:0];
+        [enc setBuffer:idxBuf offset:0 atIndex:1];
 
-        dispatchKernel(enc, pipelineGeometric, num_values);
+        dispatchKernel(enc, pipelineGeometricIdx, (NSUInteger)count);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-
-        if (r == 0) {
-            memcpy(a_host, [buf contents], reqBytes);
-        }
-
-        [buf release];
+        [idxBuf release];
         return r;
     }
 }
 
-/*
-NearestAffinity dispatch — computes Hamming distances from one query
-vector to count candidate vectors, writing uint32 distances to the
-caller's buffer. The host performs the argmin reduction.
-*/
 int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t count, uint32_t* distances_host) {
     if (!pipelineNearestAffinity || !query_host || !candidates_host || !distances_host || count == 0) return -1;
 
@@ -234,6 +270,32 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
     }
 }
 
+int metal_drain_spawn_queue(uint32_t* parents, uint32_t* children, uint32_t max_out, uint32_t* out_count) {
+    if (!parents || !children || !out_count || !bufSpawnParent || !bufSpawnChild || !bufSpawnTail) return -1;
+
+    uint32_t n = *(uint32_t*)[bufSpawnTail contents];
+    if (n > SPAWN_QUEUE_CAP) {
+        n = SPAWN_QUEUE_CAP;
+    }
+
+    uint32_t copy = n;
+    if (copy > max_out) {
+        copy = max_out;
+    }
+
+    memcpy(parents, [bufSpawnParent contents], (size_t)copy * sizeof(uint32_t));
+    memcpy(children, [bufSpawnChild contents], (size_t)copy * sizeof(uint32_t));
+    *(uint32_t*)[bufSpawnTail contents] = 0;
+    *out_count = copy;
+
+    return 0;
+}
+
 void cleanup_metal_pools(void) {
-    // No persistent buffers to free — every dispatch owns its own MTLBuffer.
+    if (bufArena)       { [bufArena release]; bufArena = nil; }
+    if (bufLinear)      { [bufLinear release]; bufLinear = nil; }
+    if (bufSpawnParent) { [bufSpawnParent release]; bufSpawnParent = nil; }
+    if (bufSpawnChild)  { [bufSpawnChild release]; bufSpawnChild = nil; }
+    if (bufSpawnTail)   { [bufSpawnTail release]; bufSpawnTail = nil; }
+    if (bufMaxSlots)    { [bufMaxSlots release]; bufMaxSlots = nil; }
 }

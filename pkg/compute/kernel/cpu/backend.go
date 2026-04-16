@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type Backend struct {
@@ -96,95 +97,139 @@ srcA / srcB and writes dst directly out of the Value under the mode bit
 the compiler packed into program[2], so regions the program does not name
 survive every pass bit-for-bit.
 */
-func (backend *Backend) Execute(frames []unsafe.Pointer) error {
+func (backend *Backend) Execute(indices []uint32) error {
+	if len(indices) == 0 {
+		return nil
+	}
+
+	ptrs := make([]unsafe.Pointer, 0, len(indices))
+
+	for _, idx := range indices {
+		value := primitive.ValueAt(idx)
+		if value == nil {
+			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "Execute")
+		}
+
+		ptrs = append(ptrs, unsafe.Pointer(&value[0]))
+	}
+
+	return backend.ExecutePointers(ptrs)
+}
+
+/*
+ExecutePointers runs the CPU ALU on arbitrary host pointers. Used for heap
+Values and tests; arena dispatch should prefer Execute with indices so GPU
+substrates can stay pointer-free on the PCIe path.
+*/
+func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
 	if len(frames) == 0 {
 		return nil
 	}
 
 	for _, ptr := range frames {
 		if ptr == nil {
-			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "Execute")
+			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "ExecutePointers")
 		}
 
-		value := (*uint64)(ptr)
-		frameWords := (*[128]uint64)(ptr)
+		func() {
+			frameWords := (*[128]uint64)(ptr)
+			value := (*uint64)(ptr)
 
-		rawOpcode := frameWords[kernel.ProgramOpcodeWord] & 0xFF
-		opcode := rawOpcode & kernel.OpcodeBooleanMask
-		contract := (frameWords[kernel.ProgramModeWord] >> kernel.ProgramContractShift) & 0xFF
-		batchCount := frameWords[kernel.NearestAffinityBatchWord]
+			defer kernel.FinishFramePostALU(frameWords)
 
-		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
-			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
-		}
+			primitive.HydrateLearnerPeers((*primitive.Value)(ptr))
 
-		if kernel.IsGeometricOpcode(rawOpcode) {
-			if geometricFrame(value, rawOpcode) {
-				continue
+			rawOpcode := frameWords[kernel.ProgramOpcodeWord] & 0xFF
+			opcode := rawOpcode & kernel.OpcodeBooleanMask
+			contract := (frameWords[kernel.ProgramModeWord] >> kernel.ProgramContractShift) & 0xFF
+			batchCount := frameWords[kernel.NearestAffinityBatchWord]
+
+			if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
+				batchCount = uint64(kernel.MaxNearestAffinityCandidates)
 			}
-		}
 
-		if rawOpcode == kernel.OpcodeRegionProgram {
-			for offset := 0; offset < regionTableWords; offset += regionEntryWords {
-				op := frameWords[kernel.AssetStartWord+offset]
-				if op == 0 && offset > 0 {
-					break
+			if kernel.IsGeometricOpcode(rawOpcode) {
+				if geometricFrame(value, rawOpcode) {
+					return
+				}
+			}
+
+			if kernel.IsCopyMaskMergeOpcode(rawOpcode) {
+				kernel.ApplyCopyMaskMerge(frameWords)
+
+				return
+			}
+
+			if kernel.IsEmitCloneOpcode(rawOpcode) {
+				primitive.EmitCloneHost((*primitive.Value)(ptr))
+
+				return
+			}
+
+			if rawOpcode == kernel.OpcodeRegionProgram {
+				for offset := 0; offset < regionTableWords; offset += regionEntryWords {
+					op := frameWords[kernel.AssetStartWord+offset]
+					if op == 0 && offset > 0 {
+						break
+					}
+
+					rotationTable := frameWords[kernel.AssetStartWord+offset+1]
+					if rotationTable == 0 {
+						continue
+					}
+
+					mode := int(frameWords[kernel.AssetStartWord+offset+2] & 0xFF)
+					aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+3])
+					bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+4])
+					dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+5])
+
+					universalBitwiseV2(
+						value,
+						aStart, aSpan,
+						bStart, bSpan,
+						dstStart, dstSpan,
+						mode,
+						rotationTable,
+					)
 				}
 
-				rotationTable := frameWords[kernel.AssetStartWord+offset+1]
-				if rotationTable == 0 {
-					continue
-				}
-
-				mode := int(frameWords[kernel.AssetStartWord+offset+2] & 0xFF)
-				aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+3])
-				bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+4])
-				dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.AssetStartWord+offset+5])
-
-				universalBitwiseV2(
-					value,
-					aStart, aSpan,
-					bStart, bSpan,
-					dstStart, dstSpan,
-					mode,
-					rotationTable,
-				)
+				return
 			}
-			continue
-		}
 
-		if opcode == kernel.OpcodeXOR && batchCount > 0 {
-			nearestBatchReduce(frameWords, batchCount)
+			if opcode == kernel.OpcodeXOR && batchCount > 0 {
+				nearestBatchReduce(frameWords, batchCount)
 
-			continue
-		}
+				return
+			}
 
-		rotationTable := frameWords[kernel.ProgramRotTabWord]
-		mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
-		aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
-		bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
-		dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
+			rotationTable := frameWords[kernel.ProgramRotTabWord]
+			mode := int(frameWords[kernel.ProgramModeWord] & 0xFF)
+			aStart, aSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcAWord])
+			bStart, bSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramSrcBWord])
+			dstStart, dstSpan := kernel.UnpackRegionRef(frameWords[kernel.ProgramDstWord])
 
-		if contract == kernel.ProgramContractExactBinary {
-			backend.exactBinary(frameWords, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
-			continue
-		}
+			if contract == kernel.ProgramContractExactBinary {
+				backend.exactBinary(frameWords, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
 
-		// An all-zero rotation table means the frame has no work for the
-		// universal bitwise lane. Skip it instead of running a sweep that
-		// would XOR zero bytes into dst[0..min(8,span)) for nothing.
-		if rotationTable == 0 {
-			continue
-		}
+				return
+			}
 
-		universalBitwiseV2(
-			value,
-			aStart, aSpan,
-			bStart, bSpan,
-			dstStart, dstSpan,
-			mode,
-			rotationTable,
-		)
+			// An all-zero rotation table means the frame has no work for the
+			// universal bitwise lane. Skip it instead of running a sweep that
+			// would XOR zero bytes into dst[0..min(8,span)) for nothing.
+			if rotationTable == 0 {
+				return
+			}
+
+			universalBitwiseV2(
+				value,
+				aStart, aSpan,
+				bStart, bSpan,
+				dstStart, dstSpan,
+				mode,
+				rotationTable,
+			)
+		}()
 	}
 
 	return nil

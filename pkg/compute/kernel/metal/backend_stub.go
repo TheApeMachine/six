@@ -54,7 +54,7 @@ func Available() int {
 	return 0
 }
 
-func (backend *Backend) Execute(frames []unsafe.Pointer) error {
+func (backend *Backend) Execute(indices []uint32) error {
 	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "Execute")
 }
 

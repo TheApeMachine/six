@@ -2,6 +2,7 @@ package vm
 
 import (
 	"strings"
+	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/programmer"
@@ -136,6 +137,16 @@ func (finalizer *ActionFinalizer) matches(
 		}
 	}
 
+	if rule.MaxConcentration > 0 {
+		if context.field == nil {
+			return false
+		}
+
+		if context.field.Dominant().Concentration >= rule.MaxConcentration {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -208,7 +219,7 @@ func (finalizer *ActionFinalizer) emit(
 		return nil
 	}
 
-	emitted := &primitive.Value{}
+	emitted := primitive.AllocValue()
 	*emitted = *source
 
 	emitted.StampNewID()
@@ -270,11 +281,6 @@ func (finalizer *ActionFinalizer) applyCopies(
 	context actionContext,
 ) {
 	for _, copyConfig := range copies {
-		sourceWords := finalizer.resolveSource(copyConfig.Source, context)
-		if len(sourceWords) == 0 {
-			continue
-		}
-
 		destination, err := programmer.ParseRegionRef(copyConfig.Destination)
 		if err != nil {
 			continue
@@ -285,32 +291,51 @@ func (finalizer *ActionFinalizer) applyCopies(
 			continue
 		}
 
+		dstStart := destination.Start
+		n := len(destinationWords)
+
+		raw := strings.ToLower(strings.TrimSpace(copyConfig.Source))
+		if raw == "" {
+			continue
+		}
+
+		if strings.HasPrefix(raw, "field.") {
+			sourceWords := finalizer.fieldSource(strings.TrimPrefix(raw, "field."), context.field)
+			if len(sourceWords) < n {
+				continue
+			}
+
+			copy(destinationWords, sourceWords[:n])
+
+			continue
+		}
+
+		text := strings.TrimPrefix(raw, "value.")
+		sourceRef, err := programmer.ParseRegionRef(text)
+		if err != nil {
+			continue
+		}
+
+		srcWords := valueSpan(context.value, sourceRef)
+		if len(srcWords) < n {
+			continue
+		}
+
+		srcStart := sourceRef.Start
 		clear(destinationWords)
-		copy(destinationWords, sourceWords)
+
+		kernel.CopyWordsBetween(
+			valueFrameWords(target),
+			valueFrameWords(context.value),
+			dstStart,
+			srcStart,
+			n,
+		)
 	}
 }
 
-func (finalizer *ActionFinalizer) resolveSource(
-	raw string,
-	context actionContext,
-) []uint64 {
-	text := strings.ToLower(strings.TrimSpace(raw))
-	if text == "" {
-		return nil
-	}
-
-	if strings.HasPrefix(text, "field.") {
-		return finalizer.fieldSource(strings.TrimPrefix(text, "field."), context.field)
-	}
-
-	text = strings.TrimPrefix(text, "value.")
-
-	ref, err := programmer.ParseRegionRef(text)
-	if err != nil {
-		return nil
-	}
-
-	return valueSpan(context.value, ref)
+func valueFrameWords(value *primitive.Value) *[128]uint64 {
+	return (*[128]uint64)(unsafe.Pointer(value))
 }
 
 func (finalizer *ActionFinalizer) fieldSource(

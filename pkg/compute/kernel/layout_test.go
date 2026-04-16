@@ -17,6 +17,12 @@ func TestIsGeometricOpcode(t *testing.T) {
 		Convey("It should not treat low-nibble truth-table opcodes as geometric", func() {
 			So(IsGeometricOpcode(OpcodeXOR), ShouldBeFalse)
 			So(IsGeometricOpcode(OpcodeRegionProgram), ShouldBeFalse)
+			So(IsGeometricOpcode(OpcodeCopyMaskMerge), ShouldBeFalse)
+		})
+
+		Convey("It should recognise copy-mask merge opcode", func() {
+			So(IsCopyMaskMergeOpcode(OpcodeCopyMaskMerge), ShouldBeTrue)
+			So(IsCopyMaskMergeOpcode(OpcodeXOR), ShouldBeFalse)
 		})
 	})
 }
