@@ -60,6 +60,29 @@ func TestCompiler_Compile(t *testing.T) {
 			So(len(frames), ShouldEqual, 1)
 		})
 	})
+
+	Convey("Given a compiler built from geometric compose tokens", t, func() {
+		tokens := []Token{
+			{
+				SrcA: FullRegionRef(primitive.ContextRegion),
+				SrcB: FullRegionRef(primitive.GradientRegion),
+				Dst:  FullRegionRef(primitive.SignalsRegion),
+				Op:   COMPOSE,
+				Mode: ModeAccumulate,
+			},
+		}
+
+		compiler := NewCompiler(tokens)
+
+		Convey("Compile(CPU) should emit a geometric frame with the full opcode byte", func() {
+			frames, err := compiler.Compile(CPU)
+
+			So(err, ShouldBeNil)
+			So(len(frames), ShouldEqual, 1)
+			So(frames[0].Contract, ShouldEqual, ContractGeometric)
+			So(frames[0].Program[0], ShouldEqual, uint64(COMPOSE))
+		})
+	})
 }
 
 func BenchmarkNewCompiler(b *testing.B) {

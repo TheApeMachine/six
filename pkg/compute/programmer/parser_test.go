@@ -97,6 +97,23 @@ func TestParser_Parse(t *testing.T) {
 			So(tokens[1].Op, ShouldEqual, XOR)
 		})
 	})
+
+	Convey("Given a program with a geometric compose line", t, func() {
+		source := "context gradient signals compose accumulate\n"
+		program := NewProgram(source)
+		parser := NewParser(program)
+
+		Convey("Parse should emit one geometric token", func() {
+			tokens := parser.Parse()
+
+			So(parser.Err(), ShouldBeNil)
+			So(len(tokens), ShouldEqual, 1)
+			So(tokens[0].SrcA.Region, ShouldEqual, primitive.ContextRegion)
+			So(tokens[0].SrcB.Region, ShouldEqual, primitive.GradientRegion)
+			So(tokens[0].Dst.Region, ShouldEqual, primitive.SignalsRegion)
+			So(tokens[0].Op, ShouldEqual, COMPOSE)
+		})
+	})
 }
 
 func TestParseRegionRef(t *testing.T) {
@@ -131,6 +148,12 @@ func TestParser_validateOperationMnemonic(t *testing.T) {
 			So(parser.validateOperationMnemonic("xor"), ShouldBeNil)
 		})
 
+		Convey("validateOperationMnemonic should accept geometric ops", func() {
+			So(parser.validateOperationMnemonic("compose"), ShouldBeNil)
+			So(parser.validateOperationMnemonic("sandwich"), ShouldBeNil)
+			So(parser.validateOperationMnemonic("reverse"), ShouldBeNil)
+		})
+
 		Convey("validateOperationMnemonic should reject unknown ops", func() {
 			err := parser.validateOperationMnemonic("not_a_real_op")
 
@@ -148,6 +171,12 @@ func TestParser_parseOperationType(t *testing.T) {
 
 		Convey("parseOperationType should map xor to XOR", func() {
 			So(parser.parseOperationType("xor"), ShouldEqual, XOR)
+		})
+
+		Convey("parseOperationType should map geometric ops", func() {
+			So(parser.parseOperationType("compose"), ShouldEqual, COMPOSE)
+			So(parser.parseOperationType("sandwich"), ShouldEqual, SANDWICH)
+			So(parser.parseOperationType("reverse"), ShouldEqual, REVERSE)
 		})
 
 		Convey("parseOperationType should default unknown ops to FALSE", func() {
