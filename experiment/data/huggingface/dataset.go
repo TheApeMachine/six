@@ -818,7 +818,7 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 
 	url := fmt.Sprintf("%s/datasets/%s/resolve/%s/%s", hfBase, dataset.repo, encodedBranch, shard)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(dataset.requestContext(), "GET", url, nil)
 	if err != nil {
 		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
@@ -920,7 +920,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 		encodedBranch := strings.ReplaceAll(branch, "/", "%2F")
 		url := fmt.Sprintf("%s/api/datasets/%s/tree/%s?recursive=true", hfBase, dataset.repo, encodedBranch)
 
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequestWithContext(dataset.requestContext(), "GET", url, nil)
 		if err != nil {
 			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "branch", encodedBranch, "url", url)
 			continue
@@ -999,11 +999,26 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 
 /*
 DatasetWithContext binds a cancellable context to the dataset.
+Also propagated into every outbound HF HTTP request so the caller
+can abort in-flight discovery/download when the test deadline hits.
 */
 func DatasetWithContext(ctx context.Context) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.ctx, dataset.cancel = context.WithCancel(ctx)
 	}
+}
+
+/*
+requestContext returns the context used for outbound HF HTTP calls.
+Without DatasetWithContext, falls back to context.Background() to keep
+behaviour identical to the pre-context implementation.
+*/
+func (dataset *Dataset) requestContext() context.Context {
+	if dataset.ctx != nil {
+		return dataset.ctx
+	}
+
+	return context.Background()
 }
 
 /*

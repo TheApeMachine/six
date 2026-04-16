@@ -9,9 +9,18 @@ import YAML from "yaml";
 
 function telemetryBridge(): Plugin {
 	const CONTROL_URL = (process.env.TELEMETRY_CONTROL_URL || "").trim();
+	/*
+	The Vite dev server runs out of visualizer/ but the canonical config
+	(with the programs: block the DSL inspector reads) lives one level up
+	in the repo root at cmd/cfg/config.yml. The previous resolve pointed
+	at visualizer/cmd/cfg/config.yml — a path that does not exist — so
+	every /api/programs request fell through to ENOENT and the viewer
+	drawer rendered "HTTP 500". Keep the SIX_CONFIG_PATH escape hatch so
+	out-of-tree setups can still point to a bespoke file.
+	*/
 	const CONFIG_PATH =
 		process.env.SIX_CONFIG_PATH ||
-		path.resolve(__dirname, "cmd/cfg/config.yml");
+		path.resolve(__dirname, "../cmd/cfg/config.yml");
 	const FRAME_HISTORY_LIMIT = Number(process.env.VIZ_FRAME_HISTORY || "0");
 
 	let wss: WebSocketServer;

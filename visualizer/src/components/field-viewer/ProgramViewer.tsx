@@ -390,10 +390,31 @@ export function ProgramViewer({
 	// Fetch firmware programs from the viz server once on mount.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional one-shot fetch; initialProgram changes are handled by the effect below
 	useEffect(() => {
+		/*
+		Propagate the body message from /api/programs when the bridge returns
+		a non-OK status. Without this the drawer only showed "HTTP 500" and
+		the operator had to tail the bridge log to find out whether the
+		failure was ENOENT on config.yml, an upstream control-URL refusal,
+		or a YAML parse error.
+		*/
 		fetch(`${telemetryHttpBase()}/api/programs`)
-			.then((r) => {
-				if (!r.ok) throw new Error(`HTTP ${r.status}`);
-				return r.json() as Promise<Record<string, string>>;
+			.then(async (response) => {
+				if (!response.ok) {
+					let detail = "";
+					try {
+						const body = (await response.json()) as { error?: string };
+
+						if (body && typeof body.error === "string") {
+							detail = ` — ${body.error}`;
+						}
+					} catch {
+						/* body was not JSON; keep the plain status line. */
+					}
+
+					throw new Error(`HTTP ${response.status}${detail}`);
+				}
+
+				return (await response.json()) as Record<string, string>;
 			})
 			.then((data) => {
 				setPrograms(data);
@@ -405,8 +426,10 @@ export function ProgramViewer({
 				}
 				setLoading(false);
 			})
-			.catch((e: unknown) => {
-				setFetchError(String(e));
+			.catch((error: unknown) => {
+				setFetchError(
+					error instanceof Error ? error.message : String(error),
+				);
 				setLoading(false);
 			});
 	}, []);

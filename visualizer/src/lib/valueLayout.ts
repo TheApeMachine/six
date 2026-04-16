@@ -1,14 +1,23 @@
 /*
-Word indices match pkg/compute/kernel/layout.go (128 × uint64 little-endian).
+Word indices match the runtime layout the orchestrator and mesh actually use:
+pkg/core/config.go Value.Region defaults (which primitive.*Region.WordExtent()
+reads through). The kernel package defines its own AssetStartWord = 72 for
+program-lowering scratch, but the *staging* path (orchestrator → link firmware)
+uses the config-aligned Asset region that begins at word 56. Mirroring the
+config is what lets the visualizer see the same chain staging the rule engine
+sees.
 */
 
 export const WORD = {
 	/*
-	Orchestrator and linker stage predecessor/successor into the first two asset
-	words (kernel.AssetStartWord..+1) before link firmware copies into Prev/Next.
+	The orchestrator stages predecessor/successor IDs into the first two Asset
+	words of each Value before the link firmware copies them into Prev/Next.
+	pkg/vm/orchestrator.go resolves that start from core.Cfg.Value.Region.Asset
+	(default word 56), so the viz has to read from the same word or the chain
+	preview lies about what's staged.
 	*/
-	ASSET_PREV: 72,
-	ASSET_NEXT: 73,
+	ASSET_PREV: 56,
+	ASSET_NEXT: 57,
 	PREV: 120,
 	NEXT: 121,
 	ID: 122,

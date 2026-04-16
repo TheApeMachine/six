@@ -63,8 +63,9 @@ TestOrchestratorCycle verifies the seed path. Cycle takes Values that
 have just come off the tokenizer and hands each non-nil Value to
 Firmware.Chain via queue.Submit so the pool can walk the rule chain.
 nil entries are skipped so callers can pass segment slices without
-defensive filtering, and the call is fire-and-forget: it returns
-(nil, nil) the moment submissions are in flight.
+defensive filtering. Cycle returns the Values that fell out of the
+terminal emitter in pass 2 — one per non-nil input, reflecting the
+full io.ReadWriteCloser pipeline the Conn, field, and emitter form.
 */
 func TestOrchestratorCycle(t *testing.T) {
 	Convey("Given an orchestrator and a mix of real and nil Values", t, func() {
@@ -105,9 +106,11 @@ func TestOrchestratorCycle(t *testing.T) {
 
 		resolved, cycleErr := orchestrator.Cycle(mixed...)
 
-		Convey("It returns (nil, nil) and tolerates nil entries", func() {
+		Convey("It tolerates nil entries and returns the pipeline output", func() {
 			So(cycleErr, ShouldBeNil)
-			So(resolved, ShouldBeNil)
+			// nil was compacted out of the bundle, so the emitter
+			// only observes frames for the three real Values.
+			So(len(resolved), ShouldEqual, len(values))
 		})
 
 		Convey("It leaves the orchestrator error-clean after submission", func() {
@@ -218,7 +221,10 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 		resolved, cycleErr := orchestrator.Cycle(chain[0], chain[1], chain[2])
 
 		So(cycleErr, ShouldBeNil)
-		So(resolved, ShouldBeNil)
+		// Pass 2's terminal emitter collects one frame per bundled
+		// Value as io.Copy drains the FrameDelimitedReader, so the
+		// resolved slice mirrors the input cardinality.
+		So(len(resolved), ShouldEqual, len(chain))
 
 		// Poll until the last Value in the chain observes a staged
 		// Asset — the orchestrator is fire-and-forget so this is the

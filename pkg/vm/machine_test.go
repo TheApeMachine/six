@@ -250,16 +250,16 @@ func TestMachineLoad(t *testing.T) {
 }
 
 /*
-TestMachinePrompt covers the prompt surface. Under the current
-in-value model Prompt hands the segment Values to orchestrator.Cycle,
-which fire-and-forgets them onto the pool; the hook returns as soon
-as the enqueue finishes so the caller can wire a downstream Conn for
-the actual observation path.
+TestMachinePrompt covers the prompt surface. Prompt routes the segment
+Values through orchestrator.Cycle, which walks the full io pipeline
+(Conn → emitter → telemetry → field) twice — once raw to bootstrap
+firmware state, once with real affinity — and returns the frames that
+fell out of the terminal emitter as resolved Values.
 */
 func TestMachinePrompt(t *testing.T) {
 	setupTokenizerValueConfig()
 
-	Convey("Prompt returns cleanly when given a valid segment", t, func() {
+	Convey("Prompt returns the pipeline output for a valid segment", t, func() {
 		ctx := context.Background()
 		machine, err := NewMachine(ctx)
 
@@ -276,8 +276,9 @@ func TestMachinePrompt(t *testing.T) {
 		resolved, promptErr := machine.Prompt(segments[len(segments)-1])
 
 		So(promptErr, ShouldBeNil)
-		// Cycle is fire-and-forget — no synchronous resolution yet.
-		So(resolved, ShouldBeNil)
+		// Pass 2 pumps exactly one frame through the emitter per bundled
+		// Value, so a single-segment prompt resolves to a single Value.
+		So(len(resolved), ShouldEqual, 1)
 	})
 
 	Convey("Prompt rejects an empty Values slice", t, func() {

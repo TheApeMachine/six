@@ -29,7 +29,12 @@ import type { RawValueFrame } from "./wire";
 /*
 PROPERTIES_COMMUNITY_WORD is the absolute word index where the mesh
 routing layer stamps the community id via an ephemeral CopyMaskMerge
-program. Must match kernel.PropertiesCommunityWord (Go side) = 56.
+program (see pkg/mesh/field.go:emitCommunityTag). Computed on the Go
+side as propsStart (48) + communityIDOffset (8) = 56 — which sits at
+the first word of the Asset region per the runtime config, not inside
+Properties. The constant name is historical; the value is still the
+word the visualizer has to sample off the wire to recover the mesh's
+community assignment.
 */
 const PROPERTIES_COMMUNITY_WORD = 56;
 
@@ -169,6 +174,7 @@ function fieldSnapshotFromStored(
 		communityAffinityHex,
 		wireFrame: decoded?.frame ?? null,
 		wireRegions: null,
+		frameReceivedAtMs: stored.receivedAtMs,
 		telemetry: null,
 	};
 }

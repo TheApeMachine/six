@@ -6,7 +6,7 @@ fill bar, and its data. The identity strip and belief gap live in a thin row
 above the band.
 */
 
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { VizInspectSnapshot } from "@/features/telemetry/types";
@@ -43,6 +43,25 @@ const PROBE_STATUS_LABELS: Record<number, string> = {
 	2: "settled",
 	3: "ceiling",
 };
+
+/*
+FIRMWARE_STATUS_LABELS mirrors pkg/compute/kernel/layout.go:StatusRaw/StatusReady
+stored at absolute word 57 (kernel calls it properties[9], config layout puts it
+at the start of the Asset region). 0=raw means the firmware chain has not
+completed; 1=ready means link → affinity → resident all wrote their words.
+*/
+const FIRMWARE_STATUS_LABELS: Record<number, string> = {
+	0: "raw",
+	1: "ready",
+};
+
+/*
+FALSIFIED_BIT is the high bit (1<<62) the ALU ORs into the noise word when a
+Popper-style refutation streak fires. Surfacing it separately from the raw hex
+means an operator can see at a glance that the frame has been refuted without
+decoding bytes mentally.
+*/
+const FALSIFIED_BIT = 1n << 62n;
 
 /*
 formatValueWordId pads hex value ids to one 64-bit word for display parity
@@ -225,6 +244,96 @@ function decodeProbeStatus(wordHex: string | null): string | null {
 	}
 }
 
+/*
+decodeFirmwareStatus splits the low byte (lifecycle label) from the rest of the
+status word. Raw frames read 0, bootstrapped frames read 1; the higher bits are
+reserved for future lifecycle flags.
+*/
+function decodeFirmwareStatus(wordHex: string | null): string | null {
+	if (!wordHex) return null;
+
+	try {
+		const word = BigInt(`0x${wordHex}`);
+		const status = Number(word & 0xffn);
+
+		return FIRMWARE_STATUS_LABELS[status] ?? `status ${status}`;
+	} catch {
+		return null;
+	}
+}
+
+/*
+decodeNoiseFalsified reports whether the kernel's refutation sentinel bit has
+been OR-ed into the noise word. Returns null if the word is unreadable so the
+UI can stay silent instead of lying.
+*/
+function decodeNoiseFalsified(wordHex: string | null): boolean | null {
+	if (!wordHex) return null;
+
+	try {
+		const word = BigInt(`0x${wordHex}`);
+
+		return (word & FALSIFIED_BIT) !== 0n;
+	} catch {
+		return null;
+	}
+}
+
+/*
+formatFrameAge compresses "how long since the last wire frame for this Value"
+into a compact label. Zero and negative deltas render "just now" so the UI
+doesn't flicker between 0ms / 1ms readouts between rerenders.
+*/
+function formatFrameAge(nowMs: number, receivedAtMs: number): string {
+	if (receivedAtMs <= 0) return "never";
+
+	const delta = Math.max(0, nowMs - receivedAtMs);
+
+	if (delta < 50) return "just now";
+	if (delta < 1_000) return `${delta.toFixed(0)} ms ago`;
+	if (delta < 60_000) return `${(delta / 1_000).toFixed(1)} s ago`;
+	if (delta < 3_600_000) return `${(delta / 60_000).toFixed(1)} min ago`;
+
+	return `${(delta / 3_600_000).toFixed(1)} h ago`;
+}
+
+/*
+frameAgeTone picks a traffic-light class for the age pill. Thresholds match
+DiagnosticsHUD: frames <750ms are green, <2.5s amber, older is red — matches
+the operator's mental model of "alive / slow / stalled".
+*/
+function frameAgeTone(nowMs: number, receivedAtMs: number): string {
+	if (receivedAtMs <= 0) return "text-white/35";
+
+	const delta = nowMs - receivedAtMs;
+
+	if (delta < 750) return "text-emerald-300";
+	if (delta < 2_500) return "text-amber-300";
+
+	return "text-red-300";
+}
+
+/*
+decodeRegionRef unpacks a packed RegionRef word (low32=start, high32=span) into
+a human-readable string. Used for the probe-window lane which stores a
+PackRegionRef over token words.
+*/
+function decodeRegionRef(wordHex: string | null): string | null {
+	if (!wordHex) return null;
+
+	try {
+		const word = BigInt(`0x${wordHex}`);
+		const start = Number(word & 0xffff_ffffn);
+		const span = Number((word >> 32n) & 0xffff_ffffn);
+
+		if (start === 0 && span === 0) return null;
+
+		return `w${start}+${span}`;
+	} catch {
+		return null;
+	}
+}
+
 export function ValueInspector({
 	snap,
 	className,
@@ -240,6 +349,20 @@ export function ValueInspector({
 				: "text-red-300";
 
 	const vals = snap.telemetry?.vals ?? {};
+
+	/*
+	The selected Value keeps its wireFrame until a new one arrives. An age
+	ticker driven by a local 250ms interval lets the operator watch the frame
+	go stale in real time — useful for spotting Values that the ALU has
+	stopped cycling even though the bridge is still healthy.
+	*/
+	const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+	useEffect(() => {
+		const interval = window.setInterval(() => setNowMs(Date.now()), 250);
+
+		return () => window.clearInterval(interval);
+	}, []);
 
 	const frame = snap.wireFrame;
 	const frameOk =
@@ -269,7 +392,35 @@ export function ValueInspector({
 	const propertiesW53 = wordAt(53);
 	const propertiesW54 = wordAt(54);
 	const propertiesW55 = wordAt(55);
+	/*
+	w56 / w57 are called properties[8]/[9] in pkg/compute/kernel/layout.go but
+	the runtime config (pkg/core/config.go) lays Properties as 48..55 and Asset
+	as 56..119 — so on the wire these two words sit at the start of the Asset
+	band. The mesh writes community id into w56, and the firmware chain writes
+	lifecycle status into w57. Surfacing both next to the Properties labels
+	keeps the operator from having to scroll through the 64-word Asset hex.
+	*/
+	const propertiesW56Community = wordAt(56);
+	const propertiesW57Status = wordAt(57);
 	const probeStatus = decodeProbeStatus(propertiesW53);
+	const firmwareStatus = decodeFirmwareStatus(propertiesW57Status);
+	const noiseFalsified = decodeNoiseFalsified(propertiesW52);
+	const probeWindow = decodeRegionRef(propertiesW54);
+	const ttlExpired =
+		propertiesW51 !== null &&
+		((): boolean => {
+			try {
+				return (BigInt(`0x${propertiesW51}`) & (1n << 63n)) !== 0n;
+			} catch {
+				return false;
+			}
+		})();
+	const refuteTarget =
+		propertiesW49 && propertiesW49 !== "0000000000000000" ? propertiesW49 : null;
+	const communityIdFromFrame =
+		propertiesW56Community && propertiesW56Community !== "0000000000000000"
+			? BigInt(`0x${propertiesW56Community}`).toString(10)
+			: null;
 	const confidence = vals["confidence"] ?? null;
 	const epoch = vals["epoch"] !== undefined ? Math.round(vals["epoch"]) : null;
 
@@ -374,6 +525,19 @@ export function ValueInspector({
 								live frame
 							</span>
 						) : null}
+						<span
+							className={cn(
+								"text-[8px] font-mono shrink-0 tabular-nums",
+								frameAgeTone(nowMs, snap.frameReceivedAtMs),
+							)}
+							title={
+								snap.frameReceivedAtMs > 0
+									? new Date(snap.frameReceivedAtMs).toISOString()
+									: "no frame received"
+							}
+						>
+							{formatFrameAge(nowMs, snap.frameReceivedAtMs)}
+						</span>
 					</div>
 
 					<div className="ml-auto flex items-center gap-2 shrink-0">
@@ -601,23 +765,36 @@ export function ValueInspector({
 				>
 					<KV k="w48 labels" v={hexOrDash(propertiesW48)} />
 					<KV
-						k="w49 confidence"
+						k="w49 refute"
 						v={
-							propertiesW49 ??
-							(confidence !== null ? (confidence as number).toFixed(4) : "—")
+							refuteTarget
+								? formatValueWordId(refuteTarget)
+								: hexOrDash(propertiesW49)
 						}
-						vClass={
-							confidence !== null && (confidence as number) > 0.7
-								? "text-emerald-300"
-								: undefined
-						}
+						vClass={refuteTarget ? "text-red-300" : undefined}
 					/>
 					<KV
-						k="w50 epoch"
+						k="w50 rsv"
 						v={propertiesW50 ?? (epoch !== null ? String(epoch) : "—")}
 					/>
-					<KV k="w51 ttl" v={hexOrDash(propertiesW51)} />
-					<KV k="w52 noise" v={hexOrDash(propertiesW52)} />
+					<KV
+						k="w51 ttl"
+						v={
+							ttlExpired
+								? `${hexOrDash(propertiesW51)} · expired`
+								: hexOrDash(propertiesW51)
+						}
+						vClass={ttlExpired ? "text-red-300" : undefined}
+					/>
+					<KV
+						k="w52 noise"
+						v={
+							noiseFalsified === true
+								? `${hexOrDash(propertiesW52)} · falsified`
+								: hexOrDash(propertiesW52)
+						}
+						vClass={noiseFalsified === true ? "text-red-300" : undefined}
+					/>
 					<KV
 						k="w53 probe"
 						v={
@@ -627,8 +804,24 @@ export function ValueInspector({
 						}
 						vClass={probeStatus === "settled" ? "text-emerald-300" : undefined}
 					/>
-					<KV k="w54 window" v={hexOrDash(propertiesW54)} />
+					<KV
+						k="w54 window"
+						v={
+							probeWindow
+								? `${hexOrDash(propertiesW54)} · ${probeWindow}`
+								: hexOrDash(propertiesW54)
+						}
+					/>
 					<KV k="w55 depth" v={hexOrDash(propertiesW55)} />
+					{confidence !== null ? (
+						<KV
+							k="bus.conf"
+							v={(confidence as number).toFixed(4)}
+							vClass={
+								(confidence as number) > 0.7 ? "text-emerald-300" : undefined
+							}
+						/>
+					) : null}
 				</Region>
 
 				{/* ASSET w56–w119 (64 words — chain staging, scratch, scheduler, …) */}
@@ -640,8 +833,35 @@ export function ValueInspector({
 					barClass="bg-muted"
 					textClass="text-muted-foreground/85"
 				>
+					<KV
+						k="w56 community"
+						v={
+							communityIdFromFrame
+								? `${hexOrDash(propertiesW56Community)} · #${communityIdFromFrame}`
+								: hexOrDash(propertiesW56Community)
+						}
+						vClass={communityIdFromFrame ? "text-sky-300" : undefined}
+					/>
+					<KV
+						k="w57 status"
+						v={
+							firmwareStatus
+								? `${hexOrDash(propertiesW57Status)} · ${firmwareStatus}`
+								: hexOrDash(propertiesW57Status)
+						}
+						vClass={
+							firmwareStatus === "ready"
+								? "text-emerald-300"
+								: firmwareStatus === "raw"
+									? "text-amber-300"
+									: undefined
+						}
+					/>
+					<div className="mt-1 border-t border-border/20 pt-1 text-[7px] uppercase tracking-wide text-muted-foreground/40">
+						scratch · chain staging · scheduler
+					</div>
 					{frameOk ? (
-						<WordHexRows from={56} to={119} wordAt={wordAt} />
+						<WordHexRows from={58} to={119} wordAt={wordAt} />
 					) : (
 						<Dim>no frame</Dim>
 					)}

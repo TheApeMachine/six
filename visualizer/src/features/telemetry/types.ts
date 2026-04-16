@@ -51,6 +51,14 @@ export interface VizInspectSnapshot {
 	wireFrame: Uint8Array | null;
 	/** Ergonomic region slices when a full wire frame is present. */
 	wireRegions: DecodedValueRegions | null;
+	/*
+	Wall-clock (ms since epoch) when the store last applied a wire frame for
+	this Value. 0 means "never" — the Value exists in the graph but no frame
+	has arrived yet. The inspector uses this to surface staleness so the
+	operator can tell "nothing is happening to this Value" apart from "the
+	bridge is stalled".
+	*/
+	frameReceivedAtMs: number;
 	telemetry: TelemetryPayloadSnapshot | null;
 }
 

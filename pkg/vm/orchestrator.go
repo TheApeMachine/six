@@ -181,6 +181,11 @@ every loopback Value and re-cycles them. This time the Values carry
 real prev/next and affinity, so telemetry shows populated frames and
 the field routes with real Hamming distances. Conn.Read sees
 STATUS_READY and skips the firmware tee — the Value just flows through.
+
+The returned slice is whatever the terminal emitter collected on pass 2.
+That slice is the resolution the caller sees: every frame that travelled
+the full io.ReadWriteCloser chain end-to-end, already serialised back
+through ValueFromWireFrame so the caller holds independent Value copies.
 */
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
@@ -269,7 +274,13 @@ func (orchestrator *Orchestrator) Cycle(
 		return nil, err
 	}
 
-	return nil, nil
+	// Pass 2 teed every bootstrapped frame into the emitter on its way to
+	// the field. Those are the Values that completed the in-band walk —
+	// firmware-stamped, field-routed, and serialised back out through the
+	// same io.ReadWriteCloser pipeline. Returning the emitter slice keeps
+	// the resolution path fully in-band: no side channel, no registry
+	// lookup, just the frames that fell out of io.Copy.
+	return orchestrator.emitter.values, nil
 }
 
 /*

@@ -108,7 +108,7 @@ func TestPipeline(t *testing.T) {
 		scaling.NewCompressionExperiment(),
 		scaling.NewPipelineThroughputExperiment(),
 		scaling.NewSequencerExperiment(),
-		codegen.NewLanguagesExperiment(),
+		codegen.NewLanguagesExperiment(t.Context()),
 		classification.NewTextClassificationExperiment(),
 		classification.NewBlindClassificationExperiment(),
 		textgen.NewCompositionalExperiment(),

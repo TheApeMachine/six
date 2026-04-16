@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"iter"
@@ -48,7 +49,19 @@ type LanguagesExperiment struct {
 	evaluator *tools.Evaluator
 }
 
-func NewLanguagesExperiment() *LanguagesExperiment {
+/*
+NewLanguagesExperiment wires six HuggingFace shard providers (one per
+humanevalpack subset) behind a multiDataset. The ctx is threaded into
+every outbound HF HTTP request so that when the test deadline expires
+the in-flight discoverShard / downloadShard calls unblock cleanly
+instead of silently draining their 30 s per-request timeouts × 6 × 2
+branches until `go test` kills the whole process.
+*/
+func NewLanguagesExperiment(ctx context.Context) *LanguagesExperiment {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	experiment := &LanguagesExperiment{
 		tableData: []tools.ExperimentalData{},
 		seen:      make(map[string]struct{}),
@@ -66,6 +79,7 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 	datasets := make([]data.Provider, len(humanEvalLanguages))
 	for i, lang := range humanEvalLanguages {
 		datasets[i] = huggingface.New(
+			huggingface.DatasetWithContext(ctx),
 			huggingface.DatasetWithRepo("bigcode/humanevalpack"),
 			huggingface.DatasetWithSubset(lang.Subset),
 			huggingface.DatasetWithSamples(samples),

@@ -4,9 +4,10 @@ import { decodeValueFrame, ValueStore } from "./value-store";
 import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT, WORD } from "./valueLayout";
 
 /*
-PROPERTIES_COMMUNITY_WORD matches kernel.PropertiesCommunityWord = 56 (absolute
-word index). The mesh routing layer stamps the community index here via an
-ephemeral CopyMaskMerge program.
+PROPERTIES_COMMUNITY_WORD is absolute word 56, computed on the Go side as
+propsStart (48) + communityIDOffset (8). The mesh routing layer stamps the
+community index here via an ephemeral CopyMaskMerge program — the visualizer
+just reads the same byte off the wire to recover the assignment.
 */
 const PROPERTIES_COMMUNITY_WORD = 56;
 

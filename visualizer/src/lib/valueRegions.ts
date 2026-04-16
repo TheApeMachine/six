@@ -1,6 +1,13 @@
 /*
-Region layout matches pkg/core/config Value.region defaults and
-pkg/compute/kernel/layout.go word indices (128 × uint64 LE).
+Region layout matches pkg/core/config.go Value.Region defaults (128 × uint64
+LE). That is the layout the runtime actually uses: primitive.*Region.WordExtent()
+reads through core.Cfg, the orchestrator stages prev/next into Asset[0,1], the
+mesh writes its community id at Properties[0]+communityIDOffset (absolute w56),
+and everything that reads the wire frame threads through those same offsets.
+
+The kernel package (pkg/compute/kernel/layout.go) defines AssetStartWord = 72
+for an ALU program-lowering scratch convention that does not reach the wire —
+the viz deliberately does not mirror those constants.
 */
 
 import {
@@ -51,8 +58,25 @@ export interface DecodedValueRegions {
 }
 
 /*
-REGION_SPECS is derived from default config bits / kernel Prev/ID/Affinity words.
-Word counts: bits / 64, rounded up for affinity (257 bits → 5 words).
+REGION_SPECS mirrors the runtime config (see pkg/core/config.go and
+pkg/primitive/value.go):
+
+  tokens   w0..w15   (1024 bits — Morton slab)
+  program  w16..w23  (512 bits)
+  signals  w24..w31  (512 bits)
+  context  w32..w39  (512 bits)
+  gradient w40..w47  (512 bits)
+  properties w48..w55 (512 bits — the canonical band the orchestrator reads)
+  asset    w56..w119 (4096 bits — chain staging + peer S/C/G/P + ALU scratch)
+  prev     w120
+  next     w121
+  id       w122
+  affinity w123..w127 (257 bits rounded up to 5 words)
+
+The mesh layer writes the community id at absolute word 56 via
+(propsStart + communityIDOffset=8). That word lives at the start of the Asset
+region per the config layout, so the visualizer labels it explicitly in the
+inspector. Do NOT change asset.startWord unless pkg/core/config.go changes.
 */
 export const REGION_SPECS: ReadonlyArray<{
 	name: ValueRegionName;
@@ -64,8 +88,8 @@ export const REGION_SPECS: ReadonlyArray<{
 	{ name: "signals", startWord: 24, wordCount: 8 },
 	{ name: "context", startWord: 32, wordCount: 8 },
 	{ name: "gradient", startWord: 40, wordCount: 8 },
-	{ name: "properties", startWord: 48, wordCount: 24 },
-	{ name: "asset", startWord: 72, wordCount: 48 },
+	{ name: "properties", startWord: 48, wordCount: 8 },
+	{ name: "asset", startWord: 56, wordCount: 64 },
 	{ name: "prev", startWord: 120, wordCount: 1 },
 	{ name: "next", startWord: 121, wordCount: 1 },
 	{ name: "id", startWord: 122, wordCount: 1 },
