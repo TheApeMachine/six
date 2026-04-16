@@ -214,25 +214,25 @@ digest used as the Morton “rolling” axis. Four-byte windows use a small
 FNV-style mix so overlapping n-grams separate in slot space; shorter
 prefixes hash the consumed bytes only.
 */
-func rollingNGramDigest(payload []byte, idx int) uint32 {
+func rollingNGramDigest(payload []byte, index int) uint32 {
 	const prime uint32 = 0x01000193
 
-	if idx >= 3 {
-		w := uint32(payload[idx]) |
-			uint32(payload[idx-1])<<8 |
-			uint32(payload[idx-2])<<16 |
-			uint32(payload[idx-3])<<24
+	if index >= 3 {
+		windowValue := uint32(payload[index]) |
+			uint32(payload[index-1])<<8 |
+			uint32(payload[index-2])<<16 |
+			uint32(payload[index-3])<<24
 
-		return (w * prime) ^ (w >> 17)
+		return (windowValue * prime) ^ (windowValue >> 17)
 	}
 
-	var hash uint32
+	var runningHash uint32
 
-	for j := 0; j <= idx; j++ {
-		hash = hash*prime + uint32(payload[j])
+	for bytePos := 0; bytePos <= index; bytePos++ {
+		runningHash = runningHash*prime + uint32(payload[bytePos])
 	}
 
-	return hash ^ (hash >> 9)
+	return runningHash ^ (runningHash >> 9)
 }
 
 func newValuesFromPayload(

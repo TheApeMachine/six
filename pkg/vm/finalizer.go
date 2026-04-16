@@ -322,7 +322,6 @@ func (finalizer *ActionFinalizer) applyCopies(
 		}
 
 		srcStart := sourceRef.Start
-		clear(destinationWords)
 
 		kernel.CopyWordsBetween(
 			valueFrameWords(target),
@@ -333,6 +332,8 @@ func (finalizer *ActionFinalizer) applyCopies(
 		)
 	}
 }
+
+var _ [128]uint64 = primitive.Value{}
 
 func valueFrameWords(value *primitive.Value) *[128]uint64 {
 	return (*[128]uint64)(unsafe.Pointer(value))

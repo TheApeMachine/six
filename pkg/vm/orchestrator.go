@@ -137,6 +137,28 @@ func (orchestrator *Orchestrator) Error() error {
 }
 
 /*
+InboxLen returns the approximate number of Values waiting in the routing inbox.
+*/
+func (orchestrator *Orchestrator) InboxLen() int {
+	if orchestrator == nil || orchestrator.inbox == nil {
+		return 0
+	}
+
+	return orchestrator.inbox.Len()
+}
+
+/*
+IsDraining reports whether drainInbox is actively processing the inbox.
+*/
+func (orchestrator *Orchestrator) IsDraining() bool {
+	if orchestrator == nil {
+		return false
+	}
+
+	return orchestrator.draining.Load() != 0
+}
+
+/*
 BeginBootstrap marks the orchestrator as being in ingest bootstrap mode.
 During bootstrap the runtime still performs link, affinity, and routing, but
 field-level autonomous actions are held back until bootstrap completes.
@@ -308,9 +330,9 @@ func (orchestrator *Orchestrator) stageUnsupervisedPairs() {
 			continue
 		}
 
-		for i := 0; i < len(community.Values)-1 && budget > 0; i++ {
-			peerA := community.Values[i]
-			peerB := community.Values[i+1]
+		for peerIndex := 0; peerIndex < len(community.Values)-1 && budget > 0; peerIndex++ {
+			peerA := community.Values[peerIndex]
+			peerB := community.Values[peerIndex+1]
 
 			if peerA == nil || peerB == nil {
 				continue
@@ -332,6 +354,10 @@ func (orchestrator *Orchestrator) scheduleLearner(
 	peerB *primitive.Value,
 ) {
 	learner := primitive.AllocValue()
+	if learner == nil {
+		return
+	}
+
 	learner.StampNewID()
 	learner.Set(kernel.PrevStartWord, peerA.ID())
 	learner.Set(kernel.NextStartWord, peerB.ID())

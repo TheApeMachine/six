@@ -31,18 +31,12 @@ longestOneRunInWords mirrors geometry.ScanOneRun’s length result for a fixed
 slice without importing geometry (avoids package cycles).
 */
 func longestOneRunInWords(words []uint64) int {
-	bestStart, bestLen := 0, 0
-	curStart, curLen := 0, 0
-	bitBase := 0
+	bestLen := 0
+	curLen := 0
 
 	for _, word := range words {
 		if word == ^uint64(0) {
-			if curLen == 0 {
-				curStart = bitBase
-			}
-
 			curLen += 64
-			bitBase += 64
 
 			continue
 		}
@@ -50,41 +44,29 @@ func longestOneRunInWords(words []uint64) int {
 		if word == 0 {
 			if curLen > bestLen {
 				bestLen = curLen
-				bestStart = curStart
 			}
 
 			curLen = 0
-			bitBase += 64
 
 			continue
 		}
 
 		for bit := 0; bit < 64; bit++ {
 			if (word>>bit)&1 == 1 {
-				if curLen == 0 {
-					curStart = bitBase + bit
-				}
-
 				curLen++
 			} else {
 				if curLen > bestLen {
 					bestLen = curLen
-					bestStart = curStart
 				}
 
 				curLen = 0
 			}
 		}
-
-		bitBase += 64
 	}
 
 	if curLen > bestLen {
 		bestLen = curLen
-		bestStart = curStart
 	}
-
-	_ = bestStart
 
 	return bestLen
 }

@@ -292,6 +292,7 @@ static inline void emit_clone_device_metal(
 ) {
     uint child_slot = atomic_fetch_add_explicit(linear_next, 1u, memory_order_relaxed);
     if (child_slot >= max_slots) {
+        parent_frame[SIGNALS_START_WORD] = ~0UL;
         return;
     }
     device ulong* child = arena + (uint64_t)child_slot * (uint64_t)WORDS;

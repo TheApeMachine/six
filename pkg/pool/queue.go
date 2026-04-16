@@ -63,6 +63,18 @@ func NewQueue(ctx context.Context, dispatch ...func(*programmer.Executable)) (*Q
 }
 
 /*
+Len returns the aggregate number of slots waiting across normal, priority,
+and spill rings. Used for pipeline quiescence.
+*/
+func (queue *Queue) Len() int {
+	if queue == nil {
+		return 0
+	}
+
+	return queue.normal.Len() + queue.priority.Len() + queue.spill.Len()
+}
+
+/*
 Close cancels the queue context.
 */
 func (queue *Queue) Close() error {

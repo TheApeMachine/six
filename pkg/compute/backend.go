@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -154,6 +155,28 @@ func NewBackend(
 	return backend
 }
 
+/*
+Inflight sums substrate inflight counters so callers can wait for compute
+to finish without adding locks to the dispatch path.
+*/
+func (backend *Backend) Inflight() int64 {
+	if backend == nil {
+		return 0
+	}
+
+	var total int64
+
+	for _, st := range backend.states {
+		if st == nil {
+			continue
+		}
+
+		total += st.inflight.Load()
+	}
+
+	return total
+}
+
 func (backend *Backend) cpuBackend() *cpu.Backend {
 	for _, st := range backend.states {
 		if st.substrate.Name() != "cpu" {
@@ -171,19 +194,22 @@ func (backend *Backend) cpuBackend() *cpu.Backend {
 	return nil
 }
 
-func pointerSliceFromIndices(indices []uint32) []unsafe.Pointer {
-	out := make([]unsafe.Pointer, 0, len(indices))
+func pointerSliceFromIndices(indices []uint32) (out []unsafe.Pointer, err error) {
+	out = make([]unsafe.Pointer, 0, len(indices))
 
 	for _, ix := range indices {
 		value := primitive.ValueAt(ix)
 		if value == nil {
-			continue
+			return nil, fmt.Errorf(
+				"compute.pointerSliceFromIndices: primitive.ValueAt(%d) returned nil (invalid index or arena)",
+				ix,
+			)
 		}
 
 		out = append(out, unsafe.Pointer(&value[0]))
 	}
 
-	return out
+	return out, nil
 }
 
 /*
@@ -469,7 +495,9 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 			}
 
 			execErr = cb.ExecutePointers(ptrs)
-		} else {
+		}
+
+		if arenaErr == nil {
 			execErr = st.substrate.Execute(indices)
 		}
 
@@ -503,7 +531,11 @@ substrate. Each Value must already contain the program bits the ALU
 expects; the substrate reads the opcode from the program region.
 */
 func (backend *Backend) Execute(indices []uint32) error {
-	ptrs := pointerSliceFromIndices(indices)
+	ptrs, err := pointerSliceFromIndices(indices)
+	if err != nil {
+		return err
+	}
+
 	backend.ensureCorrelationIDs(ptrs)
 
 	// Force CPU substrate for OpcodeRegionProgram and OpcodeCopyMaskMerge since
@@ -536,7 +568,7 @@ func (backend *Backend) Execute(indices []uint32) error {
 
 	start := time.Now()
 
-	err := st.substrate.Execute(indices)
+	err = st.substrate.Execute(indices)
 
 	elapsed := time.Since(start)
 	st.inflight.Add(-1)

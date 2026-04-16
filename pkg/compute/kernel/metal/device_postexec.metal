@@ -4,17 +4,11 @@
 static inline int longest_one_run_signals(device const ulong* frame) {
     int bestLen = 0;
     int curLen = 0;
-    int curStart = 0;
-    int bitBase = 0;
 
     for (int wi = 0; wi < 8; wi++) {
         ulong word = frame[SIGNALS_START_WORD + wi];
         if (word == ~0UL) {
-            if (curLen == 0) {
-                curStart = bitBase;
-            }
             curLen += 64;
-            bitBase += 64;
             continue;
         }
         if (word == 0UL) {
@@ -22,14 +16,10 @@ static inline int longest_one_run_signals(device const ulong* frame) {
                 bestLen = curLen;
             }
             curLen = 0;
-            bitBase += 64;
             continue;
         }
         for (int bit = 0; bit < 64; bit++) {
             if ((word >> bit) & 1UL) {
-                if (curLen == 0) {
-                    curStart = bitBase + bit;
-                }
                 curLen++;
             } else {
                 if (curLen > bestLen) {
@@ -38,12 +28,10 @@ static inline int longest_one_run_signals(device const ulong* frame) {
                 curLen = 0;
             }
         }
-        bitBase += 64;
     }
     if (curLen > bestLen) {
         bestLen = curLen;
     }
-    (void)curStart;
     return bestLen;
 }
 

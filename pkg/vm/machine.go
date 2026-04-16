@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"runtime"
 	"slices"
 	"time"
 
@@ -140,6 +141,37 @@ func (machine *Machine) Error() error {
 }
 
 /*
+Settle spins until the routing inbox, scheduler rings, and compute substrates
+report no pending work. This is a cooperative quiescence probe: it does not
+add mutexes to producer paths.
+*/
+func (machine *Machine) Settle() {
+	if machine == nil || machine.orchestrator == nil || machine.queue == nil || machine.backend == nil {
+		return
+	}
+
+	for {
+		inboxLen := machine.orchestrator.InboxLen()
+		queueLen := machine.queue.Len()
+		inflight := machine.backend.Inflight()
+		draining := machine.orchestrator.IsDraining()
+
+		if inboxLen == 0 && queueLen == 0 && inflight == 0 && !draining {
+			time.Sleep(2 * time.Millisecond)
+
+			if machine.orchestrator.InboxLen() == 0 &&
+				machine.queue.Len() == 0 &&
+				machine.backend.Inflight() == 0 &&
+				!machine.orchestrator.IsDraining() {
+				return
+			}
+		}
+
+		runtime.Gosched()
+	}
+}
+
+/*
 Load walks Generate(), mints Morton-packed Values from each sample’s Text via
 primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
 Properties word when Label is present, then runs orchestrator.Publish per
@@ -214,6 +246,8 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 	}
 
+	machine.Settle()
+
 	return nil
 }
 
@@ -237,32 +271,44 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 	}
 
 	machine.orchestrator.Publish(values...)
+	machine.Settle()
 
-	// Clear values so we don't push them again
-	values = nil
+	promptCtx, cancel := context.WithTimeout(machine.ctx, 10*time.Second)
+	defer cancel()
+
+	var wave []*primitive.Value
 
 	for len(resolved) == 0 {
 		select {
-		case <-machine.ctx.Done():
-			return nil, machine.ctx.Err()
+		case <-promptCtx.Done():
+			return nil, promptCtx.Err()
 		default:
-			// Feedback loop, values go in, values come out, which then go in again, etc.
-			if values, err = machine.orchestrator.Cycle(
-				slices.Clone(values)...,
-			); err != nil {
-				return nil, errnie.Error(err)
+		}
+
+		processed, cycleErr := machine.orchestrator.Cycle(slices.Clone(wave)...)
+		if cycleErr != nil {
+			return nil, errnie.Error(cycleErr)
+		}
+
+		machine.Settle()
+
+		for _, value := range processed {
+			if value == nil {
+				continue
 			}
 
-			// Check for any resolved values, which indicates the prompt has been resolved
-			// and we have reached the stop condition.
-			for _, value := range values {
-				if stateWord, err := value.Property(
-					primitive.STATE,
-				); err == nil && stateWord == uint64(primitive.RESOLVED) {
-					resolved = append(resolved, value)
-				}
+			if stateWord, propErr := value.Property(
+				primitive.STATE,
+			); propErr == nil && stateWord == uint64(primitive.RESOLVED) {
+				resolved = append(resolved, value)
 			}
 		}
+
+		if len(resolved) == 0 && len(processed) == 0 {
+			break
+		}
+
+		wave = processed
 	}
 
 	if telemetry.DefaultBus.IsActive() && len(resolved) > 0 {

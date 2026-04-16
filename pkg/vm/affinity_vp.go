@@ -126,15 +126,15 @@ func nearestCommunityWithin(
 	left, dLeft := nearestCommunityWithin(node.inner, query, budget)
 	right, dRight := nearestCommunityWithin(node.outer, query, budget)
 
-	if left != nil && right != nil {
-		if dLeft <= dRight {
-			return left, dLeft
-		}
-
+	if left == nil {
 		return right, dRight
 	}
 
-	if left != nil {
+	if right == nil {
+		return left, dLeft
+	}
+
+	if dLeft <= dRight {
 		return left, dLeft
 	}
 

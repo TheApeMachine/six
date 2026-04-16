@@ -148,6 +148,26 @@ func (ring *Ring) Pop() unsafe.Pointer {
 }
 
 /*
+Len returns the approximate number of elements between dequeue and enqueue
+positions. Used for quiescence checks; under MPMC contention the count is
+a lower bound, not a mutex-serialized exact length.
+*/
+func (ring *Ring) Len() int {
+	if ring == nil {
+		return 0
+	}
+
+	enq := ring.enqueuePos.Load()
+	deq := ring.dequeuePos.Load()
+
+	if enq < deq {
+		return 0
+	}
+
+	return int(enq - deq)
+}
+
+/*
 Close closes the ring.
 */
 func (ring *Ring) Close() error {

@@ -1,8 +1,17 @@
+/*
+Package primitive includes a contiguous Value arena: each Value is 128×uint64
+(1024 bytes). Default arena capacity is set at process start from
+SIX_VALUE_ARENA_SLOTS (decimal); if unset, defaultArenaSlotsFallback applies
+(~64 MiB for the slab). Raise the env var when workloads need more in-arena
+slots; lower it on memory-constrained hosts.
+*/
 package primitive
 
 import (
 	"errors"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -20,16 +29,29 @@ var heapValuePool = sync.Pool{
 	},
 }
 
-/*
-defaultArenaSlots is the contiguous Value slab capacity. Overflow allocations
-fall back to the heap so correctness is preserved under extreme load.
-*/
-const defaultArenaSlots = 1 << 20
+const defaultArenaSlotsFallback = 1 << 16
 
 /*
-ArenaSlotCount is the number of Value slots in the contiguous arena.
+ArenaSlotCount is the number of Value slots in the contiguous arena slab.
+It is initialized from SIX_VALUE_ARENA_SLOTS or defaultArenaSlotsFallback.
 */
-const ArenaSlotCount = defaultArenaSlots
+var ArenaSlotCount int
+
+func init() {
+	ArenaSlotCount = defaultArenaSlotsFallback
+
+	raw := os.Getenv("SIX_VALUE_ARENA_SLOTS")
+	if raw == "" {
+		return
+	}
+
+	parsed, parseErr := strconv.ParseUint(raw, 10, 31)
+	if parseErr != nil || parsed == 0 {
+		return
+	}
+
+	ArenaSlotCount = int(parsed)
+}
 
 var (
 	valueArena     []Value
@@ -48,7 +70,7 @@ var (
 
 func ensureArena() {
 	valueArenaOnce.Do(func() {
-		valueArena = make([]Value, defaultArenaSlots)
+		valueArena = make([]Value, ArenaSlotCount)
 		freeArenaIdx = make([]uint32, 0, 1024)
 	})
 }
@@ -164,9 +186,9 @@ func AllocValue() *Value {
 
 	arenaMutex.Lock()
 
-	if n := len(freeArenaIdx); n > 0 {
-		slot := freeArenaIdx[n-1]
-		freeArenaIdx = freeArenaIdx[:n-1]
+	if freeListLen := len(freeArenaIdx); freeListLen > 0 {
+		slot := freeArenaIdx[freeListLen-1]
+		freeArenaIdx = freeArenaIdx[:freeListLen-1]
 		arenaMutex.Unlock()
 
 		value := &valueArena[slot]

@@ -29,6 +29,33 @@ static id<MTLBuffer> bufMaxSlots = nil;
 
 #define VALUE_BYTES 1024
 
+static void releaseInitMetalArenaBuffers(void) {
+    if (bufArena) {
+        [bufArena release];
+        bufArena = nil;
+    }
+    if (bufLinear) {
+        [bufLinear release];
+        bufLinear = nil;
+    }
+    if (bufSpawnParent) {
+        [bufSpawnParent release];
+        bufSpawnParent = nil;
+    }
+    if (bufSpawnChild) {
+        [bufSpawnChild release];
+        bufSpawnChild = nil;
+    }
+    if (bufSpawnTail) {
+        [bufSpawnTail release];
+        bufSpawnTail = nil;
+    }
+    if (bufMaxSlots) {
+        [bufMaxSlots release];
+        bufMaxSlots = nil;
+    }
+}
+
 static id<MTLComputePipelineState> makePipeline(id<MTLLibrary> lib, NSString* name, NSError** err) {
     id<MTLFunction> fn = [lib newFunctionWithName:name];
     if (!fn) { NSLog(@"metal: kernel not found: %@", name); return nil; }
@@ -70,25 +97,25 @@ int init_metal(const char* metallib_path) {
         pipelineUnifiedArenaIdx = makePipeline(library, @"unified_bitwise_arena_indices_kernel", &error);
         if (!pipelineUnifiedArenaIdx) {
             NSLog(@"metal: failed to create unified_bitwise_arena_indices pipeline: %@", error);
-            commandQueue = nil; device = nil; initResult = -4; return;
+            commandQueue = nil; device = nil; initResult = -5; return;
         }
 
         pipelineNearestAffinity = makePipeline(library, @"nearest_affinity_kernel", &error);
         if (!pipelineNearestAffinity) {
             NSLog(@"metal: failed to create nearest_affinity pipeline: %@", error);
-            commandQueue = nil; device = nil; initResult = -5; return;
+            commandQueue = nil; device = nil; initResult = -6; return;
         }
 
         pipelineGeometric = makePipeline(library, @"geometric_kernel", &error);
         if (!pipelineGeometric) {
             NSLog(@"metal: failed to create geometric pipeline: %@", error);
-            commandQueue = nil; device = nil; initResult = -6; return;
+            commandQueue = nil; device = nil; initResult = -7; return;
         }
 
         pipelineGeometricIdx = makePipeline(library, @"geometric_arena_indices_kernel", &error);
         if (!pipelineGeometricIdx) {
             NSLog(@"metal: failed to create geometric_arena_indices pipeline: %@", error);
-            commandQueue = nil; device = nil; initResult = -6; return;
+            commandQueue = nil; device = nil; initResult = -8; return;
         }
 
         initResult = 0;
@@ -121,18 +148,7 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
 int init_metal_arena(void* arena_base, size_t arena_bytes, uint32_t* linear_next_host) {
     if (!device || !arena_base || arena_bytes == 0 || !linear_next_host) return -1;
 
-    if (bufArena) {
-        [bufArena release];
-        bufArena = nil;
-    }
-    if (bufLinear) {
-        [bufLinear release];
-        bufLinear = nil;
-    }
-    if (bufSpawnParent) { [bufSpawnParent release]; bufSpawnParent = nil; }
-    if (bufSpawnChild)  { [bufSpawnChild release];  bufSpawnChild = nil; }
-    if (bufSpawnTail)   { [bufSpawnTail release];   bufSpawnTail = nil; }
-    if (bufMaxSlots)    { [bufMaxSlots release];    bufMaxSlots = nil; }
+    releaseInitMetalArenaBuffers();
 
     bufArena = [device newBufferWithBytesNoCopy:arena_base
                                          length:(NSUInteger)arena_bytes
@@ -141,7 +157,9 @@ int init_metal_arena(void* arena_base, size_t arena_bytes, uint32_t* linear_next
                                          (void)pointer;
                                          (void)length;
                                      }];
-    if (!bufArena) return -2;
+    if (!bufArena) {
+        return -2;
+    }
 
     bufLinear = [device newBufferWithBytesNoCopy:linear_next_host
                                           length:sizeof(uint32_t)
@@ -150,18 +168,27 @@ int init_metal_arena(void* arena_base, size_t arena_bytes, uint32_t* linear_next
                                           (void)pointer;
                                           (void)length;
                                       }];
-    if (!bufLinear) return -3;
+    if (!bufLinear) {
+        releaseInitMetalArenaBuffers();
+        return -3;
+    }
 
     NSUInteger spawnBytes = (NSUInteger)SPAWN_QUEUE_CAP * sizeof(uint32_t);
     bufSpawnParent = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
     bufSpawnChild  = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
     bufSpawnTail   = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!bufSpawnParent || !bufSpawnChild || !bufSpawnTail) return -4;
+    if (!bufSpawnParent || !bufSpawnChild || !bufSpawnTail) {
+        releaseInitMetalArenaBuffers();
+        return -4;
+    }
 
     *(uint32_t*)[bufSpawnTail contents] = 0;
 
     bufMaxSlots = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!bufMaxSlots) return -5;
+    if (!bufMaxSlots) {
+        releaseInitMetalArenaBuffers();
+        return -5;
+    }
 
     return 0;
 }
@@ -270,12 +297,25 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
     }
 }
 
-int metal_drain_spawn_queue(uint32_t* parents, uint32_t* children, uint32_t max_out, uint32_t* out_count) {
-    if (!parents || !children || !out_count || !bufSpawnParent || !bufSpawnChild || !bufSpawnTail) return -1;
+int metal_drain_spawn_queue(
+    uint32_t* parents,
+    uint32_t* children,
+    uint32_t max_out,
+    uint32_t* out_count,
+    uint32_t* total_count
+) {
+    if (!parents || !children || !out_count || !bufSpawnParent || !bufSpawnChild || !bufSpawnTail) {
+        return -1;
+    }
 
-    uint32_t n = *(uint32_t*)[bufSpawnTail contents];
+    uint32_t* tailHost = (uint32_t*)[bufSpawnTail contents];
+    uint32_t n = *tailHost;
     if (n > SPAWN_QUEUE_CAP) {
         n = SPAWN_QUEUE_CAP;
+    }
+
+    if (total_count) {
+        *total_count = n;
     }
 
     uint32_t copy = n;
@@ -283,9 +323,19 @@ int metal_drain_spawn_queue(uint32_t* parents, uint32_t* children, uint32_t max_
         copy = max_out;
     }
 
-    memcpy(parents, [bufSpawnParent contents], (size_t)copy * sizeof(uint32_t));
-    memcpy(children, [bufSpawnChild contents], (size_t)copy * sizeof(uint32_t));
-    *(uint32_t*)[bufSpawnTail contents] = 0;
+    uint32_t* parentContents = (uint32_t*)[bufSpawnParent contents];
+    uint32_t* childContents = (uint32_t*)[bufSpawnChild contents];
+
+    memcpy(parents, parentContents, (size_t)copy * sizeof(uint32_t));
+    memcpy(children, childContents, (size_t)copy * sizeof(uint32_t));
+
+    if (n > copy) {
+        size_t remain = (size_t)(n - copy) * sizeof(uint32_t);
+        memmove(parentContents, parentContents + copy, remain);
+        memmove(childContents, childContents + copy, remain);
+    }
+
+    *tailHost = n - copy;
     *out_count = copy;
 
     return 0;

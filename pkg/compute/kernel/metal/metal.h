@@ -35,10 +35,19 @@ void cleanup_metal_pools(void);
 
 /*
 metal_drain_spawn_queue copies up to max_out (parent, child) slot pairs written
-by EMIT_CLONE, resets the device spawn counter, and returns the number of pairs
-in out_count.
+by EMIT_CLONE. On success, out_count is the number of pairs copied into parents
+and children; total_count (when non-NULL) receives the queue length n read from
+bufSpawnTail before any removal. If n exceeds max_out, the tail is reduced by
+max_out and the remaining pairs are compacted in the device buffers so events
+are not discarded silently.
 */
-int metal_drain_spawn_queue(uint32_t* parents, uint32_t* children, uint32_t max_out, uint32_t* out_count);
+int metal_drain_spawn_queue(
+    uint32_t* parents,
+    uint32_t* children,
+    uint32_t max_out,
+    uint32_t* out_count,
+    uint32_t* total_count
+);
 
 #ifdef __cplusplus
 }

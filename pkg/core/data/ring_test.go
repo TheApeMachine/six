@@ -151,6 +151,35 @@ func TestRingPop(t *testing.T) {
 	})
 }
 
+func TestRingLen(t *testing.T) {
+	Convey("Given a nil *Ring", t, func() {
+		var ring *Ring
+
+		Convey("Len should report zero", func() {
+			So(ring.Len(), ShouldEqual, 0)
+		})
+	})
+
+	Convey("Given a Ring with sequential Push/Pop", t, func() {
+		ring, err := NewRing(context.Background(), 8)
+		So(err, ShouldBeNil)
+
+		var a, b [128]uint64
+
+		Convey("Len tracks pending items between enqueue and dequeue positions", func() {
+			So(ring.Len(), ShouldEqual, 0)
+			So(ring.Push(unsafe.Pointer(&a)), ShouldBeTrue)
+			So(ring.Len(), ShouldEqual, 1)
+			So(ring.Push(unsafe.Pointer(&b)), ShouldBeTrue)
+			So(ring.Len(), ShouldEqual, 2)
+			So(ring.Pop(), ShouldEqual, unsafe.Pointer(&a))
+			So(ring.Len(), ShouldEqual, 1)
+			So(ring.Pop(), ShouldEqual, unsafe.Pointer(&b))
+			So(ring.Len(), ShouldEqual, 0)
+		})
+	})
+}
+
 func TestRingClose(t *testing.T) {
 	Convey("Given a Ring from NewRing", t, func() {
 		ring, err := NewRing(context.Background(), 4)

@@ -35,9 +35,25 @@ var metalArenaInit sync.Once
 
 const spawnQueueCap = 4096
 
+var metalSpawnDrainBufPool = sync.Pool{
+	New: func() any {
+		pair := make([]uint32, spawnQueueCap*2)
+
+		return &pair
+	},
+}
+
 func drainMetalSpawns() {
-	parents := make([]uint32, spawnQueueCap)
-	children := make([]uint32, spawnQueueCap)
+	packedAny := metalSpawnDrainBufPool.Get()
+	packed := packedAny.(*[]uint32)
+	slab := *packed
+	if len(slab) < spawnQueueCap*2 {
+		slab = make([]uint32, spawnQueueCap*2)
+	}
+
+	parents := slab[:spawnQueueCap]
+	children := slab[spawnQueueCap : spawnQueueCap*2]
+
 	var outCount C.uint32_t
 
 	if C.metal_drain_spawn_queue(
@@ -45,12 +61,19 @@ func drainMetalSpawns() {
 		(*C.uint32_t)(unsafe.Pointer(&children[0])),
 		C.uint32_t(spawnQueueCap),
 		&outCount,
+		nil,
 	) != 0 {
+		*packed = slab
+		metalSpawnDrainBufPool.Put(packed)
+
 		return
 	}
 
 	n := int(outCount)
 	if n <= 0 {
+		*packed = slab
+		metalSpawnDrainBufPool.Put(packed)
+
 		return
 	}
 
@@ -62,6 +85,9 @@ func drainMetalSpawns() {
 
 		child.StampNewID()
 	}
+
+	*packed = slab
+	metalSpawnDrainBufPool.Put(packed)
 }
 
 func ensureMetalArena() error {

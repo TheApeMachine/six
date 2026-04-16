@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"io"
 	"math"
 	"math/bits"
@@ -31,6 +32,8 @@ type Field struct {
 
 	eigenSnapshot atomic.Pointer[eigenSnap]
 	eigenInflight atomic.Bool
+
+	eigenRefreshCtx context.Context
 
 	intake *data.Ring
 	output *data.Ring
@@ -165,7 +168,12 @@ func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
 		field.eigenSnapshot.Store(&eigenSnap{modes: modes, dominantIdx: dominantIdx})
 	}
 
-	field.scheduleEigenRefresh(participants, affinityMap)
+	refreshCtx := field.eigenRefreshCtx
+	if refreshCtx == nil {
+		refreshCtx = context.Background()
+	}
+
+	field.scheduleEigenRefresh(refreshCtx, participants, affinityMap)
 
 	if dominantIdx >= 0 && len(modes) > 0 {
 		dominant := modes[dominantIdx]
@@ -186,8 +194,11 @@ func (field *Field) cycleLeaf() ([]*primitive.Value, error) {
 /*
 scheduleEigenRefresh recomputes eigenmodes off the hot path so the next
 cycleLeaf can consume a fresher partition without waiting on clustering.
+DetectModes inputs are copied before the goroutine so a recycled Field is not
+read after cancellation; ctx aborts the work before eigenSnapshot is stored.
 */
 func (field *Field) scheduleEigenRefresh(
+	ctx context.Context,
 	participants []ModeParticipant,
 	affinityMap map[uint64][]uint64,
 ) {
@@ -214,6 +225,10 @@ func (field *Field) scheduleEigenRefresh(
 	go func() {
 		defer field.eigenInflight.Store(false)
 
+		if ctx.Err() != nil {
+			return
+		}
+
 		modes, dominantIdx := DetectModes(
 			partCopy,
 			0.3,
@@ -231,8 +246,25 @@ func (field *Field) scheduleEigenRefresh(
 			},
 		)
 
+		if ctx.Err() != nil {
+			return
+		}
+
 		field.eigenSnapshot.Store(&eigenSnap{modes: modes, dominantIdx: dominantIdx})
 	}()
+}
+
+/*
+SetEigenRefreshContext binds the context used for asynchronous eigen
+recomputation. When nil, cycleLeaf uses context.Background. Cancel the
+context to stop snapshot updates without blocking the caller.
+*/
+func (field *Field) SetEigenRefreshContext(ctx context.Context) {
+	if field == nil {
+		return
+	}
+
+	field.eigenRefreshCtx = ctx
 }
 
 /*

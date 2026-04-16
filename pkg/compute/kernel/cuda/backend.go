@@ -16,6 +16,7 @@ import "C"
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"unsafe"
 
@@ -119,7 +120,7 @@ func (backend *Backend) Execute(indices []uint32) error {
 	for _, slot := range indices {
 		value := primitive.ValueAt(slot)
 		if value == nil {
-			continue
+			return fmt.Errorf("cuda.Backend.Execute: primitive.ValueAt(%d) returned nil", slot)
 		}
 
 		ptr := unsafe.Pointer(&value[0])
