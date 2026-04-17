@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -22,7 +20,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		defer field.Close()
 
 		Convey("measureCrystallization reports zero across the board", func() {
-			metrics := field.measureCrystallization()
+			metrics := field.Metrics()
 
 			So(metrics.MemberCount, ShouldEqual, 0)
 			So(metrics.Coverage, ShouldEqual, 0)
@@ -37,15 +35,18 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
-		propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
-
 		// Two identically-labeled members (slots [7,7,7,7]) and one
 		// untagged member — Coverage = 2/3, LabelDensity = (4+4+0) / 12 = 8/12,
 		// Consensus = 1 (single-class histogram).
 		for idx := 0; idx < 2; idx++ {
-			value := primitive.AllocValue()
-			value.StampNewID()
-			value.Set(propsStart, kernel.PackClassificationLabelSlots(7, 7, 7, 7))
+			value := primitive.Emit(
+				primitive.WithLabels(7, 7, 7, 7),
+				primitive.WithConfidence(0xFFFFFFFFFFFFFFFF),
+				primitive.WithEpoch(0xFFFFFFFFFFFFFFFF),
+				primitive.WithTTL(0xFFFFFFFFFFFFFFFF),
+				primitive.WithNoise(0xFFFFFFFFFFFFFFFF),
+				primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
+			)
 			field.AddValue(value)
 		}
 
@@ -54,7 +55,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		field.AddValue(blank)
 
 		Convey("Coverage, Consensus, LabelDensity degenerate to the expected fractions", func() {
-			metrics := field.measureCrystallization()
+			metrics := field.Metrics()
 
 			So(metrics.MemberCount, ShouldEqual, 3)
 			So(metrics.LabeledCount, ShouldEqual, 2)
@@ -71,20 +72,30 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
-		propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
+		classA := primitive.Emit(
+			primitive.WithLabels(1, 1, 1, 1),
+			primitive.WithConfidence(0xFFFFFFFFFFFFFFFF),
+			primitive.WithEpoch(0xFFFFFFFFFFFFFFFF),
+			primitive.WithTTL(0xFFFFFFFFFFFFFFFF),
+			primitive.WithNoise(0xFFFFFFFFFFFFFFFF),
+			primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
+		)
+		classB := primitive.Emit(
+			primitive.WithLabels(2, 2, 2, 2),
+			primitive.WithConfidence(0xFFFFFFFFFFFFFFFF),
+			primitive.WithEpoch(0xFFFFFFFFFFFFFFFF),
+			primitive.WithTTL(0xFFFFFFFFFFFFFFFF),
+			primitive.WithNoise(0xFFFFFFFFFFFFFFFF),
+			primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
+		)
 
-		classA := kernel.PackClassificationLabelSlots(1, 1, 1, 1)
-		classB := kernel.PackClassificationLabelSlots(2, 2, 2, 2)
-
-		for _, label := range []uint64{classA, classA, classB, classB} {
-			value := primitive.AllocValue()
-			value.StampNewID()
-			value.Set(propsStart, label)
-			field.AddValue(value)
-		}
+		field.AddValue(classA)
+		field.AddValue(classA)
+		field.AddValue(classB)
+		field.AddValue(classB)
 
 		Convey("Consensus drops to zero and drags Crystallization with it", func() {
-			metrics := field.measureCrystallization()
+			metrics := field.Metrics()
 
 			So(metrics.Coverage, ShouldEqual, 1)
 			So(metrics.LabelDensity, ShouldEqual, 1)
@@ -141,23 +152,20 @@ func BenchmarkFieldMeasureCrystallization(b *testing.B) {
 	field := NewField(context.Background(), 65537, nil)
 	defer field.Close()
 
-	propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
-
 	// 64 members, roughly 70% labeled, three distinct classes — a
 	// realistic post-warmup community shape so the benchmark reflects
 	// steady-state measurement cost rather than an empty fast-path.
 	const memberCount = 64
 
-	classes := []uint16{1, 2, 3}
-
 	for idx := 0; idx < memberCount; idx++ {
-		value := primitive.AllocValue()
-		value.StampNewID()
-
-		if idx%3 != 0 {
-			label := classes[idx%len(classes)]
-			value.Set(propsStart, kernel.PackClassificationLabelSlots(label, label, 0, 0))
-		}
+		value := primitive.Emit(
+			primitive.WithLabels(9, 9, 9, 9),
+			primitive.WithConfidence(0xFFFFFFFFFFFFFFFF),
+			primitive.WithEpoch(0xFFFFFFFFFFFFFFFF),
+			primitive.WithTTL(0xFFFFFFFFFFFFFFFF),
+			primitive.WithNoise(0xFFFFFFFFFFFFFFFF),
+			primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
+		)
 
 		field.AddValue(value)
 	}
@@ -166,7 +174,7 @@ func BenchmarkFieldMeasureCrystallization(b *testing.B) {
 	b.ResetTimer()
 
 	for iteration := 0; iteration < b.N; iteration++ {
-		_ = field.measureCrystallization()
+		_ = field.Metrics()
 	}
 }
 

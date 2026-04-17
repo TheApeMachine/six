@@ -4,8 +4,8 @@ import (
 	"math"
 	"math/bits"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -47,69 +47,6 @@ is reused for the overall Crystallization saturation flag because the
 two semantics degenerate once a field reaches high-consensus coverage.
 */
 const crystallizationFloor = 0.35
-
-/*
-measureCrystallization scans the member population once and populates
-Coverage, Consensus, LabelDensity, and the composed Crystallization
-score. It never mutates the member Values — it works from a
-snapshotValues copy so iteration is safe if AddValue or Write appends
-concurrently.
-
-The inner loop is Go-native rather than SIMD because the population
-size per community is typically in the tens, not thousands, and the
-work per member is a single word load plus four uint16 extractions. A
-vectorised sweep only pays off past ~1 k members per community.
-*/
-func (field *Field) measureCrystallization() FieldMetrics {
-	members := field.snapshotValues()
-
-	metrics := FieldMetrics{MemberCount: len(members)}
-
-	if metrics.MemberCount == 0 {
-		return metrics
-	}
-
-	propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
-	labelsWord := propsStart
-
-	// Histogram of distinct non-zero label slot values. Shannon entropy is
-	// computed from the histogram at the end; a map keeps the code short
-	// without penalising the inner loop noticeably at community scale.
-	histogram := make(map[uint16]int, metrics.MemberCount*2)
-
-	for _, value := range members {
-		if value == nil {
-			continue
-		}
-
-		packed := (*value)[labelsWord]
-		slots := kernel.UnpackClassificationLabelSlots(packed)
-
-		memberNonZero := 0
-
-		for _, slot := range slots {
-			if slot == 0 {
-				continue
-			}
-
-			histogram[slot]++
-			memberNonZero++
-		}
-
-		if memberNonZero > 0 {
-			metrics.LabeledCount++
-			metrics.SlotSum += memberNonZero
-		}
-	}
-
-	metrics.Coverage = float64(metrics.LabeledCount) / float64(metrics.MemberCount)
-	metrics.LabelDensity = float64(metrics.SlotSum) / float64(metrics.MemberCount*4)
-	metrics.Consensus = shannonConsensus(histogram)
-	metrics.Crystallization = metrics.Coverage * metrics.Consensus * metrics.LabelDensity
-	metrics.Saturated = metrics.Crystallization >= crystallizationFloor
-
-	return metrics
-}
 
 /*
 shannonConsensus returns 1 − H / log2(N) where H is Shannon entropy in
@@ -226,6 +163,136 @@ func loadAffinityArray(value *primitive.Value) [affinityWords]uint64 {
 
 	for i := 0; i < affinityWords; i++ {
 		out[i] = (*value)[start+i]
+	}
+
+	return out
+}
+
+/*
+MeasureFieldMetrics aggregates crystallisation-style metrics from a member
+slice and the current eigenmode snapshot. Used when a Field ingests frames
+(io.Write) so observation stays on the streaming path instead of a separate Cycle.
+*/
+func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) FieldMetrics {
+	var out FieldMetrics
+
+	n := 0
+
+	for _, v := range members {
+		if v != nil {
+			n++
+		}
+	}
+
+	out.MemberCount = n
+
+	if n == 0 {
+		return out
+	}
+
+	propsStart, propsWords := core.Cfg.Value.Region.Properties.WordExtent()
+
+	if propsWords < 1 {
+		return out
+	}
+
+	hist := make(map[uint16]int)
+	labelSlots := 0
+	labeled := 0
+
+	for _, v := range members {
+		if v == nil {
+			continue
+		}
+
+		w := (*v)[propsStart]
+		slots := 0
+
+		for i := 0; i < 4; i++ {
+			if uint16(w>>(i*16)) != 0 {
+				slots++
+			}
+		}
+
+		if slots > 0 {
+			labeled++
+		}
+
+		labelSlots += slots
+
+		hist[uint16(w&0xFFFF)]++
+	}
+
+	out.LabeledCount = labeled
+	out.SlotSum = labelSlots
+	out.Coverage = float64(labeled) / float64(n)
+	out.LabelDensity = float64(labelSlots) / float64(n*4)
+	out.Consensus = shannonConsensus(hist)
+	out.Crystallization = out.Coverage * out.Consensus * out.LabelDensity
+	out.Saturated = out.Crystallization >= crystallizationFloor
+
+	if snap != nil {
+		out.ModeCount = len(snap.Modes())
+		out.DominantRatio = dominantEnergyRatio(snap)
+		out.PressureMult = 1 - out.DominantRatio
+	}
+
+	return out
+}
+
+// RollupFieldMetrics combines child community metrics for a routing parent (one level).
+func RollupFieldMetrics(children []*Field) FieldMetrics {
+	var out FieldMetrics
+
+	var (
+		totalMembers    int
+		sumCryst        float64
+		sumCoverage     float64
+		sumConsensus    float64
+		sumLabelDensity float64
+		maxModeCount    int
+		maxDominant     float64
+	)
+
+	for _, ch := range children {
+		if ch == nil {
+			continue
+		}
+
+		m := ch.Metrics()
+
+		if m.MemberCount == 0 {
+			continue
+		}
+
+		w := float64(m.MemberCount)
+		totalMembers += m.MemberCount
+		sumCryst += m.Crystallization * w
+		sumCoverage += m.Coverage * w
+		sumConsensus += m.Consensus * w
+		sumLabelDensity += m.LabelDensity * w
+
+		if m.ModeCount > maxModeCount {
+			maxModeCount = m.ModeCount
+		}
+
+		if m.DominantRatio > maxDominant {
+			maxDominant = m.DominantRatio
+		}
+	}
+
+	out.MemberCount = totalMembers
+	out.ModeCount = maxModeCount
+	out.DominantRatio = maxDominant
+	out.PressureMult = 1 - out.DominantRatio
+
+	if totalMembers > 0 {
+		inv := 1 / float64(totalMembers)
+		out.Crystallization = sumCryst * inv
+		out.Coverage = sumCoverage * inv
+		out.Consensus = sumConsensus * inv
+		out.LabelDensity = sumLabelDensity * inv
+		out.Saturated = out.Crystallization >= crystallizationFloor
 	}
 
 	return out

@@ -8,11 +8,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -20,28 +18,28 @@ import (
 
 /*
 substrateState tracks per-substrate pressure so the load balancer can
-make informed dispatch decisions without locks. All fields are atomically
-updated from the dispatch hot path.
+make informed dispatch decisions without locks.
 */
 type substrateState struct {
 	idx       int
-	substrate kernel.Substrate
-	target    programmer.CompilerTarget
-	inflight  atomic.Int64
-	emaNanos  atomic.Int64
+	substrate interface {
+		Execute(indices []uint32) error
+		Name() string
+	}
+	inflight atomic.Int64
+	emaNanos atomic.Int64
 }
 
+// frameMetaResidencyWord is the asset metadata slot that records which substrate
+// last executed the frame (see pkg/core/config.go ValueRegionConfig asset band).
+// Zero means unset; otherwise it holds the substrateState.idx value.
+const frameMetaResidencyWord = 119
+
 /*
-Backend acts as an intelligent Multi-Substrate Load Balancer. It tracks
-in-flight depth and exponential moving average service time per substrate,
-dispatching work to whichever has the least pressure.
-
-Frames may carry a residency tag (word 119). When present, pick adds
-transferPenalty to scores for substrates that would pull the buffer
-across a physical hop relative to where it last completed.
-
-All compute flows through Execute. Values carry fixed-layout program words;
-the substrate reads the opcode and dispatches to the appropriate kernel.
+Backend is a small load balancer over compute substrates (CUDA, Metal, CPU).
+It picks the lowest-pressure candidate using inflight × EMA service time, with
+an optional migration toll when a frame carries a residency tag pointing at
+another substrate.
 */
 type Backend struct {
 	ctx             context.Context
@@ -49,12 +47,8 @@ type Backend struct {
 	err             error
 	states          []*substrateState
 	transferPenalty int64
-	// exploreEvery, when non-zero, zeros the transfer penalty on every Nth
-	// pick so the router empirically re-samples a faster substrate instead of
-	// sticking on a CPU spill forever under static additive tolls.
-	exploreEvery   uint64
-	pickSeq        atomic.Uint64
-	correlationSeq atomic.Uint64
+	exploreEvery    uint64
+	pickSeq         atomic.Uint64
 }
 
 /*
@@ -63,8 +57,8 @@ BackendOption configures the multi-substrate router.
 type BackendOption func(*Backend)
 
 /*
-WithTransferPenalty sets the additive pressure cost (same units as
-inflight×ema) for moving a frame off its last executing substrate.
+WithTransferPenalty sets the additive cost (same units as inflight×ema) for
+running a frame on a substrate other than its residency tag.
 */
 func WithTransferPenalty(nanosProduct int64) BackendOption {
 	return func(backend *Backend) {
@@ -73,10 +67,8 @@ func WithTransferPenalty(nanosProduct int64) BackendOption {
 }
 
 /*
-WithExploreEvery re-schedules exploration hops: every n pick() calls, the
-load balancer ignores residency and transferPenalty so a frame may migrate
-off a temporarily cheap substrate even if a static toll would block it.
-Set to 0 (default) to disable.
+WithExploreEvery, when non-zero, clears the migration toll every n-th pick so
+the router can re-sample a faster substrate.
 */
 func WithExploreEvery(n uint64) BackendOption {
 	return func(backend *Backend) {
@@ -85,9 +77,8 @@ func WithExploreEvery(n uint64) BackendOption {
 }
 
 /*
-NewBackend initializes the unified Load Balancer by probing for
-all available compute substrates. Each substrate gets its own
-pressure tracker so dispatch stays lock-free.
+NewBackend registers every available substrate (CUDA devices, Metal devices,
+then CPU) with independent pressure trackers.
 */
 func NewBackend(
 	ctx context.Context,
@@ -111,6 +102,7 @@ func NewBackend(
 		"cancel": backend.cancel,
 	}); err != nil {
 		errnie.Error(err)
+
 		return nil
 	}
 
@@ -121,7 +113,6 @@ func NewBackend(
 		backend.states = append(backend.states, &substrateState{
 			idx:       idx,
 			substrate: cuda.NewBackend(device),
-			target:    programmer.CUDA,
 		})
 
 		idx++
@@ -132,7 +123,6 @@ func NewBackend(
 		backend.states = append(backend.states, &substrateState{
 			idx:       idx,
 			substrate: metal.NewBackend(device),
-			target:    programmer.Metal,
 		})
 
 		idx++
@@ -142,13 +132,13 @@ func NewBackend(
 	backend.states = append(backend.states, &substrateState{
 		idx:       idx,
 		substrate: cpu.NewBackend(backend.ctx),
-		target:    programmer.CPU,
 	})
 
 	if err := validate.Require(map[string]any{
 		"states": backend.states,
 	}); err != nil {
 		errnie.Error(err)
+
 		return nil
 	}
 
@@ -224,13 +214,23 @@ func pointerSliceFromIndices(indices []uint32) (out []unsafe.Pointer, err error)
 	return out, nil
 }
 
+func residencySubstrateIndex(ptr unsafe.Pointer) int {
+	if ptr == nil {
+		return -1
+	}
+
+	w := (*[128]uint64)(ptr)[frameMetaResidencyWord]
+	if w == 0 {
+		return -1
+	}
+
+	return int(w)
+}
+
 /*
 pick selects the substrate with the lowest pressure score.
 Score = inflight * emaServiceTime plus an effective transfer toll when the
-frame's residency tag disagrees with the candidate slot. The toll shrinks
-when the resident substrate's EMA latency dominates the candidate's so a
-one-time copy can amortize against faster hardware. Periodic exploration
-drops the toll entirely every exploreEvery picks.
+frame's residency tag disagrees with the candidate slot.
 */
 func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 	residentIdx := -1
@@ -240,7 +240,7 @@ func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 			continue
 		}
 
-		if idx := kernel.ResidencySubstrateIndex(ptr); idx >= 0 {
+		if idx := residencySubstrateIndex(ptr); idx >= 0 {
 			residentIdx = idx
 
 			break
@@ -275,10 +275,6 @@ func (backend *Backend) pick(frames []unsafe.Pointer) *substrateState {
 	return best
 }
 
-/*
-nextPickExploresResidency returns true on every exploreEvery-th scheduling
-decision so the balancer can ignore migration cost for one pick.
-*/
 func (backend *Backend) nextPickExploresResidency() bool {
 	if backend.exploreEvery == 0 {
 		return false
@@ -289,13 +285,6 @@ func (backend *Backend) nextPickExploresResidency() bool {
 	return n%backend.exploreEvery == 0
 }
 
-/*
-effectiveTransferPenalty maps the configured additive wall into a dynamic
-toll. When the last resident substrate is much slower (higher EMA) than
-the candidate, the penalty is right-shifted in proportion to the integer
-latency ratio so asymmetric CUDA/CPU pairs can still justify a hop.
-Exploration passes suppress the toll entirely.
-*/
 func (backend *Backend) effectiveTransferPenalty(
 	residentIdx int,
 	cand *substrateState,
@@ -342,50 +331,20 @@ func (backend *Backend) effectiveTransferPenalty(
 	return penalty
 }
 
-/*
-observe updates the EMA service time after a dispatch completes.
-Uses a simple α=1/8 exponential moving average (shift instead of
-multiply for zero-alloc hot path).
-*/
 func (st *substrateState) observe(elapsed time.Duration) {
 	nanos := elapsed.Nanoseconds()
 	old := st.emaNanos.Load()
 
 	if old == 0 {
 		st.emaNanos.Store(nanos)
+
 		return
 	}
 
 	st.emaNanos.Store(old + (nanos-old)>>3)
 }
 
-func (backend *Backend) ensureCorrelationIDs(frames []unsafe.Pointer) {
-	for _, ptr := range frames {
-		kernel.EnsureFrameCorrelationSeq(&backend.correlationSeq, ptr)
-	}
-}
-
-func firstFrameOpcodeAndCorrelation(frames []unsafe.Pointer) (opcode uint8, correlation uint64, valueID uint64) {
-	for _, ptr := range frames {
-		if ptr == nil {
-			continue
-		}
-
-		return kernel.FrameProgramRawOpcode(ptr), kernel.FrameCorrelationID(ptr), kernel.FrameID(ptr)
-	}
-
-	return 0, 0, 0
-}
-
-/*
-Dispatch is the pool handler: it receives an Executable from a worker,
-picks the best substrate, compiles for the matching target, writes the
-frames into the Value, executes, and then calls the Finalizer so the
-orchestrator can re-evaluate firmware or route to a community.
-*/
-func (backend *Backend) Dispatch(executable *programmer.Executable) {
-	value := executable.Value()
-
+func (backend *Backend) dispatchExecute(value *primitive.Value) {
 	if value == nil {
 		return
 	}
@@ -393,116 +352,25 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 	framePtr := unsafe.Pointer(&value[0])
 	ptrs := []unsafe.Pointer{framePtr}
 
-	indices, arenaErr := primitive.IndicesFromPointers(ptrs)
-
-	if executable.IsResidentProgram() {
-		if arenaErr != nil {
-			cb := backend.cpuBackend()
-			if cb == nil {
-				errnie.Error(errors.New("compute.Dispatch: heap Value without CPU substrate"))
-				executable.Finalize()
-
-				return
-			}
-
-			if err := cb.ExecutePointers(ptrs); err != nil {
-				errnie.Error(err)
-			}
-
-			executable.Finalize()
-
-			return
-		}
-
-		if err := backend.Execute(indices); err != nil {
-			errnie.Error(err)
-		}
-
-		executable.Finalize()
-		return
-	}
-
-	frames, err := executable.Compile(programmer.CPU)
-
-	if err != nil {
+	if err := backend.ExecutePointers(ptrs); err != nil {
 		errnie.Error(err)
-		return
 	}
-
-	if len(frames) == 0 {
-		executable.Finalize()
-		return
-	}
-
-	st := backend.pick(ptrs)
-
-	if st.target != programmer.CPU {
-		recompiled, err := executable.Compile(st.target)
-
-		if err == nil {
-			frames = recompiled
-		}
-	}
-
-	st.inflight.Add(1)
-	start := time.Now()
-
-	for idx := range frames {
-		frames[idx].WriteIntoProgramRegion(value)
-		executable.ApplyContinuation()
-
-		var execErr error
-
-		if arenaErr != nil {
-			cb := backend.cpuBackend()
-			if cb == nil {
-				errnie.Error(errors.New("compute.Dispatch: heap Value without CPU substrate"))
-				break
-			}
-
-			execErr = cb.ExecutePointers(ptrs)
-		}
-
-		if arenaErr == nil {
-			execErr = st.substrate.Execute(indices)
-		}
-
-		if execErr != nil {
-			errnie.Error(execErr)
-			break
-		}
-	}
-
-	// Restore frame 0's program words so the Value's program region
-	// carries the *identity* of the installed program rather than the
-	// last primitive's operand layout. Multi-line DSL programs (e.g.
-	// beam_swarm_step) executed via the frame loop above otherwise
-	// leave the program region set to the final line, which the
-	// visualiser's classifier cannot match against PROGRAM_SIGNATURES
-	// — every steady-state Value ends up rendered as "no program
-	// installed" even though it just ran a fully-stamped firmware.
-	// Deliberately do NOT re-apply the continuation here: the final
-	// kernel pass owns SchedulingNextProgramWord (postexec clears it
-	// on TTL expiry), and re-arming a `next self` directive would
-	// undo that TTL gate and spin the heartbeat forever. Frame 0's
-	// Program array carries operand descriptors; word 117 is outside
-	// that slab, so restoring the program region leaves scheduling
-	// alone.
-	if len(frames) > 1 {
-		frames[0].WriteIntoProgramRegion(value)
-	}
-
-	elapsed := time.Since(start)
-	st.inflight.Add(-1)
-	st.observe(elapsed)
-
-	executable.Finalize()
 }
 
 /*
-Execute dispatches pre-compiled arena slot indices to the best available
-substrate. Each Value must already contain the program bits the ALU
-expects; the substrate reads the opcode from the program region.
+Dispatch runs one pass on the Value's current program words (arena or heap).
+*/
+func (backend *Backend) Dispatch(value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	backend.dispatchExecute(value)
+}
+
+/*
+Execute runs arena-backed slot indices on whichever substrate pick selects.
+All substrates implement the same Execute(indices) contract.
 */
 func (backend *Backend) Execute(indices []uint32) error {
 	ptrs, err := pointerSliceFromIndices(indices)
@@ -510,59 +378,42 @@ func (backend *Backend) Execute(indices []uint32) error {
 		return err
 	}
 
-	backend.ensureCorrelationIDs(ptrs)
-
-	// Force CPU substrate for OpcodeRegionProgram and OpcodeCopyMaskMerge since
-	// they are only implemented on the CPU path today.
-	op, _, _ := firstFrameOpcodeAndCorrelation(ptrs)
-	var st *substrateState
-	if uint64(op) == kernel.OpcodeRegionProgram || kernel.IsCopyMaskMergeOpcode(uint64(op)) {
-		for _, state := range backend.states {
-			if state.substrate.Name() == "cpu" {
-				st = state
-				break
-			}
-		}
-	}
-
+	st := backend.pick(ptrs)
 	if st == nil {
-		st = backend.pick(ptrs)
+		return errors.New("compute.Backend.Execute: no substrate")
 	}
 
 	st.inflight.Add(1)
 	start := time.Now()
 
-	err = st.substrate.Execute(indices)
+	execErr := st.substrate.Execute(indices)
 
 	elapsed := time.Since(start)
 	st.inflight.Add(-1)
 	st.observe(elapsed)
 
-	return err
+	return execErr
 }
 
 /*
-ExecutePointers maps host pointers to arena indices when possible; heap Values
-run on the CPU substrate only with the same telemetry and wire hooks as Execute.
+ExecutePointers uses arena indices when the pointers lie in the arena slab
+(so GPU/Metal can run); otherwise it runs on the CPU substrate (only path
+for heap-allocated frames).
 */
 func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
 	indices, err := primitive.IndicesFromPointers(frames)
 	if err != nil {
-		return backend.executeHeapFramesOnCPU(frames)
+		return backend.executeNonArenaOnCPU(frames)
 	}
 
 	return backend.Execute(indices)
 }
 
-func (backend *Backend) executeHeapFramesOnCPU(frames []unsafe.Pointer) error {
+func (backend *Backend) executeNonArenaOnCPU(frames []unsafe.Pointer) error {
 	cb := backend.cpuBackend()
 	if cb == nil {
-		return errors.New("compute.Backend.ExecutePointers: no CPU substrate for heap frame")
+		return errors.New("compute.Backend: no CPU substrate for non-arena frames")
 	}
-
-	backend.ensureCorrelationIDs(frames)
-
-	_, _, _ = firstFrameOpcodeAndCorrelation(frames)
 
 	var st *substrateState
 
@@ -575,7 +426,7 @@ func (backend *Backend) executeHeapFramesOnCPU(frames []unsafe.Pointer) error {
 	}
 
 	if st == nil {
-		return errors.New("compute.Backend.executeHeapFramesOnCPU: CPU substrate missing")
+		return errors.New("compute.Backend: CPU substrate missing")
 	}
 
 	st.inflight.Add(1)

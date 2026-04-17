@@ -11,8 +11,8 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type stubQueueExecutor struct {
@@ -53,7 +53,7 @@ func (stub *clearingSchedulerExecutor) Execute(frames []unsafe.Pointer) error {
 	}
 
 	frameWords := (*[128]uint64)(frames[0])
-	frameWords[kernel.SchedulingNextProgramWord] = 0
+	frameWords[core.Cfg.Value.Region.Program.Start] = 0
 
 	return nil
 }
@@ -83,11 +83,8 @@ func (stub *settledProbeExecutor) Execute(frames []unsafe.Pointer) error {
 	}
 
 	frameWords := (*[128]uint64)(frames[0])
-	frameWords[kernel.SchedulingNextProgramWord] = frameWords[kernel.IDStartWord]
-	frameWords[kernel.PropertiesProbeStateWord] = kernel.PackProbeState(
-		kernel.CausalProbeKindHub,
-		kernel.CausalProbeStatusSettled,
-	)
+	frameWords[core.Cfg.Value.Region.Program.Start] = frameWords[core.Cfg.Value.Region.ID.Start]
+	frameWords[core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS)] = uint64(primitive.PENDING)
 
 	return nil
 }
@@ -138,12 +135,9 @@ func TestQueueSubmit(t *testing.T) {
 
 		wait.Add(1)
 
-		queue.Submit(func() *programmer.Executable {
-			ran.Store(true)
-			wait.Done()
-
-			return nil
-		})
+		queue.Submit(&primitive.Value{})
+		ran.Store(true)
+		wait.Done()
 
 		wait.Wait()
 
@@ -159,9 +153,7 @@ func TestQueueSubmitNil(t *testing.T) {
 	Convey("Submit on nil is a no-op", t, func() {
 		var queue *Queue
 
-		queue.Submit(func() *programmer.Executable {
-			return nil
-		})
+		queue.Submit(&primitive.Value{})
 	})
 }
 

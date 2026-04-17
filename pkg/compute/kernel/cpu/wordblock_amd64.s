@@ -216,7 +216,7 @@ hmatch_done:
 //
 // Staged companion to universalBitwiseV2 in wordblock_universal.go. The wire
 // format for each 4-bit opcode is value.opcodes in cmd/cfg/config.yml (same
-// nibbles as pkg/compute/programmer.OperationType): interpret the four
+// nibbles as pkg/compute/firmware.OperationType): interpret the four
 // characters as binary with the rightmost digit = LSB. Bit k of the nibble
 // selects whether minterm k contributes (caller broadcasts 0 or ~0 per lane):
 //   op&1 → m0 / (a ∧ b)

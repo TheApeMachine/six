@@ -4,12 +4,11 @@ import (
 	"context"
 	"io"
 	"runtime"
-	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -44,7 +43,7 @@ optional dispatch handler is called by pool workers whenever a task
 returns a non-nil Executable — this is how the compute Backend receives
 work.
 */
-func NewQueue(ctx context.Context, dispatch ...func(*programmer.Executable)) (*Queue, error) {
+func NewQueue(ctx context.Context, dispatch ...func(*primitive.Value)) (*Queue, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	queue := &Queue{
@@ -127,32 +126,15 @@ func (queue *Queue) Error() error {
 var _ io.ReadWriteCloser = (*Queue)(nil)
 
 /*
-Submit dispatches a task to the goroutine pool for immediate execution.
-This is the fast path for CPU-bound work that should not queue.
+Submit dispatches a Value to the goroutine pool as a task to be
+executed by the ALU. Priority queue should be normal priority by
+default, but could be overwritten using a new word in the Value's
+Properties region.
 */
-func (queue *Queue) Submit(task func() *programmer.Executable) {
+func (queue *Queue) Submit(value *primitive.Value) {
 	if queue == nil {
 		return
 	}
 
-	queue.pool.Submit(task)
-}
-
-/*
-Schedule enqueues work onto the normal-priority ring buffer.
-Returns false when the ring is full.
-*/
-func (queue *Queue) Schedule(
-	ctx context.Context, task func() *programmer.Executable,
-) bool {
-	if queue == nil {
-		return false
-	}
-
-	return queue.normal.Push(unsafe.Pointer(
-		&Slot{
-			threadPtr: GetG(),
-			task:      task,
-		},
-	))
+	queue.pool.Submit(value)
 }

@@ -9,7 +9,6 @@ int cuda_device_count();
 void cleanup_cuda_pools();
 
 int unified_bitwise_cuda(int device_id, void* a_host, uint32_t num_values);
-int geometric_cuda(int device_id, void* a_host, uint32_t num_values);
 int nearest_affinity_cuda(int device_id, void* query_host, void* candidates_host, uint32_t count, uint32_t* distances_host);
 */
 import "C"
@@ -55,6 +54,7 @@ func NewBackend(idx int, opts ...backendOption) *Backend {
 		opt(backend)
 	}
 	backend.observer = kernel.NormalizeObserver(backend.observer)
+
 	return backend
 }
 
@@ -108,11 +108,7 @@ func Available() int {
 }
 
 /*
-Execute dispatches frames to the appropriate CUDA kernel based on
-the opcode in each Value's program region (word 16). Batch distance
-frames (opcode 0x6 with count at word 124) route to the fused
-XOR+popcount kernel. Geometric opcodes route to the PGA kernel.
-All other frames go through the unified bitwise kernel.
+Execute runs the unified bitwise kernel on each Value frame.
 */
 func (backend *Backend) Execute(indices []uint32) error {
 	if len(indices) == 0 {
@@ -126,102 +122,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 		}
 
 		ptr := unsafe.Pointer(&value[0])
-		v := (*[128]uint64)(ptr)
-		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
-		opcode := rawOpcode & kernel.OpcodeBooleanMask
-		batchCount := v[kernel.NearestAffinityBatchWord]
-
-		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
-			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
-		}
-
-		if kernel.IsGeometricOpcode(rawOpcode) {
-			if C.geometric_cuda(
-				C.int(backend.deviceIdx),
-				ptr,
-				C.uint32_t(1),
-			) != 0 {
-				err := NewCUDAKernelError(
-					kernel.KernelErrDispatchFailed,
-					errors.New("geometric dispatch failed"),
-					"Execute",
-					1,
-				)
-
-				kv := append(
-					[]any{"device_idx", backend.deviceIdx},
-					kernel.CorrelationKeyvalsFlat(ptr)...,
-				)
-
-				backend.observer.Error("cuda.Backend.Execute", err, kv...)
-
-				return err
-			}
-
-			kernel.FinishFramePostALU(v)
-
-			continue
-		}
-
-		if kernel.IsCopyMaskMergeOpcode(rawOpcode) {
-			kernel.ApplyCopyMaskMerge(v)
-			kernel.FinishFramePostALU(v)
-
-			continue
-		}
-
-		if kernel.IsEmitCloneOpcode(rawOpcode) {
-			primitive.EmitCloneHost(value)
-
-			continue
-		}
-
-		if opcode == kernel.OpcodeXOR && batchCount > 0 {
-			distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
-
-			if C.nearest_affinity_cuda(
-				C.int(backend.deviceIdx),
-				unsafe.Pointer(&v[0]),
-				unsafe.Pointer(&v[kernel.NearestAffinityCandidatesStartWord]),
-				C.uint32_t(batchCount),
-				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
-			) != 0 {
-				err := NewCUDAKernelError(
-					kernel.KernelErrDispatchFailed,
-					errors.New("batch distance dispatch failed"),
-					"Execute",
-					int(batchCount),
-				)
-
-				kv := append(
-					[]any{"device_idx", backend.deviceIdx},
-					kernel.CorrelationKeyvalsFlat(ptr)...,
-				)
-
-				backend.observer.Error("cuda.Backend.Execute", err, kv...)
-
-				return err
-			}
-
-			bestIdx := uint64(0)
-			bestDist := uint64(distances[0])
-
-			for idx := uint64(1); idx < batchCount; idx++ {
-				dist := uint64(distances[idx])
-
-				if dist < bestDist {
-					bestDist = dist
-					bestIdx = idx
-				}
-			}
-
-			v[kernel.SignalsStartWord+kernel.SignalBestIdxOffset] = bestIdx
-			v[kernel.SignalsStartWord+kernel.SignalBestDistOffset] = bestDist
-
-			kernel.FinishFramePostALU(v)
-
-			continue
-		}
 
 		if C.unified_bitwise_cuda(
 			C.int(backend.deviceIdx),
@@ -235,17 +135,12 @@ func (backend *Backend) Execute(indices []uint32) error {
 				1,
 			)
 
-			kv := append(
-				[]any{"device_idx", backend.deviceIdx},
-				kernel.CorrelationKeyvalsFlat(ptr)...,
+			backend.observer.Error("cuda.Backend.Execute", err,
+				"device_idx", backend.deviceIdx,
 			)
-
-			backend.observer.Error("cuda.Backend.Execute", err, kv...)
 
 			return err
 		}
-
-		kernel.FinishFramePostALU(v)
 	}
 
 	return nil

@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -176,12 +175,12 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 	maxCodes := int(core.Cfg.Value.Region.Tokens.Bits / 16)
 	out := make([]*Value, 0, maxCodes)
 
-	var label []byte
+	var label uint64
 
-	if i := slices.IndexFunc(
-		labels, func(c []byte) bool { return len(c) > 0 },
-	); i >= 0 {
-		label = labels[i]
+	labelsPtr := unsafe.Slice((*uint64)(unsafe.Pointer(&labels[0])), len(labels))
+
+	if i := slices.IndexFunc(labelsPtr, func(c uint64) bool { return c > 0 }); i >= 0 {
+		label = labelsPtr[i]
 	}
 
 	for idx := 0; idx < len(p); {
@@ -217,10 +216,10 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 
 		stamp := val.stampID()
 
-		if len(label) > 0 {
+		if label > 0 {
 			stamp.Set(
-				kernel.PropertiesStartWord,
-				kernel.LabelPropertiesWord(label),
+				core.Cfg.Value.Region.Properties.Start,
+				label,
 			)
 		}
 
@@ -260,6 +259,25 @@ func ValueFromWireFrame(frame []byte) (*Value, error) {
 	valueFrom(frame, value)
 
 	return value, nil
+}
+
+/*
+LoadFullFrame replaces every word in this Value from a complete wire frame
+of length core.Cfg.Value.Bytes (the layout produced by Value.Read). This is
+the in-place analogue of ValueFromWireFrame without a second allocation.
+*/
+func (value *Value) LoadFullFrame(frame []byte) error {
+	if value == nil {
+		return io.ErrClosedPipe
+	}
+
+	if len(frame) < core.Cfg.Value.Bytes {
+		return io.ErrShortBuffer
+	}
+
+	valueFrom(frame, value)
+
+	return nil
 }
 
 func (value *Value) stampID() *Value {
@@ -315,6 +333,21 @@ func (value *Value) Write(p []byte) (int, error) {
 	tmpVal := AllocValue()
 	valueFrom(p, tmpVal)
 
+	roleWord, errRole := tmpVal.Property(ROLE)
+	target, errTarget := tmpVal.Property(TARGET)
+
+	if errRole == nil && errTarget == nil &&
+		roleWord == uint64(ValueRoleProgrammer) && target != 0 {
+		progStart, progN := core.Cfg.Value.Region.Program.WordExtent()
+
+		if progN > 0 {
+			copy(
+				(*value)[progStart:progStart+progN],
+				(*tmpVal)[progStart:progStart+progN],
+			)
+		}
+	}
+
 	copy(
 		(*value)[assetStart:assetStart+stageWords],
 		(*tmpVal)[signalsStart:signalsStart+stageWords],
@@ -355,6 +388,26 @@ func (value *Value) Set(region int, data uint64) {
 	}
 
 	(*value)[region] = data
+}
+
+/*
+WriteProgramWords copies words into the configured program region (clamped
+to region length). Used with core.NamedProgramWords after config load.
+*/
+func (value *Value) WriteProgramWords(words []uint64) {
+	if value == nil {
+		return
+	}
+
+	start, n := core.Cfg.Value.Region.Program.WordExtent()
+
+	if n <= 0 {
+		return
+	}
+
+	for i := 0; i < n && i < len(words); i++ {
+		value.Set(start+i, words[i])
+	}
 }
 
 /*

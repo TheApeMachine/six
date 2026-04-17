@@ -170,7 +170,7 @@ hmatch_found:
 //
 // Staged companion to universalBitwiseV2 in wordblock_universal.go. Opcode
 // nibbles match value.opcodes in cmd/cfg/config.yml (see
-// pkg/compute/programmer.OperationType): four-character binary strings with
+// pkg/compute/firmware.OperationType): four-character binary strings with
 // LSB = rightmost digit. Bit k enables minterm k when masks are 0 or ~0:
 //   op&1 → m0 / (a ∧ b)
 //   op&2 → m1 / (a ∧ ¬b)

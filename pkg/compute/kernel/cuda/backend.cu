@@ -130,7 +130,7 @@ static __device__ __forceinline__ void exact_binary_device(
     }
 }
 
-static __device__ __forceinline__ void universal_bitwise_v2_device(
+static __device__ __forceinline__ void universal_bitwise_device(
     uint64_t* frame,
     int aStart, int aSpan,
     int bStart, int bSpan,
@@ -201,6 +201,15 @@ static __device__ __forceinline__ void universal_bitwise_v2_device(
     frame[dstStart] = total;
 }
 
+static __device__ __forceinline__ uint64_t broadcast_opcode_nibble(uint8_t opLow) {
+    uint64_t n = (uint64_t)(opLow & 0xF);
+    uint64_t packed = 0;
+    for (int i = 0; i < 16; i++) {
+        packed |= n << (i * 4);
+    }
+    return packed;
+}
+
 __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_values) return;
@@ -208,50 +217,17 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
     uint32_t base = id * WORDS;
     uint64_t* frame = A + base;
 
-    uint8_t rawOpcode = (uint8_t)(frame[PROGRAM_START_WORD] & 0xFF);
+    uint8_t opLow = (uint8_t)(frame[PROGRAM_START_WORD] & 0xF);
+    if (opLow == 0) return;
 
-    if (rawOpcode == OPCODE_REGION_PROGRAM) {
-        for (int offset = 0; offset < 60; offset += 6) {
-            uint64_t op = frame[RESERVED_START_WORD + offset];
-            if (op == 0 && offset > 0) break;
-
-            uint64_t rotationTable = frame[RESERVED_START_WORD + offset + 1];
-            if (rotationTable == 0) continue;
-
-            int mode = (int)(frame[RESERVED_START_WORD + offset + 2] & 0xFF);
-            int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 3], &aStart, &aSpan);
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 4], &bStart, &bSpan);
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 5], &dstStart, &dstSpan);
-
-            universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
-        }
-        return;
-    }
-
-    if (rawOpcode == OPCODE_COPY_MASK_MERGE) {
-        copy_mask_merge_device(frame);
-        return;
-    }
-
-    uint64_t opcode = rawOpcode & 0x0F;
-    uint64_t rotationTable = frame[PROGRAM_START_WORD + 1];
-    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
-
-    int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
+    uint64_t opcodeTable = broadcast_opcode_nibble(opLow);
+    int mode = (int)(frame[PROGRAM_START_WORD + 1] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
 
-    if (contract == CONTRACT_EXACT_BINARY) {
-        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
-        return;
-    }
-
-    if (rotationTable == 0) return;
-
-    universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
+    universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
 }
 
 __global__ void nearest_affinity_kernel(

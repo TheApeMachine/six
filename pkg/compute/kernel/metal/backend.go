@@ -116,9 +116,7 @@ func ensureMetalArena() error {
 }
 
 /*
-Backend dispatches Value-native GPU kernels on Apple Silicon.
-All buffers use StorageModeShared (unified memory) so there is no
-host-to-device copy — the CPU and GPU share the same physical RAM.
+Backend runs the unified bitwise Value kernel on Apple Silicon (shared memory).
 */
 type Backend struct {
 	idx      int
@@ -139,6 +137,7 @@ func NewBackend(idx int, opts ...backendOption) *Backend {
 		opt(backend)
 	}
 	backend.observer = kernel.NormalizeObserver(backend.observer)
+
 	return backend
 }
 
@@ -168,9 +167,8 @@ func Available() int {
 }
 
 /*
-Execute dispatches arena slot indices to Metal: the GPU reads Value frames
-in-place from the pinned arena. Post-ALU refutation and TTL run in the
-shader; nearest-affinity reduction still completes on the host.
+Execute dispatches arena slot indices: the GPU runs the unified bitwise kernel
+on each Value frame in-place.
 */
 func (backend *Backend) Execute(indices []uint32) error {
 	if !metalReady.Load() {
@@ -189,131 +187,22 @@ func (backend *Backend) Execute(indices []uint32) error {
 		return NewMetalKernelError(kernel.KernelErrInitFailed, err, "Execute")
 	}
 
-	unifiedBatch := make([]uint32, 0, len(indices))
+	if C.unified_bitwise_metal_indices(
+		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
+		C.uint32_t(len(indices)),
+		C.uint32_t(primitive.ArenaSlotCount),
+	) != 0 {
+		err := NewMetalKernelError(
+			kernel.KernelErrDispatchFailed, nil, "Execute",
+		)
+		backend.observer.Error("metal.Backend.Execute", err)
 
-	flushUnified := func() error {
-		if len(unifiedBatch) == 0 {
-			return nil
-		}
-
-		if C.unified_bitwise_metal_indices(
-			(*C.uint32_t)(unsafe.Pointer(&unifiedBatch[0])),
-			C.uint32_t(len(unifiedBatch)),
-			C.uint32_t(primitive.ArenaSlotCount),
-		) != 0 {
-			err := NewMetalKernelError(
-				kernel.KernelErrDispatchFailed, nil, "Execute",
-			)
-			backend.observer.Error("metal.Backend.Execute", err)
-
-			return err
-		}
-
-		drainMetalSpawns()
-
-		unifiedBatch = unifiedBatch[:0]
-
-		return nil
+		return err
 	}
 
-	for _, slot := range indices {
-		value := primitive.ValueAt(slot)
-		if value == nil {
-			continue
-		}
+	drainMetalSpawns()
 
-		ptr := unsafe.Pointer(&value[0])
-		v := (*[128]uint64)(ptr)
-
-		rawOpcode := v[kernel.ProgramStartWord] & 0xFF
-		opcode := rawOpcode & kernel.OpcodeBooleanMask
-		batchCount := v[kernel.NearestAffinityBatchWord]
-
-		if batchCount > uint64(kernel.MaxNearestAffinityCandidates) {
-			batchCount = uint64(kernel.MaxNearestAffinityCandidates)
-		}
-
-		if kernel.IsGeometricOpcode(rawOpcode) {
-			if err := flushUnified(); err != nil {
-				return err
-			}
-
-			if C.geometric_metal_indices(
-				(*C.uint32_t)(unsafe.Pointer(&slot)),
-				C.uint32_t(1),
-				C.uint32_t(primitive.ArenaSlotCount),
-			) != 0 {
-				err := NewMetalKernelError(
-					kernel.KernelErrDispatchFailed,
-					errors.New("geometric dispatch failed"),
-					"Execute",
-				)
-
-				backend.observer.Error("metal.Backend.Execute", err, kernel.CorrelationKeyvalsFlat(ptr)...)
-
-				return err
-			}
-
-			continue
-		}
-
-		if kernel.IsCopyMaskMergeOpcode(rawOpcode) {
-			if err := flushUnified(); err != nil {
-				return err
-			}
-
-			kernel.ApplyCopyMaskMerge(v)
-			kernel.FinishFramePostALU(v)
-
-			continue
-		}
-
-		if opcode == kernel.OpcodeXOR && batchCount > 0 {
-			if err := flushUnified(); err != nil {
-				return err
-			}
-
-			distances := (*[256]uint32)(unsafe.Pointer(&v[kernel.SignalsStartWord]))
-
-			if C.nearest_affinity_metal(
-				unsafe.Pointer(&v[0]),
-				unsafe.Pointer(&v[kernel.NearestAffinityCandidatesStartWord]),
-				C.uint32_t(batchCount),
-				(*C.uint32_t)(unsafe.Pointer(&distances[0])),
-			) != 0 {
-				err := NewMetalKernelError(
-					kernel.KernelErrDispatchFailed, nil, "Execute",
-				)
-
-				backend.observer.Error("metal.Backend.Execute", err, kernel.CorrelationKeyvalsFlat(ptr)...)
-
-				return err
-			}
-
-			bestIdx := uint64(0)
-			bestDist := uint64(distances[0])
-
-			for idx := uint64(1); idx < batchCount; idx++ {
-				dist := uint64(distances[idx])
-
-				if dist < bestDist {
-					bestDist = dist
-					bestIdx = idx
-				}
-			}
-
-			v[kernel.SignalsStartWord+kernel.SignalBestIdxOffset] = bestIdx
-			v[kernel.SignalsStartWord+kernel.SignalBestDistOffset] = bestDist
-
-			kernel.FinishFramePostALU(v)
-
-			continue
-		}
-
-		unifiedBatch = append(unifiedBatch, slot)
-	}
-
-	return flushUnified()
+	return nil
 }
 
 /*
@@ -366,6 +255,7 @@ func init() {
 
 	if err != nil {
 		reportInitError(err)
+
 		return
 	}
 
@@ -378,11 +268,13 @@ func init() {
 	if _, err := tmpFile.Write(backendMetallib); err != nil {
 		tmpFile.Close()
 		reportInitError(err)
+
 		return
 	}
 
 	if err := tmpFile.Close(); err != nil {
 		reportInitError(err)
+
 		return
 	}
 
@@ -391,6 +283,7 @@ func init() {
 
 	if res := C.init_metal(cPath); res != 0 {
 		reportInitError(NewMetalKernelError(kernel.KernelErrInitFailed, nil, "init_metal"))
+
 		return
 	}
 

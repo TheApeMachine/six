@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -15,13 +14,20 @@ import (
 )
 
 /*
+Scheduler submits *primitive.Value work to the pool (same contract as pool.Queue).
+*/
+type Scheduler interface {
+	Submit(value *primitive.Value)
+}
+
+/*
 QueueScheduler is the pool-facing side of a Conn: it submits work like
 pool.Queue and accepts raw bytes into the pool stream ring (io.Writer)
 so telemetry and tokenizer paths can observe the same frames without
 sharing the task rings used for Schedule.
 */
 type QueueScheduler interface {
-	programmer.Scheduler
+	Scheduler
 	io.Writer
 }
 
@@ -63,7 +69,6 @@ func NewConn(
 
 	if err != nil {
 		cancel()
-
 		return nil, errnie.Error(err)
 	}
 
@@ -101,7 +106,6 @@ func NewConn(
 		"queue":   conn.queue,
 	}); err != nil {
 		cancel()
-
 		return nil, errnie.Error(err)
 	}
 
@@ -210,10 +214,9 @@ func (conn *Conn) Read(p []byte) (n int, err error) {
 	teeValue := primitive.AllocValue()
 
 	if conn.stage != nil {
-		if _, err := io.Copy(teeValue, conn.stage); err != nil {
+		if _, conn.err = io.Copy(teeValue, conn.stage); conn.err != nil {
 			teeValue.Close()
-
-			return 0, errnie.Error(err)
+			return 0, errnie.Error(conn.err)
 		}
 
 		conn.stage.Close()
@@ -222,37 +225,34 @@ func (conn *Conn) Read(p []byte) (n int, err error) {
 
 	frame := make([]byte, core.Cfg.Value.Bytes)
 
-	if _, err := io.ReadFull(conn.tee, frame); err != nil {
+	if _, conn.err = io.ReadFull(conn.tee, frame); conn.err != nil {
 		teeValue.Close()
 
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		if errors.Is(conn.err, io.EOF) || errors.Is(conn.err, io.ErrUnexpectedEOF) {
 			return 0, io.EOF
 		}
 
-		return 0, errnie.Error(err)
+		return 0, errnie.Error(conn.err)
 	}
 
-	if _, err := teeValue.Write(frame); err != nil {
+	if _, conn.err = teeValue.Write(frame); conn.err != nil {
 		teeValue.Close()
-
-		return 0, errnie.Error(err)
+		return 0, errnie.Error(conn.err)
 	}
 
 	n, err = teeValue.Read(p)
 
-	if err != nil && err != io.EOF {
+	if conn.err != nil && conn.err != io.EOF {
 		teeValue.Close()
-
-		return n, errnie.Error(err)
+		return n, errnie.Error(conn.err)
 	}
 
-	if _, werr := conn.queue.Write(p[:n]); werr != nil {
+	if _, conn.err = conn.queue.Write(p[:n]); conn.err != nil {
 		teeValue.Close()
-
-		return n, errnie.Error(werr)
+		return n, errnie.Error(conn.err)
 	}
 
 	conn.stage = teeValue
 
-	return n, err
+	return n, conn.err
 }

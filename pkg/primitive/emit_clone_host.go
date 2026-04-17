@@ -1,8 +1,6 @@
 package primitive
 
-import (
-	"github.com/theapemachine/six/pkg/compute/kernel"
-)
+import "github.com/theapemachine/six/pkg/core"
 
 const affinityLaneWords = 5
 
@@ -28,10 +26,10 @@ func EmitCloneHost(parent *Value) *Value {
 
 	*child = *parent
 
-	noise := (*parent)[kernel.PropertiesNoiseWord]
+	noise := (*parent)[core.Cfg.Value.Region.Properties.Start+int(NOISE)]
 
 	for word := 0; word < affinityLaneWords; word++ {
-		(*child)[kernel.AffinityStartWord+uint64(word)] ^= noise ^ (uint64(parentIdx) << (word * 13))
+		(*child)[core.Cfg.Value.Region.Affinity.Start+int(word)] ^= noise ^ (uint64(parentIdx) << (word * 13))
 	}
 
 	return child.StampNewID()

@@ -136,7 +136,7 @@ These are **not** ingress/egress—they are places where Go still authors substr
 
 #### 3. Continuation / scheduling word — delete `ApplyContinuation`
 
-**Today.** After each install, **`ApplyContinuation`** does **`Value.Set(kernel.SchedulingNextProgramWord, …)`** for **`next <id>`** / **`next self`** (`programmer.Parser`). **Post-exec** clears word **117** on TTL (`kernel` postexec). Scheduling is a **second** host mutation after install.
+**Today.** After each install, **`ApplyContinuation`** does **`Value.Set(kernel.SchedulingNextProgramWord, …)`** for **`next <id>`** / **`next self`** (DSL parse / config-time lowering). **Post-exec** clears word **117** on TTL (`kernel` postexec). Scheduling is a **second** host mutation after install.
 
 **Target.** **`next` and `next self` are lowered only in the compiler.** Each install buffer includes the correct **`SchedulingNextProgramWord` (117):** for **`next <id>`**, that **ValueID**; for **`next self`**, the **resident Value’s `ID()` at install time**. For multi-line programs, word **117** appears in the **last** frame of the ordered lowering sequence (same rule as today’s “continuation applies after the frame loop”). That word is **only** present in the wire bytes—written **only** when the frame is decoded into the `Value`, **never** by a follow-up Go call.
 

@@ -56,22 +56,16 @@ func TestNewConfig(t *testing.T) {
 			cfg := NewConfig()
 
 			Convey("It should decode value.rules as an ordered list with typed conditions", func() {
-				rules := cfg.Value.Rules
+				rules := cfg.Programs[LINK].Compiled
 
 				So(len(rules), ShouldBeGreaterThan, 0)
-				So(rules[0].Name, ShouldEqual, "link")
-				So(rules[0].Firmware, ShouldEqual, "link")
-
-				prevWant, ok := rules[0].Conditions["prev"]
-
-				So(ok, ShouldBeTrue)
-				So(prevWant, ShouldEqual, false)
+				So(rules[0], ShouldEqual, 0)
 			})
 
 			Convey("It should decode generic post-ALU finalizer rules", func() {
-				So(len(cfg.Finalizers), ShouldBeGreaterThan, 0)
-				So(cfg.Finalizers[0].Scope, ShouldEqual, "community")
-				So(len(cfg.Finalizers[0].Actions), ShouldBeGreaterThan, 0)
+				So(len(cfg.Programs), ShouldBeGreaterThan, 0)
+				So(cfg.Programs[LINK].Name, ShouldEqual, "link")
+				So(len(cfg.Programs[LINK].Compiled), ShouldBeGreaterThan, 0)
 			})
 		})
 

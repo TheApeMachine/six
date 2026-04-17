@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/viper"
@@ -22,41 +23,30 @@ const DefaultTokenSettleMaxPasses = 4
 
 var (
 	Cfg *Config
-
-	// programLoader is installed by pkg/compute/programmer at init so
-	// NewConfig can hand it the raw programs map without importing
-	// programmer (which would cycle via compute → core).
-	programLoader func(map[string]string) error
 )
-
-/*
-RegisterProgramLoader wires a callback that consumes the raw programs
-map and parses it into the programmer registry. It is invoked from
-NewConfig after the map is loaded. Installing a nil loader clears the
-hook so tests can re-register.
-*/
-func RegisterProgramLoader(loader func(map[string]string) error) {
-	programLoader = loader
-
-	if loader != nil && Cfg != nil && len(Cfg.Programs) > 0 {
-		_ = loader(Cfg.Programs)
-	}
-}
 
 func init() {
 	Cfg = NewConfig()
 }
 
-type FirmwareType uint
+type FirmwareType string
 
 const (
-	FirmwareTypeLearn FirmwareType = iota
-	FirmwareTypeBootloader
-	FirmwareTypeTombstone
-	FirmwareTypeViral
-	FirmwareTypeBuild
-	FirmwareTypeQuery
-	FirmwareTypePrompt
+	LINK               FirmwareType = "link"
+	AFFINITY           FirmwareType = "affinity"
+	POPCOUNT           FirmwareType = "popcount"
+	COUPLING           FirmwareType = "coupling"
+	BEAM               FirmwareType = "beam"
+	SWARM              FirmwareType = "swarm"
+	STEP               FirmwareType = "step"
+	EMERGENCE          FirmwareType = "emergence"
+	EXPLORE            FirmwareType = "explore"
+	HUB                FirmwareType = "hub"
+	UNSUPERVISED_LEARN FirmwareType = "unsupervised_learn"
+	MEASURE_FIELD      FirmwareType = "measure_field"
+	CLASSIFY_READOUT   FirmwareType = "classify_readout"
+	EPISODIC_REPLAY    FirmwareType = "episodic_replay"
+	INTERVENTION
 )
 
 type SystemConfig struct {
@@ -66,6 +56,12 @@ type SystemConfig struct {
 	ShannonLimit       float64       `mapstructure:"shannonLimit"`
 	ResonanceThreshold float64       `mapstructure:"resonanceThreshold"`
 	BeliefEpsilon      float64       `mapstructure:"beliefEpsilon"`
+}
+
+type ProgramConfig struct {
+	Name     string   `mapstructure:"name"`
+	Source   string   `mapstructure:"source"`
+	Compiled []uint64 `mapstructure:"compiled"`
 }
 
 /*
@@ -78,68 +74,6 @@ type ValueConfig struct {
 	NumRotations int                `mapstructure:"num_rotations"`
 	Region       ValueRegionConfig  `mapstructure:"region"`
 	Opcodes      ValueOpcodesConfig `mapstructure:"opcodes"`
-	Rules        []ValueRulesConfig `mapstructure:"rules"`
-}
-
-/*
-ValueRulesConfig is one row in value.rules: AND over conditions, then select
-Firmware (a key in programs:). Condition values are compared as booleans or
-strings ("true"/"false") so YAML may use unquoted true/false.
-*/
-type ValueRulesConfig struct {
-	Name       string         `mapstructure:"name"`
-	Conditions map[string]any `mapstructure:"conditions"`
-	Firmware   string         `mapstructure:"firmware"`
-}
-
-/*
-FinalizerRuleConfig defines one generic post-ALU action rule. Scope selects
-where the rule runs: value, community, or global. Regions reuse the
-value.rules-style has-bits checks implemented by programmer.Firmware.HasBits,
-while the numeric thresholds let fields react to resonance without hardcoding
-per-algorithm Go branches.
-*/
-type FinalizerRuleConfig struct {
-	Name             string                  `mapstructure:"name"`
-	Scope            string                  `mapstructure:"scope"`
-	Regions          map[string]bool         `mapstructure:"regions"`
-	MinMembers       int                     `mapstructure:"min_members"`
-	MinCommunities   int                     `mapstructure:"min_communities"`
-	MinConcentration float64                 `mapstructure:"min_concentration"`
-	MaxConcentration float64                 `mapstructure:"max_concentration"`
-	Actions          []FinalizerActionConfig `mapstructure:"actions"`
-}
-
-/*
-FinalizerActionConfig describes one generic finalizer action. Reprogram runs a
-named config program on the current Value; emit clones the current Value into a
-fresh ephemeral Value, applies any configured copies, and optionally runs a
-named program on that emission.
-*/
-type FinalizerActionConfig struct {
-	Type    string                `mapstructure:"type"`
-	Program string                `mapstructure:"program"`
-	TTL     uint64                `mapstructure:"ttl"`
-	Copies  []FinalizerCopyConfig `mapstructure:"copies"`
-}
-
-/*
-FinalizerCopyConfig copies already-existing in-band state into another region
-before reprogramming or emission. Sources are strings such as
-"value.signals[0,8]" or "field.affinity[0,5]"; destination uses the standard
-region-ref syntax without a source prefix, for example "asset[0,8]".
-
-Rotate, when non-zero, applies a GF(257) affine rotation by the given step
-count to the source words before they land at the destination. This is the
-single knob N-beam emission leans on: a finalizer can stage N copies of the
-same source with Rotate = k*step for k in [0,N), producing non-degenerate
-phase-rotated views of one eigenmode. Zero is the identity and matches the
-pre-existing straight-copy behaviour.
-*/
-type FinalizerCopyConfig struct {
-	Source      string `mapstructure:"source"`
-	Destination string `mapstructure:"destination"`
-	Rotate      int    `mapstructure:"rotate"`
 }
 
 /*
@@ -234,27 +168,15 @@ Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
-	System SystemConfig
-	Value  ValueConfig
+	System   SystemConfig
+	Programs map[FirmwareType]ProgramConfig
+	Value    ValueConfig
 
 	// TelemetryEnabled controls whether the WebSocket client for raw Value wire frames is started.
 	TelemetryEnabled bool
 
 	// TelemetryWebSocketURL is the bridge WebSocket URL (e.g. ws://127.0.0.1:3000/ws).
 	TelemetryWebSocketURL string
-
-	// Programs holds raw program source keyed by name, loaded from the
-	// `programs:` block of config.yml. These are the in-band programs the
-	// substrate kernels execute (affinity fold, popcount, coupling, etc.).
-	// Parsing is deferred to pkg/compute/programmer so this package stays
-	// free of the programmer IR and avoids an import cycle.
-	Programs map[string]string
-
-	// Finalizers holds generic post-ALU action rules loaded from `finalizers:`.
-	// These rules do not define new algorithms in Go; they only tell the runtime
-	// when to reprogram the current Value or emit an ephemeral clone that will
-	// execute an already-defined config program.
-	Finalizers []FinalizerRuleConfig
 }
 
 func NewConfig() *Config {
@@ -267,6 +189,7 @@ func NewConfig() *Config {
 			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
 			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
 		},
+		Programs: precompile(),
 		Value: ValueConfig{
 			Word:         WithDefault(viper.GetInt("value.word"), 64),
 			Words:        WithDefault(viper.GetInt("value.words"), 128),
@@ -336,83 +259,12 @@ func NewConfig() *Config {
 				NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
 				TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
 			},
-			Rules: loadValueRules(),
 		},
 		TelemetryEnabled:      WithDefault(viper.GetBool("telemetry.enabled"), false),
 		TelemetryWebSocketURL: WithDefault(viper.GetString("telemetry.ws_url"), ""),
-		Programs:              loadPrograms(),
-		Finalizers:            loadFinalizers(),
-	}
-
-	if programLoader != nil && len(Cfg.Programs) > 0 {
-		_ = programLoader(Cfg.Programs)
 	}
 
 	return Cfg
-}
-
-/*
-loadValueRules unmarshals the value.rules sequence from config (ordered list
-of {name, conditions, firmware}). Empty or missing block yields nil.
-*/
-func loadValueRules() []ValueRulesConfig {
-	if !viper.IsSet("value.rules") {
-		return nil
-	}
-
-	var out []ValueRulesConfig
-
-	if err := viper.UnmarshalKey("value.rules", &out); err != nil {
-		return nil
-	}
-
-	return out
-}
-
-/*
-loadPrograms returns the raw text of every entry under the `programs:`
-block as a name→source map. Parsing into the programmer representation
-happens in pkg/compute/programmer so this package does not pull in that IR.
-Missing block yields an empty map so callers can range without nil
-checks; zero-length programs are filtered because they indicate a stub
-left in the config.
-*/
-func loadPrograms() map[string]string {
-	raw := viper.GetStringMapString("programs")
-
-	if len(raw) == 0 {
-		return map[string]string{}
-	}
-
-	out := make(map[string]string, len(raw))
-
-	for name, source := range raw {
-		if source == "" {
-			continue
-		}
-
-		out[name] = source
-	}
-
-	return out
-}
-
-/*
-loadFinalizers unmarshals the ordered `finalizers:` sequence. Missing or invalid
-blocks yield nil so callers can cheaply skip post-ALU field work.
-*/
-func loadFinalizers() []FinalizerRuleConfig {
-	if !viper.IsSet("finalizers") {
-		return nil
-	}
-
-	var out []FinalizerRuleConfig
-
-	if err := viper.UnmarshalKey("finalizers", &out); err != nil {
-		return nil
-	}
-
-	return out
 }
 
 func WithDefault[T comparable](value, defaultValue T) T {
@@ -423,4 +275,39 @@ func WithDefault[T comparable](value, defaultValue T) T {
 	}
 
 	return value
+}
+
+func precompile() map[FirmwareType]ProgramConfig {
+	out := make(map[FirmwareType]ProgramConfig)
+
+	for _, program := range []FirmwareType{
+		LINK,
+		AFFINITY,
+		POPCOUNT,
+		COUPLING,
+		BEAM,
+		SWARM,
+		STEP,
+		EMERGENCE,
+		EXPLORE,
+		HUB,
+		UNSUPERVISED_LEARN,
+		MEASURE_FIELD,
+		CLASSIFY_READOUT,
+		EPISODIC_REPLAY,
+		INTERVENTION,
+	} {
+		programConfig := ProgramConfig{
+			Name:     viper.GetString(fmt.Sprintf("programs.%s.name", program)),
+			Source:   viper.GetString(fmt.Sprintf("programs.%s.source", program)),
+			Compiled: compile(viper.GetString(fmt.Sprintf("programs.%s.source", program))),
+		}
+		out[program] = programConfig
+	}
+
+	return out
+}
+
+func compile(source string) []uint64 {
+	return []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 }

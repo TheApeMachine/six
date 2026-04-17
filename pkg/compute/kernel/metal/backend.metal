@@ -209,7 +209,7 @@ static inline void exact_binary_device(
     }
 }
 
-static inline void universal_bitwise_v2_device(
+static inline void universal_bitwise_device(
     device ulong* frame,
     int aStart, int aSpan,
     int bStart, int bSpan,
@@ -280,6 +280,15 @@ static inline void universal_bitwise_v2_device(
     frame[dstStart] = total;
 }
 
+static inline ulong broadcast_opcode_nibble(uchar opLow) {
+    ulong n = (ulong)(opLow & 0xF);
+    ulong packed = 0;
+    for (int i = 0; i < 16; i++) {
+        packed |= n << (i * 4);
+    }
+    return packed;
+}
+
 static inline void emit_clone_device_metal(
     device ulong* arena,
     device ulong* parent_frame,
@@ -316,56 +325,20 @@ kernel void unified_bitwise_kernel(
     uint base = id * WORDS;
     device ulong* frame = A + base;
 
-    uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
-    uchar opcode = rawOpcode & 0x0F;
-
-    if (rawOpcode == OPCODE_REGION_PROGRAM) {
-        for (int offset = 0; offset < 60; offset += 6) {
-            ulong op = frame[RESERVED_START_WORD + offset];
-            if (op == 0 && offset > 0) break;
-
-            ulong rotationTable = frame[RESERVED_START_WORD + offset + 1];
-            if (rotationTable == 0) continue;
-
-            int mode = (int)(frame[RESERVED_START_WORD + offset + 2] & 0xFF);
-            int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 3], &aStart, &aSpan);
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 4], &bStart, &bSpan);
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 5], &dstStart, &dstSpan);
-
-            universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
-        }
+    uchar opLow = (uchar)(frame[PROGRAM_START_WORD] & 0xF);
+    if (opLow == 0) {
         finish_frame_post_alu_device(frame);
         return;
     }
 
-    if (rawOpcode == OPCODE_COPY_MASK_MERGE) {
-        copy_mask_merge_device(frame);
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    ulong rotationTable = frame[PROGRAM_START_WORD + 1];
-    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
-
-    int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
+    ulong opcodeTable = broadcast_opcode_nibble(opLow);
+    int mode = (int)(frame[PROGRAM_START_WORD + 1] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
 
-    if (contract == CONTRACT_EXACT_BINARY) {
-        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    if (rotationTable == 0) {
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
+    universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
     finish_frame_post_alu_device(frame);
 }
 
@@ -473,7 +446,6 @@ kernel void unified_bitwise_arena_indices_kernel(
     device ulong* frame = arena + (uint64_t)parent_slot * (uint64_t)WORDS;
 
     uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
-    uchar opcode = rawOpcode & 0x0F;
 
     if (rawOpcode == OPCODE_EMIT_CLONE) {
         emit_clone_device_metal(
@@ -490,52 +462,19 @@ kernel void unified_bitwise_arena_indices_kernel(
         return;
     }
 
-    if (rawOpcode == OPCODE_REGION_PROGRAM) {
-        for (int offset = 0; offset < 60; offset += 6) {
-            ulong op = frame[RESERVED_START_WORD + offset];
-            if (op == 0 && offset > 0) break;
-
-            ulong rotationTable = frame[RESERVED_START_WORD + offset + 1];
-            if (rotationTable == 0) continue;
-
-            int mode = (int)(frame[RESERVED_START_WORD + offset + 2] & 0xFF);
-            int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 3], &aStart, &aSpan);
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 4], &bStart, &bSpan);
-            unpack_region_ref(frame[RESERVED_START_WORD + offset + 5], &dstStart, &dstSpan);
-
-            universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
-        }
+    uchar opLow = (uchar)(frame[PROGRAM_START_WORD] & 0xF);
+    if (opLow == 0) {
         finish_frame_post_alu_device(frame);
         return;
     }
 
-    if (rawOpcode == OPCODE_COPY_MASK_MERGE) {
-        copy_mask_merge_device(frame);
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    ulong rotationTable = frame[PROGRAM_START_WORD + 1];
-    int contract = (int)((frame[PROGRAM_START_WORD + 2] >> PROGRAM_CONTRACT_SHIFT) & 0xFF);
-
-    int mode = (int)(frame[PROGRAM_START_WORD + 2] & 0xFF);
+    ulong opcodeTable = broadcast_opcode_nibble(opLow);
+    int mode = (int)(frame[PROGRAM_START_WORD + 1] & 0xFF);
     int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
     unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
     unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
 
-    if (contract == CONTRACT_EXACT_BINARY) {
-        exact_binary_device(frame, opcode, aStart, aSpan, bStart, bSpan, dstStart, dstSpan);
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    if (rotationTable == 0) {
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    universal_bitwise_v2_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, rotationTable);
+    universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
     finish_frame_post_alu_device(frame);
 }

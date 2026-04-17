@@ -10,7 +10,7 @@ Architecture:
 - Kernels execute only the lowered contract.
 - Finalizer stays minimal: inspect outputs, emit new Values if required, reschedule loops/branches through in-band scheduler metadata.
 
-Tech stack: Go, custom compiler/lowering in pkg/compute/programmer, CPU/Metal/CUDA kernels in pkg/compute/kernel/*, config-driven programs in cmd/cfg/config.yml.
+Tech stack: Go, custom compiler/lowering in pkg/compute/firmware, CPU/Metal/CUDA kernels in pkg/compute/kernel/*, config-driven programs in cmd/cfg/config.yml.
 
 ---
 
@@ -130,10 +130,10 @@ Output must define:
 Objective: move semantic choice into compiler.
 
 Files to inspect/modify later:
-- pkg/compute/programmer/compiler.go
-- pkg/compute/programmer/builder.go
-- pkg/compute/programmer/token.go
-- pkg/compute/programmer/frame.go
+- pkg/compute/firmware/compiler.go
+- pkg/compute/firmware/builder.go
+- pkg/compute/firmware/token.go
+- pkg/compute/firmware/frame.go
 
 Required direction:
 - compiler chooses lowering strategy by program/line intent
@@ -213,7 +213,7 @@ Next move should be:
 ## Verification commands
 
 Current baseline:
-- go test -ldflags='-checklinkname=0' ./pkg/compute/kernel/cpu ./pkg/compute/programmer ./pkg/compute ./pkg/vm
+- go test -ldflags='-checklinkname=0' ./pkg/compute/kernel/cpu ./pkg/compute/firmware ./pkg/compute ./pkg/vm
 
 Repo-wide known unrelated failures:
 - make test

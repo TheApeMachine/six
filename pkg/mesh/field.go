@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -268,6 +267,24 @@ func (field *Field) Values() []*primitive.Value {
 	return field.values
 }
 
+func (field *Field) refreshMetrics() {
+	if field == nil {
+		return
+	}
+
+	members := field.snapshotValues()
+	snap := field.detectEigenmodes()
+
+	field.mu.Lock()
+	field.snap = snap
+	field.mu.Unlock()
+
+	field.updatePhaseDial()
+
+	m := MeasureFieldMetrics(members, snap)
+	field.metrics.Store(&m)
+}
+
 /*
 Affinity returns the aggregate affinity fingerprint for this Field.
 It is the XOR fold of every member Value's affinity region and so
@@ -343,6 +360,7 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		// decode-then-AddValue, just with the fold already done inline so
 		// we avoid re-reading the affinity words.
 		field.values = append(field.values, value)
+		field.refreshMetrics()
 
 		return core.Cfg.Value.Bytes, nil
 	}
@@ -387,57 +405,16 @@ func (field *Field) Write(p []byte) (n int, err error) {
 	winner.affinity[4] ^= t4
 	winner.mu.Unlock()
 
-	// Emit an ephemeral Value that carries the community assignment
-	// in-band. The ephemeral's properties hold the community index,
-	// and its program is a CopyMaskMerge targeting that single word —
-	// when the firmware chain processes it, the copy runs in-value
-	// through the ALU rather than via a raw Set from mesh code.
-	field.emitCommunityTag(winner, winnerIdx)
+	winner.refreshMetrics()
 
+	// Ephemeral marker: community index + LINK firmware (program lowered from config).
+	value = primitive.Emit(
+		primitive.WithCommunity(uint64(winnerIdx)),
+		primitive.WithFirmware(core.LINK),
+	)
+
+	field.AddValue(value)
 	return core.Cfg.Value.Bytes, nil
-}
-
-/*
-emitCommunityTag creates a one-shot ephemeral Value that carries the
-community assignment in-band. The ephemeral's properties[communityIDOffset]
-holds the community index, and its program region is wired to a
-CopyMaskMerge (opcode 0x50) with srcA = srcB = dst = that single word —
-an identity copy that routes through the ALU so the Value computes on
-itself rather than being mutated from outside. TTL is 1 so the ephemeral
-expires after one firmware pass and never leaks past the community
-boundary.
-
-The ephemeral is appended to the winner child's value population so a
-gossip.Conn reading from the community field naturally picks it up and
-stages it into peer Values' Asset regions alongside regular content.
-*/
-func (field *Field) emitCommunityTag(winner *Field, communityIdx int) {
-	tag := primitive.AllocValue()
-	tag.StampNewID()
-
-	propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
-	dst := propsStart + communityIDOffset
-
-	// Payload: the community index itself.
-	tag.Set(dst, uint64(communityIdx))
-
-	// Program: CopyMaskMerge with srcA = srcB = dst = properties[communityIDOffset, 1].
-	// srcB is all-ones (the value word IS the mask) so the merge degenerates
-	// to a straight copy: dst = (srcA & srcB) | (dst & ^srcB) → dst = srcA.
-	packed := kernel.PackRegionRef(dst, 1)
-
-	tag.Set(kernel.ProgramOpcodeWord, kernel.OpcodeCopyMaskMerge)
-	tag.Set(kernel.ProgramSrcAWord, packed)
-	tag.Set(kernel.ProgramSrcBWord, packed)
-	tag.Set(kernel.ProgramDstWord, packed)
-
-	// TTL = 1: one ALU pass, then the lifecycle hook clears scheduling and
-	// the TTLExpiredSentinel prevents re-publication.
-	tag.Set(kernel.PropertiesTTLWord, 1)
-
-	winner.mu.Lock()
-	winner.values = append(winner.values, tag)
-	winner.mu.Unlock()
 }
 
 /*
@@ -509,9 +486,9 @@ carriers are minted on demand by callers via BuildPressureCarrier so
 the ephemeral wake-up signal cannot feed back into the very
 measurement it was meant to describe.
 
-The metrics snapshot is swapped in atomically via fieldSnap pointer
-replacement so Metrics() readers (visualiser telemetry, carrier-rate
-governors) never block the Cycle pass.
+The metrics snapshot is stored atomically via field.metrics so Metrics()
+readers (visualiser telemetry, carrier-rate governors) never block the
+Cycle pass.
 */
 func (field *Field) Cycle(values ...*primitive.Value) ([]*primitive.Value, error) {
 	if field == nil {
@@ -532,42 +509,20 @@ func (field *Field) Cycle(values ...*primitive.Value) ([]*primitive.Value, error
 		}
 	}
 
-	// Routing parents never hold direct member Values, so their own
-	// leaf-style metrics would always be zero. Return early so Metrics()
-	// on a parent reflects the aggregate state of its children instead of
-	// a misleading empty fingerprint.
-	if field.childModulus != 0 {
-		return field.values, nil
+	if field.childModulus == 0 {
+		field.refreshMetrics()
 	}
-
-	metrics := field.measureCrystallization()
-	snap := field.detectEigenmodes()
-
-	metrics.ModeCount = len(snap.Modes())
-	metrics.DominantRatio = dominantEnergyRatio(snap)
-	metrics.PressureMult = 1 - metrics.DominantRatio
-
-	field.updatePhaseDial()
-	field.snap = snap
-	field.metrics.Store(&metrics)
 
 	return field.values, nil
 }
 
-/*
-Metrics returns a stable copy of the last Cycle's crystallisation
-fingerprint. Returns the zero FieldMetrics when Cycle has never run
-— callers can distinguish "never cycled" from "empty field" by
-checking MemberCount.
-
-The accessor is lock-free: Cycle stores a new *FieldMetrics via
-atomic.Pointer and Metrics just loads it, so the visualiser and
-carrier-rate loop can poll at high frequency without ever stalling a
-Cycle pass.
-*/
 func (field *Field) Metrics() FieldMetrics {
 	if field == nil {
 		return FieldMetrics{}
+	}
+
+	if field.childModulus != 0 {
+		return RollupFieldMetrics(field.fields)
 	}
 
 	loaded := field.metrics.Load()
@@ -606,55 +561,13 @@ func (field *Field) Dial() geometry.PhaseDial {
 }
 
 /*
-BuildPressureCarrier mints a one-shot ephemeral Value whose asset window
-encodes the field's current metrics. Downstream labellers that receive
-this carrier through a gossip.Conn see the fingerprint in their own
-asset[0..2] and can decide whether to prioritise this community.
-
-TTL is 1 so the carrier self-expires after one pass. The returned
-Value is deliberately not stored on the field: appending it to
-field.values would pollute the crystallisation measurement on the
-next tick (unlabelled members drive Coverage down, which drives more
-carriers — a feedback loop). The caller owns the carrier and decides
-when to route it into the peer gossip substrate.
-
-PressureMult drives urgency: callers gate carrier construction on
-Metrics().Saturated so they only pay the AllocValue cost when a
-community actually needs external help.
+BuildPressureCarrier mints a one-shot carrier via primitive.Emit and
+WithAssetPressureMetrics (wire-shaped full frame). Not appended to the field.
 */
 func (field *Field) BuildPressureCarrier(metrics FieldMetrics) *primitive.Value {
-	clamp01 := func(x float64) float64 {
-		if x < 0 {
-			return 0
-		}
+	_ = field
 
-		if x > 1 {
-			return 1
-		}
-
-		return x
-	}
-
-	scaleFixed := func(x float64) uint64 {
-		return uint64(clamp01(x) * float64(uint64(1)<<32))
-	}
-
-	carrier := primitive.AllocValue()
-	carrier.StampNewID()
-
-	// Encode the three scalar metrics into asset[0..2] so downstream
-	// programs can read them without decoding the whole frame. The
-	// multiplication by 1<<32 keeps the fractional precision inside a
-	// single word without needing a float encoding.
-	assetStart, assetWords := core.Cfg.Value.Region.Asset.WordExtent()
-
-	if assetWords >= 3 {
-		carrier.Set(assetStart+0, scaleFixed(metrics.Coverage))
-		carrier.Set(assetStart+1, scaleFixed(metrics.Consensus))
-		carrier.Set(assetStart+2, scaleFixed(metrics.Crystallization))
-	}
-
-	carrier.Set(kernel.PropertiesTTLWord, 1)
-
-	return carrier
+	return primitive.Emit(
+		primitive.WithAssetPressureMetrics(metrics.Coverage, metrics.Consensus, metrics.Crystallization),
+	)
 }

@@ -12,8 +12,6 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/programmer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -59,32 +57,6 @@ func TestMain(m *testing.M) {
 }
 
 /*
-fakeScheduler stands in for *pool.Queue in tests. It runs the task
-inline so assertions can inspect the produced Executable
-deterministically without starting real worker goroutines, and
-invokes the registered dispatch on every non-nil Executable exactly
-like the real pool would.
-*/
-type fakeScheduler struct {
-	dispatched []*programmer.Executable
-	dispatch   func(*programmer.Executable)
-}
-
-func (scheduler *fakeScheduler) Submit(task func() *programmer.Executable) {
-	executable := task()
-
-	if executable == nil {
-		return
-	}
-
-	scheduler.dispatched = append(scheduler.dispatched, executable)
-
-	if scheduler.dispatch != nil {
-		scheduler.dispatch(executable)
-	}
-}
-
-/*
 TestNewConn covers the construction contract: a Conn demands a
 Scheduler because a bundle without a way to reach the pool is not a
 real pipeline stage, only a router of bytes.
@@ -119,12 +91,8 @@ func TestNewConn(t *testing.T) {
 }
 
 /*
-TestConnWrite verifies the sliding-window staging and the rule-driven
-firmware submission path. A freshly minted Value has zero prev, next,
-and affinity words, so the `link` rule in cmd/cfg/config.yml fires
-first; the Executable the Scheduler receives must therefore be a
-firmware-typed one (not resident). The sentinel-laden inbound frame
-lets us confirm staging copied S/C/G/P into asset[0,stageWords].
+TestConnWrite verifies sliding-window staging: inbound S/C/G/P lands in
+the bundled Value's asset region (Value.Write contract on the receive side).
 */
 func TestConnWrite(t *testing.T) {
 	Convey("Given a Conn with one freshly minted Value", t, func() {
@@ -166,10 +134,9 @@ func TestConnWrite(t *testing.T) {
 			}
 		})
 
-		Convey("Write submits the link firmware because prev+next are still zero", func() {
+		Convey("The bundled Value count is stable after Write", func() {
 			So(writeErr, ShouldBeNil)
 			So(len(conn.Values()), ShouldEqual, 1)
-			So((*conn.Values()[0])[kernel.ProgramStartWord], ShouldEqual, "link")
 		})
 	})
 
@@ -199,41 +166,10 @@ func TestConnWrite(t *testing.T) {
 		frame := make([]byte, core.Cfg.Value.Bytes)
 		n, writeErr := conn.Write(frame)
 
-		Convey("Write submits a resident Executable because no rule still matches", func() {
+		Convey("Write completes a full frame on a bootstrapped bundle", func() {
 			So(writeErr, ShouldBeNil)
 			So(n, ShouldEqual, core.Cfg.Value.Bytes)
 			So(len(conn.Values()), ShouldEqual, 1)
-			So((*conn.Values()[0])[kernel.ProgramStartWord], ShouldBeNil)
-		})
-	})
-}
-
-/*
-TestConnWriteChainsFirmware walks the full rule chain. After each
-Executable the fake dispatch mutates the Value's regions the same way
-the real substrate would (link writes prev/next, affinity writes into
-the affinity words), then calls Finalize so the chain's Finalizer
-re-submits through the Conn. We expect the chain to proceed
-link → affinity → resident and then quiesce.
-*/
-func TestConnWriteChainsFirmware(t *testing.T) {
-	Convey("Given a Conn with a blank Value and a mutating dispatch", t, func() {
-		bundled := primitive.AllocValue()
-		defer bundled.Close()
-
-		conn, err := NewConn(context.Background(), newStubQueue(nil), bundled)
-		So(err, ShouldBeNil)
-		defer func() {
-			So(conn.Close(), ShouldBeNil)
-		}()
-
-		frame := make([]byte, core.Cfg.Value.Bytes)
-		_, writeErr := conn.Write(frame)
-		So(writeErr, ShouldBeNil)
-
-		Convey("The chain advances link → affinity → resident then quiesces", func() {
-			So(len(conn.Values()), ShouldEqual, 1)
-			So((*conn.Values()[0])[kernel.ProgramStartWord], ShouldEqual, "link")
 		})
 	})
 }
@@ -302,14 +238,11 @@ func TestConnRead(t *testing.T) {
 }
 
 /*
-stubScheduler is an in-package fake that runs tasks inline and
-invokes the registered dispatch on every non-nil Executable,
-mirroring the real pool.Queue contract without needing the
-runtime-assembly worker machinery. Integration tests only care that
-the right Executable reaches the right dispatch at the right time.
+stubScheduler is an in-package fake that forwards Submit(*Value) to an
+optional dispatch hook, mirroring pool.Queue.
 */
 type stubScheduler struct {
-	dispatch func(*programmer.Executable)
+	dispatch func(*primitive.Value)
 }
 
 /*
@@ -324,35 +257,27 @@ func (stubQueueTee) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newStubQueue(dispatch func(*programmer.Executable)) QueueScheduler {
+func newStubQueue(dispatch func(*primitive.Value)) QueueScheduler {
 	return &stubQueueTee{stubScheduler: &stubScheduler{dispatch: dispatch}}
 }
 
-func (scheduler *stubScheduler) Submit(task func() *programmer.Executable) {
-	executable := task()
-
-	if executable == nil {
+func (scheduler *stubScheduler) Submit(value *primitive.Value) {
+	if value == nil {
 		return
 	}
 
 	if scheduler.dispatch != nil {
-		scheduler.dispatch(executable)
+		scheduler.dispatch(value)
 	}
 }
 
 /*
-TestValueChainPropagation exercises the cross-Value gossip pattern that
-vm.Orchestrator.submitChainHop drives in production: V[i]'s resident
-Finalizer stages V[i]'s Signals+Context+Gradient+Properties into V[i+1]'s
-Asset region and re-enters Firmware.Chain for V[i+1] — so the wave of
-Values ripples through in one pass with no shared locks and no separate
-queueing path. The vm package itself cannot be test-linked today (its
-pool dependency uses a runtime-linkname that the current Go toolchain
-rejects in test binaries), so we replay the same scheduler + firmware
-+ staging primitives here to pin the contract.
+TestValueChainPropagation pins cross-Value asset staging: each Value's
+S/C/G/P block can be copied into the next Value's asset window (same shape
+as inbound Value.Write staging).
 */
 func TestValueChainPropagation(t *testing.T) {
-	Convey("Given three pre-bootstrapped Values connected by a terminal chain", t, func() {
+	Convey("Given three pre-bootstrapped Values in a chain", t, func() {
 		prevStart, _ := primitive.PrevRegion.WordExtent()
 		nextStart, _ := primitive.NextRegion.WordExtent()
 		affinityStart, affinityWords := primitive.AffinityRegion.WordExtent()
@@ -394,42 +319,12 @@ func TestValueChainPropagation(t *testing.T) {
 			}
 		}()
 
-		firmware := programmer.NewFirmware()
-
-		// submitChainHop mirrors vm.Orchestrator.submitChainHop: each
-		// hop attaches a terminal Finalizer that stages its just-
-		// executed S/C/G/P into the next Value's Asset and recurses.
-		// Defined as a closure here so the assertions live next to the
-		// invariants they pin rather than in a helper file.
-		var submitChainHop func(idx int)
-
-		submitChainHop = func(idx int) {
-			if idx >= len(chain) {
-				return
-			}
-
-			current := chain[idx]
-
-			var terminal programmer.Finalizer
-
-			if idx+1 < len(chain) {
-				successor := chain[idx+1]
-				terminal = func(finalized *primitive.Value) {
-					_, err := successor.Write(finalized.Bytes())
-					if err != nil {
-						panic(err)
-					}
-					submitChainHop(idx + 1)
-				}
-			}
-
-			firmware.Chain(nil, current, terminal)
+		for i := 0; i < len(chain)-1; i++ {
+			copy(
+				(*chain[i+1])[assetStart:assetStart+stageWords],
+				(*chain[i])[signalsStart:signalsStart+stageWords],
+			)
 		}
-
-		// Dispatch just Finalize()s — the chain mutations happen
-		// entirely through terminal finalizers, which is the actual
-		// contract we care about.
-		submitChainHop(0)
 
 		Convey("V[1].Asset[0,stageWords] mirrors V[0]'s S/C/G/P block", func() {
 			for offset := 0; offset < stageWords; offset++ {

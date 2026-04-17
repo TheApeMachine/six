@@ -8,7 +8,7 @@ dispatch. The compiler enforces that all backends implement every method.
 */
 /*
 Substrate is the contract every compute backend (CPU, CUDA, Metal)
-satisfies. One method dispatches all operations. The programmer
+satisfies. One method dispatches all operations. Config-time lowering
 compiles intent into the Value’s layout; the kernel reads the
 opcode from the program region and dispatches internally to the
 right hardware path (truth table ALU, CSA, batch popcount, etc.).

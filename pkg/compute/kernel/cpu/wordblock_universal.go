@@ -6,7 +6,7 @@ import (
 )
 
 /*
-universalBitwiseV2 runs one 16-rotation truth-table sweep against the Value,
+universalBitwiseSweep runs one 16-rotation truth-table sweep against the Value,
 reading operand A from value[aStart..aStart+aSpan) folded to 4 lanes, B from
 value[bStart..bStart+bSpan) tiled cyclically across the 16 rotations, and
 writing the 64-byte LSH signature back to value[dstStart..dstStart+dstSpan)
@@ -29,7 +29,7 @@ uint64 — nibble k at bit (k*4). Legacy single-opcode programs broadcast
 one nibble across all 16 slots so the per-rotation decode matches the
 old fixed-op kernel bit-for-bit.
 */
-func universalBitwiseV2(
+func universalBitwiseSweep(
 	value *uint64,
 	aStart int,
 	aSpan int,

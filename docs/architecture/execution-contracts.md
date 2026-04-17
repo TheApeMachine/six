@@ -330,7 +330,7 @@ The current `programs:` block in `cmd/cfg/config.yml` should be classified as fo
 ## Verification baseline
 
 Current baseline command for the active surface:
-- `go test -ldflags='-checklinkname=0' ./pkg/compute/kernel/cpu ./pkg/compute/programmer ./pkg/compute ./pkg/vm`
+- `go test -ldflags='-checklinkname=0' ./pkg/compute/kernel/cpu ./pkg/compute/firmware ./pkg/compute ./pkg/vm`
 
 Known unrelated repo-wide failures:
 - `experiment/evaluator_test.go`

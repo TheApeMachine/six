@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -128,9 +127,14 @@ func TestFieldCycle(t *testing.T) {
 		affStart, _ := core.Cfg.Value.Region.Affinity.WordExtent()
 
 		for idx := 0; idx < 4; idx++ {
-			value := primitive.AllocValue()
-			value.StampNewID()
-			value.Set(propsStart, kernel.PackClassificationLabelSlots(9, 9, 9, 9))
+			value := primitive.Emit(
+				primitive.WithLabels(9, 9, 9, 9),
+				primitive.WithConfidence(0xFFFFFFFFFFFFFFFF),
+				primitive.WithEpoch(0xFFFFFFFFFFFFFFFF),
+				primitive.WithTTL(0xFFFFFFFFFFFFFFFF),
+				primitive.WithNoise(0xFFFFFFFFFFFFFFFF),
+				primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
+			)
 			for offset := 0; offset < affinityWords; offset++ {
 				value.Set(affStart+offset, 0xAAAAAAAAAAAAAAAA)
 			}
@@ -183,12 +187,12 @@ func TestFieldCycle(t *testing.T) {
 		}
 
 		/*
-		Cycle is observation-only — it never appends carriers to
-		field.values because that would feed back into the next
-		measurement (carriers carry no labels, so Coverage and
-		LabelDensity collapse on every subsequent tick). Carriers
-		are minted on demand by BuildPressureCarrier for callers
-		that own a gossip routing path.
+			Cycle is observation-only — it never appends carriers to
+			field.values because that would feed back into the next
+			measurement (carriers carry no labels, so Coverage and
+			LabelDensity collapse on every subsequent tick). Carriers
+			are minted on demand by BuildPressureCarrier for callers
+			that own a gossip routing path.
 		*/
 		Convey("Cycle marks the field unsaturated without mutating values", func() {
 			before := len(field.Values())

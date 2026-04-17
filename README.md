@@ -76,14 +76,13 @@ This is the actual end-to-end path the code implements today:
 1. **Byte stream arrives** — `vm.Machine.Load` feeds a `data.Provider` into a `transport.Pipeline`.
 2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
 3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
-4. **Program installed** — `programmer.Installer` writes the `"affinity"` program into each Value's program region. This is a compiled frame, not raw words.
+4. **Program installed** — `compute.Backend.Dispatch` runs the firmware rule chain (`firmware.NewExecutable`, …), lowering compiled frames into each Value's program region — not raw hand-written words.
 5. **Published to Queue + Orchestrator** — Each minted Value is published to the `pool.Queue` (for backend execution) and the `vm.Orchestrator` (for community routing).
-6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The ALU runs the program region against the token region and writes results to signals/context/gradient.
-7. **Queue cascades** — If word 117 (`SchedulingNextProgramWord`) is non-zero after execution, the Queue re-publishes the referenced Value for another pass. `next self` makes a Value loop.
-8. **Orchestrator groups** — When a Value settles (word 117 = 0), the Orchestrator's `Cycle` picks it up. `findCommunity` computes Hamming distance over the 5 affinity words against existing community fields. Close enough → join; too far or all saturated → spawn a new `GF(8191)` community in the first empty slot.
-9. **Community emits actions** — When a community has ≥ 3 members and its dominant mode's concentration exceeds the resonance threshold, `emitActions` mints a new Value from the community's aggregate state, installs a program (`beam_swarm_step` or `active_inference`), and publishes it back to the Queue. The community's Value list is then cleared.
+6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
+7. **Queue / scheduling** — If word 117 (`SchedulingNextProgramWord`) is non-zero after execution, the work queue can re-publish that Value for another pass (`next` / `next self` in firmware). This is orthogonal to the ALU kernels, which only execute the current program slice.
+8. **Orchestrator → Field** — `vm.Orchestrator.Cycle` copies each input Value's wire frame through a **`gossip.Conn`** (Vyukov ring) and into the root **`mesh.Field.Write`**, which either **routes** into a child community (`findCommunity` over the five affinity words) or **stores** on a leaf. The field's **`Read`** path is the same **`gossip.Conn`** framing Values for downstream `io.Copy`.
 
-For prompts, mint segments with `primitive.NewValue`, install a program with `programmer.Installer`, then call `Machine.Prompt(segments...)`. Prompt routes the segments on the first `Orchestrator.Cycle` and keeps cycling (no further ingress) until at least one Value is returned — **belief gap ≤ `BeliefEpsilon`** inside a multi-member community (see `Orchestrator.Cycle`). Those returned Values are the resolved output. Use a deadline or cancel on `ctx` passed to `NewMachine` if the field might never reach epsilon.
+For prompts, mint segments with `primitive.NewValue`, install firmware through `compute.Backend.Dispatch` / `firmware.NewExecutable` (or your config `value.rules` chain), then call `Machine.Prompt(segments...)`. **`Prompt` currently forwards to a single `Orchestrator.Cycle`** (see `pkg/vm/machine.go`). Belief-gap closure and multi-cycle prompt loops are described in comments there and in `BEHAVIOR.md`; use a deadline or cancel on `ctx` if work must be bounded.
 
 ## Values: Programmable Data
 
@@ -101,13 +100,13 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
 - **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines which community the Value joins.
-- **Program region**: Packed bits the compute kernels interpret (e.g. universal bitwise sweep with per-rotation opcodes in the program words). **Authoring** does not hand-edit raw words: you write lines of source (see below), the programmer **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
+- **Program region**: Packed bits the compute kernels interpret for the **universal bitwise** path: the **low nibble** of the first program word selects the 4-input truth-table opcode; the kernel **broadcasts** that nibble across all 16 internal rotation slots (one schedule—no separate rotation-table word). The next word is **mode** (`accumulate` vs `reduce`); **operand references** occupy the following configured words (`srcA`, `srcB`, `dst` — see `pkg/compute/kernel/layout.go` and `core.Cfg.Value.Region.Program`). **Authoring** does not hand-edit raw words: you write lines of source (see below), `pkg/compute/firmware` **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
 - **Properties region** (words 48–63): 1024-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Fixed slots (TTL, noise, probe ABI, community id, firmware status) use the same word indices as `pkg/compute/kernel/layout.go`.
 - **Asset region** (words 64–119): 3584-bit scratch and bundled payload (the space that remains before Prev/Next/ID/Affinity); scheduler word 117 and kernel frame metadata at words 118–119 live in this span.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
 - **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads) and for maintaining sequence order across tokenizer chunks. Values always know their original ordering.
 - **ID**: 64-bit unique identifier, assigned by atomic counter at mint time.
-- **Word 117** (`SchedulerNextProgramWord`): scheduler next program — `pkg/compute/programmer` and **`Executable.Execute`** write the **ValueID** that should run **after** this frame completes. Zero means settled. `next self` means re-enter the Queue for another ALU pass.
+- **Word 117** (`SchedulerNextProgramWord`): scheduler next program — `compute.Backend` materializes this from lowered firmware (`next` / `next self`); **`Executable.Execute`** runs after install. Zero means settled. `next self` means re-enter the Queue for another ALU pass.
 
 ### Properties
 
@@ -127,12 +126,12 @@ Canonical **1024-bit** region, spanning words **48 to 63** (see `value.region.pr
 | 57              | 9             | **status** (`PropertiesStatusWord`)            | Value status: IDLE, READY, BUSY, WAITING, DONE, OK, ERROR                                                                  |
 | 58–63           | 10–15         | **fieldId**                                    | The community `Field`'s ID this `Value` belongs to                                                                         |
 
-### Program Authoring (`pkg/compute/programmer`)
+### Program Authoring (`pkg/compute/firmware` — config-time DSL only)
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes that text; **`NewProgram(nameOrSource)`** resolves a string against that map when the key exists, otherwise treats the string as full source.
 
 Pipeline in order:
-§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§q1wawwweèeee
+
 1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
 2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value's own ID — recursion / re-entry).
 3. **`NewCompiler(tokens, WithContinuation(cont))`** — holds tokens and the optional continuation; **`Compile(CompilerTarget)`** dispatches to CPU / Metal / CUDA lowering and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
@@ -142,13 +141,11 @@ So: **one compiled frame → one program region on one Value**; **N frames → N
 
 ### The ALU
 
-The Boolean ALU path is a linear sweep across the `Program` region, where the data in the `Token` region is split up, and then used to perform bitwise operations between two spans. Important to understand is that `Values` are not mutated during this process, the operations are done on copies of the data, and purely emit a `Signal` as the result of each operation, which is written to the `Signals` region.
+The Boolean **universal bitwise** path reads three **region references** from the configured program words: **A**, **B**, and **destination**. Operand data is read from those spans inside the **same** `[128]uint64` frame. The kernel folds **A** into four lanes, tiles **B** across an internal 16-step sweep, applies the truth-table opcode defined by the **program word’s low nibble** (repeated at every step), and packs a 64-byte signature; **mode** chooses whether that signature is **XOR-accumulated** into the destination words or **reduced** to a single popcount written at `dst[0]`. So the ALU **does** write back into whatever region the compiled program names as `dst` (often `signals`, sometimes `affinity`, etc.) — it is not a side-effect-free pure read of tokens.
 
-The physical layout in the program words (including packed per-rotation opcodes and the steady **A** vs rotated **B** token spans) is what the CPU / Metal / CUDA kernels consume after authoring has been lowered into those bits. Rotations advance in steps that match the kernel contract (e.g. 8-bit steps for the universal bitwise path). The high-level **source lines** you edit under `programs:` are **not** the same as raw machine words — the compiler bridges them.
+The high-level **source lines** under `programs:` are **not** the same as raw machine words — the compiler lowers them into the program region; CPU, Metal, and CUDA share the same interpretation: opcode nibble, mode word, then packed `PackRegionRef` operands (`pkg/compute/kernel`).
 
-The region-program ABI now lowers each five-column source line into a single Value frame descriptor. Program word 16 carries the descriptor marker, ALU op, and mode; program words 17-19 pack `srcA`, `srcB`, and `dst` region references. The ALU executes those references directly against the Value frame: `accumulate` writes bitwise results back into the destination region, while `reduce` writes popcount scalars into destination lanes. Multi-line programs still materialize as chained Values through word 117, so recursion is `next self` rather than a host-side loop.
-
-Once the `Value` comes out of the `ALU` those `Signals` are used to emit new `Values` which are linked via the `PrevID`, `NextID`, and `ValueID` regions.
+Scheduling hops (**word 117**, `next` / `next self` in firmware) are still part of the toolchain for multi-step programs, but the **kernels themselves** only execute the universal-bitwise (and geometric) opcodes described here — they do not interpret a separate “region program” table in the reserved band.
 
 The linear sweep is a deliberate limitation over loops and branching, as it is sympathetic to the hardware, eliminating thread divergence on the GPU and enabling parallelism via SIMD on the CPU.
 
@@ -166,7 +163,7 @@ The Boolean ALU keeps the low 4-bit truth-table opcodes exactly as-is. The high 
 
 `Context`, `Gradient`, and `Signals` are each 512-bit regions, so each holds one `pkg/core/numeric/geometry.Multivector` without changing the 1024-byte `Value` stride. The kernel dispatch preserves the full opcode byte before falling back to the Boolean low nibble, so geometric opcodes cannot collapse to `FALSE`. CPU, Metal, and CUDA now all expose the same PGA lane; the native kernels read the high nibble in-band and write their 8-lane result back into `Signals`. CPU uses hand-written ARM64 and AMD64 assembly for the PGA product, CUDA executes the lane as native `float64`, and Metal preserves the 64-bit frame ABI while converting to native `float32` arithmetic at the GPU boundary because Apple Metal does not expose double precision in shader code.
 
-Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its payload and writes it into `Context`. Boolean code can still inspect the same lanes through `ContextVector`, but the geometric path treats the region as a continuous coordinate. The programmer layer can now emit first-class `GeometricIntent` operands, so a `Value` can carry its rotor and target into the compute substrate instead of relying on an external interpreter.
+Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its payload and writes it into `Context`. Boolean code can still inspect the same lanes through `ContextVector`, but the geometric path treats the region as a continuous coordinate. The firmware compiler can now emit first-class `GeometricIntent` operands, so a `Value` can carry its rotor and target into the compute substrate instead of relying on an external interpreter.
 
 ### Signals
 
@@ -217,7 +214,7 @@ In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{
 
 ## Firmware
 
-> The "programmable Value" story has weight only if the system's autonomous behaviors — self-labeling, community crystallization, unsupervised learning — are expressed as **programs that run inside Values**, not as Go code that operates on Values from outside. The programs here are authored in the same five-column source that any user program uses, compiled by `pkg/compute/programmer`, and executed on the same ALU. Where the ALU's rotation-sweep contract makes a computation inexpressible as firmware (see "ALU constraint" note below), the orchestrator performs the operation directly — that is not a retreat from the principle; it is honesty about what the sweep engine can and cannot encode.
+> The "programmable Value" story has weight only if the system's autonomous behaviors — self-labeling, community crystallization, unsupervised learning — are expressed as **programs that run inside Values**, not as Go code that operates on Values from outside. The programs here are authored in the same five-column source that any user program uses, compiled by `pkg/compute/firmware`, and executed on the same ALU. Where the ALU's **signature-sweep** contract (byte-packed LSH output) makes a computation inexpressible as firmware (see "ALU constraint" note below), higher-level code keeps results in-band on `signals`/`properties` — that is honesty about what the sweep engine can and cannot encode.
 
 ### Label Packing (w48)
 
@@ -234,11 +231,11 @@ Word 48 of the Properties region is the **label word**. It holds four 16-bit lab
 
 Slots are packed **low-to-high**: slot 0 occupies bits 0–15 (the lowest 16 bits), slot 3 occupies bits 48–63 (the highest). `kernel.PackClassificationLabelSlots` and `kernel.UnpackClassificationLabelSlots` are the canonical accessors. Slot 0 is reserved for the dataset-provided label (written by the tokenizer when the data provider supplies one). Slots 1–3 are written by the unsupervised learning pass. Zero means unlabeled.
 
-**ALU constraint — label injection:** Inserting a 16-bit value into a specific bit-lane of a 64-bit word requires a clean full-word OR operation. The ALU kernel (`universalBitwiseV2`) is a 16-rotation LSH sweep that produces a byte-level signature — not a clean word-level bitwise operation. The byte-lane packing means the kernel's output is an LSH artifact, not the expected slot value. Until a word-level write instruction is added to the ALU, unsupervised learner Values keep their own result in `signals`/`properties`; they do not mutate source Values from Go.
+**ALU constraint — label injection:** Inserting a 16-bit value into a specific bit-lane of a 64-bit word requires a clean full-word OR operation. The universal bitwise kernel is a 16-step LSH-style sweep that produces a **byte-packed signature** — not a direct 16-bit lane write. The packing means the raw sweep output is not the same shape as a single classification slot. Until a word-level write instruction exists in the ALU, unsupervised learner Values keep their own result in `signals`/`properties`; they do not mutate source Values from Go.
 
 ### Field Crystallization
 
-Each community field maintains a **crystallization score** measured by `vm.measureCrystallization`. The score is composed from three metrics computed by iterating the live Value population:
+Each community field maintains a **crystallization score** computed by **`mesh.MeasureFieldMetrics`** over the live members (and eigenmode snapshot when present), stored via **`Field.refreshMetrics`** on ingest and leaf **`Cycle`**. Routing parents expose a **weighted rollup** of child metrics (`RollupFieldMetrics`). The score is composed from three metrics:
 
 | Metric         | Semantics                                                 | Computation                                  |
 |----------------|-----------------------------------------------------------|----------------------------------------------|
@@ -250,9 +247,9 @@ Each community field maintains a **crystallization score** measured by `vm.measu
 Crystallization.Score = Coverage × Consensus × LabelDensity
 ```
 
-When a community's `Coverage` is below `crystallizationFloor` (0.35), `Unsupervised.Cycle` runs a labeling pass on it.
+When a community's `Coverage` is below `crystallizationFloor` (0.35), higher-level rules (e.g. unsupervised / orchestration) can run a labeling pass on it — the field itself only **measures** and **emits** pressure through the same I/O paths.
 
-**`measure_field` (firmware resident):** In parallel, a permanent resident Value running the `measure_field` program provides an LSH-based label-energy signal. Community members deliver their label words into the resident via the gossip substrate (`Conn.Write` → `StageAssetFrom`), so `asset[0,8]` carries the currently-routed peers' compressed state. The program runs an OR sweep over that staged window and writes a popcount of the resulting 64-byte LSH signature into `signals[7]`. Higher popcount = more label bits set across the community = higher crystallisation energy. The field's `Cycle` reads `signals[7]` to steer the GF(8191) eigenmode.
+**`measure_field` (firmware resident):** A resident Value can run the `measure_field` program so peers stage label-bearing state through the gossip substrate (`Conn.Write` → `StageAssetFrom`), with `asset[0,8]` carrying routed peers' compressed state. The YAML line OR-reduces into `signals[7,1]` as an in-band energy readout. Separately, **`mesh.Field`** observability comes from **`MeasureFieldMetrics` + eigenmode detection** (`refreshMetrics` / `Cycle` on leaves), not from Go reading that resident's `signals[7]` on every tick.
 
 ```yaml
 measure_field: |
@@ -264,15 +261,15 @@ measure_field: |
 
 When a community's `Coverage` falls below the floor, the field emits an ephemeral carrier Value aimed (by affinity) at the learners it wants to activate. Delivery goes through the same gossip substrate every other Value uses: `io.Copy` from the emitting field into a `gossip.Conn` whose bundle is the target learner population, with `io.MultiWriter` fanning the frame across additional peers where fast paths exist. `Conn.Write` calls `StageAssetFrom` on every receiver, so the learner wakes up with the emitter's Signals+Context+Gradient+Properties already in its asset window — no Go-side registry lookup, no orchestrator-side token copy. The field's carrier emission is the trigger; the community-wide pressure arises from many carriers landing in parallel rather than a central loop materializing the O(U²) pair graph.
 
-When `Coverage >= crystallizationFloor` across all communities, no carriers are emitted and the system is quiescent.
+When `Coverage >= crystallizationFloor` across all communities, no carriers are emitted and the system is quiescent. Carriers are minted with **`primitive.Emit`** (see **`mesh.Field.BuildPressureCarrier`**) so pressure metadata and firmware install stay on the same wire path as ordinary Values.
 
 ### Firmware Programs
 
-The following named programs are defined under `programs:` in `config.yml`. Programs that manipulate full 64-bit words cleanly (LSH fingerprinting, signal accumulation, reductions) are implemented as firmware. Operations that require word-level writes outside the LSH sweep (label injection) are implemented by the orchestrator directly and are documented here as constraints.
+The following named programs are defined under `programs:` in `config.yml`. Programs that manipulate full 64-bit words cleanly (LSH fingerprinting, signal accumulation, reductions) are implemented as firmware. Operations that require word-level writes outside the LSH sweep (label injection) stay in-band on the learner Value or in Go helpers — see the ALU constraint above.
 
 #### `affinity`
 
-Computes the 5-word LSH fingerprint over the token region and XOR-accumulates the rotation-sweep signature into the affinity words. This is the routing primitive — the affinity fingerprint determines which community a Value joins.
+Computes the 5-word LSH fingerprint over the token region and XOR-accumulates the universal-bitwise signature into the affinity words. This is the routing primitive — the affinity fingerprint determines which community a Value joins.
 
 ```
 tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
@@ -324,7 +321,7 @@ The ALU has a strict single-Value contract: every program line operates on regio
 peer Value   ──io.Copy──▶   gossip.Conn   ──Write──▶   receiver.asset[0,32]
 ```
 
-`Value`, `gossip.Conn`, and `geometry.Field` all implement `io.ReadWriteCloser`, so `io.MultiWriter`, `io.MultiReader`, and `io.TeeReader` express fan-out, fan-in, and fast paths without any custom routing layer. `Conn.Write` invokes `StageAssetFrom` on every bundled receiver, copying the source's Signals+Context+Gradient+Properties (48 words) into `asset[0,48]`. The ALU then runs with peer state already in-band. No Go-side registry. No per-program staging path. Selection of who writes to whom is the field's job, expressed by which `io.ReadWriteCloser` ends up wired to which.
+`Value`, `gossip.Conn`, and **`mesh.Field`** all implement `io.ReadWriteCloser`, so `io.MultiWriter`, `io.MultiReader`, and `io.TeeReader` express fan-out, fan-in, and fast paths without any custom routing layer. `Conn.Write` invokes `StageAssetFrom` on every bundled receiver, copying the source's Signals+Context+Gradient+Properties (48 words) into `asset[0,48]`. The ALU then runs with peer state already in-band. No Go-side registry. No per-program staging path. Selection of who writes to whom is the field's job, expressed by which `io.ReadWriteCloser` ends up wired to which.
 
 ---
 
@@ -447,16 +444,15 @@ Because a hypothesis query and a real observation share the same substrate, Six 
 
 ## Composable I/O — Value, Field, and Conn as `io.ReadWriteCloser`
 
-`primitive.Value`, `geometry.Field`, and `gossip.Conn` all implement `io.ReadWriteCloser`. This is not a serialization convenience — it is the **routing substrate**. Because every participant in the system speaks the same interface, the entire Go standard library's I/O combinators become first-class routing primitives with no additional glue.
+`primitive.Value`, **`mesh.Field`**, and `gossip.Conn` all implement `io.ReadWriteCloser`. This is not a serialization convenience — it is the **routing substrate**. Because every participant in the system speaks the same interface, the entire Go standard library's I/O combinators become first-class routing primitives with no additional glue.
 
 ### The Ring Buffer as Transport
 
-The lock-free `data.Ring` (Vyukov MPMC, `RingCapacity = 65536` slots) already stores `[128]uint64` frames — the exact stride of a `primitive.Value`. Every `io.ReadWriteCloser` implementation sits on top of one or two `data.Ring` instances: an intake ring (written by `Write`) and an emission ring (drained by `Read`). No goroutines are allocated — `Read` and `Write` are pure atomic operations on head and tail pointers. All goroutine allocation is centralized in `pool.Queue`.
+The lock-free `data.Ring` (Vyukov MPMC) backs **`gossip.Conn`** and the **`pool.Queue`**: `Conn.Write` pushes frame bytes into the ring; `Conn.Read` pops them. That is the hot path for orchestrator → field fan-in. A **`primitive.Value`** itself is already a fixed `[128]uint64`; its **`Read`/`Write`** methods marshal wire bytes in place without a ring. **`mesh.Field.Read`** delegates to its embedded **`gossip.Conn`**, which uses the ring.
 
 ```text
-Write(p []byte) → deserialize into [128]uint64 → Ring.Push(ptr)
-Read(p []byte)  → Ring.Pop() → serialize [128]uint64 into p
-Close()         → cancel intake ring context
+gossip.Conn.Write(p) → Ring.Push(...)
+gossip.Conn.Read(p)  → Ring.Pop(...) → copy into p
 ```
 
 ### Routing as I/O Composition
@@ -479,79 +475,28 @@ io.Copy(targetReserved, pr)  // target reads into Reserved before dispatch
 
 No routing tables. No special-cased dispatch paths. The topology is expressed entirely in which `io.ReadWriteCloser` values are passed to which stdlib combinators at connection time.
 
-### Affinity as Address — the `AffinityFilter`
+### Affinity as address
 
-Targeting a specific community or node does not require a routing table. The affinity words (123–127) of each Value are its address. An `AffinityFilter` is a thin `io.Writer` wrapper that inspects those words before forwarding:
-
-```go
-type AffinityFilter struct {
-    dst    io.Writer
-    target [5]uint64
-    budget int       // max Hamming distance to forward
-}
-
-func (f *AffinityFilter) Write(p []byte) (int, error) {
-    if geometry.AffinityHammingDistance(affinityFrom(p), f.target) > f.budget {
-        return len(p), nil  // not for us — drop cleanly, not an error
-    }
-    return f.dst.Write(p)
-}
-```
-
-Gossip flood reduces naturally to affinity-filtered forwarding: a `Conn` wraps each of its remote peers in an `AffinityFilter` and writes to `io.MultiWriter` over them. Values addressed to a distant community propagate hop-by-hop through peers whose affinity is progressively closer to the target. No DHT, no routing table update protocol.
-
-### Plasticity — the Peer List as Learnable Weights
-
-Each `Field` and `Conn` maintains a `PriorityRoute`: a slice of `io.ReadWriteCloser` peers paired with a floating-point success score. The score is updated on each emission cycle using an exponential moving average over a `successSignal` derived from downstream crystallization improvement.
-
-```go
-type ScoredPeer struct {
-    dst   io.ReadWriteCloser
-    score float64  // EMA of downstream crystallization delta
-}
-
-type PriorityRoute []ScoredPeer
-```
-
-After each `Cycle`, the slice is re-sorted descending by score. Writes go to all peers; reads prefer the highest-scoring path. Peers whose score drops below a floor are pruned. New peers are admitted when gossip delivers a Value whose source affinity is within budget and whose source field has high crystallization.
-
-**The peer list IS the weight matrix.** Re-sorting IS learning. The communication topology and the computational topology converge without a separate training phase: communities that consistently produce successful emissions become more connected to each other, forming fast paths. Communities that produce nothing become isolated and eventually pruned. This is Hebbian learning at the infrastructure layer — connections that fire together wire together — falling out of the I/O composition model with no additional mechanism.
-
-### Fast Paths
-
-A fast path between two `Field`s is not a special object. It is two `Field`s that have each other at index 0 of their `PriorityRoute` because their shared history of successful emissions has pushed their scores to the top. The fast path emerges from the score dynamics. Removing it is automatic: if the emission success stops, the score decays and the peer slides down the sort order.
+The five **affinity** words (see `value.region.affinity` in config) fingerprint each Value. **`mesh.Field`** routing compares incoming frames to **community seeds** with a Hamming-distance scan (`findCommunity`); that is the live addressing story today. A separate **affinity-filtered `io.Writer`** (drop frames whose decoded affinity is outside a Hamming budget of a target) is a natural stdlib-sized building block for multi-hop fan-out — compose it when you need it; it is not a dedicated type in `pkg/` yet.
 
 ### `gossip.Conn` as `io.ReadWriteCloser`
 
-```go
-type Conn struct {
-    intake   *data.Ring      // lock-free MPMC, no goroutine
-    affinity [5]uint64       // this node's fingerprint
-    peers    PriorityRoute   // sorted by emission success, reordered each Cycle
-}
+`gossip.Conn` bundles zero or more **`primitive.Value`** references with a **`pool.Queue`**, a **`data.Ring`** for streaming frames, and telemetry teeing. **`Write`** forwards bytes into the ring (and staging paths described in `pkg/gossip/conn.go`). **`Read`** round-robins **`Value.Read`** over the bundle so each full frame is one read. See the package docs for the exact staging / executable submission contract — the struct fields are not the simplified “intake + peer scores” sketch from earlier drafts.
 
-func (conn *Conn) Write(p []byte) (int, error)  // push into intake ring
-func (conn *Conn) Read(p []byte) (int, error)   // pop from intake ring
-func (conn *Conn) Close() error
-```
-
-`GossipConn` interface collapses to `io.ReadWriteCloser`. The `receiveWithVisited` cycle-detection map is eliminated — cycles cannot form when forwarding is affinity-filtered, because a Value arriving back at its origin has affinity too similar to be forwarded outward again (it falls below the budget floor and is dropped cleanly).
-
-### `geometry.Field` as `io.ReadWriteCloser`
+### `mesh.Field` as `io.ReadWriteCloser`
 
 ```go
 func (field *Field) Write(p []byte) (int, error)
-// Deserialize p into a Value, push into the intake ring.
-// The next Cycle drains the ring into community routing.
+// Deserialize a wire frame into a Value; on a leaf, append and refresh metrics;
+// on a routing parent, Hamming-route into the winning sub-field.
 
 func (field *Field) Read(p []byte) (int, error)
-// Pop the next emission from the output ring.
-// Community emissions (emitFromCommunity) push into the output ring after Cycle.
+// Delegate to the embedded gossip.Conn — round-robin read of stored Values as frames.
 
 func (field *Field) Close() error
 ```
 
-Fields can now be wired directly into any I/O pipeline. `emitFromCommunity` writes into both the local `pool.Queue` and the field's `PriorityRoute` in one `io.MultiWriter` call. The global field drives community fields the same way — it writes its pressure downward through `io.MultiWriter(community0, community1, ...)`, and each community's `Write` method receives that pressure as a Value that enters its intake ring.
+A `mesh.Field` is constructed with a **`gossip.Conn`** (`field.conn`) and optional **`pool.Queue`** for backend publishing. Wire it with `io.Copy`, `io.MultiWriter`, and the same patterns as `Value` and `Conn` — there is no separate “field stream” type beyond this composition.
 
 ---
 
@@ -607,7 +552,7 @@ value:
     affinity:   { start: 123, bits: 257 }
 ```
 
-**`programs:`** blocks hold **programmer source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/programmer`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
+**`programs:`** blocks hold **DSL source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/firmware`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
 
 **`finalizers:`** blocks hold generic post-ALU orchestration rules. They do not define new Go-side algorithms. Instead they specify when the runtime should either **reprogram the current Value** with an existing named program or **emit an ephemeral clone** of the current Value, optionally copying already-written in-band regions (for example `value.signals` or `field.affinity`) into another region before the next ALU pass.
 
@@ -671,14 +616,12 @@ Datasets must follow the Provider interface.
 machine.Load(dataset)
 
 /*
-Prompt — segments + program on first cycle, then cycles until gap closure
-(or ctx cancel/deadline). Returned Values are the resolution.
+Prompt — forwards to orchestrator.Cycle (see vm/machine.go). Returned
+Values are the field snapshot after that cycle; cancel the context to bound work.
 */
 segments, _ := primitive.NewValue([]byte("the cat sat on the"))
-installer := programmer.Installer{}
-for _, seg := range segments {
-	_ = installer.InstallProgram(seg, "beam_swarm_step")
-}
+// Production uses value.rules + queue dispatch; this is illustrative:
+// backend.Dispatch(firmware.NewExecutable(seg, "beam_swarm_step")) per segment.
 resolved, err := machine.Prompt(segments...)
 _ = resolved
 _ = err
@@ -695,14 +638,15 @@ six/
 ├── pkg/
 │   ├── primitive/           # Value type, Morton coding, affinity LSH
 │   ├── compute/             # Multi-substrate load balancer
-│   │   ├── programmer/      # Program source → tokens → frames → Values
+│   │   ├── firmware/       # Config-time DSL → tokens → frames (not the in-band programmer Value)
 │   │   └── kernel/
 │   │       ├── cpu/         # SIMD-optimized bitwise executor + ARM64/AMD64 asm
 │   │       ├── cuda/        # NVIDIA GPU kernels
 │   │       └── metal/       # Apple Metal GPU shaders
 │   ├── core/                # Configuration, data structures
 │   │   └── numeric/
-│   │       └── geometry/    # Field, PhaseDial, eigenmode, PGA, Procrustes
+│   │       └── geometry/    # GF(p) Field, PhaseDial, eigenmode, PGA, Procrustes
+│   ├── mesh/                # Community/global Field (Values + routing + metrics)
 │   ├── pool/                # Lock-free thread pool + tiered work queue
 │   ├── vm/                  # Machine, Orchestrator, Tokenizer
 │   ├── gossip/              # Gossip protocol types (Conn, Digest)

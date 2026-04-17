@@ -6,10 +6,10 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
-type StateType uint64
+type StatusType uint64
 
 const (
-	PENDING StateType = iota
+	PENDING StatusType = iota
 	READY
 	BUSY
 	WAITING
@@ -18,12 +18,12 @@ const (
 	ERROR
 )
 
-type PropertyType uint64
+type PropertyType int
 
 /*
-PropertyType indexes words inside the properties region (512 bits = 8 words),
-matching DSL properties[k] and pkg/compute/kernel/layout.go absolute words
-48+k (e.g. TTL is properties[3] → word 51).
+PropertyType indexes words inside the properties region (first words align with
+kernel TTL, community, status, etc.). Role + TargetID live in the extension
+band (addressability); see Value.Write and ValueRole.
 */
 const (
 	LABELS PropertyType = iota
@@ -31,9 +31,23 @@ const (
 	EPOCH
 	TTL
 	NOISE
-	STATE
+	STATUS
 	WINDOW
 	DEPTH
+	COMMUNITY
+	TARGET
+	ROLE
+)
+
+/*
+ValueRole is the in-band role carried in the Role property word. Zero means no
+special role; other values extend the substrate without new property slots.
+*/
+type ValueRole uint64
+
+const (
+	ValueRoleNone ValueRole = iota
+	ValueRoleProgrammer
 )
 
 func (value *Value) Property(property PropertyType) (uint64, error) {
@@ -41,7 +55,7 @@ func (value *Value) Property(property PropertyType) (uint64, error) {
 		return 0, errors.New("value is nil")
 	}
 
-	if property > DEPTH {
+	if property > ROLE {
 		return 0, errors.New("property out of range")
 	}
 
