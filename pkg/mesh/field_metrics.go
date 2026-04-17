@@ -51,10 +51,9 @@ const crystallizationFloor = 0.35
 /*
 measureCrystallization scans the member population once and populates
 Coverage, Consensus, LabelDensity, and the composed Crystallization
-score. It never mutates the member Values — the population is strictly
-read-only here so a Cycle pass can run concurrently with Write fans-in
-that append to the slice (the append-only nature of the values slice
-keeps old pointers stable; we only walk the prefix len() returned us).
+score. It never mutates the member Values — it works from a
+snapshotValues copy so iteration is safe if AddValue or Write appends
+concurrently.
 
 The inner loop is Go-native rather than SIMD because the population
 size per community is typically in the tens, not thousands, and the
@@ -62,7 +61,7 @@ work per member is a single word load plus four uint16 extractions. A
 vectorised sweep only pays off past ~1 k members per community.
 */
 func (field *Field) measureCrystallization() FieldMetrics {
-	members := field.values
+	members := field.snapshotValues()
 
 	metrics := FieldMetrics{MemberCount: len(members)}
 
@@ -225,11 +224,9 @@ func loadAffinityArray(value *primitive.Value) [affinityWords]uint64 {
 
 	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
 
-	out[0] = (*value)[start]
-	out[1] = (*value)[start+1]
-	out[2] = (*value)[start+2]
-	out[3] = (*value)[start+3]
-	out[4] = (*value)[start+4]
+	for i := 0; i < affinityWords; i++ {
+		out[i] = (*value)[start+i]
+	}
 
 	return out
 }

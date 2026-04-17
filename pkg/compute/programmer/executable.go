@@ -23,7 +23,6 @@ substrate, and then calls Finalize.
 type Executable struct {
 	value        *primitive.Value
 	firmware     string
-	assets       []*Asset
 	tokens       []Token
 	continuation *Continuation
 	resident     bool
@@ -34,19 +33,13 @@ type Executable struct {
 func NewExecutable(
 	value *primitive.Value,
 	firmware string,
-	assets []*Asset,
 ) *Executable {
-	for _, asset := range assets {
-		_ = asset.Bundle(value)
-	}
-
 	parser := NewParser(NewProgram(firmware))
 	tokens := parser.Parse()
 
 	return &Executable{
 		value:        value,
 		firmware:     firmware,
-		assets:       assets,
 		tokens:       tokens,
 		continuation: parser.Continuation(),
 		err:          parser.Err(),

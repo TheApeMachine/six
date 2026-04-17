@@ -58,16 +58,25 @@ func NewEigenSnap(modes []Eigenmode, dominantIdx int) *EigenSnap {
 }
 
 /*
-Modes returns the eigenmode partition held by this snap. The slice
-aliases internal storage so callers must treat it read-only; if you
-need to mutate a mode, copy it first.
+Modes returns a defensive copy of the eigenmode partition held by this snap.
+Callers cannot mutate the snap's internal state through the returned slice.
 */
 func (snap *EigenSnap) Modes() []Eigenmode {
 	if snap == nil {
 		return nil
 	}
 
-	return snap.modes
+	out := make([]Eigenmode, len(snap.modes))
+
+	for i := range snap.modes {
+		m := &snap.modes[i]
+		out[i] = Eigenmode{
+			members: m.Members(),
+			energy:  m.Energy(),
+		}
+	}
+
+	return out
 }
 
 /*

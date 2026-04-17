@@ -28,7 +28,7 @@ const affinityWords = 5
 communityIDOffset is the word offset within the Properties region where
 the routing parent stamps the community index after Write selects or
 spawns a sub-Field. It sits at the start of the 1024-bit extension
-(properties was 512 bits, now 1536) so the legacy lower-half layout
+(properties was 512 bits, now 1024) so the legacy lower-half layout
 stays untouched. The visualizer reads this word straight off the wire
 frame so the rendering path has zero extra RTTs.
 */
@@ -92,7 +92,7 @@ type Field struct {
 	dial    geometry.PhaseDial
 	metrics atomic.Pointer[FieldMetrics]
 
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	readCursor atomic.Uint64
 
 	// childModulus is the GF modulus newly-spawned sub-Fields are
@@ -214,6 +214,7 @@ func (field *Field) AddValue(value *primitive.Value) {
 		return
 	}
 
+	field.mu.Lock()
 	field.values = append(field.values, value)
 
 	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
@@ -225,6 +226,25 @@ func (field *Field) AddValue(value *primitive.Value) {
 	field.affinity[2] ^= (*value)[start+2]
 	field.affinity[3] ^= (*value)[start+3]
 	field.affinity[4] ^= (*value)[start+4]
+	field.mu.Unlock()
+}
+
+/*
+snapshotValues returns a copy of the member slice for read-only iteration.
+Callers must not retain it across an AddValue/Write that might grow the
+backing store — the copy is a consistent point-in-time view.
+*/
+func (field *Field) snapshotValues() []*primitive.Value {
+	if field == nil {
+		return nil
+	}
+
+	field.mu.RLock()
+	out := make([]*primitive.Value, len(field.values))
+	copy(out, field.values)
+	field.mu.RUnlock()
+
+	return out
 }
 
 /*
@@ -365,12 +385,14 @@ func (field *Field) Write(p []byte) (n int, err error) {
 	// Fold into the winning child. Inlined rather than delegated to
 	// AddValue so we re-use the five registers we already loaded and
 	// avoid re-reading the Value's affinity region.
+	winner.mu.Lock()
 	winner.values = append(winner.values, value)
 	winner.affinity[0] ^= t0
 	winner.affinity[1] ^= t1
 	winner.affinity[2] ^= t2
 	winner.affinity[3] ^= t3
 	winner.affinity[4] ^= t4
+	winner.mu.Unlock()
 
 	// Emit an ephemeral Value that carries the community assignment
 	// in-band. The ephemeral's properties hold the community index,
@@ -420,7 +442,9 @@ func (field *Field) emitCommunityTag(winner *Field, communityIdx int) {
 	// the TTLExpiredSentinel prevents re-publication.
 	tag.Set(kernel.PropertiesTTLWord, 1)
 
+	winner.mu.Lock()
 	winner.values = append(winner.values, tag)
+	winner.mu.Unlock()
 }
 
 /*
@@ -606,6 +630,22 @@ Metrics().Saturated so they only pay the AllocValue cost when a
 community actually needs external help.
 */
 func (field *Field) BuildPressureCarrier(metrics FieldMetrics) *primitive.Value {
+	clamp01 := func(x float64) float64 {
+		if x < 0 {
+			return 0
+		}
+
+		if x > 1 {
+			return 1
+		}
+
+		return x
+	}
+
+	scaleFixed := func(x float64) uint64 {
+		return uint64(clamp01(x) * float64(uint64(1)<<32))
+	}
+
 	carrier := primitive.AllocValue()
 	carrier.StampNewID()
 
@@ -616,9 +656,9 @@ func (field *Field) BuildPressureCarrier(metrics FieldMetrics) *primitive.Value 
 	assetStart, assetWords := core.Cfg.Value.Region.Asset.WordExtent()
 
 	if assetWords >= 3 {
-		carrier.Set(assetStart+0, uint64(metrics.Coverage*float64(uint64(1)<<32)))
-		carrier.Set(assetStart+1, uint64(metrics.Consensus*float64(uint64(1)<<32)))
-		carrier.Set(assetStart+2, uint64(metrics.Crystallization*float64(uint64(1)<<32)))
+		carrier.Set(assetStart+0, scaleFixed(metrics.Coverage))
+		carrier.Set(assetStart+1, scaleFixed(metrics.Consensus))
+		carrier.Set(assetStart+2, scaleFixed(metrics.Crystallization))
 	}
 
 	carrier.Set(kernel.PropertiesTTLWord, 1)

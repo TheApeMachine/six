@@ -95,10 +95,7 @@ func EncodeEnvelope(kind uint32, payload any) ([]byte, error) {
 
 	frame := make([]byte, total)
 
-	frame[0] = EnvelopeMagic[0]
-	frame[1] = EnvelopeMagic[1]
-	frame[2] = EnvelopeMagic[2]
-	frame[3] = EnvelopeMagic[3]
+	copy(frame[:4], EnvelopeMagic[:])
 
 	binary.LittleEndian.PutUint32(frame[4:EnvelopeHeaderBytes], kind)
 

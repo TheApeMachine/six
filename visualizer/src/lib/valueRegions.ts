@@ -8,19 +8,17 @@ pkg/compute/kernel/layout.go:
   signals  w24..w31   (512 bits)
   context  w32..w39   (512 bits)
   gradient w40..w47   (512 bits)
-  properties w48..w71 (1536 bits — extended band; community id at w56,
-                       firmware status at w57, TTL at w51, etc.)
-  asset    w72..w119  (3072 bits — chain staging + peer S/C/G/P + scratch)
+  properties w48..w63 (1024 bits — community id at w56, firmware status at w57,
+                       TTL at w51, etc.)
+  asset    w64..w119 (3584 bits — chain staging + peer S/C/G/P + scratch)
   prev     w120
   next     w121
   id       w122
   affinity w123..w127 (257 bits rounded up to 5 words)
 
-The older Go code defaults in pkg/core/config.go still carry the legacy
-narrow-properties layout (properties=48..55, asset=56..119), but the yaml
-config overrides both fields on every boot so the wire truly uses the
-extended layout above. Keep REGION_SPECS aligned with the yaml — that is
-what actually flows on the wire the visualizer consumes.
+pkg/core/config.go NewConfig() defaults match cmd/cfg/config.yml (properties 1024b,
+asset 3584b). Keep REGION_SPECS aligned with that yaml — that is what flows on the
+wire the visualizer consumes.
 */
 
 import {
@@ -79,9 +77,9 @@ consumed by pkg/primitive via core.Cfg:
   signals  w24..w31   (512 bits)
   context  w32..w39   (512 bits)
   gradient w40..w47   (512 bits)
-  properties w48..w71 (1536 bits — canonical extended band; community id at
+  properties w48..w63 (1024 bits — canonical band; community id at
                        w56 = properties[8], firmware status at w57 = properties[9])
-  asset    w72..w119  (3072 bits — peer S+C+G+P staging + scratch + scheduler)
+  asset    w64..w119  (3584 bits — peer S+C+G+P staging + scratch + scheduler)
   prev     w120
   next     w121
   id       w122
@@ -102,8 +100,8 @@ export const REGION_SPECS: ReadonlyArray<{
 	{ name: "signals", startWord: 24, wordCount: 8 },
 	{ name: "context", startWord: 32, wordCount: 8 },
 	{ name: "gradient", startWord: 40, wordCount: 8 },
-	{ name: "properties", startWord: 48, wordCount: 24 },
-	{ name: "asset", startWord: 72, wordCount: 48 },
+	{ name: "properties", startWord: 48, wordCount: 16 },
+	{ name: "asset", startWord: 64, wordCount: 56 },
 	{ name: "prev", startWord: 120, wordCount: 1 },
 	{ name: "next", startWord: 121, wordCount: 1 },
 	{ name: "id", startWord: 122, wordCount: 1 },

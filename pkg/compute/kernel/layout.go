@@ -22,12 +22,12 @@ const (
 	// StatusRaw is the zero-value default: the Value has not been through
 	// the firmware chain yet. The field may store it tentatively but should
 	// expect a follow-up write once bootstrap completes.
-	StatusRaw   uint64 = 0
+	StatusRaw uint64 = 0
 	// StatusReady means the firmware chain (link → affinity → resident)
 	// has run to completion and the Value's regions are fully populated.
 	StatusReady uint64 = 1
 
-	AssetStartWord = 72
+	AssetStartWord            = 64
 	SchedulingNextProgramWord = 117
 	// ReservedStartWord is the legacy name for the asset scratch region base word.
 	ReservedStartWord = AssetStartWord

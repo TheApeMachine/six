@@ -415,7 +415,9 @@ export function ValueInspector({
 			}
 		})();
 	const refuteTarget =
-		propertiesW49 && propertiesW49 !== "0000000000000000" ? propertiesW49 : null;
+		propertiesW49 && propertiesW49 !== "0000000000000000"
+			? propertiesW49
+			: null;
 	const communityIdFromFrame =
 		propertiesW56Community && propertiesW56Community !== "0000000000000000"
 			? BigInt(`0x${propertiesW56Community}`).toString(10)
@@ -790,10 +792,10 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* PROPERTIES 48–71 · 1536 bits — canonical extended band */}
+				{/* PROPERTIES 48–63 · 1024 bits — canonical property band */}
 				<Region
 					label="PROPERTIES"
-					words="48–71 · 1536b"
+					words="48–63 · 1024b"
 					fill={1 - snap.gap}
 					headerClass="bg-amber-500/10"
 					barClass="bg-amber-400"
@@ -874,10 +876,10 @@ export function ValueInspector({
 						}
 					/>
 					<div className="mt-1 border-t border-amber-500/25 pt-1 text-[7px] uppercase tracking-wide text-amber-200/35">
-						extended w58–w71
+						extended w58–w63
 					</div>
 					{frameOk ? (
-						<WordHexRows from={58} to={71} wordAt={wordAt} />
+						<WordHexRows from={58} to={63} wordAt={wordAt} />
 					) : (
 						<Dim>no frame</Dim>
 					)}
@@ -892,10 +894,10 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* ASSET w72–w119 (48 words — chain staging + peer S/C/G/P + scratch) */}
+				{/* ASSET w64–w119 (56 words — chain staging + peer S/C/G/P + scratch) */}
 				<Region
 					label="ASSET"
-					words="72–119 · 3072b"
+					words="64–119 · 3584b"
 					fill={0.12}
 					headerClass="bg-muted/10"
 					barClass="bg-muted"
@@ -905,7 +907,7 @@ export function ValueInspector({
 						peer S+C+G+P staging · scratch · scheduler
 					</div>
 					{frameOk ? (
-						<WordHexRows from={72} to={119} wordAt={wordAt} />
+						<WordHexRows from={64} to={119} wordAt={wordAt} />
 					) : (
 						<Dim>no frame</Dim>
 					)}

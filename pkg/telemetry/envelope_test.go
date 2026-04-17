@@ -86,3 +86,25 @@ func TestEnvelopeEncodeDecodeRoundtrip(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkEncodeEnvelope(b *testing.B) {
+	payload := FieldMetricsPayload{
+		CommunityIdx:    2,
+		MemberCount:     12,
+		LabeledCount:    9,
+		Coverage:        0.75,
+		Consensus:       0.88,
+		LabelDensity:    0.42,
+		Crystallization: 0.277,
+		DominantRatio:   0.63,
+		ModeCount:       3,
+		PressureMult:    0.37,
+		Saturated:       false,
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = EncodeEnvelope(EnvelopeKindFieldMetrics, payload)
+	}
+}

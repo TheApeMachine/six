@@ -209,7 +209,7 @@ func (firmware *Firmware) Chain(
 		return executable
 	}
 
-	executable := NewExecutable(value, firmwareName, nil)
+	executable := NewExecutable(value, firmwareName)
 
 	// Chain the next pass. Once the substrate finishes this firmware
 	// and the Finalizer runs, re-enter the evaluator so the Value
@@ -231,7 +231,11 @@ func (firmware *Firmware) Chain(
 	return executable
 }
 
-func (firmware *Firmware) evaluateConditions(value *primitive.Value, conditions map[string]any, isAnd bool) bool {
+func (firmware *Firmware) evaluateConditions(
+	value *primitive.Value,
+	conditions map[string]any,
+	isAnd bool,
+) bool {
 	if len(conditions) == 0 {
 		return true
 	}

@@ -29,7 +29,7 @@ which tends to rank the newest/most-divergent members higher — exactly
 the population the README says should drive eigenmode ranking.
 */
 func (field *Field) detectEigenmodes() *geometry.EigenSnap {
-	members := field.values
+	members := field.snapshotValues()
 
 	if len(members) == 0 {
 		return &geometry.EigenSnap{}
@@ -101,15 +101,14 @@ member which is already cheaper than the per-dimension trig the
 encoder runs.
 */
 func (field *Field) updatePhaseDial() {
-	members := field.values
+	members := field.snapshotValues()
 
 	if len(members) == 0 {
 		return
 	}
 
-	// Encoder wants []Value, not []*Value. Fresh slice avoids aliasing the
-	// Field's storage so a parallel AddValue cannot reshape the encoder's
-	// view mid-pass.
+	// Encoder wants []Value, not []*Value. Staged is built from the
+	// snapshot so it cannot race with concurrent appends to field.values.
 	staged := make([]primitive.Value, 0, len(members))
 
 	for _, value := range members {
@@ -124,11 +123,18 @@ func (field *Field) updatePhaseDial() {
 		return
 	}
 
-	if len(field.dial) < geometry.PhaseDialDimensions {
-		field.dial = geometry.NewPhaseDial()
+	field.mu.Lock()
+	dial := field.dial
+	if len(dial) < geometry.PhaseDialDimensions {
+		dial = geometry.NewPhaseDial()
 	}
+	field.mu.Unlock()
 
-	field.dial = field.dial.EncodeFromValues(staged)
+	encoded := dial.EncodeFromValues(staged)
+
+	field.mu.Lock()
+	field.dial = encoded
+	field.mu.Unlock()
 }
 
 /*

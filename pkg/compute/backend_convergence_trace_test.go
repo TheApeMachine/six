@@ -14,8 +14,8 @@ import (
 /*
 regionSnapshot captures the four ALU-visible regions in hex so the trace
 reads like the visualiser's inspect panel. Words are sliced with the
-runtime layout declared in cmd/cfg/config.yml — properties spans 48..71
-and asset spans 72..119 — so the trace labels match what StageAssetFrom
+runtime layout declared in cmd/cfg/config.yml — properties spans 48..63
+and asset spans 64..119 — so the trace labels match what StageAssetFrom
 and the config-driven rules actually read. The call site is a test, so
 the zero-alloc guidelines do not apply — legibility wins.
 */
@@ -36,7 +36,7 @@ the test's failure output doubles as a diagnostic trace. The Value is not
 read through Value.Read here — that path re-encodes for the wire, which
 would hide the raw word layout the visualiser is arguing about. The
 sliced properties/asset windows match the extended-band layout in
-config.yml (properties 48..71, asset 72..119); the snapshot captures the
+config.yml (properties 48..63, asset 64..119); the snapshot captures the
 first eight words of each so the dump stays human-readable while still
 covering every slot referenced by the rule evaluator (asset[0,8] peer
 signals, asset[8,8] peer context, asset[16,8] peer gradient, etc.).
@@ -55,7 +55,7 @@ func takeSnapshot(value *primitive.Value) regionSnapshot {
 		context:    slice(32, 8),
 		gradient:   slice(40, 8),
 		properties: slice(48, 8),
-		asset:      slice(72, 8),
+		asset:      slice(64, 8),
 		scheduling: words[kernel.SchedulingNextProgramWord],
 		ttl:        words[kernel.PropertiesTTLWord],
 		id:         value.ID(),
@@ -67,7 +67,7 @@ printSnapshot formats a snapshot with t.Logf so -v shows the full region
 layout per pass. Doing this as a test helper keeps the diagnostic output
 alongside the assertions — if a future refactor breaks convergence, the
 failing test prints the same panel the user stares at in the HUD. The
-base offsets passed to dump match the runtime layout (asset at w72) so
+base offsets passed to dump match the runtime layout (asset at w64) so
 the log labels line up with the rule-evaluator condition keys instead of
 the legacy narrow-properties offsets.
 */
@@ -83,7 +83,7 @@ func printSnapshot(t *testing.T, label string, snap regionSnapshot) {
 	dump("CONTEXT   ", 32, snap.context)
 	dump("GRADIENT  ", 40, snap.gradient)
 	dump("PROPERTIES", 48, snap.properties)
-	dump("ASSET[0,8]", 72, snap.asset)
+	dump("ASSET[0,8]", 64, snap.asset)
 }
 
 /*
@@ -138,7 +138,7 @@ func TestBeamSwarmConvergenceTrace(t *testing.T) {
 			"signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate\n" +
 			"next self\n"
 
-		executable := programmer.NewExecutable(value, beamSource, nil)
+		executable := programmer.NewExecutable(value, beamSource)
 		So(executable, ShouldNotBeNil)
 
 		Convey("The pre-execution snapshot should show zero regions", func() {
@@ -224,4 +224,41 @@ func signalsEqual(a, b []uint64) bool {
 		}
 	}
 	return true
+}
+
+/*
+BenchmarkBeamSwarmDispatch measures the same NewBackend → AllocValue →
+NewExecutable → Dispatch path as TestBeamSwarmConvergenceTrace without
+the convey assertions or snapshot logging.
+*/
+func BenchmarkBeamSwarmDispatch(b *testing.B) {
+	backend := NewBackend(context.Background())
+
+	value := primitive.AllocValue()
+	defer value.Close()
+
+	value.StampNewID()
+
+	for idx := 0; idx < 16; idx++ {
+		(*value)[idx] = uint64(0x0123456789abcdef) ^ (uint64(idx+1) * 0x9e3779b97f4a7c15)
+	}
+
+	(*value)[kernel.PropertiesTTLWord] = 250
+
+	beamSource := "" +
+		"tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate\n" +
+		"tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate\n" +
+		"signals[0,8]    signals[0,8]    properties[0,1] xor reduce\n" +
+		"properties[0,1] properties[1,1] properties[0,1] or  accumulate\n" +
+		"properties[0,1] affinity[0,5]   affinity[0,5]   xor accumulate\n" +
+		"signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate\n" +
+		"next self\n"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		executable := programmer.NewExecutable(value, beamSource)
+		backend.Dispatch(executable)
+	}
 }

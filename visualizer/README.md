@@ -34,7 +34,7 @@ TELEMETRY_CONTROL_URL=http://127.0.0.1:8259 npm run bridge
 - **Fields** renders community membership, saturation, concentration, and emitted action counts.
 - **Values** renders the causal graph from `PrevID` and `NextID` telemetry.
 - **Stream** shows the raw decoded wire events, including every `vals` and `meta` payload.
-- **Telemetry** follows the canonical 1 KB Value layout from `pkg/compute/kernel/layout.go`, including property words 48-55 and scheduler word 117 when the backend emits them.
+- **Telemetry** follows the canonical 1 KB Value layout from `pkg/compute/kernel/layout.go`, including property words 48–63 and scheduler word 117 when the backend emits them.
 - **Programs** fetches firmware source from `/api/programs` and renders each DSL line as a dataflow circuit.
 
 ## Checks

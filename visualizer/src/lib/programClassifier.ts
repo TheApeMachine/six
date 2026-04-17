@@ -148,7 +148,7 @@ interface ProgramSignature {
 
 /*
 Region word starts (absolute): tokens=0, program=16, signals=24,
-context=32, gradient=40, properties=48, asset=72, prev=120, next=121,
+context=32, gradient=40, properties=48, asset=64, prev=120, next=121,
 id=122, affinity=123. Widths come from the Value region map.
 */
 const R = {
@@ -158,7 +158,7 @@ const R = {
 	context: 32,
 	gradient: 40,
 	properties: 48,
-	asset: 72,
+	asset: 64,
 	prev: 120,
 	next: 121,
 	affinity: 123,

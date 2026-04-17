@@ -26,7 +26,7 @@ for the Go-side source of truth.
 */
 const PROPERTIES_REFUTATION_TARGET_WORD = 49;
 const PROPERTIES_NOISE_WORD = 52;
-const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
+const ASSET_GRADIENT_WORD = 80; // kernel AssetStartWord + 16
 const CONTEXT_START_WORD = 32;
 const FALSIFIED_BIT = 1n << 62n;
 

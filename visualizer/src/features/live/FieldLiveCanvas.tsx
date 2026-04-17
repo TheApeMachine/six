@@ -415,9 +415,9 @@ export function FieldLiveCanvas({
 					pt.resonance += (targetRes - pt.resonance) * 0.15;
 					pt.label = pt.program || "";
 
-					pt.causalHypothesizing = orphan.causal.hypothesizing;
-					pt.causalFalsified = orphan.causal.falsified;
-					pt.causalIntervening = orphan.causal.intervening;
+					pt.causalHypothesizing = orphan.causal?.hypothesizing ?? false;
+					pt.causalFalsified = orphan.causal?.falsified ?? false;
+					pt.causalIntervening = orphan.causal?.intervening ?? false;
 
 					budget--;
 				}

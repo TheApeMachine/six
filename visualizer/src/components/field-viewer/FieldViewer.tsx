@@ -6,7 +6,7 @@ import {
 	IconWifiOff,
 	IconX,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,16 +56,14 @@ function CommunityMetricsStrip({ field }: { field: FieldSnapshot }) {
 			</span>
 			<span>
 				⇒ crystal{" "}
-				<span className={crystalColor}>
-					{field.crystallization.toFixed(3)}
-				</span>
+				<span className={crystalColor}>{field.crystallization.toFixed(3)}</span>
 			</span>
 			<span>
 				modes <span className="text-white">{field.modeCount}</span>
 				<span className="text-white/30"> · </span>
 				dom <span className="text-white">{field.dominantRatio.toFixed(2)}</span>
-				<span className="text-white/30"> · </span>
-				π <span className="text-white">{field.pressureMult.toFixed(2)}×</span>
+				<span className="text-white/30"> · </span>π{" "}
+				<span className="text-white">{field.pressureMult.toFixed(2)}×</span>
 			</span>
 			{causalSum > 0 && (
 				<span className="flex items-center gap-2 text-[9px]">
@@ -103,6 +101,16 @@ export function FieldViewer({ className }: { className?: string }) {
 	} = useField();
 	const [promptText, setPromptText] = useState("");
 	const [programDrawerOpen, setProgramDrawerOpen] = useState(false);
+
+	const selectedField = useMemo(() => {
+		if (!selection || selection.communityId < 0) {
+			return undefined;
+		}
+
+		return snapshot.fields.find(
+			(candidate) => candidate.id === selection.communityId,
+		);
+	}, [selection, snapshot.fields]);
 
 	function submitPrompt() {
 		const trimmed = promptText.trim();
@@ -204,16 +212,9 @@ export function FieldViewer({ className }: { className?: string }) {
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
 				{selection && (
 					<div className="pointer-events-auto mb-3 max-h-[34vh] space-y-2 overflow-auto rounded-xl border border-white/10 bg-[#0a0a14]/95 p-3">
-						{selection.communityId >= 0 &&
-							(() => {
-								const field = snapshot.fields.find(
-									(candidate) => candidate.id === selection.communityId,
-								);
-								if (!field) {
-									return null;
-								}
-								return <CommunityMetricsStrip field={field} />;
-							})()}
+						{selection.communityId >= 0 && selectedField ? (
+							<CommunityMetricsStrip field={selectedField} />
+						) : null}
 						<ValueInspector
 							snap={selection}
 							onSelectId={(id) => selectValueById(id)}

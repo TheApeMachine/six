@@ -152,9 +152,8 @@ Layout (128 uint64 words = 1 KiB):
 	Signals:  words  24–31  (512 bits)
 	Context:    words  32–39  (512 bits)
 	Gradient:   words  40–47  (512 bits)
-	Properties: words  48–55  (512 bits; canonical property / forward-transition band)
-	Asset:      words 56–117  (4096 bits; scratch + bundled program payload; see programmer.Asset)
-	Kernel transport (correlation, residency): words 118–119
+	Properties: words  48–63  (1024 bits; canonical property / forward-transition band)
+	Asset:      words 64–119  (3584 bits; scratch + bundled program payload; words 118–119 are kernel frame metadata — see kernel/frame_meta.go)
 	Prev:     word  120
 	Next:     word  121
 	ID:       word  122
@@ -296,11 +295,11 @@ func NewConfig() *Config {
 				},
 				Properties: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.properties.start"), 48),
-					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 512),
+					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 1024),
 				},
 				Asset: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.asset.start"), 56),
-					Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 4096),
+					Start: WithDefault(viper.GetInt("value.region.asset.start"), 64),
+					Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 3584),
 				},
 				Prev: ValueOffsetConfig{
 					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),

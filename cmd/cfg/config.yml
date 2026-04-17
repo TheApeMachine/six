@@ -66,10 +66,10 @@ value:
       bits: 512
     properties:
       start: 48
-      bits: 1536
+      bits: 1024
     asset:
-      start: 72
-      bits: 3072
+      start: 64
+      bits: 3584
     prev:
       start: 120
       bits: 64

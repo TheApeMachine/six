@@ -22,7 +22,7 @@ func TestNewExecutable(t *testing.T) {
 		value := values[0]
 		source := "tokens tokens signals xor accumulate\n"
 
-		executable := NewExecutable(value, source, nil)
+		executable := NewExecutable(value, source)
 
 		Convey("NewExecutable should parse tokens and retain the value handle", func() {
 			So(executable, ShouldNotBeNil)
@@ -49,7 +49,7 @@ func TestExecutable_Compile(t *testing.T) {
 		value := values[0]
 		source := "tokens tokens signals xor accumulate\n"
 
-		executable := NewExecutable(value, source, nil)
+		executable := NewExecutable(value, source)
 
 		Convey("Compile should emit frames matching direct Compiler output", func() {
 			frames, err := executable.Compile(CPU)
@@ -80,7 +80,7 @@ func TestExecutable_ApplyContinuation(t *testing.T) {
 		value := values[0]
 		source := "tokens tokens signals xor accumulate\nnext self\n"
 
-		executable := NewExecutable(value, source, nil)
+		executable := NewExecutable(value, source)
 
 		Convey("ApplyContinuation should schedule the current Value ID in word 117", func() {
 			executable.ApplyContinuation()
@@ -104,7 +104,7 @@ func BenchmarkExecutable_ApplyContinuation(b *testing.B) {
 	value := values[0]
 	defer value.Close()
 
-	executable := NewExecutable(value, "tokens tokens signals xor accumulate\nnext self\n", nil)
+	executable := NewExecutable(value, "tokens tokens signals xor accumulate\nnext self\n")
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -130,7 +130,7 @@ func BenchmarkNewExecutable(b *testing.B) {
 	b.ResetTimer()
 
 	for iteration := 0; iteration < b.N; iteration++ {
-		_ = NewExecutable(value, source, nil)
+		_ = NewExecutable(value, source)
 	}
 }
 
@@ -145,7 +145,7 @@ func BenchmarkExecutable_Compile(b *testing.B) {
 	defer value.Close()
 
 	source := "tokens tokens signals xor accumulate\n"
-	executable := NewExecutable(value, source, nil)
+	executable := NewExecutable(value, source)
 
 	b.ReportAllocs()
 	b.ResetTimer()
