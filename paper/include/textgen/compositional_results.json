@@ -11,9 +11,9 @@
   "name": "Compositional",
   "outcome": {
     "actual": 0,
-    "message": "Expected '0' to be greater than or equal to '0.004447665124511552' (but it wasn't)!",
+    "message": "Expected '0' to be greater than or equal to '0.0044124541460313985' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.004447665124511552
+    "threshold": 0.0044124541460313985
   },
   "results": [],
   "score": 0,

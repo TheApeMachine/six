@@ -58,11 +58,11 @@ func minProgramWordsForALU() int { return prDst + 1 }
 // broadcastOpcodeNibble repeats the low 4-bit truth-table opcode into all 16
 // rotation slots (single-opcode schedule for the universal ALU).
 func broadcastOpcodeNibble(opcodeLow uint64) uint64 {
-	n := opcodeLow & 0xF
+	nibble := opcodeLow & 0xF
 	var packed uint64
 
-	for rot := 0; rot < 16; rot++ {
-		packed |= n << (rot * 4)
+	for rotation := 0; rotation < 16; rotation++ {
+		packed |= nibble << (rotation * 4)
 	}
 
 	return packed

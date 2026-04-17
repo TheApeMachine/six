@@ -135,9 +135,12 @@ func (backend *Backend) Execute(indices []uint32) error {
 				1,
 			)
 
-			backend.observer.Error("cuda.Backend.Execute", err,
-				"device_idx", backend.deviceIdx,
-			)
+			kv := kernel.CorrelationKeyvalsFlat(ptr)
+			merged := make([]any, 0, len(kv)+4)
+			merged = append(merged, kv...)
+			merged = append(merged, "device_idx", backend.deviceIdx, "slot", slot)
+
+			backend.observer.Error("cuda.Backend.Execute", err, merged...)
 
 			return err
 		}

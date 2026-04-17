@@ -27,8 +27,9 @@ func Emit(options ...EmitOptions) *Value {
 
 func WithLabels(labels ...uint64) EmitOptions {
 	return func(value *Value) {
-		for _, label := range labels {
-			value.Set(int(LABELS), label)
+		base := core.Cfg.Value.Region.Properties.Start + int(LABELS)
+		for i, label := range labels {
+			value.Set(base+i, label)
 		}
 	}
 }
@@ -170,7 +171,7 @@ func WithAssetPressureMetrics(coverage, consensus, crystallization float64) Emit
 			binary.LittleEndian.PutUint64(buf[(assetStart+2)*8:], scaleFixed(crystallization))
 		}
 
-		binary.LittleEndian.PutUint64(buf[core.Cfg.Value.Region.Properties.Start*8:], 1)
+		binary.LittleEndian.PutUint64(buf[(core.Cfg.Value.Region.Properties.Start+int(TTL))*8:], 1)
 
 		_ = value.LoadFullFrame(buf)
 	}

@@ -46,7 +46,7 @@ const (
 	MEASURE_FIELD      FirmwareType = "measure_field"
 	CLASSIFY_READOUT   FirmwareType = "classify_readout"
 	EPISODIC_REPLAY    FirmwareType = "episodic_replay"
-	INTERVENTION
+	INTERVENTION       FirmwareType = "intervene"
 )
 
 type SystemConfig struct {
@@ -280,34 +280,65 @@ func WithDefault[T comparable](value, defaultValue T) T {
 func precompile() map[FirmwareType]ProgramConfig {
 	out := make(map[FirmwareType]ProgramConfig)
 
-	for _, program := range []FirmwareType{
-		LINK,
-		AFFINITY,
-		POPCOUNT,
-		COUPLING,
-		BEAM,
-		SWARM,
-		STEP,
-		EMERGENCE,
-		EXPLORE,
-		HUB,
-		UNSUPERVISED_LEARN,
-		MEASURE_FIELD,
-		CLASSIFY_READOUT,
-		EPISODIC_REPLAY,
-		INTERVENTION,
-	} {
-		programConfig := ProgramConfig{
-			Name:     viper.GetString(fmt.Sprintf("programs.%s.name", program)),
-			Source:   viper.GetString(fmt.Sprintf("programs.%s.source", program)),
-			Compiled: compile(viper.GetString(fmt.Sprintf("programs.%s.source", program))),
+	raw, ok := viper.Get("programs").(map[string]any)
+	if !ok || raw == nil {
+		return out
+	}
+
+	for key, val := range raw {
+		source, ok := val.(string)
+		if !ok || source == "" {
+			continue
 		}
-		out[program] = programConfig
+
+		ft := FirmwareType(key)
+		name := viper.GetString(fmt.Sprintf("programs.%s.name", key))
+		if name == "" {
+			name = key
+		}
+
+		out[ft] = ProgramConfig{
+			Name:     name,
+			Source:   source,
+			Compiled: compile(source),
+		}
 	}
 
 	return out
 }
 
+// compile packs firmware source text into up to eight uint64 words (the default
+// program region size). primitive.WriteProgramWords consumes this slice; it is
+// not a semantic DSL lowering.
 func compile(source string) []uint64 {
-	return []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	if len(source) == 0 {
+		return nil
+	}
+
+	const maxWords = 8
+
+	src := []byte(source)
+	nWords := (len(src) + 7) / 8
+	if nWords > maxWords {
+		nWords = maxWords
+	}
+
+	out := make([]uint64, 0, nWords)
+
+	for w := 0; w < nWords; w++ {
+		var word uint64
+
+		for b := 0; b < 8; b++ {
+			idx := w*8 + b
+			if idx >= len(src) {
+				break
+			}
+
+			word |= uint64(src[idx]) << (8 * b)
+		}
+
+		out = append(out, word)
+	}
+
+	return out
 }

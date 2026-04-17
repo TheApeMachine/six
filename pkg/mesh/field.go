@@ -565,8 +565,6 @@ BuildPressureCarrier mints a one-shot carrier via primitive.Emit and
 WithAssetPressureMetrics (wire-shaped full frame). Not appended to the field.
 */
 func (field *Field) BuildPressureCarrier(metrics FieldMetrics) *primitive.Value {
-	_ = field
-
 	return primitive.Emit(
 		primitive.WithAssetPressureMetrics(metrics.Coverage, metrics.Consensus, metrics.Crystallization),
 	)

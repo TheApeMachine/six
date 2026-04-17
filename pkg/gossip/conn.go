@@ -242,9 +242,9 @@ func (conn *Conn) Read(p []byte) (n int, err error) {
 
 	n, err = teeValue.Read(p)
 
-	if conn.err != nil && conn.err != io.EOF {
+	if err != nil && err != io.EOF {
 		teeValue.Close()
-		return n, errnie.Error(conn.err)
+		return n, errnie.Error(err)
 	}
 
 	if _, conn.err = conn.queue.Write(p[:n]); conn.err != nil {

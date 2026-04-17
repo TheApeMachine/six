@@ -55,14 +55,15 @@ func TestNewConfig(t *testing.T) {
 		Convey("When NewConfig merges viper after TestMain loaded cmd/cfg/config.yml", func() {
 			cfg := NewConfig()
 
-			Convey("It should decode value.rules as an ordered list with typed conditions", func() {
+			Convey("It should set cfg.Programs[LINK].Compiled from programs.link source (packed words)", func() {
+				src := cfg.Programs[LINK].Source
 				rules := cfg.Programs[LINK].Compiled
 
 				So(len(rules), ShouldBeGreaterThan, 0)
-				So(rules[0], ShouldEqual, 0)
+				So(rules, ShouldResemble, compile(src))
 			})
 
-			Convey("It should decode generic post-ALU finalizer rules", func() {
+			Convey("It should include the LINK program with Name \"link\" and non-empty Compiled", func() {
 				So(len(cfg.Programs), ShouldBeGreaterThan, 0)
 				So(cfg.Programs[LINK].Name, ShouldEqual, "link")
 				So(len(cfg.Programs[LINK].Compiled), ShouldBeGreaterThan, 0)

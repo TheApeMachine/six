@@ -1,5 +1,7 @@
-// Package kernel hosts shared word indices for Value frames. Layout matches
-// pkg/core/config.go default ValueRegionConfig (program words 16–23, etc.).
+/*
+Package kernel hosts shared word indices for Value frames. Layout matches
+pkg/core/config.go default ValueRegionConfig (program words 16–23, etc.).
+*/
 package kernel
 
 // Program region indices (absolute word offsets in a Value).
@@ -30,6 +32,6 @@ func PackRegionRef(start, span int) uint64 {
 }
 
 // UnpackRegionRef unpacks PackRegionRef.
-func UnpackRegionRef(w uint64) (start, span int) {
-	return int(w & 0xffffffff), int(w >> 32)
+func UnpackRegionRef(regionRef uint64) (start, span int) {
+	return int(regionRef & 0xffffffff), int(regionRef >> 32)
 }
