@@ -88,8 +88,9 @@ type Field struct {
 	seed       [affinityWords]uint64
 	seedPinned bool
 
-	snap *geometry.EigenSnap
-	dial geometry.PhaseDial
+	snap    *geometry.EigenSnap
+	dial    geometry.PhaseDial
+	metrics atomic.Pointer[FieldMetrics]
 
 	mu         sync.Mutex
 	readCursor atomic.Uint64
@@ -477,11 +478,23 @@ func (field *Field) findCommunity(
 }
 
 /*
-Cycle preserves the prior Field surface for upstream callers that
-still invoke it as a tick. Under the in-value execution model the
-Field itself does not drive programs — bundling a gossip.Conn over
-its Values does. Cycle therefore returns the current population as
-an observation snapshot and performs no scheduling work.
+Cycle is the per-tick work pass. It recursively cycles every sub-Field
+(so a routing parent drives its community tree in one call), then for
+the leaves measures crystallisation, re-detects eigenmodes, and
+re-encodes the PhaseDial. Variadic callers can still pipe extra Values
+in — they are AddValue'd before the measurement pass so the tick's
+snapshot sees them.
+
+Scheduling is not driven here: the in-value ALU runs as soon as a
+gossip.Conn writes a Value into a Field, so Cycle is strictly
+observation. The field population is never mutated by Cycle itself —
+carriers are minted on demand by callers via BuildPressureCarrier so
+the ephemeral wake-up signal cannot feed back into the very
+measurement it was meant to describe.
+
+The metrics snapshot is swapped in atomically via fieldSnap pointer
+replacement so Metrics() readers (visualiser telemetry, carrier-rate
+governors) never block the Cycle pass.
 */
 func (field *Field) Cycle(values ...*primitive.Value) ([]*primitive.Value, error) {
 	if field == nil {
@@ -492,5 +505,123 @@ func (field *Field) Cycle(values ...*primitive.Value) ([]*primitive.Value, error
 		field.AddValue(value)
 	}
 
+	for _, child := range field.fields {
+		if child == nil {
+			continue
+		}
+
+		if _, err := child.Cycle(); err != nil {
+			return field.values, err
+		}
+	}
+
+	// Routing parents never hold direct member Values, so their own
+	// leaf-style metrics would always be zero. Return early so Metrics()
+	// on a parent reflects the aggregate state of its children instead of
+	// a misleading empty fingerprint.
+	if field.childModulus != 0 {
+		return field.values, nil
+	}
+
+	metrics := field.measureCrystallization()
+	snap := field.detectEigenmodes()
+
+	metrics.ModeCount = len(snap.Modes())
+	metrics.DominantRatio = dominantEnergyRatio(snap)
+	metrics.PressureMult = 1 - metrics.DominantRatio
+
+	field.updatePhaseDial()
+	field.snap = snap
+	field.metrics.Store(&metrics)
+
 	return field.values, nil
+}
+
+/*
+Metrics returns a stable copy of the last Cycle's crystallisation
+fingerprint. Returns the zero FieldMetrics when Cycle has never run
+— callers can distinguish "never cycled" from "empty field" by
+checking MemberCount.
+
+The accessor is lock-free: Cycle stores a new *FieldMetrics via
+atomic.Pointer and Metrics just loads it, so the visualiser and
+carrier-rate loop can poll at high frequency without ever stalling a
+Cycle pass.
+*/
+func (field *Field) Metrics() FieldMetrics {
+	if field == nil {
+		return FieldMetrics{}
+	}
+
+	loaded := field.metrics.Load()
+
+	if loaded == nil {
+		return FieldMetrics{}
+	}
+
+	return *loaded
+}
+
+/*
+Snap returns the most recent eigenmode partition. Like Metrics() it is
+lock-free: the snap pointer is swapped in at the end of Cycle and
+read by downstream consumers without holding the field mutex.
+*/
+func (field *Field) Snap() *geometry.EigenSnap {
+	if field == nil {
+		return nil
+	}
+
+	return field.snap
+}
+
+/*
+Dial returns the most recent PhaseDial encoding of the member
+population. The slice aliases the field's dial — callers must treat
+it read-only; use PhaseDial.CopyAndNormalize for mutation.
+*/
+func (field *Field) Dial() geometry.PhaseDial {
+	if field == nil {
+		return nil
+	}
+
+	return field.dial
+}
+
+/*
+BuildPressureCarrier mints a one-shot ephemeral Value whose asset window
+encodes the field's current metrics. Downstream labellers that receive
+this carrier through a gossip.Conn see the fingerprint in their own
+asset[0..2] and can decide whether to prioritise this community.
+
+TTL is 1 so the carrier self-expires after one pass. The returned
+Value is deliberately not stored on the field: appending it to
+field.values would pollute the crystallisation measurement on the
+next tick (unlabelled members drive Coverage down, which drives more
+carriers — a feedback loop). The caller owns the carrier and decides
+when to route it into the peer gossip substrate.
+
+PressureMult drives urgency: callers gate carrier construction on
+Metrics().Saturated so they only pay the AllocValue cost when a
+community actually needs external help.
+*/
+func (field *Field) BuildPressureCarrier(metrics FieldMetrics) *primitive.Value {
+	carrier := primitive.AllocValue()
+	carrier.StampNewID()
+
+	// Encode the three scalar metrics into asset[0..2] so downstream
+	// programs can read them without decoding the whole frame. The
+	// multiplication by 1<<32 keeps the fractional precision inside a
+	// single word without needing a float encoding.
+	assetStart, assetWords := core.Cfg.Value.Region.Asset.WordExtent()
+
+	if assetWords >= 3 {
+		carrier.Set(assetStart+0, uint64(metrics.Coverage*float64(uint64(1)<<32)))
+		carrier.Set(assetStart+1, uint64(metrics.Consensus*float64(uint64(1)<<32)))
+		carrier.Set(assetStart+2, uint64(metrics.Crystallization*float64(uint64(1)<<32)))
+	}
+
+	carrier.Set(kernel.PropertiesTTLWord, 1)
+
+	return carrier
 }

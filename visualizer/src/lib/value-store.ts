@@ -1,4 +1,5 @@
 import type {
+	CausalState,
 	FieldSnapshot,
 	FieldValueSnapshot,
 	ValueRole,
@@ -24,7 +25,7 @@ import {
 	decodeValueRegions,
 	REGION_SPECS,
 } from "./valueRegions";
-import type { RawValueFrame } from "./wire";
+import type { FieldMetricsPayload, RawValueFrame } from "./wire";
 
 /*
 PROPERTIES_COMMUNITY_WORD is the absolute word index where the mesh
@@ -37,6 +38,21 @@ word the visualizer has to sample off the wire to recover the mesh's
 community assignment.
 */
 const PROPERTIES_COMMUNITY_WORD = 56;
+
+/*
+Mirror of pkg/compute/kernel/layout.go constants the causal residue
+detector relies on. Keeping them local avoids a cross-package import
+in the TS build; if Go ever moves these, the test at
+value-store.test.ts will catch the drift.
+*/
+const PROPERTIES_REFUTATION_TARGET_WORD = 49; // properties[1]
+const PROPERTIES_NOISE_WORD = 52; // properties[4]
+const PROPERTIES_INTERVENTION_WITNESS_WORD = 48; // properties[0]
+const FALSIFIED_BIT = 1n << 62n;
+const ASSET_GRADIENT_WORD = 72 + 16; // asset[16,8] start — matches kernel AssetStartWord
+const ASSET_GRADIENT_SPAN = 8;
+const CONTEXT_START_WORD = 32;
+const CONTEXT_SPAN = 8;
 
 export interface DecodedValueFrame {
 	id: string;
@@ -65,6 +81,55 @@ export interface StoredValue {
 	/** Signals popcount for the most recent frame, used as a readout-energy
 		cue in the canvas. Zero for Values whose signals are still blank. */
 	signalEnergy: number;
+	/*
+	Causal cascade residues derived from the raw wire frame every time
+	we attach. Independent booleans so the UI can paint a Value that is
+	both hypothesising AND falsified (the usual post-refutation state)
+	without ambiguity.
+	*/
+	causal: CausalState;
+}
+
+function blankCausalState(): CausalState {
+	return { hypothesizing: false, falsified: false, intervening: false };
+}
+
+/*
+readCausalState pulls three residues straight off the wire frame:
+ - hypothesizing : properties[1] is non-zero (refutation target is armed)
+ - falsified     : properties[4] has the FalsifiedBit (kernel stamped it
+                   after ApplyRefutationProbe saw a ≥48-bit one-run)
+ - intervening   : the do_intervention rule was the firing rule — asset
+                   gradient window is non-zero, local context is non-zero,
+                   and there is no prev ID (severed causal history).
+
+All three checks are O(span) and only touch already-decoded words so
+the overhead per frame is a handful of BigInt ORs.
+*/
+function readCausalState(words: bigint[]): CausalState {
+	const hypothesizing = words[PROPERTIES_REFUTATION_TARGET_WORD] !== 0n;
+
+	const noise = words[PROPERTIES_NOISE_WORD] ?? 0n;
+	const falsified = (noise & FALSIFIED_BIT) !== 0n;
+
+	let gradientAcc = 0n;
+
+	for (let offset = 0; offset < ASSET_GRADIENT_SPAN; offset++) {
+		gradientAcc |= words[ASSET_GRADIENT_WORD + offset] ?? 0n;
+	}
+
+	let contextAcc = 0n;
+
+	for (let offset = 0; offset < CONTEXT_SPAN; offset++) {
+		contextAcc |= words[CONTEXT_START_WORD + offset] ?? 0n;
+	}
+
+	const prev = words[WORD.PREV] ?? 0n;
+
+	const intervening =
+		gradientAcc !== 0n && contextAcc !== 0n && prev === 0n;
+
+	return { hypothesizing, falsified, intervening };
 }
 
 function formatValueId(word: bigint): string {
@@ -176,6 +241,7 @@ function fieldSnapshotFromStored(
 		wireRegions: null,
 		frameReceivedAtMs: stored.receivedAtMs,
 		telemetry: null,
+		causal: { ...stored.causal },
 	};
 }
 
@@ -197,11 +263,23 @@ buildGraphSnapshot groups Values by their on-wire community id (stamped
 by the mesh routing layer into properties[8]) and emits FieldSnapshot
 entries for the canvas. Values whose community word is still zero land
 in orphanValues — they haven't been processed by a community field yet.
+
+Field-level crystallization metrics (coverage, consensus, density, …)
+arrive separately as telemetry envelopes and are stashed in the
+store's fieldMetrics cache. Per-community tallies of causal residues
+(hypothesising, falsified, intervening) are derived here in one pass
+over the members so the UI doesn't have to iterate twice.
 */
 function buildGraphSnapshot(store: ValueStore): VizGraphSnapshot {
 	const communityMap = new Map<
 		number,
-		{ members: FieldValueSnapshot[]; affinityHex: string }
+		{
+			members: FieldValueSnapshot[];
+			affinityHex: string;
+			hypothesizing: number;
+			falsified: number;
+			intervening: number;
+		}
 	>();
 	const orphanValues: FieldValueSnapshot[] = [];
 
@@ -214,23 +292,49 @@ function buildGraphSnapshot(store: ValueStore): VizGraphSnapshot {
 		let bucket = communityMap.get(stored.communityId);
 
 		if (!bucket) {
-			bucket = { members: [], affinityHex: stored.affinityHex };
+			bucket = {
+				members: [],
+				affinityHex: stored.affinityHex,
+				hypothesizing: 0,
+				falsified: 0,
+				intervening: 0,
+			};
 			communityMap.set(stored.communityId, bucket);
 		}
 
 		bucket.members.push(
 			fieldSnapshotFromStored(stored, bucket.affinityHex),
 		);
+
+		if (stored.causal.hypothesizing) {
+			bucket.hypothesizing++;
+		}
+
+		if (stored.causal.falsified) {
+			bucket.falsified++;
+		}
+
+		if (stored.causal.intervening) {
+			bucket.intervening++;
+		}
 	}
 
+	const metricsByCommunity = store.metricsCache();
 	const fields: FieldSnapshot[] = [];
 
 	for (const [id, bucket] of communityMap) {
+		const metrics = metricsByCommunity.get(id);
+
 		fields.push({
 			id,
 			memberCount: bucket.members.length,
-			saturated: false,
-			saturation: 0,
+			saturated: metrics?.saturated ?? false,
+			/*
+			Legacy `saturation` is kept as an alias for crystallization so
+			pre-existing HUD widgets that sampled that field keep working
+			while new widgets consume the richer set explicitly.
+			*/
+			saturation: metrics?.crystallization ?? 0,
 			lastAction: "",
 			actionCount: 0,
 			reactionCount: 0,
@@ -238,6 +342,16 @@ function buildGraphSnapshot(store: ValueStore): VizGraphSnapshot {
 			concentration:
 				store.size > 0 ? bucket.members.length / store.size : 0,
 			members: bucket.members,
+			coverage: metrics?.coverage ?? 0,
+			consensus: metrics?.consensus ?? 0,
+			labelDensity: metrics?.labelDensity ?? 0,
+			crystallization: metrics?.crystallization ?? 0,
+			dominantRatio: metrics?.dominantRatio ?? 0,
+			modeCount: metrics?.modeCount ?? 0,
+			pressureMult: metrics?.pressureMult ?? 0,
+			hypothesizingCount: bucket.hypothesizing,
+			falsifiedCount: bucket.falsified,
+			interveningCount: bucket.intervening,
 		});
 	}
 
@@ -280,6 +394,14 @@ export function decodeValueFrame(frame: Uint8Array): DecodedValueFrame {
 export class ValueStore {
 	private readonly values = new Map<string, StoredValue>();
 	private readonly pendingFrames = new Map<string, Uint8Array>();
+	/*
+	fieldMetrics caches the most recent FieldMetricsEnvelope for every
+	community the bridge has ever reported. The cache is read-only from
+	buildGraphSnapshot's perspective so communities whose tick was idle
+	(no new envelope this frame) still render with their last known
+	crystallization values instead of collapsing back to zero.
+	*/
+	private readonly fieldMetrics = new Map<number, FieldMetricsPayload>();
 	private selectedId: string | null = null;
 
 	get(id: string): StoredValue | undefined {
@@ -318,6 +440,7 @@ export class ValueStore {
 				affinityHex: "",
 				classification: classifyProgramWire(null),
 				signalEnergy: 0,
+				causal: blankCausalState(),
 			};
 			this.values.set(normalized, value);
 		}
@@ -398,6 +521,15 @@ export class ValueStore {
 		}
 
 		value.signalEnergy = energy;
+
+		/*
+		Causal residues are recomputed on every frame because any of the
+		three can flip within a single tick (the do_intervention rule
+		fires, an ApplyRefutationProbe stamps the falsified bit, …). The
+		read is a handful of BigInt ORs over already-decoded words so the
+		overhead per frame is negligible.
+		*/
+		value.causal = readCausalState(decoded.words);
 	}
 
 	private rebuildUiState(): TelemetryState {
@@ -435,6 +567,30 @@ export class ValueStore {
 		}
 
 		return this.rebuildUiState();
+	}
+
+	/*
+	applyFieldMetricsEnvelope ingests a single FieldMetrics envelope —
+	one community per call. The mesh emits one envelope per child field
+	per Cycle, so the cache is updated at field-tick rate without any
+	allocation on the rebuild path beyond the snapshot itself.
+	*/
+	applyFieldMetricsEnvelope(payload: FieldMetricsPayload): TelemetryState {
+		if (payload.communityIdx < 0) {
+			return this.rebuildUiState();
+		}
+
+		this.fieldMetrics.set(payload.communityIdx, payload);
+		return this.rebuildUiState();
+	}
+
+	/*
+	metricsCache returns the raw snapshot of field metrics the renderer
+	merges into FieldSnapshot entries. Exposed on the store so
+	buildGraphSnapshot can be a free function and still read the cache.
+	*/
+	metricsCache(): ReadonlyMap<number, FieldMetricsPayload> {
+		return this.fieldMetrics;
 	}
 
 	selectValueById(id: string): TelemetryState {

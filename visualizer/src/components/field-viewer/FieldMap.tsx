@@ -256,14 +256,61 @@ export function FieldMap({
 				ctx.arc(x, y, r, 0, Math.PI * 2);
 				ctx.stroke();
 
-				// Saturation pulse ring.
-				if (f.saturated) {
+				/*
+				Crystallisation pulse: green when the field has crossed the
+				0.35 coherence floor (a healthy mode-locked community),
+				amber otherwise when crystallisation is non-zero (the mesh
+				has measured the field and it's still under-coherent — a
+				pressure carrier will have been emitted this tick). Falls
+				silent entirely for freshly allocated fields we've never
+				seen metrics for.
+				*/
+				if (f.crystallization > 0) {
 					const pulse = 0.5 + Math.sin(frame * 0.05 + i * 0.7) * 0.5;
-					ctx.strokeStyle = `rgba(255,80,80,${pulse * 0.35})`;
+
+					ctx.strokeStyle = f.saturated
+						? `rgba(120,255,160,${pulse * 0.35})`
+						: `rgba(255,180,80,${pulse * 0.3})`;
 					ctx.lineWidth = 1.5;
 					ctx.beginPath();
 					ctx.arc(x, y, r + 5 + pulse * 5, 0, Math.PI * 2);
 					ctx.stroke();
+				}
+
+				/*
+				Causal badge ring: when any Value in this community carries
+				a causal residue (hypothesis / falsified / intervening),
+				paint a thin dashed outer ring. Colour bleeds from yellow
+				(hypothesis only) through red (falsified) to fuchsia
+				(intervention), so operators can see which residue is
+				dominating a field at a glance.
+				*/
+				const causalSum =
+					f.hypothesizingCount + f.falsifiedCount + f.interveningCount;
+
+				if (causalSum > 0) {
+					let badgeR = 255;
+					let badgeG = 220;
+					let badgeB = 140;
+
+					if (f.interveningCount > 0) {
+						badgeR = 220;
+						badgeG = 100;
+						badgeB = 240;
+					} else if (f.falsifiedCount > 0) {
+						badgeR = 255;
+						badgeG = 90;
+						badgeB = 90;
+					}
+
+					ctx.save();
+					ctx.strokeStyle = `rgba(${badgeR},${badgeG},${badgeB},0.55)`;
+					ctx.setLineDash([3, 3]);
+					ctx.lineWidth = 1.25;
+					ctx.beginPath();
+					ctx.arc(x, y, r + 11, 0, Math.PI * 2);
+					ctx.stroke();
+					ctx.restore();
 				}
 
 				// Affinity swatch: a small filled arc segment showing the raw hue.
@@ -282,14 +329,28 @@ export function FieldMap({
 					ctx.textAlign = "center";
 					ctx.fillText(`#${f.id} [${f.memberCount}]`, x, y + r + 12 * cam.zoom);
 
-					if (cam.zoom > 0.7 && (f.actionCount > 0 || f.reactionCount > 0)) {
-						ctx.fillStyle = `rgba(${cr},${cg},${cb},0.35)`;
+					if (cam.zoom > 0.7) {
+						ctx.fillStyle = `rgba(${cr},${cg},${cb},0.45)`;
 						ctx.font = `${Math.max(6, Math.round(7 * cam.zoom))}px monospace`;
 						ctx.fillText(
-							`a:${f.actionCount} r:${f.reactionCount} c:${f.concentration.toFixed(2)}`,
+							`x:${f.crystallization.toFixed(2)} cov:${f.coverage.toFixed(2)} cns:${f.consensus.toFixed(2)}`,
 							x,
 							y + r + 22 * cam.zoom,
 						);
+
+						if (
+							f.hypothesizingCount +
+								f.falsifiedCount +
+								f.interveningCount >
+							0
+						) {
+							ctx.fillStyle = `rgba(${cr},${cg},${cb},0.35)`;
+							ctx.fillText(
+								`h:${f.hypothesizingCount} f:${f.falsifiedCount} i:${f.interveningCount}`,
+								x,
+								y + r + 32 * cam.zoom,
+							);
+						}
 					}
 				}
 
@@ -392,6 +453,40 @@ export function FieldMap({
 						ctx.stroke();
 					}
 
+					/*
+					Causal corona — thin concentric rings for each residue
+					the member carries. Yellow for an armed hypothesis,
+					red for a falsified probe, fuchsia for an active
+					intervention. Stacking lets a Value that is both
+					hypothesising AND falsified render as two rings, which
+					is exactly the post-refutation steady state.
+					*/
+					if (member.causal.hypothesizing) {
+						ctx.strokeStyle = "rgba(255,220,90,0.7)";
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.arc(0, 0, 7, 0, Math.PI * 2);
+						ctx.stroke();
+					}
+
+					if (member.causal.falsified) {
+						ctx.strokeStyle = "rgba(255,90,90,0.75)";
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.arc(0, 0, 10, 0, Math.PI * 2);
+						ctx.stroke();
+					}
+
+					if (member.causal.intervening) {
+						ctx.strokeStyle = "rgba(220,110,240,0.75)";
+						ctx.lineWidth = 1;
+						ctx.setLineDash([2, 2]);
+						ctx.beginPath();
+						ctx.arc(0, 0, 12, 0, Math.PI * 2);
+						ctx.stroke();
+						ctx.setLineDash([]);
+					}
+
 					const lbl =
 						member.label || member.content.substring(0, 20) || member.program;
 					if (lbl) {
@@ -472,12 +567,61 @@ export function FieldMap({
 					ctx.fillText(focusField.lastAction, lx, ly - LENS_RADIUS + 43);
 				}
 
-				const statStr = `a:${focusField.actionCount}  r:${focusField.reactionCount}  c:${focusField.concentration.toFixed(3)}${focusField.saturated ? "  SATURATED" : ""}`;
+				/*
+				Crystallization row: the triad cov × cns × ρ that decides
+				whether a field is coherent. Highlighted red when below the
+				0.35 floor because that's when the mesh emits a pressure
+				carrier to flush the community.
+				*/
+				const statStr = `cov ${focusField.coverage.toFixed(2)}  cns ${focusField.consensus.toFixed(2)}  ρ ${focusField.labelDensity.toFixed(2)}  ⇒  x ${focusField.crystallization.toFixed(2)}${focusField.saturated ? "  SATURATED" : ""}`;
 				ctx.fillStyle = focusField.saturated
-					? "rgba(255,80,80,0.7)"
-					: `rgba(${cr},${cg},${cb},0.4)`;
+					? "rgba(120,255,160,0.7)"
+					: focusField.crystallization > 0
+						? "rgba(255,180,80,0.8)"
+						: `rgba(${cr},${cg},${cb},0.4)`;
 				ctx.font = "8px monospace";
 				ctx.fillText(statStr, lx, ly - LENS_RADIUS + 55);
+
+				/*
+				Eigenmode + pressure row — shows the dominant mode share
+				(what fraction of the participants line up with the leading
+				eigenmode) and the pressure multiplier the mesh will stack
+				onto the next pressure carrier when this field is still
+				decrystallised.
+				*/
+				if (
+					focusField.modeCount > 0 ||
+					focusField.pressureMult > 0
+				) {
+					ctx.fillStyle = `rgba(${cr},${cg},${cb},0.55)`;
+					ctx.font = "8px monospace";
+					ctx.fillText(
+						`modes ${focusField.modeCount}  dom ${focusField.dominantRatio.toFixed(2)}  π ${focusField.pressureMult.toFixed(2)}×`,
+						lx,
+						ly - LENS_RADIUS + 68,
+					);
+				}
+
+				/*
+				Causal residue tally — independent counts of hypothesising,
+				falsified, and intervening Values in this community. Only
+				rendered when at least one residue is live so the lens
+				stays quiet for normal fields.
+				*/
+				const causalSum =
+					focusField.hypothesizingCount +
+					focusField.falsifiedCount +
+					focusField.interveningCount;
+
+				if (causalSum > 0) {
+					ctx.fillStyle = "rgba(255,220,140,0.85)";
+					ctx.font = "bold 8px monospace";
+					ctx.fillText(
+						`hyp ${focusField.hypothesizingCount}  fal ${focusField.falsifiedCount}  int ${focusField.interveningCount}`,
+						lx,
+						ly - LENS_RADIUS + 81,
+					);
+				}
 			}
 		}
 

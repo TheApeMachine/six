@@ -61,6 +61,30 @@ func (client *Client) Write(p []byte) (int, error) {
 }
 
 /*
+EmitEnvelope serialises a structured telemetry event (field metrics,
+causal transitions) and ships it over the same WebSocket as raw Value
+frames. The envelope prefix makes bytes visibly distinguishable from
+a 1024-byte Value frame so the visualiser's decoder can fork cleanly
+on the first four bytes.
+
+Returning an error without writing leaves the websocket untouched —
+gorilla's WriteMessage mutex would have kept the channel healthy
+either way, but avoiding the partial write keeps the bridge's framing
+invariant tight: one call, one complete envelope or nothing.
+*/
+func (client *Client) EmitEnvelope(kind uint32, payload any) error {
+	frame, err := EncodeEnvelope(kind, payload)
+
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Write(frame)
+
+	return err
+}
+
+/*
 Read is not used on the outbound path; it exists so *Client may satisfy
 io.ReadWriteCloser where callers embed it in interfaces.
 */

@@ -57,6 +57,15 @@ interface Particle {
 	flashTtl: number;
 	/** Short rolling buffer of recent screen-space positions for the beam/inference trail. */
 	trail: Array<{ x: number; y: number }>;
+	/*
+	Causal residues lifted off the wire frame. Rendered as independent
+	halos in drawValues so an operator can see "hypothesis armed" and
+	"falsified" concurrently — the normal post-refutation state of a
+	causal-explore Value.
+	*/
+	causalHypothesizing: boolean;
+	causalFalsified: boolean;
+	causalIntervening: boolean;
 }
 
 interface FieldAnchor {
@@ -311,6 +320,9 @@ export function FieldLiveCanvas({
 								previousProgram: member.program,
 								flashTtl: member.program ? 24 : 0,
 								trail: [],
+								causalHypothesizing: false,
+								causalFalsified: false,
+								causalIntervening: false,
 							};
 							particles.set(member.id, pt);
 						}
@@ -336,6 +348,10 @@ export function FieldLiveCanvas({
 						pt.resonance += (targetRes - pt.resonance) * 0.15;
 
 						pt.label = pt.program || "";
+
+						pt.causalHypothesizing = member.causal.hypothesizing;
+						pt.causalFalsified = member.causal.falsified;
+						pt.causalIntervening = member.causal.intervening;
 
 						budget--;
 					}
@@ -371,6 +387,9 @@ export function FieldLiveCanvas({
 							previousProgram: orphan.program,
 							flashTtl: orphan.program ? 24 : 0,
 							trail: [],
+							causalHypothesizing: false,
+							causalFalsified: false,
+							causalIntervening: false,
 						};
 						particles.set(orphan.id, pt);
 					}
@@ -395,6 +414,10 @@ export function FieldLiveCanvas({
 					const targetRes = Math.min(1, orphan.resonance || 0);
 					pt.resonance += (targetRes - pt.resonance) * 0.15;
 					pt.label = pt.program || "";
+
+					pt.causalHypothesizing = orphan.causal.hypothesizing;
+					pt.causalFalsified = orphan.causal.falsified;
+					pt.causalIntervening = orphan.causal.intervening;
 
 					budget--;
 				}
@@ -646,6 +669,7 @@ export function FieldLiveCanvas({
 
 			function drawValues() {
 				const selected = selectedIdRef.current;
+				const pulse = Math.sin(p.frameCount * 0.2);
 
 				for (const [, pt] of particles) {
 					const s = w2s(pt.pos.x, pt.pos.y);
@@ -661,6 +685,45 @@ export function FieldLiveCanvas({
 						p.noStroke();
 						p.fill(r, g, b, pt.resonance * 30 + (isSelected ? 20 : 0));
 						p.ellipse(0, 0, 20 + pt.resonance * 28 + (isSelected ? 18 : 0));
+					}
+
+					/*
+					Causal residue halos — rendered before the glyph so
+					the program shape stays crisp on top. Independent
+					rings for each residue let the operator see a Value
+					that is hypothesising AND was just falsified (the
+					usual post-refutation state) without ambiguity.
+					*/
+					if (pt.causalHypothesizing) {
+						p.noFill();
+						p.stroke(255, 224, 100, 140 + pulse * 40);
+						p.strokeWeight(1);
+						p.ellipse(0, 0, 16, 16);
+					}
+
+					if (pt.causalFalsified) {
+						p.noFill();
+						p.stroke(255, 90, 90, 170 + pulse * 30);
+						p.strokeWeight(1.5);
+						p.ellipse(0, 0, 22, 22);
+					}
+
+					if (pt.causalIntervening) {
+						/*
+						The dashed intervening halo distinguishes the do_intervention
+						residue from hypothesis / falsified halos at a glance.
+						p5 exposes drawingContext as a union that includes WebGL;
+						setLineDash only exists on CanvasRenderingContext2D so the
+						cast is required to satisfy tsc while keeping the runtime
+						behaviour identical (we only run on the 2D renderer here).
+						*/
+						const ctx = p.drawingContext as CanvasRenderingContext2D;
+						p.noFill();
+						p.stroke(255, 110, 220, 160);
+						p.strokeWeight(1);
+						ctx.setLineDash([3, 3]);
+						p.ellipse(0, 0, 28, 28);
+						ctx.setLineDash([]);
 					}
 
 					// Program-swap flash: an expanding ring that fades

@@ -116,6 +116,23 @@ func (conn *Conn) Close() error {
 }
 
 /*
+SetFirmware replaces the Conn's default Firmware with the one supplied.
+The orchestrator uses this to hand Conn a Firmware whose observer is
+wired into the telemetry client, so both the firmware chain submitted
+by Conn.Read and the resident heartbeat finalize through the same
+observer. Nil inputs are ignored so misconfigured callers keep the
+zero-observer default instead of dropping the Conn into a nil-pointer
+state mid-flight.
+*/
+func (conn *Conn) SetFirmware(firmware *programmer.Firmware) {
+	if conn == nil || firmware == nil {
+		return
+	}
+
+	conn.firmware = firmware
+}
+
+/*
 ChainTo installs successor as the downstream Conn: every bundled
 Value that finalizes on this Conn will have its wire frame piped
 into successor.Write, so gossip propagates linearly across hops.

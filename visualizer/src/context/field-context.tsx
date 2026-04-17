@@ -17,7 +17,10 @@ import type {
 	VizRuntimeStats,
 } from "@/features/telemetry/types";
 import { ValueStore } from "@/lib/value-store";
-import { decodeValueWireMessage } from "@/lib/wire";
+import {
+	decodeValueWireMessage,
+	ENVELOPE_KIND_FIELD_METRICS,
+} from "@/lib/wire";
 
 interface FieldContextValue {
 	stats: VizRuntimeStats | null;
@@ -71,8 +74,26 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 					return;
 				}
 
-				const frames = decodeValueWireMessage(message.data);
-				store.applyWireFrames(frames);
+				/*
+				The bridge multiplexes two message shapes on this socket:
+				raw Value frames (one or more contiguous 1024-byte images)
+				and structured telemetry envelopes (FieldMetrics today,
+				CausalEvent tomorrow). decodeValueWireMessage forks on the
+				magic bytes so we can dispatch both in one sync pass.
+				*/
+				const decoded = decodeValueWireMessage(message.data);
+
+				if (decoded.frames.length > 0) {
+					store.applyWireFrames(decoded.frames);
+				}
+
+				if (
+					decoded.envelope &&
+					decoded.envelope.kind === ENVELOPE_KIND_FIELD_METRICS
+				) {
+					store.applyFieldMetricsEnvelope(decoded.envelope.payload);
+				}
+
 				sync();
 			};
 

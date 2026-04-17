@@ -126,6 +126,26 @@ value:
           properties[0,1]: true
           signals[0,1]: false
       firmware: classify_readout
+    # Intervention (Pearl do-operation) fires when a foreign carrier has
+    # been Conn.Write'd into this Value with severed causal history. The
+    # peer's gradient is now in asset[16,8] (StageAssetFrom span), prev
+    # is explicitly zero (history severed), and context is already live
+    # (distinguishing this from a freshly-minted Value). The intervene
+    # program folds the peer gradient into this Value's gradient and
+    # reduces the scalar witness into properties[0,1], which flips the
+    # properties[0,1]: false gate so the rule disarms after one pass.
+    # Rule-ordered before peer_gap so severed-history carriers take the
+    # do-operation path instead of the unsupervised similarity path —
+    # the semantics diverge even though both rules observe a staged peer.
+    - name: do_intervention
+      conditions:
+        and:
+          affinity: true
+          asset[16,8]: true
+          context[0,8]: true
+          prev[0,1]: false
+          properties[0,1]: false
+      firmware: intervene
     # Peer-gap fires whenever a carrier has been delivered via
     # Conn.Write. StageAssetFrom lands the source's context in asset[8,8],
     # and that sub-span going non-empty is the honest gate for running
@@ -155,6 +175,60 @@ value:
           context[0,8]: false
           signals[0,8]: false
       firmware: beam_swarm_step
+    # Iterate-causal is the counterfactual generator. It fires once the
+    # kernel's ApplyRefutationProbe has landed its FalsifiedBitNoiseWord
+    # into properties[4,1] — the in-kernel witness that the preceding
+    # hypothesis was falsified by the substrate. causal_hub then loops
+    # via `next self` and drifts gradient through stacked asset[40,8]
+    # residuals, so each heartbeat advances the belief along the
+    # counterfactual direction the refutation revealed. This is the
+    # "what would be different if that weren't true" question being
+    # asked and answered in-band. Rule-ordered before hypothesize so a
+    # Value with a live refutation witness commits to iterating causally
+    # instead of immediately forming another hypothesis over the same
+    # collapsed belief.
+    - name: iterate_causal
+      conditions:
+        and:
+          affinity: true
+          gradient[0,8]: true
+          properties[4,1]: true
+      firmware: causal_hub
+    # Hypothesize is the system's "what if". Once a Value has been routed
+    # (affinity set), fired beam_swarm_step so context and gradient carry
+    # a live belief trajectory, and has scored surprisal into
+    # properties[0,1], it autonomously asks whether that belief can be
+    # refuted. The rule only matches when no refutation target is armed
+    # yet (properties[1,1]: false) — once the hypothesis program stamps
+    # properties[1,1] the gate flips and the next pass falls through to
+    # the `falsify` rule. This is how agency enters the system: the
+    # decision to form a hypothesis is made by rule-engine observation of
+    # the Value's own state, not by any Go-side inference caller.
+    - name: hypothesize
+      conditions:
+        and:
+          affinity: true
+          context[0,8]: true
+          gradient[0,8]: true
+          properties[0,1]: true
+          properties[1,1]: false
+      firmware: hypothesis
+    # Falsify runs once a hypothesis target is armed. falsification
+    # re-XORs tokens against context into signals, then reduces the
+    # signature back into properties[1,1]. When signals develop a
+    # long one-run (≥48 bits), ApplyRefutationProbe in the kernel
+    # trips — it stamps FalsifiedBitNoiseWord into properties[4],
+    # zeroes the SchedulingNextProgramWord, and clears properties[1,1].
+    # Clearing properties[1,1] disarms this rule, and the now-populated
+    # properties[4] witness feeds `iterate_causal` above. No rule walk
+    # is needed to "detect" the refutation; it happens at ALU exit.
+    - name: falsify
+      conditions:
+        and:
+          affinity: true
+          properties[1,1]: true
+          tokens[0,8]: true
+      firmware: falsification
 
 
 programs:
@@ -205,49 +279,98 @@ programs:
   # through the local gradient, scores interference against the context
   # attractor, collapses that into a scalar error, OR-s in the field
   # pressure signal, morphs its affinity so high-error Values physically
-  # drift away in DHT space, and loops via `next self` so the scheduler
-  # keeps spreading the cascade one ALU pass at a time.
+  # drift away in DHT space, and folds the prediction error back into
+  # gradient so the next beam pass advances state from an updated belief
+  # rather than re-running the same static rotation. Without that last
+  # fold the belief would be frozen at whatever gradient was stamped by
+  # the staging path, and the beam would reduce to `context = tokens`
+  # on every pass — the visualiser-visible symptom is a gradient region
+  # stuck at zero (or whatever the incoming peer had) while signals and
+  # context oscillate. Loops via `next self` so the scheduler keeps
+  # spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
     tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     signals[0,8]    signals[0,8]    properties[0,1] xor reduce
     properties[0,1] properties[1,1] properties[0,1] or  accumulate
     properties[0,1] affinity[0,5]   affinity[0,5]   xor accumulate
+    signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate
     next self
 
-  # Free Energy / Prediction Error: Computes the gap between the incoming
-  # tokens and the context (the local eigenmode/attractor).
+  # Free Energy / Prediction Error: the surprisal primitive computes the
+  # gap between incoming tokens and the context eigenmode, collapses it
+  # into a scalar error in properties[0,1], and folds the signature into
+  # gradient so the next beam pass advances belief through the freshly
+  # scored residual. Loops via `next self` so when the `integrate_belief`
+  # rule transitions the Value out of beam_swarm_step the scheduler can
+  # keep this program resident until gradient/asset witnesses steer
+  # the chain elsewhere.
   surprisal: |
     tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
     signals[0,8] signals[0,8] properties[0,1] xor reduce
+    signals[0,8] gradient[0,8] gradient[0,8]  xor accumulate
+    next self
 
-  # Popperian Test: XORs tokens against a predicted-absent pattern in context.
-  # A high popcount in properties[1] means the claim held (they differ); a low
-  # popcount refutes it. If refuted, we zero the TTL word (properties[3]).
+  # Hypothesis: arms the in-kernel Popperian probe (ApplyRefutationProbe)
+  # by stamping a non-zero target into properties[1,1] (word 49 in absolute
+  # layout = PropertiesRefutationTargetWord). The XOR of context against
+  # gradient lands a 64-byte prediction signature into signals[0,8] — the
+  # only scratch span safe to overwrite at this point, since the
+  # `hypothesize` rule gates on properties[0,1] being already reduced by
+  # beam_swarm_step's surprisal collapse and signals can be rewritten for
+  # the subsequent falsification pass. Reducing that signature into
+  # properties[1,1] seeds the target with real entropy, and folding the
+  # Value's own id[0,1] guarantees the target never settles to zero even
+  # when context XOR gradient happens to cancel — a zero target reads as
+  # "not armed" to the kernel probe. Once armed, the next rule (`falsify`)
+  # fires `falsification`, whose signals rewrite feeds the kernel probe
+  # that decides whether the claim survives.
+  hypothesis: |
+    context[0,8]    gradient[0,8]   signals[0,8]    xor accumulate
+    signals[0,8]    signals[0,8]    properties[1,1] or  reduce
+    id[0,1]         id[0,1]         properties[1,1] or  accumulate
+
+  # Popperian Test: XORs tokens against a predicted-absent pattern in
+  # context. A high popcount in properties[1] means the claim held (they
+  # differ); a low popcount refutes it. If refuted, we zero the TTL word
+  # (properties[3]). The falsification residual also drives gradient —
+  # a refuted claim perturbs the belief direction so downstream beam
+  # passes can recover without external intervention. `next self` keeps
+  # the program resident once the `test_falsification` rule selects it.
   falsification: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     signals[0,8]    signals[0,8]    properties[1,1] xor reduce
     properties[1,1] properties[3,1] properties[3,1] and accumulate
+    signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate
+    next self
 
   # Temperature: Physical noise injected into the Affinity vector during
   # exploration to widen the search space.
   temperature: |
     properties[4,1] affinity[0,5] affinity[0,5] xor accumulate
 
-  # Active Inference: Unified cognitive loop that simulates multiple futures,
-  # evaluates their expected free energy, and applies the action that minimizes
-  # surprisal.
+  # Active Inference: unified cognitive loop that simulates multiple
+  # futures, evaluates their expected free energy across asset[0..32],
+  # and applies the action direction that minimises surprisal back into
+  # gradient — the planned belief update the next beam pass will advance
+  # state through. properties[2,1] captures a scalar "plan intensity"
+  # witness so the `iterate_causal` rule can observe that the plan has
+  # been staged without re-walking the asset block. Loops via
+  # `next self` so once the `integrate_belief` rule fires this program
+  # keeps refining the plan against each freshly scored error frame.
   active_inference: |
-    tokens[0,8]  gradient[0,8]   asset[0,8]   xor accumulate
-    tokens[0,4]  properties[4,2] asset[8,4]   and accumulate
-    tokens[4,4]  properties[6,2] asset[12,4]  and accumulate
-    tokens[0,8]  context[0,8]    asset[16,8]  xor accumulate
-    asset[0,8]   context[0,8]    signals[0,8] xor accumulate
-    asset[8,8]   context[0,8]    asset[24,8]  xor accumulate
-    asset[16,8]  context[0,8]    asset[32,8]  xor accumulate
-    signals[0,8] signals[0,8]    signals[0,1] xor reduce
-    asset[24,8]  asset[24,8]     signals[1,1] xor reduce
-    asset[32,8]  asset[32,8]     signals[2,1] xor reduce
+    tokens[0,8]     gradient[0,8]   asset[0,8]      xor accumulate
+    tokens[0,4]     properties[4,2] asset[8,4]      and accumulate
+    tokens[4,4]     properties[6,2] asset[12,4]     and accumulate
+    tokens[0,8]     context[0,8]    asset[16,8]     xor accumulate
+    asset[0,8]      context[0,8]    signals[0,8]    xor accumulate
+    asset[8,8]      context[0,8]    asset[24,8]     xor accumulate
+    asset[16,8]     context[0,8]    asset[32,8]     xor accumulate
+    signals[0,8]    signals[0,8]    signals[0,1]    xor reduce
+    asset[24,8]     asset[24,8]     signals[1,1]    xor reduce
+    asset[32,8]     asset[32,8]     signals[2,1]    xor reduce
+    asset[16,8]     asset[0,8]      gradient[0,8]   xor accumulate
+    asset[0,8]      asset[16,8]     properties[2,1] xor reduce
     next self
 
   # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
@@ -258,13 +381,22 @@ programs:
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
 
-  # Causal Hub: Iterative causal gap exploration.
-  # Loops via next self until the queue or finalizer breaks the circuit.
+  # Causal Hub: iterative causal-gap exploration. Loops via `next self`
+  # until the queue or a finalizer breaks the circuit. Each iteration
+  # XORs the gradient-conditioned residual back into gradient itself,
+  # so the belief trajectory reflects the cumulative counterfactual
+  # pressure rather than snapshotting the initial gradient and stalling
+  # the moment the causal-explore residual lands. The `iterate_causal`
+  # rule selects this program once falsification has stamped its witness;
+  # from that point every heartbeat drifts gradient through the stacked
+  # asset[40,8] residuals, which is what the visualiser needs to see to
+  # confirm the causal loop is actually driving the substrate.
   causal_hub: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
     signals[0,8]    signals[0,8]    properties[0,2] xor reduce
     properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    asset[40,8]     gradient[0,8]   gradient[0,8]   xor accumulate
     next self
 
   # Unsupervised learning: the peer whose similarity we're measuring has
@@ -322,9 +454,17 @@ programs:
   # The reduced signature sits in properties[0,1] as the intervention
   # witness; whoever scheduled the do-op reads that word to decide
   # whether to persist the perturbation or let it dissolve via TTL.
+  # Gradient carries the do-direction forward so downstream beam passes
+  # advance state through the perturbed belief until TTL dissolves it;
+  # without the gradient write the intervention would leave only the
+  # scalar witness and the population would revert to its pre-perturb
+  # trajectory on the very next ALU pass. Single-shot by design — no
+  # `next self`; TTL-decay in the lifecycle finalizer terminates the
+  # cascade.
   intervene: |
     context[0,8] asset[16,8]  signals[0,8]    xor accumulate
     signals[0,8] signals[0,8] properties[0,1] or  reduce
+    asset[16,8]  gradient[0,8] gradient[0,8]  xor accumulate
 
 finalizers:
   - name: community_resonance_emit

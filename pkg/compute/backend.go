@@ -473,6 +473,25 @@ func (backend *Backend) Dispatch(executable *programmer.Executable) {
 		}
 	}
 
+	// Restore frame 0's program words so the Value's program region
+	// carries the *identity* of the installed program rather than the
+	// last primitive's operand layout. Multi-line DSL programs (e.g.
+	// beam_swarm_step) executed via the frame loop above otherwise
+	// leave the program region set to the final line, which the
+	// visualiser's classifier cannot match against PROGRAM_SIGNATURES
+	// — every steady-state Value ends up rendered as "no program
+	// installed" even though it just ran a fully-stamped firmware.
+	// Deliberately do NOT re-apply the continuation here: the final
+	// kernel pass owns SchedulingNextProgramWord (postexec clears it
+	// on TTL expiry), and re-arming a `next self` directive would
+	// undo that TTL gate and spin the heartbeat forever. Frame 0's
+	// Program array carries operand descriptors; word 117 is outside
+	// that slab, so restoring the program region leaves scheduling
+	// alone.
+	if len(frames) > 1 {
+		frames[0].WriteIntoProgramRegion(value)
+	}
+
 	elapsed := time.Since(start)
 	st.inflight.Add(-1)
 	st.observe(elapsed)

@@ -1,15 +1,46 @@
 package programmer
 
 import (
+	"io"
 	"math/bits"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
-type Firmware struct{}
+/*
+Firmware walks a Value through the rule engine and, at steady state,
+drives its resident program through the heartbeat re-submit. An optional
+observer receives every finalized Value frame — non-resident passes and
+each resident heartbeat — so callers like the orchestrator can tee the
+in-flight ALU state into telemetry without the visualiser having to wait
+for another round-trip through the gossip pipeline.
+*/
+type Firmware struct {
+	observer  io.Writer
+	framePool sync.Pool
+}
+
+/*
+firmwareOption configures a Firmware at construction.
+*/
+type firmwareOption func(*Firmware)
+
+/*
+WithObserver installs a writer that receives the finalized Value's wire
+frame after every ALU pass. Nil writers are accepted (and become no-ops)
+so call-sites can pass a late-bound telemetry sink without an extra nil
+guard.
+*/
+func WithObserver(writer io.Writer) firmwareOption {
+	return func(firmware *Firmware) {
+		firmware.observer = writer
+	}
+}
 
 /*
 Scheduler is the narrowest pool surface Firmware.Chain needs to re-enter
@@ -25,10 +56,60 @@ type Scheduler interface {
 }
 
 /*
-NewFirmware creates a new Firmware.
+NewFirmware creates a new Firmware. Pass WithObserver to tee every
+finalized Value frame into a writer (typically the orchestrator's
+telemetry client) so the visualiser stays live across heartbeats.
 */
-func NewFirmware() *Firmware {
-	return &Firmware{}
+func NewFirmware(opts ...firmwareOption) *Firmware {
+	firmware := &Firmware{
+		framePool: sync.Pool{
+			New: func() any {
+				buf := make([]byte, core.Cfg.Value.Bytes)
+				return &buf
+			},
+		},
+	}
+
+	for _, opt := range opts {
+		opt(firmware)
+	}
+
+	return firmware
+}
+
+/*
+emit serialises a finalized Value into a pooled wire buffer and pushes
+it at the observer. The observer is assumed to be thread-safe — the
+telemetry client's gorilla/websocket Write holds its own internal
+mutex — so callers from multiple pool workers can emit concurrently
+without firmware-side coordination. The frame buffer returns to the
+pool regardless of observer errors so a flaky sink can't drain the
+allocator.
+*/
+func (firmware *Firmware) emit(value *primitive.Value) {
+	if firmware == nil || firmware.observer == nil || value == nil {
+		return
+	}
+
+	bufPtr, _ := firmware.framePool.Get().(*[]byte)
+
+	if bufPtr == nil {
+		return
+	}
+
+	defer firmware.framePool.Put(bufPtr)
+
+	buf := *bufPtr
+
+	// Value.Read returns (len, io.EOF) as a single-shot frame delimiter,
+	// so a full read with io.EOF is success. Any other error means the
+	// buffer was short — treat that as a skipped frame rather than a
+	// hard failure; the next pass will try again.
+	if _, err := value.Read(buf); err != nil && err != io.EOF {
+		return
+	}
+
+	_, _ = firmware.observer.Write(buf)
 }
 
 /*
@@ -82,9 +163,48 @@ func (firmware *Firmware) Chain(
 		// resident pass lands.
 		executable := NewResidentExecutable(value)
 
+		// Honor `next self` (SchedulingNextProgramWord == value.ID())
+		// at steady state: the last firmware's program set word 117 to
+		// the Value's own ID precisely to loop. Without this heartbeat
+		// the substrate goes silent the instant the rule chain bottoms
+		// out — the visualiser freezes, no frames ship, every resident
+		// Value sits in a STATUS_READY dead-end. Re-submitting through
+		// Chain re-evaluates rules cheaply (so a newly-triggered rule
+		// like `classify` still fires) and falls back to another
+		// resident pass when nothing matches. The terminal hook is
+		// fired exactly once on the first resident arrival — heartbeat
+		// re-entries call Chain without the terminal so the "chain
+		// complete" signal remains single-shot.
+		var terminalFn Finalizer
 		if len(terminal) > 0 && terminal[0] != nil {
-			executable.SetFinalizer(terminal[0])
+			terminalFn = terminal[0]
 		}
+
+		executable.SetFinalizer(func(finalized *primitive.Value) {
+			// Emit the just-finalized frame so the visualiser sees the
+			// resident pass land before we decide whether to heartbeat
+			// again. Every resident re-entry produces one wire frame —
+			// without this the substrate runs silent after the firmware
+			// chain settles and the HUD reports 0 fps.
+			firmware.emit(finalized)
+
+			if terminalFn != nil {
+				terminalFn(finalized)
+				terminalFn = nil
+			}
+
+			if finalized == nil {
+				return
+			}
+
+			if (*finalized)[kernel.SchedulingNextProgramWord] != finalized.ID() {
+				return
+			}
+
+			scheduler.Submit(func() *Executable {
+				return firmware.Chain(scheduler, finalized)
+			})
+		})
 
 		return executable
 	}
@@ -98,6 +218,11 @@ func (firmware *Firmware) Chain(
 	// through every hop so it survives the full link → affinity →
 	// resident walk.
 	executable.SetFinalizer(func(finalized *primitive.Value) {
+		// Publish the freshly-stamped frame after each non-resident hop
+		// (link → affinity → classify / explore / …) so the visualiser
+		// tracks firmware progression, not just steady-state heartbeats.
+		firmware.emit(finalized)
+
 		scheduler.Submit(func() *Executable {
 			return firmware.Chain(scheduler, finalized, terminal...)
 		})

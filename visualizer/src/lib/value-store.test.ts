@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeValueFrame, ValueStore } from "./value-store";
 import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT, WORD } from "./valueLayout";
+import {
+	decodeValueWireMessage,
+	ENVELOPE_HEADER_BYTES,
+	ENVELOPE_KIND_FIELD_METRICS,
+	ENVELOPE_MAGIC,
+	type FieldMetricsPayload,
+} from "./wire";
 
 /*
 PROPERTIES_COMMUNITY_WORD is absolute word 56, computed on the Go side as
@@ -10,6 +17,18 @@ community index here via an ephemeral CopyMaskMerge program — the visualizer
 just reads the same byte off the wire to recover the assignment.
 */
 const PROPERTIES_COMMUNITY_WORD = 56;
+
+/*
+Causal residue word indices mirror value-store.ts — keeping them here keeps
+the tests decoupled from the module under test so a silent drift in either
+place trips an assertion rather than passing silently. See pkg/compute/kernel
+for the Go-side source of truth.
+*/
+const PROPERTIES_REFUTATION_TARGET_WORD = 49;
+const PROPERTIES_NOISE_WORD = 52;
+const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
+const CONTEXT_START_WORD = 32;
+const FALSIFIED_BIT = 1n << 62n;
 
 function writeWord(frame: Uint8Array, wordIndex: number, word: bigint) {
 	const offset = wordIndex * 8;
@@ -59,6 +78,10 @@ function makeValueFrame(init?: {
 	next?: bigint;
 	content?: string;
 	communityId?: bigint;
+	refutationTarget?: bigint;
+	noise?: bigint;
+	gradientWord?: bigint;
+	contextWord?: bigint;
 }) {
 	const frame = new Uint8Array(VALUE_FRAME_BYTE_LENGTH);
 
@@ -82,8 +105,59 @@ function makeValueFrame(init?: {
 		writeWord(frame, PROPERTIES_COMMUNITY_WORD, init.communityId);
 	}
 
+	if (init?.refutationTarget !== undefined) {
+		writeWord(frame, PROPERTIES_REFUTATION_TARGET_WORD, init.refutationTarget);
+	}
+
+	if (init?.noise !== undefined) {
+		writeWord(frame, PROPERTIES_NOISE_WORD, init.noise);
+	}
+
+	if (init?.gradientWord !== undefined) {
+		writeWord(frame, ASSET_GRADIENT_WORD, init.gradientWord);
+	}
+
+	if (init?.contextWord !== undefined) {
+		writeWord(frame, CONTEXT_START_WORD, init.contextWord);
+	}
+
 	return frame;
 }
+
+function encodeEnvelopeBytes(
+	kind: number,
+	payload: Record<string, unknown>,
+): Uint8Array {
+	const body = new TextEncoder().encode(JSON.stringify(payload));
+	const buf = new Uint8Array(ENVELOPE_HEADER_BYTES + body.byteLength);
+
+	buf[0] = ENVELOPE_MAGIC[0];
+	buf[1] = ENVELOPE_MAGIC[1];
+	buf[2] = ENVELOPE_MAGIC[2];
+	buf[3] = ENVELOPE_MAGIC[3];
+	buf[4] = kind & 0xff;
+	buf[5] = (kind >>> 8) & 0xff;
+	buf[6] = (kind >>> 16) & 0xff;
+	buf[7] = (kind >>> 24) & 0xff;
+	buf.set(body, ENVELOPE_HEADER_BYTES);
+
+	return buf;
+}
+
+const blankMetrics: FieldMetricsPayload = {
+	communityIdx: 0,
+	memberCount: 0,
+	labeledCount: 0,
+	slotSum: 0,
+	coverage: 0,
+	consensus: 0,
+	labelDensity: 0,
+	crystallization: 0,
+	dominantRatio: 0,
+	modeCount: 0,
+	pressureMult: 1,
+	saturated: false,
+};
 
 test("decodeValueFrame reads id, chain ids, and token text from raw Value bytes", () => {
 	const frame = makeValueFrame({
@@ -182,4 +256,271 @@ test("Values without a community word land in orphanValues", () => {
 
 	assert.equal(snapshot.fields.length, 0);
 	assert.equal(snapshot.orphanValues.length, 1);
+});
+
+test("readCausalState surfaces hypothesizing when refutation target is armed", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000010");
+	store.applyWireFrame(
+		0x10n,
+		makeValueFrame({
+			id: 0x10n,
+			communityId: 3n,
+			refutationTarget: 0xdeadbeefn,
+		}),
+	);
+
+	const stored = store.get("0000000000000010");
+	assert.ok(stored);
+	assert.equal(stored?.causal.hypothesizing, true);
+	assert.equal(stored?.causal.falsified, false);
+	assert.equal(stored?.causal.intervening, false);
+});
+
+test("readCausalState surfaces falsified when FalsifiedBit is set in the noise word", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000011");
+	store.applyWireFrame(
+		0x11n,
+		makeValueFrame({
+			id: 0x11n,
+			communityId: 3n,
+			noise: FALSIFIED_BIT | 0x123n,
+		}),
+	);
+
+	const stored = store.get("0000000000000011");
+	assert.ok(stored);
+	assert.equal(stored?.causal.falsified, true);
+	// hypothesizing/intervening independent — a frame may be falsified
+	// without the target being re-armed after ApplyRefutationProbe clears
+	// it, so these must stay false under a bare noise-only write.
+	assert.equal(stored?.causal.hypothesizing, false);
+	assert.equal(stored?.causal.intervening, false);
+});
+
+test("readCausalState surfaces intervening only when gradient+context are set and prev is zero", () => {
+	const store = new ValueStore();
+
+	// Intervening frame: gradient word set, context word set, prev = 0.
+	store.ensure("0000000000000012");
+	store.applyWireFrame(
+		0x12n,
+		makeValueFrame({
+			id: 0x12n,
+			communityId: 3n,
+			gradientWord: 0xf0f0n,
+			contextWord: 0x0f0fn,
+		}),
+	);
+	const intervening = store.get("0000000000000012");
+	assert.ok(intervening);
+	assert.equal(intervening?.causal.intervening, true);
+
+	// Same bits but prev present: do_intervention did NOT sever history,
+	// so the intervening residue must stay false.
+	store.ensure("0000000000000013");
+	store.applyWireFrame(
+		0x13n,
+		makeValueFrame({
+			id: 0x13n,
+			communityId: 3n,
+			prev: 0x9n,
+			gradientWord: 0xf0f0n,
+			contextWord: 0x0f0fn,
+		}),
+	);
+	const linked = store.get("0000000000000013");
+	assert.ok(linked);
+	assert.equal(linked?.causal.intervening, false);
+
+	// Context missing: the kernel XOR into local context never landed, so
+	// we refuse to report intervening even with a severed chain.
+	store.ensure("0000000000000014");
+	store.applyWireFrame(
+		0x14n,
+		makeValueFrame({
+			id: 0x14n,
+			communityId: 3n,
+			gradientWord: 0xf0f0n,
+		}),
+	);
+	const gradientOnly = store.get("0000000000000014");
+	assert.ok(gradientOnly);
+	assert.equal(gradientOnly?.causal.intervening, false);
+});
+
+test("A blank frame reports no causal residues at all", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000015");
+	store.applyWireFrame(0x15n, makeValueFrame({ id: 0x15n, communityId: 3n }));
+
+	const stored = store.get("0000000000000015");
+	assert.ok(stored);
+	assert.equal(stored?.causal.hypothesizing, false);
+	assert.equal(stored?.causal.falsified, false);
+	assert.equal(stored?.causal.intervening, false);
+});
+
+test("applyFieldMetricsEnvelope merges crystallization into the matching FieldSnapshot", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000020");
+	store.applyWireFrame(
+		0x20n,
+		makeValueFrame({ id: 0x20n, communityId: 5n }),
+	);
+	store.ensure("0000000000000021");
+	store.applyWireFrame(
+		0x21n,
+		makeValueFrame({
+			id: 0x21n,
+			communityId: 5n,
+			refutationTarget: 0x1n,
+		}),
+	);
+
+	store.applyFieldMetricsEnvelope({
+		...blankMetrics,
+		communityIdx: 5,
+		memberCount: 2,
+		coverage: 0.8,
+		consensus: 0.9,
+		labelDensity: 0.5,
+		crystallization: 0.36,
+		dominantRatio: 0.75,
+		modeCount: 2,
+		pressureMult: 1.25,
+		saturated: true,
+	});
+
+	const snapshot = store.getState().snapshot;
+	const field = snapshot.fields.find((candidate) => candidate.id === 5);
+
+	assert.ok(field);
+	assert.equal(field?.coverage, 0.8);
+	assert.equal(field?.consensus, 0.9);
+	assert.equal(field?.labelDensity, 0.5);
+	assert.equal(field?.crystallization, 0.36);
+	assert.equal(field?.dominantRatio, 0.75);
+	assert.equal(field?.modeCount, 2);
+	assert.equal(field?.pressureMult, 1.25);
+	assert.equal(field?.saturated, true);
+	// Legacy alias stays wired to crystallization so old HUD widgets
+	// keep reading the same "is the field crystallising" axis.
+	assert.equal(field?.saturation, 0.36);
+	// Per-community causal tallies are derived from member state, not
+	// the envelope, and must reflect the one Value with a refutation
+	// target armed.
+	assert.equal(field?.hypothesizingCount, 1);
+	assert.equal(field?.falsifiedCount, 0);
+	assert.equal(field?.interveningCount, 0);
+});
+
+test("applyFieldMetricsEnvelope with negative communityIdx leaves the cache untouched", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000022");
+	store.applyWireFrame(
+		0x22n,
+		makeValueFrame({ id: 0x22n, communityId: 9n }),
+	);
+
+	store.applyFieldMetricsEnvelope({
+		...blankMetrics,
+		communityIdx: 9,
+		crystallization: 0.5,
+	});
+
+	store.applyFieldMetricsEnvelope({
+		...blankMetrics,
+		communityIdx: -1,
+		crystallization: 0.1,
+	});
+
+	const snapshot = store.getState().snapshot;
+	const field = snapshot.fields.find((candidate) => candidate.id === 9);
+
+	assert.ok(field);
+	// The second call carried the sentinel communityIdx the Go side
+	// emits when metrics aren't ready yet; the cached value for
+	// community 9 must survive that no-op.
+	assert.equal(field?.crystallization, 0.5);
+});
+
+test("FieldSnapshot defaults to zero metrics when no envelope has arrived", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000023");
+	store.applyWireFrame(
+		0x23n,
+		makeValueFrame({ id: 0x23n, communityId: 11n }),
+	);
+
+	const snapshot = store.getState().snapshot;
+	const field = snapshot.fields.find((candidate) => candidate.id === 11);
+
+	assert.ok(field);
+	assert.equal(field?.coverage, 0);
+	assert.equal(field?.consensus, 0);
+	assert.equal(field?.labelDensity, 0);
+	assert.equal(field?.crystallization, 0);
+	assert.equal(field?.modeCount, 0);
+	assert.equal(field?.saturated, false);
+});
+
+test("decodeValueWireMessage routes VZB1 envelopes to applyFieldMetricsEnvelope", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000030");
+	store.applyWireFrame(
+		0x30n,
+		makeValueFrame({ id: 0x30n, communityId: 13n }),
+	);
+
+	const wire = encodeEnvelopeBytes(ENVELOPE_KIND_FIELD_METRICS, {
+		...blankMetrics,
+		communityIdx: 13,
+		crystallization: 0.42,
+		dominantRatio: 0.6,
+		modeCount: 3,
+		pressureMult: 1.1,
+	});
+
+	const decoded = decodeValueWireMessage(wire);
+
+	assert.equal(decoded.frames.length, 0);
+	assert.ok(decoded.envelope);
+	assert.equal(decoded.envelope?.kind, ENVELOPE_KIND_FIELD_METRICS);
+
+	if (decoded.envelope?.kind === ENVELOPE_KIND_FIELD_METRICS) {
+		store.applyFieldMetricsEnvelope(decoded.envelope.payload);
+	}
+
+	const snapshot = store.getState().snapshot;
+	const field = snapshot.fields.find((candidate) => candidate.id === 13);
+
+	assert.ok(field);
+	assert.equal(field?.crystallization, 0.42);
+	assert.equal(field?.dominantRatio, 0.6);
+	assert.equal(field?.modeCount, 3);
+	assert.equal(field?.pressureMult, 1.1);
+});
+
+test("decodeValueWireMessage still splits raw 1024-byte value frames", () => {
+	const a = makeValueFrame({ id: 0x40n });
+	const b = makeValueFrame({ id: 0x41n });
+	const joined = new Uint8Array(a.byteLength + b.byteLength);
+	joined.set(a, 0);
+	joined.set(b, a.byteLength);
+
+	const decoded = decodeValueWireMessage(joined);
+
+	assert.equal(decoded.envelope, null);
+	assert.equal(decoded.frames.length, 2);
+	assert.equal(decoded.frames[0].valueId, 0x40n);
+	assert.equal(decoded.frames[1].valueId, 0x41n);
 });

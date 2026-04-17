@@ -393,12 +393,11 @@ export function ValueInspector({
 	const propertiesW54 = wordAt(54);
 	const propertiesW55 = wordAt(55);
 	/*
-	w56 / w57 are called properties[8]/[9] in pkg/compute/kernel/layout.go but
-	the runtime config (pkg/core/config.go) lays Properties as 48..55 and Asset
-	as 56..119 — so on the wire these two words sit at the start of the Asset
-	band. The mesh writes community id into w56, and the firmware chain writes
-	lifecycle status into w57. Surfacing both next to the Properties labels
-	keeps the operator from having to scroll through the 64-word Asset hex.
+	Properties is the extended 24-word band per cmd/cfg/config.yml. Community
+	id lives at w56 (properties[8], stamped by mesh.Field routing) and firmware
+	lifecycle status lives at w57 (properties[9], stamped by the rule engine
+	after link → affinity → resident completes). Surfacing both inside the
+	PROPERTIES region — where they actually live — matches the wire layout.
 	*/
 	const propertiesW56Community = wordAt(56);
 	const propertiesW57Status = wordAt(57);
@@ -512,6 +511,43 @@ export function ValueInspector({
 								className="border-muted/30 text-muted-foreground"
 							>
 								probe {probeStatus}
+							</Badge>
+						)}
+						{/*
+						Causal residues are three independent booleans the wire
+						carries for every Value: the hypothesis bit means a
+						refutation target is staged in properties[1]; falsified
+						means the kernel stamped FalsifiedBit into the noise word;
+						intervening means the do_intervention rule severed causal
+						history and injected a foreign gradient. Exposing all
+						three as colour-coded badges lets the operator see the
+						causal cascade residue at a glance without decoding hex.
+						*/}
+						{snap.causal.hypothesizing && (
+							<Badge
+								variant="outline"
+								className="border-yellow-500/40 bg-yellow-500/20 text-yellow-200"
+								title="Refutation target staged (properties[1] non-zero)"
+							>
+								HYPOTHESIS
+							</Badge>
+						)}
+						{snap.causal.falsified && (
+							<Badge
+								variant="outline"
+								className="border-red-500/40 bg-red-500/20 text-red-200"
+								title="Falsified bit set in noise word (properties[4])"
+							>
+								FALSIFIED
+							</Badge>
+						)}
+						{snap.causal.intervening && (
+							<Badge
+								variant="outline"
+								className="border-fuchsia-500/40 bg-fuchsia-500/20 text-fuchsia-200"
+								title="do_intervention severed causal history (prev=0, gradient + context non-zero)"
+							>
+								INTERVENING
 							</Badge>
 						)}
 					</div>
@@ -754,10 +790,10 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* PROPERTIES 48–55 · 512 bits — canonical band */}
+				{/* PROPERTIES 48–71 · 1536 bits — canonical extended band */}
 				<Region
 					label="PROPERTIES"
-					words="48–55 · 512b"
+					words="48–71 · 1536b"
 					fill={1 - snap.gap}
 					headerClass="bg-amber-500/10"
 					barClass="bg-amber-400"
@@ -813,26 +849,6 @@ export function ValueInspector({
 						}
 					/>
 					<KV k="w55 depth" v={hexOrDash(propertiesW55)} />
-					{confidence !== null ? (
-						<KV
-							k="bus.conf"
-							v={(confidence as number).toFixed(4)}
-							vClass={
-								(confidence as number) > 0.7 ? "text-emerald-300" : undefined
-							}
-						/>
-					) : null}
-				</Region>
-
-				{/* ASSET w56–w119 (64 words — chain staging, scratch, scheduler, …) */}
-				<Region
-					label="ASSET"
-					words="56–119 · 4096b"
-					fill={0.12}
-					headerClass="bg-muted/10"
-					barClass="bg-muted"
-					textClass="text-muted-foreground/85"
-				>
 					<KV
 						k="w56 community"
 						v={
@@ -857,11 +873,39 @@ export function ValueInspector({
 									: undefined
 						}
 					/>
-					<div className="mt-1 border-t border-border/20 pt-1 text-[7px] uppercase tracking-wide text-muted-foreground/40">
-						scratch · chain staging · scheduler
+					<div className="mt-1 border-t border-amber-500/25 pt-1 text-[7px] uppercase tracking-wide text-amber-200/35">
+						extended w58–w71
 					</div>
 					{frameOk ? (
-						<WordHexRows from={58} to={119} wordAt={wordAt} />
+						<WordHexRows from={58} to={71} wordAt={wordAt} />
+					) : (
+						<Dim>no frame</Dim>
+					)}
+					{confidence !== null ? (
+						<KV
+							k="bus.conf"
+							v={(confidence as number).toFixed(4)}
+							vClass={
+								(confidence as number) > 0.7 ? "text-emerald-300" : undefined
+							}
+						/>
+					) : null}
+				</Region>
+
+				{/* ASSET w72–w119 (48 words — chain staging + peer S/C/G/P + scratch) */}
+				<Region
+					label="ASSET"
+					words="72–119 · 3072b"
+					fill={0.12}
+					headerClass="bg-muted/10"
+					barClass="bg-muted"
+					textClass="text-muted-foreground/85"
+				>
+					<div className="mb-1 text-[7px] uppercase tracking-wide text-muted-foreground/40">
+						peer S+C+G+P staging · scratch · scheduler
+					</div>
+					{frameOk ? (
+						<WordHexRows from={72} to={119} wordAt={wordAt} />
 					) : (
 						<Dim>no frame</Dim>
 					)}

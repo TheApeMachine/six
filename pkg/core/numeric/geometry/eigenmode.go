@@ -45,6 +45,61 @@ type EigenSnap struct {
 }
 
 /*
+NewEigenSnap wraps a (modes, dominantIdx) pair — typically the direct
+return from DetectModes — into a snap so callers can hand the whole
+partition around by a single pointer and swap it atomically when a new
+one lands.
+*/
+func NewEigenSnap(modes []Eigenmode, dominantIdx int) *EigenSnap {
+	return &EigenSnap{
+		modes:       modes,
+		dominantIdx: dominantIdx,
+	}
+}
+
+/*
+Modes returns the eigenmode partition held by this snap. The slice
+aliases internal storage so callers must treat it read-only; if you
+need to mutate a mode, copy it first.
+*/
+func (snap *EigenSnap) Modes() []Eigenmode {
+	if snap == nil {
+		return nil
+	}
+
+	return snap.modes
+}
+
+/*
+DominantIdx returns the index of the highest-energy mode, or -1 when
+the partition is empty.
+*/
+func (snap *EigenSnap) DominantIdx() int {
+	if snap == nil || len(snap.modes) == 0 {
+		return -1
+	}
+
+	return snap.dominantIdx
+}
+
+/*
+Dominant returns the dominant Eigenmode directly, or the zero value
+when no modes were detected. The ok flag distinguishes a genuine empty
+snap from a legitimate zero-energy dominant mode.
+*/
+func (snap *EigenSnap) Dominant() (mode Eigenmode, ok bool) {
+	if snap == nil {
+		return Eigenmode{}, false
+	}
+
+	if snap.dominantIdx < 0 || snap.dominantIdx >= len(snap.modes) {
+		return Eigenmode{}, false
+	}
+
+	return snap.modes[snap.dominantIdx], true
+}
+
+/*
 PhaseMode is the dominant finite-field phase extracted from a vector.
 The lane index acts as the phase angle; amplitude and concentration
 describe how collapsed the vector is around that lane.

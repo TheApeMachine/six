@@ -68,7 +68,9 @@ test("decodeValueRegionsFromFrame slices named regions", () => {
 
 	assert.equal(regions.id.words[0], 0xbeefn);
 	assert.equal(regions.tokens.wordCount, 16);
+	assert.equal(regions.properties.wordCount, 24);
 	assert.equal(regions.asset.wordCount, 48);
+	assert.equal(regions.asset.startWord, 72);
 	assert.equal(regions.all.length, REGION_SPECS.length);
 });
 

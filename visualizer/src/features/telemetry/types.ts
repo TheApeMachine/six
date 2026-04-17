@@ -32,6 +32,29 @@ export interface TelemetryPayloadSnapshot {
 	meta: Record<string, string>;
 }
 
+/*
+CausalState collapses the rule-cascade residues a single Value carries
+into three orthogonal booleans the visualiser can highlight
+independently. All three are derived directly from the wire frame so
+no side channel is needed; see pkg/mesh/value-store.ts:readCausalState
+for exact word/bit mapping.
+
+ - hypothesizing: the Value has staged a refutation target in
+   properties[1] — i.e. the "what if" question has been asked and the
+   ALU is waiting for a signal one-run long enough to refute it.
+ - falsified: the kernel's ApplyRefutationProbe has stamped
+   FalsifiedBitNoiseWord into properties[4], meaning the hypothesis was
+   successfully refuted.
+ - intervening: the carrier that arrived at this Value severed causal
+   history (no prev) and injected a foreign gradient. The do_intervention
+   program then XOR'd that gradient into local context.
+*/
+export interface CausalState {
+	hypothesizing: boolean;
+	falsified: boolean;
+	intervening: boolean;
+}
+
 export interface VizInspectSnapshot {
 	id: string;
 	role: ValueRole;
@@ -60,6 +83,8 @@ export interface VizInspectSnapshot {
 	*/
 	frameReceivedAtMs: number;
 	telemetry: TelemetryPayloadSnapshot | null;
+	/** Causal cascade residues; every Value reports, booleans are independent. */
+	causal: CausalState;
 }
 
 /** Graph members omit layout `pos` (fixed in FieldMap). */
@@ -76,6 +101,22 @@ export interface FieldSnapshot {
 	affinityHex: string;
 	concentration: number;
 	members: FieldValueSnapshot[];
+	/*
+	Crystallisation fingerprint sourced from the FieldMetrics envelope
+	mesh.Field.Cycle emits every tick. When no envelope has arrived yet
+	every field falls back to 0 — the old hardcoded placeholders — so
+	the UI degrades gracefully instead of NaN'ing.
+	*/
+	coverage: number;
+	consensus: number;
+	labelDensity: number;
+	crystallization: number;
+	dominantRatio: number;
+	modeCount: number;
+	pressureMult: number;
+	hypothesizingCount: number;
+	falsifiedCount: number;
+	interveningCount: number;
 }
 
 export interface VizGraphSnapshot {

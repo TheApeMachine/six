@@ -1,13 +1,26 @@
 /*
-Region layout matches pkg/core/config.go Value.Region defaults (128 × uint64
-LE). That is the layout the runtime actually uses: primitive.*Region.WordExtent()
-reads through core.Cfg, the orchestrator stages prev/next into Asset[0,1], the
-mesh writes its community id at Properties[0]+communityIDOffset (absolute w56),
-and everything that reads the wire frame threads through those same offsets.
+Region layout mirrors the authoritative runtime config in cmd/cfg/config.yml
+(loaded via pkg/core/config.go → viper) and the kernel word addresses in
+pkg/compute/kernel/layout.go:
 
-The kernel package (pkg/compute/kernel/layout.go) defines AssetStartWord = 72
-for an ALU program-lowering scratch convention that does not reach the wire —
-the viz deliberately does not mirror those constants.
+  tokens   w0..w15    (1024 bits)
+  program  w16..w23   (512 bits)
+  signals  w24..w31   (512 bits)
+  context  w32..w39   (512 bits)
+  gradient w40..w47   (512 bits)
+  properties w48..w71 (1536 bits — extended band; community id at w56,
+                       firmware status at w57, TTL at w51, etc.)
+  asset    w72..w119  (3072 bits — chain staging + peer S/C/G/P + scratch)
+  prev     w120
+  next     w121
+  id       w122
+  affinity w123..w127 (257 bits rounded up to 5 words)
+
+The older Go code defaults in pkg/core/config.go still carry the legacy
+narrow-properties layout (properties=48..55, asset=56..119), but the yaml
+config overrides both fields on every boot so the wire truly uses the
+extended layout above. Keep REGION_SPECS aligned with the yaml — that is
+what actually flows on the wire the visualizer consumes.
 */
 
 import {
@@ -58,25 +71,26 @@ export interface DecodedValueRegions {
 }
 
 /*
-REGION_SPECS mirrors the runtime config (see pkg/core/config.go and
-pkg/primitive/value.go):
+REGION_SPECS mirrors the runtime layout declared in cmd/cfg/config.yml and
+consumed by pkg/primitive via core.Cfg:
 
-  tokens   w0..w15   (1024 bits — Morton slab)
-  program  w16..w23  (512 bits)
-  signals  w24..w31  (512 bits)
-  context  w32..w39  (512 bits)
-  gradient w40..w47  (512 bits)
-  properties w48..w55 (512 bits — the canonical band the orchestrator reads)
-  asset    w56..w119 (4096 bits — chain staging + peer S/C/G/P + ALU scratch)
+  tokens   w0..w15    (1024 bits — Morton slab)
+  program  w16..w23   (512 bits)
+  signals  w24..w31   (512 bits)
+  context  w32..w39   (512 bits)
+  gradient w40..w47   (512 bits)
+  properties w48..w71 (1536 bits — canonical extended band; community id at
+                       w56 = properties[8], firmware status at w57 = properties[9])
+  asset    w72..w119  (3072 bits — peer S+C+G+P staging + scratch + scheduler)
   prev     w120
   next     w121
   id       w122
   affinity w123..w127 (257 bits rounded up to 5 words)
 
-The mesh layer writes the community id at absolute word 56 via
-(propsStart + communityIDOffset=8). That word lives at the start of the Asset
-region per the config layout, so the visualizer labels it explicitly in the
-inspector. Do NOT change asset.startWord unless pkg/core/config.go changes.
+mesh.Field stamps the community id at absolute word 56, which sits inside
+PROPERTIES (not ASSET) — the inspector surfaces it alongside the rest of the
+properties labels. Do NOT change these offsets without updating config.yml
+in lockstep or StageAssetFrom will mis-stage peer state.
 */
 export const REGION_SPECS: ReadonlyArray<{
 	name: ValueRegionName;
@@ -88,8 +102,8 @@ export const REGION_SPECS: ReadonlyArray<{
 	{ name: "signals", startWord: 24, wordCount: 8 },
 	{ name: "context", startWord: 32, wordCount: 8 },
 	{ name: "gradient", startWord: 40, wordCount: 8 },
-	{ name: "properties", startWord: 48, wordCount: 8 },
-	{ name: "asset", startWord: 56, wordCount: 64 },
+	{ name: "properties", startWord: 48, wordCount: 24 },
+	{ name: "asset", startWord: 72, wordCount: 48 },
 	{ name: "prev", startWord: 120, wordCount: 1 },
 	{ name: "next", startWord: 121, wordCount: 1 },
 	{ name: "id", startWord: 122, wordCount: 1 },

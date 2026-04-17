@@ -116,6 +116,118 @@ func TestFirmware_Next(t *testing.T) {
 			So(next, ShouldEqual, "")
 		})
 
+		Convey("Next should return hypothesis when beam_swarm_step has settled a belief", func() {
+			/*
+			Post-explore steady state: affinity set, context and gradient
+			carry a live belief, surprisal has reduced into properties[0,1],
+			and signals[0,8] was populated by the beam's xor accumulate so
+			both the classify gate (signals[0,1]: false) and the explore
+			gate (signals[0,8]: false) have flipped off. With no refutation
+			target armed, the hypothesize rule fires — this is the system
+			autonomously asking "what if".
+			*/
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			contextStart, _ := primitive.ContextRegion.WordExtent()
+			gradientStart, _ := primitive.GradientRegion.WordExtent()
+			signalsStart, _ := primitive.SignalsRegion.WordExtent()
+			propertiesStart, _ := primitive.PropertiesRegion.WordExtent()
+
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+			value.Set(contextStart, 1)
+			value.Set(gradientStart, 1)
+			// signals[0,1] — beam's reduce wrote a popcount scalar here,
+			// which also fills signals[0,8] so explore is disarmed and
+			// classify's signals[0,1]: false gate flips.
+			value.Set(signalsStart, 1)
+			// properties[0,1] — accuracy/surprisal witness
+			value.Set(propertiesStart, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "hypothesis")
+		})
+
+		Convey("Next should return falsification once a hypothesis target is armed", func() {
+			/*
+			After the hypothesis program stamps properties[1,1], the
+			hypothesize rule disarms (gate is properties[1,1]: false) and
+			the falsify rule takes over — the Popperian test of the
+			claim. The kernel's ApplyRefutationProbe watches signals for
+			a long one-run and decides whether the claim survives.
+			*/
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			signalsStart, _ := primitive.SignalsRegion.WordExtent()
+			propertiesStart, _ := primitive.PropertiesRegion.WordExtent()
+
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+			// signals[0,1] set so classify and explore disarm — NewValue
+			// already populated tokens[0,16] from the input bytes.
+			value.Set(signalsStart, 1)
+			// properties[1,1] — refutation target armed
+			value.Set(propertiesStart+1, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "falsification")
+		})
+
+		Convey("Next should return causal_hub once the kernel refutation witness has landed", func() {
+			/*
+			ApplyRefutationProbe stamps FalsifiedBitNoiseWord into
+			properties[4,1] and clears properties[1,1]. That flips the
+			iterate_causal gate on; rule-ordered before hypothesize so
+			the Value commits to counterfactual iteration instead of
+			immediately forming another hypothesis over the collapsed
+			belief. context + signals must be populated so the explore
+			rule doesn't shadow iterate_causal.
+			*/
+			prevStart, _ := primitive.PrevRegion.WordExtent()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			contextStart, _ := primitive.ContextRegion.WordExtent()
+			gradientStart, _ := primitive.GradientRegion.WordExtent()
+			signalsStart, _ := primitive.SignalsRegion.WordExtent()
+			propertiesStart, _ := primitive.PropertiesRegion.WordExtent()
+
+			value.Set(prevStart, 1)
+			value.Set(affinityStart, 1)
+			value.Set(contextStart, 1)
+			value.Set(gradientStart, 1)
+			value.Set(signalsStart, 1)
+			// properties[4,1] — kernel's falsification witness
+			value.Set(propertiesStart+4, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "causal_hub")
+		})
+
+		Convey("Next should return intervene for a foreign carrier with severed history", func() {
+			/*
+			A do-operation carrier arrives via Conn.Write: StageAssetFrom
+			lands the peer's gradient into asset[16,8], the carrier has
+			affinity from its home community, prev is explicitly zero
+			(severed history), and properties[0,1] is still zero because
+			the intervention hasn't been scored yet. Ruled before
+			peer_gap so severed-history carriers take the do-op path.
+			*/
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			contextStart, _ := primitive.ContextRegion.WordExtent()
+			assetStart, _ := primitive.AssetRegion.WordExtent()
+			nextStart, _ := primitive.NextRegion.WordExtent()
+
+			value.Set(affinityStart, 1)
+			value.Set(contextStart, 1)
+			// asset[16,8] — peer gradient staged by StageAssetFrom
+			value.Set(assetStart+16, 1)
+			// next non-zero keeps us out of the link rule (which
+			// requires both prev and next to be empty).
+			value.Set(nextStart, 1)
+
+			next := firmware.Next(value)
+			So(next, ShouldEqual, "intervene")
+		})
+
 		Reset(func() {
 			value.Close()
 		})
