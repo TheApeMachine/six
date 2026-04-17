@@ -18,7 +18,7 @@ an empty Field reports io.EOF so io.Copy terminates cleanly.
 */
 func TestFieldRead(t *testing.T) {
 	Convey("Given a Field populated with three Values", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer func() {
 			So(field.Close(), ShouldBeNil)
 		}()
@@ -58,7 +58,7 @@ func TestFieldRead(t *testing.T) {
 	})
 
 	Convey("Given an empty Field", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer func() {
 			So(field.Close(), ShouldBeNil)
 		}()
@@ -81,7 +81,7 @@ community-spawning parent mode introduced by WithCommunities.
 */
 func TestFieldWrite(t *testing.T) {
 	Convey("Given a fresh Field and a Value whose affinity words are set", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer func() {
 			So(field.Close(), ShouldBeNil)
 		}()
@@ -113,7 +113,7 @@ func TestFieldWrite(t *testing.T) {
 	})
 
 	Convey("Given a routing parent (WithCommunities) and two near-identical affinities", t, func() {
-		parent := NewField(context.Background(), 65537, WithCommunities(8191, 48))
+		parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
 		defer func() {
 			So(parent.Close(), ShouldBeNil)
 		}()
@@ -150,7 +150,7 @@ func TestFieldWrite(t *testing.T) {
 	})
 
 	Convey("Given a routing parent and two far-apart affinities", t, func() {
-		parent := NewField(context.Background(), 65537, WithCommunities(8191, 48))
+		parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
 		defer func() {
 			So(parent.Close(), ShouldBeNil)
 		}()
@@ -182,7 +182,7 @@ regression in the hot path is visible as soon as the test file loads.
 */
 func TestFieldFindCommunity(t *testing.T) {
 	Convey("Given a parent with three pre-seeded community fingerprints", t, func() {
-		parent := NewField(context.Background(), 65537, WithCommunities(8191, 48))
+		parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
 		defer func() {
 			So(parent.Close(), ShouldBeNil)
 		}()
@@ -250,7 +250,7 @@ func writeAffinity(
 }
 
 func BenchmarkFieldRead(b *testing.B) {
-	field := NewField(context.Background(), 65537)
+	field := NewField(context.Background(), 65537, nil)
 	defer field.Close()
 
 	values := make([]*primitive.Value, 16)
@@ -287,7 +287,7 @@ tuning the inner loop.
 func BenchmarkFieldFindCommunity(b *testing.B) {
 	const communityCount = 32
 
-	parent := NewField(context.Background(), 65537, WithCommunities(8191, 48))
+	parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
 	defer parent.Close()
 
 	rng := rand.New(rand.NewPCG(0xC0FFEE, 0xBADF00D))
@@ -323,7 +323,7 @@ into a hierarchy.
 func BenchmarkFieldWriteRoute(b *testing.B) {
 	const communityCount = 32
 
-	parent := NewField(context.Background(), 65537, WithCommunities(8191, 48))
+	parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
 	defer parent.Close()
 
 	affinityStart, _ := primitive.AffinityRegion.WordExtent()

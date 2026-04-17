@@ -11,6 +11,9 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/gossip"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -64,11 +67,12 @@ parent so every compare lands in L1 with no pointer chase to the
 child Field structs.
 */
 type Field struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
 	modulus uint32
+	conn    *gossip.Conn
+	queue   *pool.Queue
 
 	fields  []*Field
 	fingers [][affinityWords]uint64
@@ -135,7 +139,7 @@ optional behaviour; without any options the Field is a leaf and
 Write stores Values directly on it.
 */
 func NewField(
-	ctx context.Context, modulus uint32, options ...FieldOption,
+	ctx context.Context, modulus uint32, queue *pool.Queue, options ...FieldOption,
 ) *Field {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -148,10 +152,19 @@ func NewField(
 		))
 	}
 
+	conn, err := gossip.NewConn(ctx, queue, nil)
+
+	if errnie.Error(err) != nil {
+		cancel()
+		return nil
+	}
+
 	field := &Field{
 		ctx:     ctx,
 		cancel:  cancel,
 		modulus: modulus,
+		conn:    conn,
+		queue:   queue,
 		snap:    &geometry.EigenSnap{},
 		dial:    geometry.NewPhaseDial(),
 	}
@@ -189,7 +202,7 @@ The packed fingerprint mirror is extended in lockstep so the routing
 scan stays cache-dense even when callers hand-build hierarchies.
 */
 func (field *Field) AddField(ctx context.Context, modulus uint32) *Field {
-	newField := NewField(ctx, modulus)
+	newField := NewField(ctx, modulus, field.queue)
 	field.fields = append(field.fields, newField)
 	field.fingers = append(field.fingers, [affinityWords]uint64{})
 
@@ -273,28 +286,8 @@ time. Returns io.EOF when the Field is empty so idiomatic copy
 loops terminate naturally.
 */
 func (field *Field) Read(p []byte) (n int, err error) {
-	if field == nil {
-		return 0, io.ErrClosedPipe
-	}
-
-	if len(field.values) == 0 {
-		return 0, io.EOF
-	}
-
-	if len(p) < core.Cfg.Value.Bytes {
-		return 0, io.ErrShortBuffer
-	}
-
-	cursor := field.readCursor.Add(1) - 1
-	idx := cursor % uint64(len(field.values))
-
-	value := field.values[idx]
-
-	if value == nil {
-		return 0, io.EOF
-	}
-
-	return value.Read(p)
+	field.conn.Update(field.values)
+	return field.conn.Read(p)
 }
 
 /*

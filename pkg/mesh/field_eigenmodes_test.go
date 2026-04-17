@@ -19,7 +19,7 @@ modes when fingerprints diverge) rather than energy magnitudes.
 */
 func TestFieldDetectEigenmodes(t *testing.T) {
 	Convey("Given a Field of three near-identical fingerprints", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		affStart, _ := core.Cfg.Value.Region.Affinity.WordExtent()
@@ -52,7 +52,7 @@ func TestFieldDetectEigenmodes(t *testing.T) {
 	})
 
 	Convey("Given a Field of two disjoint fingerprint groups", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		affStart, _ := core.Cfg.Value.Region.Affinity.WordExtent()
@@ -121,7 +121,7 @@ snapshot the same tick.
 */
 func TestFieldCycle(t *testing.T) {
 	Convey("Given a populated leaf Field", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
@@ -168,7 +168,7 @@ func TestFieldCycle(t *testing.T) {
 	})
 
 	Convey("Given a populated but unlabeled leaf Field", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		affStart, _ := core.Cfg.Value.Region.Affinity.WordExtent()
@@ -219,7 +219,7 @@ func TestFieldCycle(t *testing.T) {
 }
 
 func BenchmarkFieldDetectEigenmodes(b *testing.B) {
-	field := NewField(context.Background(), 65537)
+	field := NewField(context.Background(), 65537, nil)
 	defer field.Close()
 
 	affStart, _ := core.Cfg.Value.Region.Affinity.WordExtent()

@@ -140,67 +140,67 @@ func TestRequireChainLinkage(t *testing.T) {
 		})
 
 		Convey("When ID is set but Prev and Next are both zero", func() {
-			value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
+			values, err := primitive.NewValue([]byte("payload"))
 			So(err, ShouldBeNil)
-			defer func() { _ = value.Close() }()
+			defer primitive.CloseAll(values)
 
 			Convey("It should return ErrValueChainUnlinked", func() {
-				So(RequireChainLinkage(value), ShouldEqual, ErrValueChainUnlinked)
+				So(RequireChainLinkage(values[0]), ShouldEqual, ErrValueChainUnlinked)
 			})
 		})
 
 		Convey("When Prev is non-zero", func() {
-			value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
+			values, err := primitive.NewValue([]byte("payload"))
 			So(err, ShouldBeNil)
-			defer func() { _ = value.Close() }()
+			defer primitive.CloseAll(values)
 
-			value.Set(core.Cfg.Value.Region.Prev.Start, 4242)
+			values[0].Set(core.Cfg.Value.Region.Prev.Start, 4242)
 
 			Convey("It should return nil", func() {
-				So(RequireChainLinkage(value), ShouldBeNil)
+				So(RequireChainLinkage(values[0]), ShouldBeNil)
 			})
 		})
 
 		Convey("When Next is non-zero", func() {
-			value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
+			values, err := primitive.NewValue([]byte("payload"))
 			So(err, ShouldBeNil)
-			defer func() { _ = value.Close() }()
+			defer primitive.CloseAll(values)
 
-			value.Set(core.Cfg.Value.Region.Next.Start, 4243)
+			values[0].Set(core.Cfg.Value.Region.Next.Start, 4243)
 
 			Convey("It should return nil", func() {
-				So(RequireChainLinkage(value), ShouldBeNil)
+				So(RequireChainLinkage(values[0]), ShouldBeNil)
 			})
 		})
 	})
 }
 
 func BenchmarkRequireChainLinkagePass(b *testing.B) {
-	value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
+	values, err := primitive.NewValue([]byte("payload"))
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer func() { _ = value.Close() }()
+	defer primitive.CloseAll(values)
 
-	value.Set(core.Cfg.Value.Region.Prev.Start, 1)
+	values[0].Set(core.Cfg.Value.Region.Prev.Start, 1)
 
 	b.ResetTimer()
 
 	for b.Loop() {
-		_ = RequireChainLinkage(value)
+		_ = RequireChainLinkage(values[0])
 	}
 }
 
 func BenchmarkRequireChainLinkageRejectUnlinked(b *testing.B) {
-	value, err := primitive.FirstSegment(primitive.NewValue([]byte("payload")))
+	values, err := primitive.NewValue([]byte("payload"))
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer func() { _ = value.Close() }()
+	defer primitive.CloseAll(values)
 
 	b.ResetTimer()
 
 	for b.Loop() {
-		_ = RequireChainLinkage(value)
+		_ = RequireChainLinkage(values[0])
 	}
 }

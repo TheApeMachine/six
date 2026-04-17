@@ -5,55 +5,19 @@ import (
 	"io"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
-Client is a WebSocket client to the visualizer bridge. Each Write sends one
-binary WebSocket message so io.Copy, io.TeeReader, and io.MultiWriter can
-fan out Value frames without blocking on a pipe (the previous pipe+tee
-design deadlocked when nothing drained Read while MultiWriter wrote).
+websocketBinaryWriter adapts *websocket.Conn to io.Writer for io.TeeReader.
+Each Write becomes one binary WebSocket message.
 */
-type Client struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-	url    string
-	conn   *websocket.Conn
+type websocketBinaryWriter struct {
+	conn *websocket.Conn
 }
 
-/*
-NewClient constructs a client and dials the bridge.
-*/
-func NewClient(ctx context.Context, url string) (*Client, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
-
-	if err != nil {
-		cancel()
-
-		return nil, errnie.Error(err)
-	}
-
-	return &Client{
-			ctx:    ctx,
-			cancel: cancel,
-			url:    url,
-			conn:   conn,
-		}, validate.Require(map[string]any{
-			"ctx":    ctx,
-			"cancel": cancel,
-			"url":    url,
-			"conn":   conn,
-		})
-}
-
-/*
-Write sends one binary WebSocket frame (one message per call).
-*/
-func (client *Client) Write(p []byte) (int, error) {
-	if err := client.conn.WriteMessage(websocket.BinaryMessage, p); err != nil {
+func (writer *websocketBinaryWriter) Write(p []byte) (int, error) {
+	if err := writer.conn.WriteMessage(websocket.BinaryMessage, p); err != nil {
 		return 0, errnie.Error(err)
 	}
 
@@ -61,46 +25,77 @@ func (client *Client) Write(p []byte) (int, error) {
 }
 
 /*
-EmitEnvelope serialises a structured telemetry event (field metrics,
-causal transitions) and ships it over the same WebSocket as raw Value
-frames. The envelope prefix makes bytes visibly distinguishable from
-a 1024-byte Value frame so the visualiser's decoder can fork cleanly
-on the first four bytes.
-
-Returning an error without writing leaves the websocket untouched —
-gorilla's WriteMessage mutex would have kept the channel healthy
-either way, but avoiding the partial write keeps the bridge's framing
-invariant tight: one call, one complete envelope or nothing.
+Client is a WebSocket client to the visualizer bridge. Write pushes bytes
+into a pipe; Read pulls from the pipe while io.TeeReader sends a duplicate
+of each chunk to the bridge as a binary WebSocket message.
 */
-func (client *Client) EmitEnvelope(kind uint32, payload any) error {
-	frame, err := EncodeEnvelope(kind, payload)
+type Client struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	err    error
+	url    string
+	tee    io.Reader
+	pw     *io.PipeWriter
+	pr     *io.PipeReader
+	conn   *websocket.Conn
+}
+
+/*
+NewClient constructs a client.
+*/
+func NewClient(ctx context.Context, url string) *Client {
+	ctx, cancel := context.WithCancel(ctx)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 
 	if err != nil {
-		return err
+		cancel()
+
+		return nil
 	}
 
-	_, err = client.Write(frame)
+	pr, pw := io.Pipe()
+	tee := io.TeeReader(pr, &websocketBinaryWriter{conn: conn})
 
-	return err
+	return &Client{
+		ctx:    ctx,
+		cancel: cancel,
+		url:    url,
+		conn:   conn,
+		pw:     pw,
+		pr:     pr,
+		tee:    tee,
+	}
 }
 
 /*
-Read is not used on the outbound path; it exists so *Client may satisfy
-io.ReadWriteCloser where callers embed it in interfaces.
+Write sends bytes into the pipe; a matching Read drains them and mirrors
+each chunk to the bridge as a binary WebSocket message.
+*/
+func (client *Client) Write(p []byte) (int, error) {
+	return client.pw.Write(p)
+}
+
+/*
+Read copies the next chunk from the pipe read side; each chunk is also sent
+to the bridge via the tee.
 */
 func (client *Client) Read(p []byte) (int, error) {
-	return 0, io.EOF
+	n, err := client.tee.Read(p)
+
+	return n, errnie.Error(err)
 }
 
 /*
-Close releases the context and closes the WebSocket.
+Close releases the context, closes the pipe writer, and closes the WebSocket.
 */
 func (client *Client) Close() error {
 	client.cancel()
 
-	if cerr := client.conn.Close(); cerr != nil {
-		return errnie.Error(cerr)
+	err := client.pw.Close()
+
+	if cerr := client.conn.Close(); cerr != nil && err == nil {
+		err = cerr
 	}
 
-	return nil
+	return err
 }

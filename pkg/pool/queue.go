@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"io"
 	"runtime"
 	"unsafe"
 
@@ -26,6 +27,14 @@ type Queue struct {
 	normal   *data.Ring
 	priority *data.Ring
 	spill    *data.Ring
+
+	/*
+		stream is a dedicated byte ring for io.ReadWriter. Task slots on
+		normal, priority, and spill carry *Slot pointers; mixing raw frame
+		bytes on those rings would corrupt the scheduler, so I/O uses its
+		own Vyukov queue at the same capacity as the task tiers.
+	*/
+	stream *data.Ring
 }
 
 /*
@@ -47,6 +56,7 @@ func NewQueue(ctx context.Context, dispatch ...func(*programmer.Executable)) (*Q
 	queue.normal, queue.err = data.NewRing(ctx, data.RingCapacity)
 	queue.priority, queue.err = data.NewRing(ctx, data.RingCapacity)
 	queue.spill, queue.err = data.NewRing(ctx, data.RingCapacity)
+	queue.stream, queue.err = data.NewRing(ctx, data.RingCapacity)
 
 	if queue.err != nil {
 		return nil, errnie.Error(queue.err)
@@ -59,6 +69,7 @@ func NewQueue(ctx context.Context, dispatch ...func(*programmer.Executable)) (*Q
 		"normal":   queue.normal,
 		"priority": queue.priority,
 		"spill":    queue.spill,
+		"stream":   queue.stream,
 	})
 }
 
@@ -75,6 +86,30 @@ func (queue *Queue) Len() int {
 }
 
 /*
+Read implements io.Reader by dequeuing byte frames from the dedicated
+stream ring (see Queue.stream).
+*/
+func (queue *Queue) Read(p []byte) (n int, err error) {
+	if queue == nil || queue.stream == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	return queue.stream.Read(p)
+}
+
+/*
+Write implements io.Writer by enqueueing byte frames on the dedicated
+stream ring.
+*/
+func (queue *Queue) Write(p []byte) (n int, err error) {
+	if queue == nil || queue.stream == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	return queue.stream.Write(p)
+}
+
+/*
 Close cancels the queue context.
 */
 func (queue *Queue) Close() error {
@@ -88,6 +123,8 @@ Error returns the queue error.
 func (queue *Queue) Error() error {
 	return queue.err
 }
+
+var _ io.ReadWriteCloser = (*Queue)(nil)
 
 /*
 Submit dispatches a task to the goroutine pool for immediate execution.

@@ -78,41 +78,6 @@ func NewFirmware(opts ...firmwareOption) *Firmware {
 }
 
 /*
-emit serialises a finalized Value into a pooled wire buffer and pushes
-it at the observer. The observer is assumed to be thread-safe — the
-telemetry client's gorilla/websocket Write holds its own internal
-mutex — so callers from multiple pool workers can emit concurrently
-without firmware-side coordination. The frame buffer returns to the
-pool regardless of observer errors so a flaky sink can't drain the
-allocator.
-*/
-func (firmware *Firmware) emit(value *primitive.Value) {
-	if firmware == nil || firmware.observer == nil || value == nil {
-		return
-	}
-
-	bufPtr, _ := firmware.framePool.Get().(*[]byte)
-
-	if bufPtr == nil {
-		return
-	}
-
-	defer firmware.framePool.Put(bufPtr)
-
-	buf := *bufPtr
-
-	// Value.Read returns (len, io.EOF) as a single-shot frame delimiter,
-	// so a full read with io.EOF is success. Any other error means the
-	// buffer was short — treat that as a skipped frame rather than a
-	// hard failure; the next pass will try again.
-	if _, err := value.Read(buf); err != nil && err != io.EOF {
-		return
-	}
-
-	_, _ = firmware.observer.Write(buf)
-}
-
-/*
 Next evaluates the conditions of a Value and potentially assign a new firmware.
 */
 func (firmware *Firmware) Next(value *primitive.Value) string {
@@ -181,13 +146,6 @@ func (firmware *Firmware) Chain(
 		}
 
 		executable.SetFinalizer(func(finalized *primitive.Value) {
-			// Emit the just-finalized frame so the visualiser sees the
-			// resident pass land before we decide whether to heartbeat
-			// again. Every resident re-entry produces one wire frame —
-			// without this the substrate runs silent after the firmware
-			// chain settles and the HUD reports 0 fps.
-			firmware.emit(finalized)
-
 			if terminalFn != nil {
 				terminalFn(finalized)
 				terminalFn = nil
@@ -218,11 +176,6 @@ func (firmware *Firmware) Chain(
 	// through every hop so it survives the full link → affinity →
 	// resident walk.
 	executable.SetFinalizer(func(finalized *primitive.Value) {
-		// Publish the freshly-stamped frame after each non-resident hop
-		// (link → affinity → classify / explore / …) so the visualiser
-		// tracks firmware progression, not just steady-state heartbeats.
-		firmware.emit(finalized)
-
 		scheduler.Submit(func() *Executable {
 			return firmware.Chain(scheduler, finalized, terminal...)
 		})

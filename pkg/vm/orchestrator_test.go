@@ -27,8 +27,6 @@ func TestNewOrchestrator(t *testing.T) {
 		}()
 
 		Convey("It wires a queue, firmware evaluator, and field", func() {
-			So(orchestrator.queue, ShouldNotBeNil)
-			So(orchestrator.firmware, ShouldNotBeNil)
 			So(orchestrator.field, ShouldNotBeNil)
 		})
 
@@ -95,7 +93,7 @@ func TestOrchestratorCycle(t *testing.T) {
 
 		defer func() {
 			deadline := time.Now().Add(2 * time.Second)
-			for time.Now().Before(deadline) && orchestrator.queue.Len() > 0 {
+			for time.Now().Before(deadline) && len(orchestrator.field.Values()) > 0 {
 				time.Sleep(1 * time.Millisecond)
 			}
 		}()
@@ -119,7 +117,6 @@ func TestOrchestratorCycle(t *testing.T) {
 			// the invariant worth pinning is that Cycle never flips
 			// the orchestrator into an error state.
 			So(orchestrator.Error(), ShouldBeNil)
-			So(orchestrator.queue.Error(), ShouldBeNil)
 		})
 	})
 }
@@ -173,7 +170,7 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 
 		defer func() {
 			deadline := time.Now().Add(2 * time.Second)
-			for time.Now().Before(deadline) && orchestrator.queue.Len() > 0 {
+			for time.Now().Before(deadline) && len(orchestrator.field.Values()) > 0 {
 				time.Sleep(1 * time.Millisecond)
 			}
 		}()

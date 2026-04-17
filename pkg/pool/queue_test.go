@@ -1,7 +1,10 @@
 package pool
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -158,6 +161,61 @@ func TestQueueSubmitNil(t *testing.T) {
 
 		queue.Submit(func() *programmer.Executable {
 			return nil
+		})
+	})
+}
+
+func TestQueueReadWriteCloser(t *testing.T) {
+	Convey("Given a Queue as io.ReadWriteCloser", t, func() {
+		Convey("Write then Read round-trips on the stream ring", func() {
+			queue, err := NewQueue(context.Background())
+			So(err, ShouldBeNil)
+
+			payload := bytes.Repeat([]byte("xy"), 512)
+
+			done := make(chan error, 1)
+
+			go func() {
+				n, writeErr := queue.Write(payload)
+				if writeErr != nil {
+					done <- writeErr
+					return
+				}
+
+				if n != len(payload) {
+					done <- errors.New("write length mismatch")
+					return
+				}
+
+				done <- queue.Close()
+			}()
+
+			var out bytes.Buffer
+			buf := make([]byte, 23)
+
+			for {
+				n, readErr := queue.Read(buf)
+				if n > 0 {
+					out.Write(buf[:n])
+				}
+
+				if readErr != nil {
+					So(readErr, ShouldEqual, io.EOF)
+					break
+				}
+			}
+
+			So(out.Bytes(), ShouldResemble, payload)
+			So(<-done, ShouldBeNil)
+		})
+
+		Convey("Write after Close returns io.ErrClosedPipe", func() {
+			queue, qerr := NewQueue(context.Background())
+			So(qerr, ShouldBeNil)
+			So(queue.Close(), ShouldBeNil)
+
+			_, writeErr := queue.Write([]byte{1})
+			So(writeErr, ShouldEqual, io.ErrClosedPipe)
 		})
 	})
 }

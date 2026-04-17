@@ -55,16 +55,16 @@ func setupStreamWireConfig(tb testing.TB) {
 func wireFrame(tb testing.TB, payload []byte) []byte {
 	tb.Helper()
 
-	value, err := primitive.FirstSegment(primitive.NewValue(payload))
+	values, err := primitive.NewValue(payload)
 
 	if err != nil {
 		tb.Fatal(err)
 	}
 
-	defer value.Close()
+	defer primitive.CloseAll(values)
 
 	buf := make([]byte, core.Cfg.Value.Bytes)
-	_, err = value.Read(buf)
+	_, err = values[0].Read(buf)
 
 	if err != nil && !errors.Is(err, io.EOF) {
 		tb.Fatal(err)

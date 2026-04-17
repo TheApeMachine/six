@@ -11,9 +11,9 @@
   "name": "Text Overlap",
   "outcome": {
     "actual": 0,
-    "message": "Expected '0' to be greater than or equal to '0.00466373224714938' (but it wasn't)!",
+    "message": "Expected '0' to be greater than or equal to '0.004447665124511552' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.00466373224714938
+    "threshold": 0.004447665124511552
   },
   "results": [],
   "score": 0,

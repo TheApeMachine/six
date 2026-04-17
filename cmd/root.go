@@ -13,7 +13,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -143,7 +142,6 @@ func initConfig() {
 		io.ErrShortBuffer forever.
 	*/
 	core.NewConfig()
-	telemetry.ConfigureFromConfig()
 
 	if err := errnie.InitLoggerFromViper(); err != nil {
 		initErr = fmt.Errorf("%w", err)

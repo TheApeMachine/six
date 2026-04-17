@@ -18,7 +18,7 @@ failing branch rather than a generic score drift.
 */
 func TestFieldMeasureCrystallization(t *testing.T) {
 	Convey("Given an empty Field", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		Convey("measureCrystallization reports zero across the board", func() {
@@ -34,7 +34,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 	})
 
 	Convey("Given a Field with three members, two fully labeled with the same class", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
@@ -68,7 +68,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 	})
 
 	Convey("Given a Field whose members split evenly across two classes", t, func() {
-		field := NewField(context.Background(), 65537)
+		field := NewField(context.Background(), 65537, nil)
 		defer field.Close()
 
 		propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
@@ -138,7 +138,7 @@ func TestJaccardCouplingAffinity(t *testing.T) {
 }
 
 func BenchmarkFieldMeasureCrystallization(b *testing.B) {
-	field := NewField(context.Background(), 65537)
+	field := NewField(context.Background(), 65537, nil)
 	defer field.Close()
 
 	propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()

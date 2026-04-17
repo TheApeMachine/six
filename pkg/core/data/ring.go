@@ -2,7 +2,9 @@ package data
 
 import (
 	"context"
+	"io"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -18,6 +20,16 @@ bounds worst-case fan-in without unbounded allocations.
 const RingCapacity = 65536
 
 /*
+ringFrameWords is the fixed payload width of one Vyukov cell, in machine words.
+*/
+const ringFrameWords = 128
+
+/*
+ringPayloadBytes is the byte length of one queued frame (128 × 8).
+*/
+const ringPayloadBytes = ringFrameWords * 8
+
+/*
 RingCell is one slot in a Dmitry Vyukov bounded MPMC queue (rigtorp's
 MPMCQueue layout): sequence plus payload. Producers and consumers coordinate
 only through atomics on sequence, head, and tail — no mutex.
@@ -26,12 +38,17 @@ Reference: Vyukov "Bounded MPMC queue" and rigtorp/MPMCQueue (1024cores).
 */
 type RingCell struct {
 	sequence atomic.Uint64
-	data     atomic.Pointer[[128]uint64]
+	data     atomic.Pointer[[ringFrameWords]uint64]
 }
 
 /*
 Ring is a fixed-capacity multi-producer multi-consumer queue used
 as PRIORITY spill storage. Push and Pop are lock-free.
+
+Read and Write adapt the queue as a byte stream: each Push carries up
+to ringPayloadBytes bytes (tail zero-padded). readMu and writeMu serialize
+the stream endpoints so partial io.Read/io.Write calls remain coherent;
+the queue itself stays lock-free underneath.
 */
 type Ring struct {
 	ctx        context.Context
@@ -41,6 +58,11 @@ type Ring struct {
 	buffer     []RingCell
 	enqueuePos atomic.Uint64
 	dequeuePos atomic.Uint64
+
+	readMu      sync.Mutex
+	writeMu     sync.Mutex
+	readPending unsafe.Pointer
+	readOff     int
 }
 
 /*
@@ -66,6 +88,13 @@ func NewRing(ctx context.Context, capacity int) (*Ring, error) {
 		"mask":   ring.mask,
 		"buffer": ring.buffer,
 	})
+}
+
+/*
+ringFrameBytesView maps a frame to its raw byte slice without allocation.
+*/
+func ringFrameBytes(frame *[ringFrameWords]uint64) []byte {
+	return unsafe.Slice((*byte)(unsafe.Pointer(frame)), ringPayloadBytes)
 }
 
 /*
@@ -111,7 +140,7 @@ func (ring *Ring) pushpop(
 		}
 
 		if role == pushpopProducer {
-			cell.data.Store((*[128]uint64)(ptr))
+			cell.data.Store((*[ringFrameWords]uint64)(ptr))
 			cell.sequence.Store(position + 1)
 
 			return ptr
@@ -168,7 +197,113 @@ func (ring *Ring) Len() int {
 }
 
 /*
-Close closes the ring.
+Write implements io.Writer. Bytes are chunked into fixed ringPayloadBytes
+frames (the last chunk is zero-padded). When the ring is full the call
+spins until space appears or the ring is closed.
+*/
+func (ring *Ring) Write(p []byte) (n int, err error) {
+	if ring == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	ring.writeMu.Lock()
+	defer ring.writeMu.Unlock()
+
+	if ring.ctx.Err() != nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	written := 0
+
+	for len(p) > 0 {
+		frame := new([ringFrameWords]uint64)
+		buf := ringFrameBytes(frame)
+		copied := copy(buf, p)
+
+		for !ring.Push(unsafe.Pointer(frame)) {
+			if ring.ctx.Err() != nil {
+				return written, io.ErrClosedPipe
+			}
+
+			runtime.Gosched()
+		}
+
+		written += copied
+		p = p[copied:]
+	}
+
+	return written, nil
+}
+
+/*
+Read implements io.Reader. It concatenates queued frames into the caller's
+slice; a frame shorter than ringPayloadBytes still occupies a full slot on
+the wire (padded by the writer). When the queue is empty and the ring is
+closed, Read returns io.EOF.
+*/
+func (ring *Ring) Read(p []byte) (n int, err error) {
+	if ring == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	ring.readMu.Lock()
+	defer ring.readMu.Unlock()
+
+	total := 0
+
+	for len(p) > 0 {
+		if ring.readPending == nil {
+			var frame unsafe.Pointer
+
+			for {
+				frame = ring.Pop()
+
+				if frame != nil {
+					ring.readPending = frame
+					ring.readOff = 0
+
+					break
+				}
+
+				if ring.ctx.Err() != nil {
+					if total > 0 {
+						return total, nil
+					}
+
+					return 0, io.EOF
+				}
+
+				runtime.Gosched()
+			}
+		}
+
+		active := (*[ringFrameWords]uint64)(ring.readPending)
+		buf := ringFrameBytes(active)
+		copied := copy(p, buf[ring.readOff:])
+		ring.readOff += copied
+		total += copied
+		p = p[copied:]
+
+		if ring.readOff == len(buf) {
+			ring.readPending = nil
+			ring.readOff = 0
+		}
+	}
+
+	return total, nil
+}
+
+/*
+Close implements io.Closer: it cancels the ring context so blocked Read and
+Write calls unwind.
 */
 func (ring *Ring) Close() error {
 	if ring == nil {
@@ -186,3 +321,5 @@ Error returns the error of the ring.
 func (ring *Ring) Error() error {
 	return ring.err
 }
+
+var _ io.ReadWriteCloser = (*Ring)(nil)

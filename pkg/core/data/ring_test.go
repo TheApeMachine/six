@@ -1,7 +1,10 @@
 package data
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"runtime"
 	"sync"
 	"testing"
@@ -209,6 +212,61 @@ func TestRingError(t *testing.T) {
 
 		Convey("Error should return the stored failure until one is set", func() {
 			So(ring.Error(), ShouldBeNil)
+		})
+	})
+}
+
+func TestRingReadWriteCloser(t *testing.T) {
+	Convey("Given a Ring used as io.ReadWriteCloser", t, func() {
+		Convey("Write then Read round-trips bytes including across partial reads", func() {
+			ring, err := NewRing(context.Background(), 8)
+			So(err, ShouldBeNil)
+
+			payload := bytes.Repeat([]byte("ab"), 512)
+
+			done := make(chan error, 1)
+
+			go func() {
+				n, writeErr := ring.Write(payload)
+				if writeErr != nil {
+					done <- writeErr
+					return
+				}
+
+				if n != len(payload) {
+					done <- errors.New("write length mismatch")
+					return
+				}
+
+				done <- ring.Close()
+			}()
+
+			var out bytes.Buffer
+			buf := make([]byte, 17)
+
+			for {
+				n, readErr := ring.Read(buf)
+				if n > 0 {
+					out.Write(buf[:n])
+				}
+
+				if readErr != nil {
+					So(readErr, ShouldEqual, io.EOF)
+					break
+				}
+			}
+
+			So(out.Bytes(), ShouldResemble, payload)
+			So(<-done, ShouldBeNil)
+		})
+
+		Convey("Write after Close returns io.ErrClosedPipe", func() {
+			ring, err := NewRing(context.Background(), 8)
+			So(err, ShouldBeNil)
+			So(ring.Close(), ShouldBeNil)
+
+			_, writeErr := ring.Write([]byte{1})
+			So(writeErr, ShouldEqual, io.ErrClosedPipe)
 		})
 	})
 }

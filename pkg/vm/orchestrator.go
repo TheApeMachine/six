@@ -2,20 +2,15 @@ package vm
 
 import (
 	"context"
-	"errors"
 	"io"
-	"sync"
+	"slices"
 
-	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/compute/programmer"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/mesh"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -35,51 +30,12 @@ the Executable, and drops it — a silent stall that manifests in the
 visualizer as every Value parked at "awaiting first ALU dispatch".
 */
 type Orchestrator struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	backend   *compute.Backend
-	queue     *pool.Queue
-	firmware  *programmer.Firmware
-	scheduler programmer.Scheduler
-	field     *mesh.Field
-	telemetry io.ReadWriteCloser
-	observer  *telemetryObserver
-	emitter   *Emitter
+	ctx    context.Context
+	cancel context.CancelFunc
+	err    error
+	queue  *pool.Queue
+	field  *mesh.Field
 }
-
-/*
-telemetryObserver serialises writes into the telemetry websocket. Two
-paths hit this sink concurrently — the main io.Copy in pumpPipeline
-and the Firmware observer called from every pool worker — and
-gorilla/websocket forbids concurrent WriteMessage calls. The mutex
-keeps a single frame in-flight at a time; frames are small (1024 B)
-so the contention window is negligible compared to the websocket's
-own socket write latency.
-*/
-type telemetryObserver struct {
-	mu     sync.Mutex
-	writer io.Writer
-}
-
-/*
-Write forwards the frame to the underlying telemetry writer under the
-serialisation mutex. A nil writer is a no-op so early construction
-paths that observe the orchestrator before the websocket dial
-completes don't panic.
-*/
-func (observer *telemetryObserver) Write(p []byte) (int, error) {
-	if observer == nil || observer.writer == nil {
-		return len(p), nil
-	}
-
-	observer.mu.Lock()
-	defer observer.mu.Unlock()
-
-	return observer.writer.Write(p)
-}
-
-type orchestratorOption func(*Orchestrator)
 
 /*
 NewOrchestrator creates a new orchestrator wired to the queue and a
@@ -88,88 +44,29 @@ actually run Executables against a substrate.
 */
 func NewOrchestrator(
 	ctx context.Context,
-	options ...orchestratorOption,
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	// The Backend must be live before the pool so its Dispatch is the
-	// very first thing workers see. A nil backend here is fatal — the
-	// orchestrator has nothing for the pool to run.
-	backend := compute.NewBackend(ctx)
-
-	if backend == nil {
-		cancel()
-		return nil, errnie.Error(errors.New("vm.NewOrchestrator: compute.NewBackend returned nil"))
-	}
-
-	queue, err := pool.NewQueue(ctx, backend.Dispatch)
-
-	if err != nil {
-		// Cancel the derived context so the parent doesn't retain a
-		// stranded child on the failure path — vet flags the leak.
-		cancel()
-		errors.Join(err, backend.Close())
-		return nil, errnie.Error(err)
-	}
-
-	telemetryClient, err := telemetry.NewClient(ctx, core.Cfg.TelemetryWebSocketURL)
+	queue, err := pool.NewQueue(ctx, nil)
 
 	if err != nil {
 		cancel()
 		return nil, errnie.Error(err)
 	}
-
-	emitter, err := NewEmitter(ctx)
-
-	if err != nil {
-		cancel()
-		return nil, errnie.Error(err)
-	}
-
-	// Wire the firmware observer at construction so every Chain call
-	// — the first firmware hop via Conn.Read as well as every resident
-	// heartbeat re-submit — tees the freshly finalized wire frame
-	// through the telemetry client. Without this, the visualiser only
-	// receives Values during the two io.Copy passes in Cycle and the
-	// HUD reports 0 fps as soon as the substrate settles into its
-	// resident programs. The observer is also the sole writer used by
-	// pumpPipeline so both paths share one serialisation mutex — the
-	// gorilla/websocket client forbids concurrent WriteMessage calls.
-	observer := &telemetryObserver{writer: telemetryClient}
-	firmware := programmer.NewFirmware(programmer.WithObserver(observer))
 
 	orchestrator := &Orchestrator{
-		ctx:       ctx,
-		cancel:    cancel,
-		backend:   backend,
-		queue:     queue,
-		firmware:  firmware,
-		scheduler: programmer.Scheduler(queue),
-		// The root field runs in routing mode: incoming Values land in a
-		// GF(8191) community child keyed by affinity Hamming distance,
-		// capped at a 48-bit budget before a new community is spawned.
-		// Leaf storage lives one level down in those children; the root
-		// only carries the XOR-folded parent fingerprint.
-		field:     mesh.NewField(ctx, 65537, mesh.WithCommunities(8191, 48)),
-		telemetry: telemetryClient,
-		observer:  observer,
-		emitter:   emitter,
-	}
-
-	for _, option := range options {
-		option(orchestrator)
+		ctx:    ctx,
+		cancel: cancel,
+		queue:  queue,
+		field:  mesh.NewField(ctx, 65537, queue),
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":      orchestrator.ctx,
-		"cancel":   orchestrator.cancel,
-		"backend":  orchestrator.backend,
-		"queue":    orchestrator.queue,
-		"firmware": orchestrator.firmware,
-		"field":    orchestrator.field,
+		"ctx":    orchestrator.ctx,
+		"cancel": orchestrator.cancel,
+		"field":  orchestrator.field,
 	}); err != nil {
 		cancel()
-		errors.Join(err, backend.Close())
 		return nil, errnie.Error(err)
 	}
 
@@ -181,25 +78,7 @@ Close the orchestrator.
 */
 func (orchestrator *Orchestrator) Close() error {
 	orchestrator.cancel()
-
-	if orchestrator.emitter != nil {
-		if emitterErr := orchestrator.emitter.Close(); emitterErr != nil {
-			orchestrator.err = errors.Join(orchestrator.err, emitterErr)
-		}
-	}
-
-	if orchestrator.telemetry != nil {
-		if telErr := orchestrator.telemetry.Close(); telErr != nil {
-			orchestrator.err = errors.Join(orchestrator.err, telErr)
-		}
-	}
-
-	if orchestrator.backend != nil {
-		if backendErr := orchestrator.backend.Close(); backendErr != nil {
-			orchestrator.err = errors.Join(orchestrator.err, backendErr)
-		}
-	}
-
+	orchestrator.queue.Close()
 	return orchestrator.err
 }
 
@@ -236,232 +115,27 @@ through ValueFromWireFrame so the caller holds independent Value copies.
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) (resolved []*primitive.Value, err error) {
-	bundle := make([]*primitive.Value, 0, len(values))
+	clones := slices.Clone(values)
 
-	for _, value := range values {
-		if value != nil {
-			bundle = append(bundle, value)
-		}
-	}
-
-	if len(bundle) == 0 {
-		return nil, nil
-	}
-
-	// Seed the link chain: stamp each Value's asset[0] with the
-	// predecessor's ID and asset[1] with the successor's ID so the
-	// link firmware (asset[0,1]→prev, asset[1,1]→next) has material
-	// to copy on the first ALU pass. Values at the head/tail of the
-	// wave get a zero in the missing direction, which is fine — the
-	// rule evaluator treats zero as "not linked" and the affinity rule
-	// only requires (prev OR next), not both.
-	assetStart, _ := core.Cfg.Value.Region.Asset.WordExtent()
-
-	for idx, value := range bundle {
-		if idx > 0 {
-			value.Set(assetStart, bundle[idx-1].ID())
-		}
-
-		if idx+1 < len(bundle) {
-			value.Set(assetStart+1, bundle[idx+1].ID())
-		}
-	}
-
-	orchestrator.emitter.values = make([]*primitive.Value, 0)
-
-	// Loopback channel: the terminal finalizer sends bootstrapped
-	// values here after the firmware chain stamps STATUS_READY.
-	// Buffered to bundle size so finalizers never block the pool.
-	loopback := make(chan *primitive.Value, len(bundle))
-
-	conn, err := gossip.NewConn(
-		orchestrator.ctx,
-		orchestrator.scheduler,
-		bundle...,
-	)
+	conn, err := gossip.NewConn(orchestrator.ctx, orchestrator.queue, clones...)
 
 	if err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	// Share the telemetry-wired Firmware so every firmware chain that
-	// Conn.Read or Conn.Write submits (link → affinity → resident +
-	// heartbeat) tees through the same observer the orchestrator set
-	// up — otherwise Conn would build its own zero-observer Firmware
-	// on construction and the visualiser would stop seeing frames the
-	// moment a Value leaves the io.Copy tee path.
-	conn.SetFirmware(orchestrator.firmware)
-
-	conn.Loopback(func(value *primitive.Value) {
-		loopback <- value
-	})
-
-	if err = orchestrator.pumpPipeline(conn, len(bundle), false); err != nil {
-		return nil, err
-	}
-
-	// Drain loopback: collect every bootstrapped Value and re-cycle.
-	// The firmware chain is async so we drain until the channel has
-	// as many values as we submitted (one loopback per raw value).
-	bootstrapped := make([]*primitive.Value, 0, len(bundle))
-
-	for range len(bundle) {
-		bootstrapped = append(bootstrapped, <-loopback)
-	}
-
-	close(loopback)
-
-	// Pass 2: bootstrapped values flow through the pipeline again.
-	// Conn.Read sees STATUS_READY and skips the firmware tee, so
-	// they just pass through to telemetry (visible) and field (routed).
-	conn2, err := gossip.NewConn(
-		orchestrator.ctx,
-		orchestrator.scheduler,
-		bootstrapped...,
-	)
-
-	if err != nil {
-		return nil, errnie.Error(err)
-	}
-
-	conn2.SetFirmware(orchestrator.firmware)
-
-	if err = orchestrator.pumpPipeline(conn2, len(bootstrapped), true); err != nil {
-		return nil, err
-	}
-
-	// Pass 2 teed every bootstrapped frame into the emitter on its way to
-	// the field. Those are the Values that completed the in-band walk —
-	// firmware-stamped, field-routed, and serialised back out through the
-	// same io.ReadWriteCloser pipeline. Returning the emitter slice keeps
-	// the resolution path fully in-band: no side channel, no registry
-	// lookup, just the frames that fell out of io.Copy.
-
-	// Run a measurement tick so mesh.Field's Crystallization / eigenmode
-	// snap / PhaseDial reflect the population we just pumped, then fan
-	// the metrics out through the same websocket the Value frames use.
-	// The error from Cycle is deliberately swallowed into err-path of the
-	// envelope dispatch — a metric hiccup must not fail the Orchestrator
-	// Cycle, whose contract is "resolved values or a real in-band error".
-	if _, cycleErr := orchestrator.field.Cycle(); cycleErr == nil {
-		orchestrator.publishFieldMetrics()
-	}
-
-	return orchestrator.emitter.values, nil
-}
-
-/*
-publishFieldMetrics walks the field tree and emits one FieldMetrics
-envelope per leaf community. The walk is a plain depth-first so the
-visualiser receives a complete metric snapshot in the same fan-out
-pass every Cycle — no incremental deltas, no per-community throttling.
-Errors on individual envelopes are swallowed because a dropped frame
-must not break the telemetry stream; the next Cycle replaces every
-envelope wholesale anyway.
-
-Envelopes are written through the same observer that carries Value
-frames so the shared serialisation mutex covers both paths. Writing
-envelopes directly to the websocket client would race with firmware
-heartbeats that fire from every pool worker — gorilla/websocket
-forbids concurrent WriteMessage and a collision silently corrupts the
-channel, which manifests as the visualiser reconnecting and losing
-its state until a fresh prompt seeds the pipeline again.
-
-The community index is set to the child's position in its parent's
-Fields slice so the visualiser can correlate the envelope with the
-`properties[PropertiesCommunityWord]` value it sees on raw Value
-frames. Root-level metrics (no routing) go out with CommunityIdx = -1.
-*/
-func (orchestrator *Orchestrator) publishFieldMetrics() {
-	if orchestrator == nil || orchestrator.observer == nil {
-		return
-	}
-
-	children := orchestrator.field.Fields()
-
-	if len(children) == 0 {
-		orchestrator.emitFieldMetricsEnvelope(orchestrator.field.Metrics(), -1)
-		return
-	}
-
-	for idx, child := range children {
-		if child == nil {
-			continue
+	for {
+		if _, err = io.Copy(orchestrator.field, conn); err != nil {
+			return nil, errnie.Error(err)
 		}
 
-		orchestrator.emitFieldMetricsEnvelope(child.Metrics(), idx)
-	}
-}
+		if _, err = io.Copy(conn, orchestrator.field); err != nil {
+			return nil, errnie.Error(err)
+		}
 
-/*
-emitFieldMetricsEnvelope encodes a FieldMetrics snapshot and ships it
-through the shared observer so every websocket write — Value frame or
-envelope — flows through the same mutex. Encoding errors and write
-errors both drop the envelope silently: the next Cycle replaces it
-wholesale, so a single corrupted metric tick must not become a
-visible telemetry stall.
-*/
-func (orchestrator *Orchestrator) emitFieldMetricsEnvelope(metrics mesh.FieldMetrics, communityIdx int) {
-	frame, err := telemetry.EncodeEnvelope(
-		telemetry.EnvelopeKindFieldMetrics,
-		fieldMetricsToPayload(metrics, communityIdx),
-	)
-
-	if err != nil {
-		return
+		if err == io.EOF {
+			break
+		}
 	}
 
-	_, _ = orchestrator.observer.Write(frame)
-}
-
-/*
-fieldMetricsToPayload copies a mesh.FieldMetrics snapshot into the
-wire-shaped telemetry.FieldMetricsPayload. The two structs are
-deliberately kept separate: mesh owns the in-process model, telemetry
-owns the wire contract. Changing one without the other is a
-compile-time error here because every field is copied by name.
-*/
-func fieldMetricsToPayload(metrics mesh.FieldMetrics, communityIdx int) telemetry.FieldMetricsPayload {
-	return telemetry.FieldMetricsPayload{
-		CommunityIdx:    communityIdx,
-		MemberCount:     metrics.MemberCount,
-		LabeledCount:    metrics.LabeledCount,
-		SlotSum:         metrics.SlotSum,
-		Coverage:        metrics.Coverage,
-		Consensus:       metrics.Consensus,
-		LabelDensity:    metrics.LabelDensity,
-		Crystallization: metrics.Crystallization,
-		DominantRatio:   metrics.DominantRatio,
-		ModeCount:       metrics.ModeCount,
-		PressureMult:    metrics.PressureMult,
-		Saturated:       metrics.Saturated,
-	}
-}
-
-/*
-pumpPipeline drives one pass of the io pipeline. The full pass wires
-Conn → emitter → telemetry → field so downstream consumers see every
-frame. The drain-only variant (full=false) just reads Conn to
-completion — its only purpose is triggering Conn.Read's firmware tee
-for raw values that have no meaningful affinity yet. The telemetry
-tee targets the shared observer (not the raw client) so pumpPipeline
-and the Firmware heartbeat serialise onto the same websocket mutex.
-*/
-func (orchestrator *Orchestrator) pumpPipeline(conn *gossip.Conn, count int, full bool) error {
-	limit := int64(count) * int64(core.Cfg.Value.Bytes)
-	src := io.LimitReader(gossip.FrameDelimitedReader(conn), limit)
-
-	if !full {
-		_, err := io.Copy(io.Discard, src)
-		return errnie.Error(err)
-	}
-
-	teeEmitter := io.TeeReader(src, orchestrator.emitter)
-	teeTelemetry := io.TeeReader(teeEmitter, orchestrator.observer)
-
-	if _, err := io.Copy(orchestrator.field, teeTelemetry); err != nil {
-		return errnie.Error(err)
-	}
-
-	return nil
+	return resolved, nil
 }
