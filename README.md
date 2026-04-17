@@ -113,26 +113,26 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 Canonical **1024-bit** region, spanning words **48 to 63** (see `value.region.properties` in `cmd/cfg/config.yml`). The leading words below match `pkg/compute/kernel/layout.go`; words **58–63** are reserved for forward-compatible extensions.
 
-| Word (absolute) | Region offset | Name                                           | Notes                                                                                                                  |
-|-----------------|---------------|------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| 48              | 0             | **labels**                                     | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63 |
-| 49              | 1             | **confidence**                                 | Reserved for future use                                                                                                |
-| 50              | 2             | **epoch**                                      | Reserved for future use                                                                                                |
-| 51              | 3             | **TTL** (`PropertiesTTLWord`)                  | Time-to-live for ephemeral Values; zero means dissolve                                                                 |
-| 52              | 4             | **noise** (`PropertiesNoiseWord`)              | Physical noise injected into affinity by the `temperature` program                                                     |
-| 53              | 5             | **probe state** (`PropertiesProbeStateWord`)   | Packed probe kind + lifecycle status (see `kernel.PackProbeState`)                                                     |
-| 54              | 6             | **probe window** (`PropertiesProbeWindowWord`) | `PackRegionRef` over token words for causal probes                                                                     |
-| 55              | 7             | **probe depth** (`PropertiesProbeDepthWord`)   | Re-stabilisation depth for causal hub probes                                                                           |
-| 56              | 8             | **community** (`PropertiesCommunityWord`)      | Community index after `mesh.Field` routing (see `mesh.communityIDOffset`)                                              |
-| 57              | 9             | **status** (`PropertiesStatusWord`)          | Firmware lifecycle: raw vs ready                                                                                       |
-| 58–63           | 10–15         | *reserved*                                     | Extension band within the 16-word properties span                                                                      |
+| Word (absolute) | Region offset | Name                                           | Notes                                                                                                                      |
+|-----------------|---------------|------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| 48              | 0             | **labels**                                     | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63     |
+| 49              | 1             | **confidence**                                 | Overall confidence calculated from the results of any algorithm that leaves an arifact (classification, beam search, etc.) |
+| 50              | 2             | **epoch**                                      | +1 for any algorithm run                                                                                                   |
+| 51              | 3             | **TTL** (`PropertiesTTLWord`)                  | Time-to-live for ephemeral Values; zero means dissolve, one means it can take one action, etc.                             |
+| 52              | 4             | **temperature** (`PropertiesNoiseWord`)        | The scaler that determines how "creative" the model will be while executing algorithms                                     |
+| 53              | 5             | **probe state** (`PropertiesProbeStateWord`)   | Packed probe kind + lifecycle status (see `kernel.PackProbeState`)                                                         |
+| 54              | 6             | **probe window** (`PropertiesProbeWindowWord`) | `PackRegionRef` over token words for causal probes                                                                         |
+| 55              | 7             | **probe depth** (`PropertiesProbeDepthWord`)   | Re-stabilisation depth for causal hub probes                                                                               |
+| 56              | 8             | **community** (`PropertiesCommunityWord`)      | Community index after `mesh.Field` routing (see `mesh.communityIDOffset`)                                                  |
+| 57              | 9             | **status** (`PropertiesStatusWord`)            | Value status: IDLE, READY, BUSY, WAITING, DONE, OK, ERROR                                                                  |
+| 58–63           | 10–15         | **fieldId**                                    | The community `Field`'s ID this `Value` belongs to                                                                         |
 
 ### Program Authoring (`pkg/compute/programmer`)
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes that text; **`NewProgram(nameOrSource)`** resolves a string against that map when the key exists, otherwise treats the string as full source.
 
 Pipeline in order:
-
+§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§q1wawwweèeee
 1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
 2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value's own ID — recursion / re-entry).
 3. **`NewCompiler(tokens, WithContinuation(cont))`** — holds tokens and the optional continuation; **`Compile(CompilerTarget)`** dispatches to CPU / Metal / CUDA lowering and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.

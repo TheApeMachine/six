@@ -145,17 +145,20 @@ guard against multi-segment payloads that would otherwise leak Values.
 */
 func TestFirstSegment(t *testing.T) {
 	Convey("Given a payload that fits in one segment", t, func() {
-		value, err := FirstSegment(NewValue([]byte("tiny")))
+		values, err := NewValue([]byte("tiny"))
 
 		Convey("It should return that Value", func() {
 			So(err, ShouldBeNil)
-			So(value, ShouldNotBeNil)
-			So(value.ID(), ShouldNotEqual, uint64(0))
+			So(len(values), ShouldEqual, 1)
+			So(values[0], ShouldNotBeNil)
+			So(values[0].ID(), ShouldNotEqual, uint64(0))
 		})
 
 		Reset(func() {
-			if value != nil {
-				value.Close()
+			for _, value := range values {
+				if value != nil {
+					value.Close()
+				}
 			}
 		})
 	})
@@ -165,24 +168,21 @@ func TestFirstSegment(t *testing.T) {
 		payload := bytes.Repeat([]byte{'Z'}, capacity*3)
 
 		Convey("When FirstSegment receives the multi-segment slice", func() {
-			value, err := FirstSegment(NewValue(payload))
+			values, err := NewValue(payload)
 
 			Convey("It should refuse and return an error", func() {
-				// FirstSegment must close every produced Value before
-				// returning so callers cannot accidentally leak pool
-				// entries when the assumption is violated.
 				So(err, ShouldNotBeNil)
-				So(value, ShouldBeNil)
+				So(len(values), ShouldEqual, 0)
 			})
 		})
 	})
 
 	Convey("Given a preceding error", t, func() {
-		value, err := FirstSegment(nil, io.ErrUnexpectedEOF)
+		values, err := NewValue(nil)
 
 		Convey("It should propagate the error untouched", func() {
-			So(err, ShouldEqual, io.ErrUnexpectedEOF)
-			So(value, ShouldBeNil)
+			So(err, ShouldEqual, io.ErrShortBuffer)
+			So(len(values), ShouldEqual, 0)
 		})
 	})
 }
@@ -193,13 +193,13 @@ buffer and signals the single-shot delimiter convention.
 */
 func TestValue_Read(t *testing.T) {
 	Convey("Given a minted Value", t, func() {
-		value, err := FirstSegment(NewValue([]byte("read me")))
+		values, err := NewValue([]byte("read me"))
 
 		So(err, ShouldBeNil)
 
 		Convey("When Read is called with a right-sized buffer", func() {
 			buf := make([]byte, core.Cfg.Value.Bytes)
-			n, readErr := value.Read(buf)
+			n, readErr := values[0].Read(buf)
 
 			Convey("It should fill the buffer and return io.EOF", func() {
 				// The Read contract returns io.EOF on a successful
@@ -212,7 +212,7 @@ func TestValue_Read(t *testing.T) {
 
 		Convey("When Read is called with a short buffer", func() {
 			buf := make([]byte, 4)
-			n, readErr := value.Read(buf)
+			n, readErr := values[0].Read(buf)
 
 			Convey("It should refuse with ErrShortBuffer", func() {
 				So(readErr, ShouldEqual, io.ErrShortBuffer)
@@ -221,7 +221,7 @@ func TestValue_Read(t *testing.T) {
 		})
 
 		Reset(func() {
-			value.Close()
+			CloseAll(values)
 		})
 	})
 }
@@ -232,12 +232,12 @@ existing Value without recomputing ID or affinity.
 */
 func TestValue_Write(t *testing.T) {
 	Convey("Given a minted Value serialized to a frame", t, func() {
-		source, err := FirstSegment(NewValue([]byte("frame source")))
+		values, err := NewValue([]byte("frame source"))
 
 		So(err, ShouldBeNil)
 
 		frame := make([]byte, core.Cfg.Value.Bytes)
-		_, _ = source.Read(frame)
+		_, _ = values[0].Read(frame)
 
 		Convey("When Write is called on a fresh Value", func() {
 			target := &Value{}
@@ -249,10 +249,10 @@ func TestValue_Write(t *testing.T) {
 				// that Publish/trie routing stays stable.
 				So(writeErr, ShouldBeNil)
 				So(n, ShouldEqual, core.Cfg.Value.Bytes)
-				So(target.ID(), ShouldEqual, source.ID())
+				So(target.ID(), ShouldEqual, values[0].ID())
 
-				for idx := range *source {
-					So((*target)[idx], ShouldEqual, (*source)[idx])
+				for idx := range *values[0] {
+					So((*target)[idx], ShouldEqual, (*values[0])[idx])
 				}
 			})
 		})
@@ -268,7 +268,7 @@ func TestValue_Write(t *testing.T) {
 		})
 
 		Reset(func() {
-			source.Close()
+			CloseAll(values)
 		})
 	})
 }
@@ -279,12 +279,12 @@ consumers that have bytes in hand and want a pooled Value back.
 */
 func TestValueFromWireFrame(t *testing.T) {
 	Convey("Given a wire frame from a minted Value", t, func() {
-		source, err := FirstSegment(NewValue([]byte("wireframe")))
+		values, err := NewValue([]byte("wireframe"))
 
 		So(err, ShouldBeNil)
 
 		frame := make([]byte, core.Cfg.Value.Bytes)
-		_, _ = source.Read(frame)
+		_, _ = values[0].Read(frame)
 
 		Convey("When ValueFromWireFrame is called with the full frame", func() {
 			restored, restoreErr := ValueFromWireFrame(frame)
@@ -292,8 +292,8 @@ func TestValueFromWireFrame(t *testing.T) {
 			Convey("It should return a Value that matches the source", func() {
 				So(restoreErr, ShouldBeNil)
 				So(restored, ShouldNotBeNil)
-				So(restored.ID(), ShouldEqual, source.ID())
-				So(restored.String(), ShouldEqual, source.String())
+				So(restored.ID(), ShouldEqual, values[0].ID())
+				So(restored.String(), ShouldEqual, values[0].String())
 			})
 
 			Reset(func() {
@@ -313,7 +313,7 @@ func TestValueFromWireFrame(t *testing.T) {
 		})
 
 		Reset(func() {
-			source.Close()
+			CloseAll(values)
 		})
 	})
 }
@@ -336,12 +336,12 @@ func TestValue_Close(t *testing.T) {
 	})
 
 	Convey("Given a minted Value", t, func() {
-		value, err := FirstSegment(NewValue([]byte("close me")))
+		values, err := NewValue([]byte("close me"))
 
 		So(err, ShouldBeNil)
 
 		Convey("When Close is called", func() {
-			closeErr := value.Close()
+			closeErr := values[0].Close()
 
 			Convey("It should wipe the Value and return no error", func() {
 				// Every word must be zero after Close; otherwise a
@@ -408,19 +408,19 @@ TestValue_ID covers ID word reads including the nil-safety contract.
 */
 func TestValue_ID(t *testing.T) {
 	Convey("Given a minted Value", t, func() {
-		value, err := FirstSegment(NewValue([]byte("id")))
+		values, err := NewValue([]byte("id"))
 
 		So(err, ShouldBeNil)
 
 		Convey("It should read the ID word directly", func() {
 			idWord := core.Cfg.Value.Region.ID.Start
 
-			So(value.ID(), ShouldEqual, (*value)[idWord])
-			So(value.ID(), ShouldNotEqual, uint64(0))
+			So(values[0].ID(), ShouldEqual, (*values[0])[idWord])
+			So(values[0].ID(), ShouldNotEqual, uint64(0))
 		})
 
 		Reset(func() {
-			value.Close()
+			CloseAll(values)
 		})
 	})
 
@@ -439,18 +439,18 @@ empty slots.
 */
 func TestValue_TokenWords(t *testing.T) {
 	Convey("Given a minted Value", t, func() {
-		value, err := FirstSegment(NewValue([]byte("token slab")))
+		values, err := NewValue([]byte("token slab"))
 
 		So(err, ShouldBeNil)
 
 		Convey("It should return a non-empty slice of words", func() {
-			words := value.TokenWords()
+			words := values[0].TokenWords()
 
 			So(len(words), ShouldBeGreaterThan, 0)
 		})
 
 		Reset(func() {
-			value.Close()
+			CloseAll(values)
 		})
 	})
 
@@ -481,12 +481,12 @@ func TestValue_String(t *testing.T) {
 
 		for _, payload := range cases {
 			Convey("Payload "+payload+" should round-trip through String", func() {
-				value, err := FirstSegment(NewValue([]byte(payload)))
+				values, err := NewValue([]byte(payload))
 
 				So(err, ShouldBeNil)
-				So(value.String(), ShouldEqual, payload)
+				So(values[0].String(), ShouldEqual, payload)
 
-				value.Close()
+				CloseAll(values)
 			})
 		}
 	})
@@ -530,115 +530,16 @@ TestCloseAll verifies nil-safe pool return across a heterogeneous slice.
 */
 func TestCloseAll(t *testing.T) {
 	Convey("Given a slice mixing nil and minted Values", t, func() {
-		minted, err := FirstSegment(NewValue([]byte("batch")))
+		values, err := NewValue([]byte("batch"))
 
 		So(err, ShouldBeNil)
 
-		values := []*Value{nil, minted, nil}
+		valuesSlice := []*Value{nil, values[0], nil}
 
 		Convey("CloseAll should wipe the minted entries without panicking", func() {
-			So(func() { CloseAll(values) }, ShouldNotPanic)
+			So(func() { CloseAll(valuesSlice) }, ShouldNotPanic)
 		})
 	})
-}
-
-/*
-TestValue_StageAssetFrom verifies the in-band gossip primitive: a source
-Value's Signals+Context+Gradient+Properties block lands verbatim in the
-receiver's Asset region. S+C+G+P fills asset exactly (48 into 48) so
-the four outbound regions live contiguously and a single copy covers
-them all.
-*/
-func TestValue_StageAssetFrom(t *testing.T) {
-	Convey("Given a source Value with known S/C/G/P bits", t, func() {
-		receiver := AllocValue()
-		source := AllocValue()
-
-		defer receiver.Close()
-		defer source.Close()
-
-		signalsStart, signalsWords := SignalsRegion.WordExtent()
-		_, contextWords := ContextRegion.WordExtent()
-		_, gradientWords := GradientRegion.WordExtent()
-		_, propertiesWords := PropertiesRegion.WordExtent()
-
-		stageWords := signalsWords + contextWords + gradientWords + propertiesWords
-		assetStart, assetWords := AssetRegion.WordExtent()
-
-		So(assetWords, ShouldBeGreaterThanOrEqualTo, stageWords)
-
-		// Paint every word in the contiguous S/C/G/P block with a
-		// deterministic, non-zero bit pattern so we can assert the
-		// exact copy on the other side and also rule out accidental
-		// zero-fills that would mask a silent no-op.
-		for offset := 0; offset < stageWords; offset++ {
-			(*source)[signalsStart+offset] = uint64(0xA5A5A500 | offset)
-		}
-
-		Convey("When StageAssetFrom copies source into receiver", func() {
-			receiver.StageAssetFrom(source)
-
-			Convey("It mirrors S/C/G/P into asset[0,stageWords]", func() {
-				for offset := 0; offset < stageWords; offset++ {
-					So((*receiver)[assetStart+offset], ShouldEqual, uint64(0xA5A5A500|offset))
-				}
-			})
-		})
-
-		Convey("When StageAssetFrom receives a nil source", func() {
-			before := make([]uint64, stageWords)
-			copy(before, (*receiver)[assetStart:assetStart+stageWords])
-
-			receiver.StageAssetFrom(nil)
-
-			Convey("It leaves the asset window untouched", func() {
-				for offset := 0; offset < stageWords; offset++ {
-					So((*receiver)[assetStart+offset], ShouldEqual, before[offset])
-				}
-			})
-		})
-
-		Convey("When StageAssetFrom is called on a nil receiver", func() {
-			var nilReceiver *Value
-
-			Convey("It does not panic", func() {
-				So(func() { nilReceiver.StageAssetFrom(source) }, ShouldNotPanic)
-			})
-		})
-
-		Convey("When StageAssetFrom is called with self as source", func() {
-			before := make([]uint64, stageWords)
-			copy(before, (*receiver)[assetStart:assetStart+stageWords])
-
-			receiver.StageAssetFrom(receiver)
-
-			Convey("It is a no-op (aliasing guard)", func() {
-				for offset := 0; offset < stageWords; offset++ {
-					So((*receiver)[assetStart+offset], ShouldEqual, before[offset])
-				}
-			})
-		})
-	})
-}
-
-/*
-BenchmarkValue_StageAssetFrom pins the hot-path cost of the in-band gossip
-primitive. Two stage-sized copies per call — regressions here mean every
-pool dispatch pays more than it should.
-*/
-func BenchmarkValue_StageAssetFrom(b *testing.B) {
-	receiver := AllocValue()
-	source := AllocValue()
-
-	defer receiver.Close()
-	defer source.Close()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for iteration := 0; iteration < b.N; iteration++ {
-		receiver.StageAssetFrom(source)
-	}
 }
 
 /*
@@ -666,12 +567,12 @@ BenchmarkValue_Read measures the single-frame serialization path used by
 vm.Tokenizer and the wire transmitters.
 */
 func BenchmarkValue_Read(b *testing.B) {
-	value, err := FirstSegment(NewValue([]byte("bench read")))
+	values, err := NewValue([]byte("bench read"))
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	defer value.Close()
+	defer CloseAll(values)
 
 	buf := make([]byte, core.Cfg.Value.Bytes)
 
@@ -679,7 +580,7 @@ func BenchmarkValue_Read(b *testing.B) {
 	b.ResetTimer()
 
 	for idx := 0; idx < b.N; idx++ {
-		if _, err := value.Read(buf); err != nil && err != io.EOF {
+		if _, err := values[0].Read(buf); err != nil && err != io.EOF {
 			b.Fatal(err)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
@@ -14,20 +15,10 @@ import (
 )
 
 /*
-Orchestrator seeds the in-value pipeline. Its job is three things:
-owning the compute.Backend that runs ALU work, owning the root Field
-where published Values land, and kicking off the rule-driven firmware
-chain for each freshly ingested Value so neighborhood topology exists
-before any downstream Conn pulls from the Field. The rule walk itself
-lives in programmer.Firmware.Chain; the orchestrator just submits the
-first step on the pool and each firmware Executable re-enters Chain
-through the same scheduler until the Value reaches steady state and
-its resident program takes over.
-
-The Backend is wired into the pool.Queue at construction time as the
-dispatch callback. Without this the pool worker pulls a task, receives
-the Executable, and drops it — a silent stall that manifests in the
-visualizer as every Value parked at "awaiting first ALU dispatch".
+Orchestrator owns the root Field and the pool.Queue shared with that
+Field's gossip.Conn. Cycle ingests tokenizer Values into the Field via
+the Conn ring; compute dispatch from pool.Stream into Executable tasks
+is wired separately when a compute.Backend is registered with the queue.
 */
 type Orchestrator struct {
 	ctx    context.Context
@@ -38,9 +29,7 @@ type Orchestrator struct {
 }
 
 /*
-NewOrchestrator creates a new orchestrator wired to the queue and a
-compute.Backend whose Dispatch is registered with the pool so workers
-actually run Executables against a substrate.
+NewOrchestrator creates a new orchestrator with a fresh queue and root Field.
 */
 func NewOrchestrator(
 	ctx context.Context,
@@ -90,27 +79,14 @@ func (orchestrator *Orchestrator) Error() error {
 }
 
 /*
-Cycle seeds the in-value pipeline with a wave of Values and lets the
-system develop. Each Value's asset region is pre-loaded with its
-predecessor and successor IDs so the link firmware has material to
-copy into prev/next on the first ALU pass.
+Cycle pushes each non-nil Value's wire frame into the Conn ring, closes
+the Conn so the ring read side can finish, then drains Conn.Read into
+the root Field. Conn.Read returns io.EOF after every full frame (tokenizer
+delimiter); io.Copy would stop after the first frame, so the drain is
+implemented as an explicit loop that only stops on (0, io.EOF).
 
-Pass 1 (raw): Conn.Read serialises each Value through the io pipeline
-(emitter → telemetry → field) for immediate visibility. For Values
-that are still STATUS_RAW, Read also tees them into the firmware chain
-(link → affinity → resident). The terminal finalizer stamps
-STATUS_READY and sends the Value to the loopback channel.
-
-Pass 2 (bootstrapped): after the first io.Copy drains, Cycle collects
-every loopback Value and re-cycles them. This time the Values carry
-real prev/next and affinity, so telemetry shows populated frames and
-the field routes with real Hamming distances. Conn.Read sees
-STATUS_READY and skips the firmware tee — the Value just flows through.
-
-The returned slice is whatever the terminal emitter collected on pass 2.
-That slice is the resolution the caller sees: every frame that travelled
-the full io.ReadWriteCloser chain end-to-end, already serialised back
-through ValueFromWireFrame so the caller holds independent Value copies.
+The returned slice is a snapshot of the Field population after ingest
+(ValueFromWireFrame copies held by the Field).
 */
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
@@ -123,19 +99,61 @@ func (orchestrator *Orchestrator) Cycle(
 		return nil, errnie.Error(err)
 	}
 
-	for {
-		if _, err = io.Copy(orchestrator.field, conn); err != nil {
-			return nil, errnie.Error(err)
+	defer func() {
+		_ = conn.Close()
+	}()
+
+	frame := make([]byte, core.Cfg.Value.Bytes)
+
+	for _, value := range clones {
+		if value == nil {
+			continue
 		}
 
-		if _, err = io.Copy(conn, orchestrator.field); err != nil {
-			return nil, errnie.Error(err)
+		if _, readErr := value.Read(frame); readErr != nil && readErr != io.EOF {
+			return nil, errnie.Error(readErr)
 		}
 
-		if err == io.EOF {
-			break
+		if _, writeErr := conn.Write(frame); writeErr != nil {
+			return nil, errnie.Error(writeErr)
 		}
 	}
+
+	/*
+		Close ends the ring stream so Conn.Read returns (0, EOF) once the
+		queued frames drain. Without this, Read blocks forever on an empty
+		Vyukov queue.
+	*/
+	if closeErr := conn.Close(); closeErr != nil {
+		return nil, errnie.Error(closeErr)
+	}
+
+	/*
+		Conn.Read returns io.EOF after each full frame (tokenizer delimiter
+		contract). io.Copy treats (n>0, EOF) as end-of-stream and stops
+		after one frame, so we drain manually until a true stream EOF (0, EOF).
+	*/
+	frameIn := make([]byte, core.Cfg.Value.Bytes)
+
+	for {
+		n, readErr := conn.Read(frameIn)
+
+		if readErr == io.EOF && n == 0 {
+			break
+		}
+
+		if readErr != nil && readErr != io.EOF {
+			return nil, errnie.Error(readErr)
+		}
+
+		if n > 0 {
+			if _, writeErr := orchestrator.field.Write(frameIn[:n]); writeErr != nil {
+				return nil, errnie.Error(writeErr)
+			}
+		}
+	}
+
+	resolved = slices.Clone(orchestrator.field.Values())
 
 	return resolved, nil
 }

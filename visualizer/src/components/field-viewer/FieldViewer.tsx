@@ -14,7 +14,6 @@ import { useField } from "@/context/field-context";
 import { FieldLiveCanvas } from "@/features/live/FieldLiveCanvas";
 import type { FieldSnapshot } from "@/features/telemetry/types";
 import { cn } from "@/lib/utils";
-import { DiagnosticsHUD } from "./DiagnosticsHUD";
 import { ProgramLegend } from "./ProgramLegend";
 import { ProgramViewer } from "./ProgramViewer";
 import { ValueInspector } from "./ValueInspector";
@@ -182,7 +181,6 @@ export function FieldViewer({ className }: { className?: string }) {
 							<div className="mt-2 text-red-300">{connectionError}</div>
 						)}
 					</div>
-					<DiagnosticsHUD className="w-[320px] text-left" />
 					<ProgramLegend snapshot={snapshot} className="w-[320px] text-left" />
 				</div>
 			</div>

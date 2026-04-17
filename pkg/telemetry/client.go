@@ -3,45 +3,26 @@ package telemetry
 import (
 	"context"
 	"io"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
-websocketBinaryWriter adapts *websocket.Conn to io.Writer for io.TeeReader.
-Each Write becomes one binary WebSocket message.
-*/
-type websocketBinaryWriter struct {
-	conn *websocket.Conn
-}
-
-func (writer *websocketBinaryWriter) Write(p []byte) (int, error) {
-	if err := writer.conn.WriteMessage(websocket.BinaryMessage, p); err != nil {
-		return 0, errnie.Error(err)
-	}
-
-	return len(p), nil
-}
-
-/*
-Client is a WebSocket client to the visualizer bridge. Write pushes bytes
-into a pipe; Read pulls from the pipe while io.TeeReader sends a duplicate
-of each chunk to the bridge as a binary WebSocket message.
+Client is a WebSocket client to the visualizer bridge. Write sends binary
+messages directly to the socket so frames reach the TypeScript bridge as
+soon as gossip.Conn writes them (no pipe or TeeReader drain required).
 */
 type Client struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-	url    string
-	tee    io.Reader
-	pw     *io.PipeWriter
-	pr     *io.PipeReader
-	conn   *websocket.Conn
+	ctx     context.Context
+	cancel  context.CancelFunc
+	conn    *websocket.Conn
+	writeMu sync.Mutex
 }
 
 /*
-NewClient constructs a client.
+NewClient dials the bridge WebSocket URL. Returns nil when dial fails.
 */
 func NewClient(ctx context.Context, url string) *Client {
 	ctx, cancel := context.WithCancel(ctx)
@@ -53,49 +34,66 @@ func NewClient(ctx context.Context, url string) *Client {
 		return nil
 	}
 
-	pr, pw := io.Pipe()
-	tee := io.TeeReader(pr, &websocketBinaryWriter{conn: conn})
-
 	return &Client{
 		ctx:    ctx,
 		cancel: cancel,
-		url:    url,
 		conn:   conn,
-		pw:     pw,
-		pr:     pr,
-		tee:    tee,
 	}
 }
 
 /*
-Write sends bytes into the pipe; a matching Read drains them and mirrors
-each chunk to the bridge as a binary WebSocket message.
+Write sends one binary WebSocket message per call. The mutex serializes
+writes so MultiWriter and TeeReader paths do not violate gorilla/websocket's
+one-writer rule.
 */
 func (client *Client) Write(p []byte) (int, error) {
-	return client.pw.Write(p)
-}
-
-/*
-Read copies the next chunk from the pipe read side; each chunk is also sent
-to the bridge via the tee.
-*/
-func (client *Client) Read(p []byte) (int, error) {
-	n, err := client.tee.Read(p)
-
-	return n, errnie.Error(err)
-}
-
-/*
-Close releases the context, closes the pipe writer, and closes the WebSocket.
-*/
-func (client *Client) Close() error {
-	client.cancel()
-
-	err := client.pw.Close()
-
-	if cerr := client.conn.Close(); cerr != nil && err == nil {
-		err = cerr
+	if client == nil || client.conn == nil {
+		return 0, io.ErrClosedPipe
 	}
 
-	return err
+	client.writeMu.Lock()
+	defer client.writeMu.Unlock()
+
+	if err := client.conn.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, errnie.Error(err)
+	}
+
+	return len(p), nil
+}
+
+/*
+Read is unused on the producer path. Returns io.EOF so callers implementing
+io.ReadWriter do not block; server-to-client traffic would use ReadMessage
+in a dedicated loop if needed later.
+*/
+func (client *Client) Read(p []byte) (int, error) {
+	if client == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	return 0, io.EOF
+}
+
+/*
+Close releases the context and closes the WebSocket.
+*/
+func (client *Client) Close() error {
+	if client == nil {
+		return nil
+	}
+
+	client.cancel()
+
+	if client.conn == nil {
+		return nil
+	}
+
+	err := client.conn.Close()
+	client.conn = nil
+
+	return errnie.Error(err)
 }

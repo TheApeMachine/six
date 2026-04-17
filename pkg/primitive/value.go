@@ -2,9 +2,9 @@
 package primitive
 
 import (
-	"fmt"
 	"io"
 	"log"
+	"slices"
 	"sync/atomic"
 	"unsafe"
 
@@ -50,6 +50,14 @@ var (
 		"id":         IDRegion,
 		"affinity":   AffinityRegion,
 	}
+
+	signalsStart, signalsWords       = SignalsRegion.WordExtent()
+	contextStart, contextWords       = ContextRegion.WordExtent()
+	gradientStart, gradientWords     = GradientRegion.WordExtent()
+	propertiesStart, propertiesWords = PropertiesRegion.WordExtent()
+
+	stageWords             = signalsWords + contextWords + gradientWords + propertiesWords
+	assetStart, assetWords = AssetRegion.WordExtent()
 )
 
 /*
@@ -160,7 +168,65 @@ when the Morton slab fills, packing continues in a fresh segment.
 CloseAll closes every non-nil pointer in the slice.
 */
 func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
-	return newValuesFromPayload(p, nil, labels...)
+	if len(p) == 0 {
+		return nil, io.ErrShortBuffer
+	}
+
+	value := AllocValue()
+	maxCodes := int(core.Cfg.Value.Region.Tokens.Bits / 16)
+	out := make([]*Value, 0, maxCodes)
+
+	var label []byte
+
+	if i := slices.IndexFunc(
+		labels, func(c []byte) bool { return len(c) > 0 },
+	); i >= 0 {
+		label = labels[i]
+	}
+
+	for idx := 0; idx < len(p); {
+		val := AllocValue()
+		codes := value.TokenWords()
+		n, pos := 0, uint32(0)
+
+		for idx < len(p) && n < maxCodes {
+			code := EncodeInterleaved8x8(uint32(p[idx]), pos)
+			idx++
+			pos++
+
+			if slices.Contains(unsafe.Slice(
+				(*uint16)(unsafe.Pointer(&codes[0])),
+				n,
+			), code) {
+				continue
+			}
+
+			codes[n] = uint64(code)
+			n++
+		}
+
+		if n == 0 {
+			FreeValue(val)
+
+			for _, x := range out {
+				FreeValue(x)
+			}
+
+			return nil, io.ErrShortBuffer
+		}
+
+		stamp := val.stampID()
+
+		if len(label) > 0 {
+			stamp.Set(
+				kernel.PropertiesStartWord,
+				kernel.LabelPropertiesWord(label),
+			)
+		}
+
+		out = append(out, stamp)
+	}
+	return out, nil
 }
 
 /*
@@ -179,195 +245,6 @@ func CloseAll(values []*Value) {
 }
 
 /*
-FirstSegment returns values[0] when NewValue produced exactly one segment. If
-err is non-nil, or there are zero segments, or more than one segment, it closes
-any minted Values and returns a non-nil error. Use this only when the payload
-is known short enough not to chain; otherwise keep the full []*Value slice.
-*/
-func FirstSegment(values []*Value, err error) (*Value, error) {
-	if err != nil {
-		CloseAll(values)
-
-		return nil, err
-	}
-
-	if len(values) == 0 {
-		return nil, io.ErrShortBuffer
-	}
-
-	if len(values) != 1 {
-		CloseAll(values)
-
-		return nil, fmt.Errorf("primitive.FirstSegment: expected one Value, got %d", len(values))
-	}
-
-	return values[0], nil
-}
-
-// newValueMaxSlotProbeSteps caps ordinal scans when resolving duplicate
-// Morton slot codes while packing a segment.
-const newValueMaxSlotProbeSteps = 1 << 22
-
-/*
-rollingNGramDigest folds a short byte window ending at idx into a 32-bit
-digest used as the Morton “rolling” axis. Four-byte windows use a small
-FNV-style mix so overlapping n-grams separate in slot space; shorter
-prefixes hash the consumed bytes only.
-*/
-func rollingNGramDigest(payload []byte, index int) uint32 {
-	const prime uint32 = 0x01000193
-
-	if index >= 3 {
-		windowValue := uint32(payload[index]) |
-			uint32(payload[index-1])<<8 |
-			uint32(payload[index-2])<<16 |
-			uint32(payload[index-3])<<24
-
-		return (windowValue * prime) ^ (windowValue >> 17)
-	}
-
-	var runningHash uint32
-
-	for bytePos := 0; bytePos <= index; bytePos++ {
-		runningHash = runningHash*prime + uint32(payload[bytePos])
-	}
-
-	return runningHash ^ (runningHash >> 9)
-}
-
-func newValuesFromPayload(
-	p []byte,
-	geometry *geometry,
-	labels ...[]byte,
-) ([]*Value, error) {
-	if len(p) == 0 {
-		return nil, io.ErrShortBuffer
-	}
-
-	tokenBytes := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8)
-
-	if tokenBytes < 2 {
-		return nil, io.ErrShortBuffer
-	}
-
-	if geometry == nil {
-		geometry = newBalancedGeometry(tokenBytes/2, 2)
-	}
-
-	idx := 0
-
-	var out []*Value
-
-	for idx < len(p) {
-		buf := make([]byte, tokenBytes)
-		offset := 0
-		positionOrdinal := uint32(0)
-		occupied := make(map[uint16]struct{}, min(len(p)-idx, tokenBytes/2))
-
-		for idx < len(p) {
-			probe := positionOrdinal
-
-			var code uint16
-
-			found := false
-
-			for range newValueMaxSlotProbeSteps {
-				rolling := rollingNGramDigest(p, idx)
-				slotCode, slotErr := geometry.SlotCode(rolling, p[idx], probe)
-
-				if slotErr != nil {
-					// SlotCode only errors when the geometry is
-					// unusable. Wipe any segments we already minted so
-					// the pool stays clean and bubble the error up.
-					for _, minted := range out {
-						FreeValue(minted)
-					}
-
-					return nil, slotErr
-				}
-
-				code = slotCode
-
-				if _, taken := occupied[code]; !taken {
-					found = true
-
-					break
-				}
-
-				probe++
-			}
-
-			if !found {
-				break
-			}
-
-			if offset+2 > tokenBytes {
-				break
-			}
-
-			occupied[code] = struct{}{}
-
-			buf[offset] = byte(code)
-			buf[offset+1] = byte(code >> 8)
-			offset += 2
-			positionOrdinal = probe + 1
-			idx++
-		}
-
-		if offset == 0 {
-			for _, v := range out {
-				FreeValue(v)
-			}
-
-			return nil, io.ErrShortBuffer
-		}
-
-		value := AllocValue()
-
-		wire := make([]byte, core.Cfg.Value.Bytes)
-		tokenStart := core.Cfg.Value.Region.Tokens.Start * 8
-
-		if tokenStart+offset > len(wire) {
-			FreeValue(value)
-
-			for _, v := range out {
-				FreeValue(v)
-			}
-
-			return nil, io.ErrShortBuffer
-		}
-
-		copy(wire[tokenStart:], buf[:offset])
-		valueFrom(wire, value)
-
-		stamped := value.stampID()
-
-		var label []byte
-
-		for _, candidate := range labels {
-			if len(candidate) == 0 {
-				continue
-			}
-
-			label = candidate
-
-			break
-		}
-
-		if len(label) > 0 {
-			stamped.Set(
-				kernel.PropertiesStartWord,
-				kernel.LabelPropertiesWord(label),
-			)
-		}
-
-		out = append(out, stamped)
-	}
-
-	return out, nil
-}
-
-/*
 ValueFromWireFrame restores a Value from a full Value.Bytes frame produced by
 Value.Read. ID, affinity, and every word match the frame; nothing is
 recomputed or re-stamped.
@@ -380,12 +257,7 @@ func ValueFromWireFrame(frame []byte) (*Value, error) {
 	}
 
 	value := AllocValue()
-
-	if _, err := value.Write(frame); err != nil {
-		FreeValue(value)
-
-		return nil, err
-	}
+	valueFrom(frame, value)
 
 	return value, nil
 }
@@ -427,22 +299,28 @@ func (value *Value) Read(p []byte) (int, error) {
 	}
 
 	valueTo(value, p)
-
 	return core.Cfg.Value.Bytes, io.EOF
 }
 
 /*
-Write decodes a full Value.Bytes wire frame into an existing Value. It does
-not recompute affinity or assign an ID; those words come from the frame.
-Use NewValue to mint from payload bytes with fresh ID and LSH-derived affinity
-for Publish and trie routing.
+Write receives an incoming Value as bytes and materializes it
+into a temporary Value, so we can copy the Signals, Context,
+Gradient, and Properties into the Assets region of the host.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
 		return 0, io.ErrShortBuffer
 	}
 
-	valueFrom(p, value)
+	tmpVal := AllocValue()
+	valueFrom(p, tmpVal)
+
+	copy(
+		(*value)[assetStart:assetStart+stageWords],
+		(*tmpVal)[signalsStart:signalsStart+stageWords],
+	)
+
+	FreeValue(tmpVal)
 	return core.Cfg.Value.Bytes, nil
 }
 
@@ -462,46 +340,6 @@ func (value *Value) Close() error {
 	FreeValue(value)
 
 	return nil
-}
-
-/*
-StageAssetFrom copies the source Value's contiguous
-Signals+Context+Gradient+Properties block into the receiver's Asset
-region. S+C+G+P fills asset exactly (48 words into 48 words) so every
-bit of source state is available to the program that runs next. This is
-the primitive operation behind in-band gossip: one Value publishes its
-four outbound regions directly into another Value's Asset with no
-intermediate buffers and no locks.
-
-Nil, identical, or geometrically mismatched Values are silent no-ops —
-this is a hot-path helper that callers invoke from Finalizers, so a panic
-on a stray nil would tear down the pool worker.
-*/
-func (value *Value) StageAssetFrom(source *Value) {
-	if value == nil || source == nil || value == source {
-		return
-	}
-
-	signalsStart, signalsWords := SignalsRegion.WordExtent()
-	_, contextWords := ContextRegion.WordExtent()
-	_, gradientWords := GradientRegion.WordExtent()
-	_, propertiesWords := PropertiesRegion.WordExtent()
-
-	stageWords := signalsWords + contextWords + gradientWords + propertiesWords
-	assetStart, assetWords := AssetRegion.WordExtent()
-
-	if stageWords > assetWords {
-		return
-	}
-
-	// Stage the source's Signals+Context+Gradient+Properties into the
-	// receiver's Asset region. S+C+G+P fills asset exactly (48 words
-	// into 48 words) so every bit of source state is available to the
-	// program that runs next.
-	copy(
-		(*value)[assetStart:assetStart+stageWords],
-		(*source)[signalsStart:signalsStart+stageWords],
-	)
 }
 
 /*

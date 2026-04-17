@@ -67,17 +67,25 @@ func NewConn(
 		return nil, errnie.Error(err)
 	}
 
+	var telemetrySink io.Writer
+
+	if client := telemetry.NewClient(ctx, core.Cfg.TelemetryWebSocketURL); client != nil {
+		telemetrySink = client
+	} else {
+		telemetrySink = io.Discard
+	}
+
 	conn := &Conn{
 		ctx:    ctx,
 		cancel: cancel,
 		forward: io.MultiWriter(
 			forward,
-			telemetry.NewClient(ctx, core.Cfg.TelemetryWebSocketURL),
+			telemetrySink,
 		),
 		tee: io.TeeReader(
 			forward,
 			io.MultiWriter(
-				telemetry.NewClient(ctx, core.Cfg.TelemetryWebSocketURL),
+				telemetrySink,
 				queue,
 			),
 		),

@@ -298,9 +298,8 @@ function formatFrameAge(nowMs: number, receivedAtMs: number): string {
 }
 
 /*
-frameAgeTone picks a traffic-light class for the age pill. Thresholds match
-DiagnosticsHUD: frames <750ms are green, <2.5s amber, older is red — matches
-the operator's mental model of "alive / slow / stalled".
+frameAgeTone picks a traffic-light class for the age pill: <750ms green,
+<2.5s amber, older red — "alive / slow / stalled".
 */
 function frameAgeTone(nowMs: number, receivedAtMs: number): string {
 	if (receivedAtMs <= 0) return "text-white/35";
