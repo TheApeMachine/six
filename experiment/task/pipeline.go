@@ -2,14 +2,11 @@ package task
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
 )
-
-var vizOnce sync.Once
 
 type runTiming struct {
 	loadDur     time.Duration

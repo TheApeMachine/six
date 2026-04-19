@@ -4,58 +4,54 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/data"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
+	"github.com/theapemachine/six/pkg/transport"
 )
 
 /*
-Scheduler submits *primitive.Value work to the pool (same contract as pool.Queue).
-*/
-type Scheduler interface {
-	Submit(value *primitive.Value)
-}
+Conn is the universal connector. It is an io.ReadWriteCloser that
+fans every Write out to a list of attached sinks (other Conns, a
+Field, an io.Writer probe), tees the same frame into a telemetry
+sink, and submits the decoded Value to the shared pool for an ALU
+pass — concurrently and lock-free on the hot path.
 
-/*
-QueueScheduler is the pool-facing side of a Conn: it submits work like
-pool.Queue and accepts raw bytes into the pool stream ring (io.Writer)
-so telemetry and tokenizer paths can observe the same frames without
-sharing the task rings used for Schedule.
-*/
-type QueueScheduler interface {
-	Scheduler
-	io.Writer
-}
+Read and Drain consume frames that the system has *emitted*: anything
+inside the substrate (post-ALU hooks, Field metric carriers, learner
+Values, downstream Conns whose emit ports point back here) writes
+those frames in via Emit. Cross-connecting two Conns is one call:
 
-/*
-Conn is a single io.ReadWriteCloser that bundles a set of
-Values into a single stream. It is the terminal stage of the
-gossip pipeline.
+	upstream.AttachSink(downstream)        // upstream.Write → downstream.Write
+	downstream.AttachEmit(upstream.Emit)   // downstream emissions → upstream out ring
+
+The fan-out itself runs as queue.Schedule jobs so a slow sink cannot
+block the caller or the other sinks. The hot path takes one RLock to
+snapshot the sink list — there is no per-sink mutex on Write.
 */
 type Conn struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	forward io.Writer
-	tee     io.Reader
-	queue   QueueScheduler
-	values  []*primitive.Value
-	stage   *primitive.Value
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       atomic.Value
+	queue     pool.Scheduler
+	telemetry *telemetry.Bridge
+	pipeline  io.ReadWriteCloser
 }
 
 /*
-NewConn allocates a Conn over the given bundle of Values. queue must be
-non-nil: it is both the task scheduler and the destination for tee'd
-wire frames (pool.Queue satisfies QueueScheduler).
+NewConn allocates a Conn over the given scheduler. queue must be non-nil:
+fan-out, telemetry, and dispatch all hop through it so the caller never
+spawns a fresh goroutine on the hot path.
 */
 func NewConn(
 	ctx context.Context,
-	queue QueueScheduler,
-	values ...*primitive.Value,
+	queue pool.Scheduler,
+	telemetry *telemetry.Bridge,
+	rwcs ...io.ReadWriter,
 ) (*Conn, error) {
 	if queue == nil {
 		return nil, errnie.Error(errors.New(
@@ -63,147 +59,41 @@ func NewConn(
 		))
 	}
 
+	if len(rwcs) == 0 {
+		return nil, errnie.Error(errors.New(
+			"gossip Conn requires at least one read writer",
+		))
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
-	forward, err := data.NewRing(ctx, data.RingCapacity)
-
-	if err != nil {
-		cancel()
-		return nil, errnie.Error(err)
-	}
-
-	var telemetrySink io.Writer
-
-	if client := telemetry.NewClient(ctx, core.Cfg.TelemetryWebSocketURL); client != nil {
-		telemetrySink = client
-	} else {
-		telemetrySink = io.Discard
-	}
+	feedback := transport.NewFeedback(ctx, telemetry, queue)
+	pipeline := transport.NewPipeline(ctx, append([]io.ReadWriter{feedback}, rwcs...)...)
 
 	conn := &Conn{
-		ctx:    ctx,
-		cancel: cancel,
-		forward: io.MultiWriter(
-			forward,
-			telemetrySink,
-		),
-		tee: io.TeeReader(
-			forward,
-			io.MultiWriter(
-				telemetrySink,
-				queue,
-			),
-		),
-		queue:  queue,
-		values: values,
-		stage:  nil,
+		ctx:       ctx,
+		cancel:    cancel,
+		queue:     queue,
+		telemetry: telemetry,
+		pipeline:  pipeline,
 	}
 
-	if err := validate.Require(map[string]any{
-		"ctx":     conn.ctx,
-		"cancel":  conn.cancel,
-		"forward": conn.forward,
-		"queue":   conn.queue,
-	}); err != nil {
-		cancel()
-		return nil, errnie.Error(err)
-	}
-
-	return conn, nil
+	return conn, errnie.Error(validate.Require(map[string]any{
+		"ctx":      conn.ctx,
+		"cancel":   conn.cancel,
+		"queue":    conn.queue,
+		"pipeline": pipeline,
+	}))
 }
 
 /*
-Close tears down the Conn. Bundled Values are not closed here; they
-are owned by whoever passed them in (usually the Field that spawned
-them) and may be shared across several Conns. The staging Value is
-released.
+Read drains exactly one emitted frame from the outbound path. The slice
+must hold at least core.Cfg.Value.Bytes (e.g. 1024); otherwise ErrShortBuffer.
+Only that prefix is passed to the underlying reader so callers using
+io.Copy with a large buffer still advance one Value frame per Read.
 */
-func (conn *Conn) Close() error {
-	if conn == nil {
-		return nil
-	}
-
-	conn.cancel()
-
-	if conn.stage != nil {
-		conn.stage.Close()
-		conn.stage = nil
-	}
-
-	return conn.err
-}
-
-/*
-Values returns the bundled Values passed to NewConn.
-*/
-func (conn *Conn) Values() []*primitive.Value {
-	if conn == nil {
-		return nil
-	}
-
-	return conn.values
-}
-
-/*
-Error returns the Conn's retained error, if any.
-*/
-func (conn *Conn) Error() error {
-	if conn == nil {
-		return nil
-	}
-
-	return conn.err
-}
-
-/*
-Update sets the Conn's bundled Values.
-*/
-func (conn *Conn) Update(values []*primitive.Value) {
-	if conn == nil {
-		return
-	}
-
-	conn.values = values
-}
-
-/*
-Write is the in-band dispatch path. It decodes the inbound frame
-into a transient staging Value (the only endian- and alignment-safe
-way to consume arbitrary byte buffers), copies the inbound frame's
-signals+context+gradient+properties (48 contiguous words) into each
-bundled Value's asset region, then submits one resident-program
-Executable per bundled Value to the pool.
-
-The pool worker dequeues the task, receives the Executable, and
-hands it to the registered dispatch (compute.Backend.Dispatch) which
-picks a substrate and runs the Value's program word against its
-freshly staged Asset region. Write is fire-and-forget: it returns
-once the staging is finished and the tasks are submitted, not after
-the ALU completes.
-*/
-func (conn *Conn) Write(p []byte) (n int, err error) {
-	if conn == nil {
-		return 0, io.ErrClosedPipe
-	}
-
-	return conn.forward.Write(p)
-}
-
-/*
-Read returns the next bundled Value's wire frame in round-robin
-order. Round-robin keeps any one Value from starving the rest under
-sustained read pressure. Each Read returns exactly one frame
-(Value.Read signals io.EOF as a frame delimiter, matching the
-tokenizer contract). For io.Copy and io.LimitReader, wrap with
-FrameDelimitedReader so per-frame EOF is not treated as end-of-stream.
-
-After serialising the frame, Read forks the Value into the firmware
-chain via the pool. The caller gets the raw frame immediately (the
-Field stores it, telemetry tees it) while the ALU catches up in the
-background — link, affinity, then resident.
-*/
-func (conn *Conn) Read(p []byte) (n int, err error) {
-	if conn == nil {
+func (conn *Conn) Read(p []byte) (int, error) {
+	if conn == nil || conn.pipeline == nil {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -211,48 +101,62 @@ func (conn *Conn) Read(p []byte) (n int, err error) {
 		return 0, io.ErrShortBuffer
 	}
 
-	teeValue := primitive.AllocValue()
+	return conn.pipeline.Read(p[:core.Cfg.Value.Bytes])
+}
 
-	if conn.stage != nil {
-		if _, conn.err = io.Copy(teeValue, conn.stage); conn.err != nil {
-			teeValue.Close()
-			return 0, errnie.Error(conn.err)
+/*
+Write fans p to every attached sink, the telemetry writer, and the
+ALU dispatch path. Each fan-out leg is scheduled on the shared queue
+so a slow sink (or a slow dispatch) never blocks another. p is copied
+once because callers reuse the buffer.
+*/
+func (conn *Conn) Write(p []byte) (int, error) {
+	if conn == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	if len(p) < core.Cfg.Value.Bytes {
+		return 0, io.ErrShortWrite
+	}
+
+	if conn.ctx.Err() != nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	return conn.pipeline.Write(p)
+}
+
+/*
+Close cancels the Conn's context. Sinks are not closed here; callers own
+their own lifetimes (a Field outlives any one Conn that points at it).
+*/
+func (conn *Conn) Close() error {
+	if conn == nil {
+		return nil
+	}
+
+	conn.cancel()
+	conn.telemetry.Close()
+	conn.pipeline.Close()
+
+	return conn.Error()
+}
+
+/*
+Error returns the most recent fan-out / dispatch error observed by the
+Conn. Errors from telemetry are intentionally swallowed (telemetry is
+best-effort) — only sink Write and dispatch failures propagate here.
+*/
+func (conn *Conn) Error() error {
+	if conn == nil {
+		return nil
+	}
+
+	if v := conn.err.Load(); v != nil {
+		if e, ok := v.(error); ok {
+			return e
 		}
-
-		conn.stage.Close()
-		conn.stage = nil
 	}
 
-	frame := make([]byte, core.Cfg.Value.Bytes)
-
-	if _, conn.err = io.ReadFull(conn.tee, frame); conn.err != nil {
-		teeValue.Close()
-
-		if errors.Is(conn.err, io.EOF) || errors.Is(conn.err, io.ErrUnexpectedEOF) {
-			return 0, io.EOF
-		}
-
-		return 0, errnie.Error(conn.err)
-	}
-
-	if _, conn.err = teeValue.Write(frame); conn.err != nil {
-		teeValue.Close()
-		return 0, errnie.Error(conn.err)
-	}
-
-	n, err = teeValue.Read(p)
-
-	if err != nil && err != io.EOF {
-		teeValue.Close()
-		return n, errnie.Error(err)
-	}
-
-	if _, conn.err = conn.queue.Write(p[:n]); conn.err != nil {
-		teeValue.Close()
-		return n, errnie.Error(conn.err)
-	}
-
-	conn.stage = teeValue
-
-	return n, conn.err
+	return nil
 }

@@ -14,6 +14,7 @@ Slot is a single slot for a worker in Pool.
 type Slot struct {
 	threadPtr unsafe.Pointer
 	task      *primitive.Value
+	fn        func()
 }
 
 /*
@@ -72,14 +73,43 @@ func (self *Pool) Submit(value *primitive.Value) {
 	}
 }
 
+// Schedule submits a raw function to be executed by a pool worker.
+// Mirrors Submit but for arbitrary closures rather than ALU Values.
+func (self *Pool) Schedule(fn func()) {
+	if fn == nil {
+		return
+	}
+
+	var slot *Slot
+
+	for {
+		if slot = self.pop(); slot != nil {
+			slot.fn = fn
+			safe_ready(slot.threadPtr)
+			return
+		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
+			slot = &Slot{fn: fn}
+			go self.loopQ(slot)
+			return
+		} else {
+			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
+			mcall(gosched_m)
+		}
+	}
+}
+
 func (self *Pool) loopQ(slot *Slot) {
 	slot.threadPtr = GetG()
 
 	for {
-		if value := slot.task; value != nil && self.dispatch != nil {
+		if fn := slot.fn; fn != nil {
+			fn()
+			slot.fn = nil
+		} else if value := slot.task; value != nil && self.dispatch != nil {
 			self.dispatch(value)
 		}
 
+		slot.task = nil
 		self.push(slot)
 		mcall(fast_park)
 	}

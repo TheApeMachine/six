@@ -219,27 +219,6 @@ export function FieldViewer({ className }: { className?: string }) {
 						/>
 					</div>
 				)}
-				<div className="pointer-events-auto mx-auto flex max-w-2xl items-center gap-2 rounded-full border border-fuchsia-500/20 bg-[#0a0a14]/95 px-3 py-2">
-					<IconGraph className="h-4 w-4 text-fuchsia-300/70" />
-					<Input
-						value={promptText}
-						onChange={(event) => setPromptText(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								submitPrompt();
-							}
-						}}
-						placeholder="Inject prompt into field..."
-						className="h-8 border-none bg-transparent font-mono text-sm text-white shadow-none focus-visible:ring-0"
-					/>
-					<Button
-						onClick={submitPrompt}
-						className="h-8 rounded-md bg-fuchsia-400/20 px-3 font-mono text-[10px] uppercase tracking-wide text-fuchsia-100 hover:bg-fuchsia-400/30"
-					>
-						<IconSend className="mr-1 h-3.5 w-3.5" />
-						Inject
-					</Button>
-				</div>
 			</div>
 		</div>
 	);

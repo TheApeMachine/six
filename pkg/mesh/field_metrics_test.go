@@ -1,7 +1,6 @@
 package mesh
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -16,11 +15,11 @@ failing branch rather than a generic score drift.
 */
 func TestFieldMeasureCrystallization(t *testing.T) {
 	Convey("Given an empty Field", t, func() {
-		field := NewField(context.Background(), 65537, nil)
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer field.Close()
 
 		Convey("measureCrystallization reports zero across the board", func() {
-			metrics := field.Metrics()
+			metrics := field.metrics.Load()
 
 			So(metrics.MemberCount, ShouldEqual, 0)
 			So(metrics.Coverage, ShouldEqual, 0)
@@ -32,7 +31,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 	})
 
 	Convey("Given a Field with three members, two fully labeled with the same class", t, func() {
-		field := NewField(context.Background(), 65537, nil)
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer field.Close()
 
 		// Two identically-labeled members (slots [7,7,7,7]) and one
@@ -47,15 +46,15 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 				primitive.WithNoise(0xFFFFFFFFFFFFFFFF),
 				primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
 			)
-			field.AddValue(value)
+			field.values = append(field.values, value)
 		}
 
 		blank := primitive.AllocValue()
 		blank.StampNewID()
-		field.AddValue(blank)
+		field.values = append(field.values, blank)
 
 		Convey("Coverage, Consensus, LabelDensity degenerate to the expected fractions", func() {
-			metrics := field.Metrics()
+			metrics := field.metrics.Load()
 
 			So(metrics.MemberCount, ShouldEqual, 3)
 			So(metrics.LabeledCount, ShouldEqual, 2)
@@ -69,7 +68,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 	})
 
 	Convey("Given a Field whose members split evenly across two classes", t, func() {
-		field := NewField(context.Background(), 65537, nil)
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer field.Close()
 
 		classA := primitive.Emit(
@@ -89,13 +88,13 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 			primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
 		)
 
-		field.AddValue(classA)
-		field.AddValue(classA)
-		field.AddValue(classB)
-		field.AddValue(classB)
+		field.values = append(field.values, classA)
+		field.values = append(field.values, classA)
+		field.values = append(field.values, classB)
+		field.values = append(field.values, classB)
 
 		Convey("Consensus drops to zero and drags Crystallization with it", func() {
-			metrics := field.Metrics()
+			metrics := field.metrics.Load()
 
 			So(metrics.Coverage, ShouldEqual, 1)
 			So(metrics.LabelDensity, ShouldEqual, 1)
@@ -114,7 +113,7 @@ cannot drift eigenmode partitions unnoticed.
 */
 func TestJaccardCouplingAffinity(t *testing.T) {
 	Convey("Given two identical fingerprints", t, func() {
-		fp := [affinityWords]uint64{1, 2, 3, 4, 5}
+		fp := [primitive.AffinityWords]uint64{1, 2, 3, 4, 5}
 
 		Convey("coupling is exactly 1", func() {
 			So(JaccardCouplingAffinity(fp, fp), ShouldEqual, 1)
@@ -122,8 +121,8 @@ func TestJaccardCouplingAffinity(t *testing.T) {
 	})
 
 	Convey("Given two fully disjoint fingerprints", t, func() {
-		a := [affinityWords]uint64{0xF0F0F0F0F0F0F0F0, 0, 0, 0, 0}
-		b := [affinityWords]uint64{0x0F0F0F0F0F0F0F0F, 0, 0, 0, 0}
+		a := [primitive.AffinityWords]uint64{0xF0F0F0F0F0F0F0F0, 0, 0, 0, 0}
+		b := [primitive.AffinityWords]uint64{0x0F0F0F0F0F0F0F0F, 0, 0, 0, 0}
 
 		Convey("coupling is 0 because intersection is empty", func() {
 			So(JaccardCouplingAffinity(a, b), ShouldEqual, 0)
@@ -131,7 +130,7 @@ func TestJaccardCouplingAffinity(t *testing.T) {
 	})
 
 	Convey("Given two all-zero fingerprints", t, func() {
-		var zero [affinityWords]uint64
+		var zero [primitive.AffinityWords]uint64
 
 		Convey("coupling is 1 so blank values always share a mode", func() {
 			So(JaccardCouplingAffinity(zero, zero), ShouldEqual, 1)
@@ -139,8 +138,8 @@ func TestJaccardCouplingAffinity(t *testing.T) {
 	})
 
 	Convey("Given a fingerprint and a proper-subset fingerprint", t, func() {
-		a := [affinityWords]uint64{0b1111, 0, 0, 0, 0}
-		b := [affinityWords]uint64{0b0011, 0, 0, 0, 0}
+		a := [primitive.AffinityWords]uint64{0b1111, 0, 0, 0, 0}
+		b := [primitive.AffinityWords]uint64{0b0011, 0, 0, 0, 0}
 
 		Convey("coupling is |intersection| / |union| = 2/4", func() {
 			So(JaccardCouplingAffinity(a, b), ShouldAlmostEqual, 0.5, 1e-9)
@@ -149,7 +148,7 @@ func TestJaccardCouplingAffinity(t *testing.T) {
 }
 
 func BenchmarkFieldMeasureCrystallization(b *testing.B) {
-	field := NewField(context.Background(), 65537, nil)
+	field := NewField(b.Context(), 65537, nil, newTestQueue(b))
 	defer field.Close()
 
 	// 64 members, roughly 70% labeled, three distinct classes — a
@@ -167,19 +166,19 @@ func BenchmarkFieldMeasureCrystallization(b *testing.B) {
 			primitive.WithStatus(0xFFFFFFFFFFFFFFFF),
 		)
 
-		field.AddValue(value)
+		field.values = append(field.values, value)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for iteration := 0; iteration < b.N; iteration++ {
-		_ = field.Metrics()
+		_ = field.metrics.Load()
 	}
 }
 
 func BenchmarkJaccardCouplingAffinity(b *testing.B) {
-	a := [affinityWords]uint64{
+	a := [primitive.AffinityWords]uint64{
 		0xA5A5A5A5A5A5A5A5, 0x5A5A5A5A5A5A5A5A,
 		0xDEADBEEFCAFEF00D, 0xFEEDFACE12345678,
 		0x0F0F0F0F0F0F0F0F,

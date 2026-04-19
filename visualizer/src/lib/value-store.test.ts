@@ -11,23 +11,25 @@ import {
 } from "./wire";
 
 /*
-PROPERTIES_COMMUNITY_WORD is absolute word 56, computed on the Go side as
-propsStart (48) + communityIDOffset (8). The mesh routing layer stamps the
-community index here via an ephemeral CopyMaskMerge program — the visualizer
+PROPERTIES_COMMUNITY_WORD is absolute word 64, computed on the Go side as
+PropertiesStartWord (56) + COMMUNITY offset (8). mesh.Field.Write stamps
+the leaf field's ID here directly onto the visitor's wire frame before
+forwarding it through the post-routing telemetry pulse — the visualizer
 just reads the same byte off the wire to recover the assignment.
 */
-const PROPERTIES_COMMUNITY_WORD = 56;
+const PROPERTIES_COMMUNITY_WORD = 64;
 
 /*
 Causal residue word indices mirror value-store.ts — keeping them here keeps
 the tests decoupled from the module under test so a silent drift in either
 place trips an assertion rather than passing silently. See pkg/compute/kernel
-for the Go-side source of truth.
+for the Go-side source of truth (PropertiesStartWord = 56, AssetStartWord =
+72, ContextStartWord = 40).
 */
-const PROPERTIES_REFUTATION_TARGET_WORD = 49;
-const PROPERTIES_NOISE_WORD = 52;
-const ASSET_GRADIENT_WORD = 80; // kernel AssetStartWord + 16
-const CONTEXT_START_WORD = 32;
+const PROPERTIES_REFUTATION_TARGET_WORD = 57;
+const PROPERTIES_NOISE_WORD = 60;
+const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
+const CONTEXT_START_WORD = 40;
 const FALSIFIED_BIT = 1n << 62n;
 
 function writeWord(frame: Uint8Array, wordIndex: number, word: bigint) {

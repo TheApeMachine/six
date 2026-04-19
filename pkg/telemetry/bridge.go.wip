@@ -1,0 +1,96 @@
+package telemetry
+
+import (
+	"context"
+	"io"
+	"net/http"
+
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
+	"github.com/gorilla/websocket"
+	"github.com/theapemachine/six/pkg/core/data"
+	"github.com/theapemachine/six/pkg/errnie"
+)
+
+type Bridge struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	err    error
+	conn   *websocket.Conn
+	queue  *data.Ring
+}
+
+func NewBridge(ctx context.Context, url string) (*Bridge, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	queue, err := data.NewRing(ctx, data.RingCapacity)
+
+	if err != nil {
+		return nil, errnie.Error(err)
+	}
+
+	return &Bridge{
+		ctx:    ctx,
+		cancel: cancel,
+		queue:  queue,
+	}, nil
+}
+
+func (bridge *Bridge) ListenAndServe() error {
+	http.ListenAndServe(":6600", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, _, err := ws.UpgradeHTTP(r, w)
+		if err != nil {
+			// handle error
+		}
+		go func() {
+			defer conn.Close()
+
+			for {
+				select {
+				case <-bridge.ctx.Done():
+					return
+				default:
+					msg, op, err := wsutil.ReadClientData(conn)
+
+					if err != nil {
+						errnie.Error(err)
+					}
+
+					err = wsutil.WriteServerMessage(conn, op, msg)
+
+					if err != nil {
+						errnie.Error(err)
+					}
+				}
+			}
+		}()
+	}))
+
+	return nil
+}
+
+func (bridge *Bridge) Close() error {
+	if bridge == nil {
+		return nil
+	}
+
+	bridge.cancel()
+
+	return bridge.err
+}
+
+func (bridge *Bridge) Write(p []byte) (int, error) {
+	if bridge == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	return bridge.conn.Write(p)
+}
+
+func (bridge *Bridge) Error() error {
+	if bridge == nil {
+		return nil
+	}
+
+	return bridge.err
+}

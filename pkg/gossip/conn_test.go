@@ -1,6 +1,7 @@
 package gossip
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,12 +9,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/pool"
 )
 
 /*
@@ -39,8 +42,8 @@ func resolveGossipTestConfigPath() string {
 
 /*
 TestMain bootstraps viper with the project config so every gossip test
-(both package gossip and package gossip_test) runs against the same
-rule/program/opcode tables the production orchestrator would see.
+runs against the same rule/program/opcode tables the production
+orchestrator would see.
 */
 func TestMain(m *testing.M) {
 	viper.SetConfigFile(resolveGossipTestConfigPath())
@@ -57,33 +60,100 @@ func TestMain(m *testing.M) {
 }
 
 /*
-TestNewConn covers the construction contract: a Conn demands a
-Scheduler because a bundle without a way to reach the pool is not a
-real pipeline stage, only a router of bytes.
+newRealQueue spins up a real pool.Queue for the test. The pool is needed
+because Conn.Write fans every leg through queue.Schedule; a stub that
+just records calls would make the assertions racy with the real
+fan-out timing.
 */
-func TestNewConn(t *testing.T) {
-	Convey("Given a live scheduler and at least one Value", t, func() {
-		value := primitive.AllocValue()
-		defer value.Close()
+func newRealQueue(tb testing.TB) *pool.Queue {
+	tb.Helper()
 
-		Convey("NewConn returns a usable Conn", func() {
-			conn, err := NewConn(context.Background(), newStubQueue(nil), value)
+	queue, err := pool.NewQueue(context.Background())
 
-			So(err, ShouldBeNil)
-			So(conn, ShouldNotBeNil)
-			So(conn.Values(), ShouldResemble, []*primitive.Value{value})
+	if err != nil {
+		tb.Fatal(err)
+	}
 
-			So(conn.Close(), ShouldBeNil)
-		})
-	})
+	return queue
+}
 
+/*
+recordingSink is an io.Writer that captures every byte slice it sees.
+Writes are kept under a mutex so tests can assert about the resulting
+slice without racing the fan-out goroutines.
+*/
+type recordingSink struct {
+	mu      sync.Mutex
+	frames  [][]byte
+	writeFn func(p []byte) (int, error)
+}
+
+func (sink *recordingSink) Write(p []byte) (int, error) {
+	sink.mu.Lock()
+	frame := append([]byte(nil), p...)
+	sink.frames = append(sink.frames, frame)
+	fn := sink.writeFn
+	sink.mu.Unlock()
+
+	if fn != nil {
+		return fn(p)
+	}
+
+	return len(p), nil
+}
+
+func (sink *recordingSink) Frames() [][]byte {
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+
+	out := make([][]byte, len(sink.frames))
+	for idx, f := range sink.frames {
+		out[idx] = append([]byte(nil), f...)
+	}
+
+	return out
+}
+
+/*
+waitForFanout blocks until at least want frames have landed on every
+sink, or the deadline fires. Returns true on success. Used to make the
+async fan-out assertions deterministic without sleeping for an
+arbitrary fixed amount.
+*/
+func waitForFanout(deadline time.Duration, want int, sinks ...*recordingSink) bool {
+	stop := time.Now().Add(deadline)
+
+	for time.Now().Before(stop) {
+		ok := true
+
+		for _, sink := range sinks {
+			if len(sink.Frames()) < want {
+				ok = false
+
+				break
+			}
+		}
+
+		if ok {
+			return true
+		}
+
+		runtime.Gosched()
+	}
+
+	return false
+}
+
+/*
+TestNewConnRequiresQueue locks down the construction contract: a Conn
+without a Scheduler is not a real pipeline stage, only a router of
+bytes — and the constructor refuses to build one.
+*/
+func TestNewConnRequiresQueue(t *testing.T) {
 	Convey("Given a missing queue", t, func() {
-		value := primitive.AllocValue()
-		defer value.Close()
+		conn, err := NewConn(t.Context(), nil, nil)
 
 		Convey("NewConn refuses to build a broken pipeline", func() {
-			conn, err := NewConn(context.Background(), nil, value)
-
 			So(err, ShouldNotBeNil)
 			So(conn, ShouldBeNil)
 		})
@@ -91,293 +161,121 @@ func TestNewConn(t *testing.T) {
 }
 
 /*
-TestConnWrite verifies sliding-window staging: inbound S/C/G/P lands in
-the bundled Value's asset region (Value.Write contract on the receive side).
+TestConnFanOutToSinks pins the fan-out contract: every Write delivers
+exactly one copy of the frame to every attached sink. Frames are
+delivered async via queue.Schedule, so the assertion waits for the
+expected count instead of sleeping a fixed amount.
 */
-func TestConnWrite(t *testing.T) {
-	Convey("Given a Conn with one freshly minted Value", t, func() {
-		bundled := primitive.AllocValue()
-		defer bundled.Close()
+func TestConnFanOutToSinks(t *testing.T) {
+	Convey("Given a Conn with two attached sinks", t, func() {
+		queue := newRealQueue(t)
 
-		assetStart, _ := primitive.AssetRegion.WordExtent()
-		signalsStart, signalsWords := primitive.SignalsRegion.WordExtent()
-		_, contextWords := primitive.ContextRegion.WordExtent()
-		_, gradientWords := primitive.GradientRegion.WordExtent()
-		_, propertiesWords := primitive.PropertiesRegion.WordExtent()
-		stageWords := signalsWords + contextWords + gradientWords + propertiesWords
+		conn, err := NewConn(
+			t.Context(), queue, nil,
+		)
 
-		conn, err := NewConn(context.Background(), newStubQueue(nil), bundled)
 		So(err, ShouldBeNil)
+
 		defer func() {
 			So(conn.Close(), ShouldBeNil)
+			So(queue.Close(), ShouldBeNil)
 		}()
 
-		inbound := primitive.AllocValue()
-		defer inbound.Close()
+		alpha := &recordingSink{}
+		beta := &recordingSink{}
 
-		for offset := 0; offset < stageWords; offset++ {
-			(*inbound)[signalsStart+offset] = 0xBB00 | uint64(offset)
-		}
+		Convey("Each Write fans one frame to every sink", func() {
+			frame := bytes.Repeat([]byte{0xAB}, core.Cfg.Value.Bytes)
 
-		frame := make([]byte, core.Cfg.Value.Bytes)
-		_, readErr := inbound.Read(frame)
-		So(readErr, ShouldEqual, io.EOF)
+			n, werr := conn.Write(frame)
 
-		n, writeErr := conn.Write(frame)
-
-		Convey("Write stages asset[0,32] from the inbound frame", func() {
-			So(writeErr, ShouldBeNil)
+			So(werr, ShouldBeNil)
 			So(n, ShouldEqual, core.Cfg.Value.Bytes)
 
-			for offset := 0; offset < stageWords; offset++ {
-				So((*bundled)[assetStart+offset], ShouldEqual, 0xBB00|uint64(offset))
-			}
-		})
+			So(waitForFanout(time.Second, 1, alpha, beta), ShouldBeTrue)
 
-		Convey("The bundled Value count is stable after Write", func() {
-			So(writeErr, ShouldBeNil)
-			So(len(conn.Values()), ShouldEqual, 1)
+			alphaFrames := alpha.Frames()
+			betaFrames := beta.Frames()
+
+			So(len(alphaFrames), ShouldEqual, 1)
+			So(len(betaFrames), ShouldEqual, 1)
+			So(alphaFrames[0], ShouldResemble, frame)
+			So(betaFrames[0], ShouldResemble, frame)
 		})
 	})
+}
 
-	Convey("Given a Conn with a fully bootstrapped Value", t, func() {
-		bundled := primitive.AllocValue()
-		defer bundled.Close()
+/*
+TestConnNilReceiver pins the defensive contracts for a nil *Conn so
+callers probing partially constructed handles do not panic.
+*/
+func TestConnNilReceiver(t *testing.T) {
+	Convey("Given a nil Conn", t, func() {
+		var conn *Conn
 
-		prevStart, _ := primitive.PrevRegion.WordExtent()
-		nextStart, _ := primitive.NextRegion.WordExtent()
-		affinityStart, affinityWords := primitive.AffinityRegion.WordExtent()
+		So(conn.Close(), ShouldBeNil)
+		So(conn.Error(), ShouldBeNil)
 
-		// Simulate a Value that has already walked through link and
-		// affinity firmware so the rule evaluator falls through and
-		// the resident program takes over.
-		bundled.Set(prevStart, 0xDEADBEEF)
-		bundled.Set(nextStart, 0xFEEDFACE)
-		for offset := 0; offset < affinityWords; offset++ {
-			bundled.Set(affinityStart+offset, 0x1111_2222_3333_4444)
-		}
+		n, writeErr := conn.Write(make([]byte, core.Cfg.Value.Bytes))
 
-		conn, err := NewConn(context.Background(), newStubQueue(nil), bundled)
+		So(n, ShouldEqual, 0)
+		So(writeErr, ShouldEqual, io.ErrClosedPipe)
+
+		n, readErr := conn.Read(make([]byte, core.Cfg.Value.Bytes))
+
+		So(n, ShouldEqual, 0)
+		So(readErr, ShouldEqual, io.ErrClosedPipe)
+	})
+}
+
+/*
+TestConnWriteShortBuffer guards the wire-frame size invariant: short
+writes are rejected so a half-frame cannot poison the fan-out.
+*/
+func TestConnWriteShortBuffer(t *testing.T) {
+	Convey("Write rejects frames smaller than one Value wire size", t, func() {
+		queue := newRealQueue(t)
+
+		conn, err := NewConn(
+			t.Context(), queue, nil,
+		)
+
 		So(err, ShouldBeNil)
+
 		defer func() {
 			So(conn.Close(), ShouldBeNil)
+			So(queue.Close(), ShouldBeNil)
 		}()
 
-		frame := make([]byte, core.Cfg.Value.Bytes)
-		n, writeErr := conn.Write(frame)
+		n, writeErr := conn.Write([]byte{1, 2, 3})
 
-		Convey("Write completes a full frame on a bootstrapped bundle", func() {
-			So(writeErr, ShouldBeNil)
-			So(n, ShouldEqual, core.Cfg.Value.Bytes)
-			So(len(conn.Values()), ShouldEqual, 1)
-		})
+		So(n, ShouldEqual, 0)
+		So(writeErr, ShouldEqual, io.ErrShortWrite)
 	})
 }
 
 /*
-TestConnRead verifies round-robin output so no single bundled Value
-starves the rest under a sustained read pressure.
+TestConnReadShortBuffer ensures Read refuses buffers smaller than one
+Value frame so io.Copy cannot coalesce multiple logical frames per call.
 */
-func TestConnRead(t *testing.T) {
-	Convey("Given a Conn over three bundled Values", t, func() {
-		bundled := make([]*primitive.Value, 3)
-		for idx := range bundled {
-			bundled[idx] = primitive.AllocValue()
-			bundled[idx].StampNewID()
-		}
-		defer func() {
-			for _, value := range bundled {
-				value.Close()
-			}
-		}()
+func TestConnReadShortBuffer(t *testing.T) {
+	Convey("Read rejects buffers smaller than one Value wire size", t, func() {
+		queue := newRealQueue(t)
 
-		conn, err := NewConn(context.Background(), newStubQueue(nil), bundled...)
+		conn, err := NewConn(
+			t.Context(), queue, nil,
+		)
+
 		So(err, ShouldBeNil)
+
 		defer func() {
 			So(conn.Close(), ShouldBeNil)
+			So(queue.Close(), ShouldBeNil)
 		}()
 
-		Convey("Successive Reads rotate through every bundled Value", func() {
-			seen := make([]uint64, 0, 6)
-			frame := make([]byte, core.Cfg.Value.Bytes)
+		n, readErr := conn.Read([]byte{1, 2, 3})
 
-			for range 6 {
-				_, readErr := conn.Read(frame)
-				So(readErr, ShouldEqual, io.EOF)
-
-				restored, err := primitive.ValueFromWireFrame(frame)
-				So(err, ShouldBeNil)
-
-				seen = append(seen, restored.ID())
-				restored.Close()
-			}
-
-			So(seen[0], ShouldEqual, bundled[0].ID())
-			So(seen[1], ShouldEqual, bundled[1].ID())
-			So(seen[2], ShouldEqual, bundled[2].ID())
-			So(seen[3], ShouldEqual, bundled[0].ID())
-			So(seen[4], ShouldEqual, bundled[1].ID())
-			So(seen[5], ShouldEqual, bundled[2].ID())
-		})
+		So(n, ShouldEqual, 0)
+		So(readErr, ShouldEqual, io.ErrShortBuffer)
 	})
-
-	Convey("Given a Conn with no bundled Values", t, func() {
-		conn, err := NewConn(context.Background(), newStubQueue(nil))
-		So(err, ShouldBeNil)
-		defer func() {
-			So(conn.Close(), ShouldBeNil)
-		}()
-
-		Convey("Read reports io.EOF so idiomatic copy loops terminate", func() {
-			frame := make([]byte, core.Cfg.Value.Bytes)
-			_, readErr := conn.Read(frame)
-
-			So(readErr, ShouldEqual, io.EOF)
-		})
-	})
-}
-
-/*
-stubScheduler is an in-package fake that forwards Submit(*Value) to an
-optional dispatch hook, mirroring pool.Queue.
-*/
-type stubScheduler struct {
-	dispatch func(*primitive.Value)
-}
-
-/*
-stubQueueTee pairs stubScheduler with io.Writer so it satisfies
-QueueScheduler for NewConn in tests without a real pool.Queue.
-*/
-type stubQueueTee struct {
-	*stubScheduler
-}
-
-func (stubQueueTee) Write(p []byte) (int, error) {
-	return len(p), nil
-}
-
-func newStubQueue(dispatch func(*primitive.Value)) QueueScheduler {
-	return &stubQueueTee{stubScheduler: &stubScheduler{dispatch: dispatch}}
-}
-
-func (scheduler *stubScheduler) Submit(value *primitive.Value) {
-	if value == nil {
-		return
-	}
-
-	if scheduler.dispatch != nil {
-		scheduler.dispatch(value)
-	}
-}
-
-/*
-TestValueChainPropagation pins cross-Value asset staging: each Value's
-S/C/G/P block can be copied into the next Value's asset window (same shape
-as inbound Value.Write staging).
-*/
-func TestValueChainPropagation(t *testing.T) {
-	Convey("Given three pre-bootstrapped Values in a chain", t, func() {
-		prevStart, _ := primitive.PrevRegion.WordExtent()
-		nextStart, _ := primitive.NextRegion.WordExtent()
-		affinityStart, affinityWords := primitive.AffinityRegion.WordExtent()
-		signalsStart, signalsWords := primitive.SignalsRegion.WordExtent()
-		_, contextWords := primitive.ContextRegion.WordExtent()
-		_, gradientWords := primitive.GradientRegion.WordExtent()
-		_, propertiesWords := primitive.PropertiesRegion.WordExtent()
-		assetStart, _ := primitive.AssetRegion.WordExtent()
-
-		stageWords := signalsWords + contextWords + gradientWords + propertiesWords
-
-		chain := make([]*primitive.Value, 3)
-
-		for idx := range chain {
-			chain[idx] = primitive.AllocValue()
-			chain[idx].StampNewID()
-
-			// Pre-bootstrap so the rule evaluator falls through to the
-			// resident program on first entry — this test is about
-			// cross-Value propagation, not the link/affinity walk
-			// (TestConnWriteChainsFirmware already covers that).
-			chain[idx].Set(prevStart, 0xDEADBEEF)
-			chain[idx].Set(nextStart, 0xFEEDFACE)
-			for offset := 0; offset < affinityWords; offset++ {
-				chain[idx].Set(affinityStart+offset, 0x1111_2222_3333_4444)
-			}
-
-			// Seed a unique S/C/G/P pattern into each Value so we can
-			// assert byte-for-byte that V[i]'s outbound block lands in
-			// V[i+1]'s asset window without accidental cross-talk.
-			for offset := 0; offset < stageWords; offset++ {
-				(*chain[idx])[signalsStart+offset] = uint64(uint64(idx+1)<<32) | uint64(offset)
-			}
-		}
-
-		defer func() {
-			for _, value := range chain {
-				value.Close()
-			}
-		}()
-
-		for i := 0; i < len(chain)-1; i++ {
-			copy(
-				(*chain[i+1])[assetStart:assetStart+stageWords],
-				(*chain[i])[signalsStart:signalsStart+stageWords],
-			)
-		}
-
-		Convey("V[1].Asset[0,stageWords] mirrors V[0]'s S/C/G/P block", func() {
-			for offset := 0; offset < stageWords; offset++ {
-				So(
-					(*chain[1])[assetStart+offset],
-					ShouldEqual,
-					uint64(uint64(1)<<32)|uint64(offset),
-				)
-			}
-		})
-
-		Convey("V[2].Asset[0,stageWords] mirrors V[1]'s S/C/G/P block", func() {
-			for offset := 0; offset < stageWords; offset++ {
-				So(
-					(*chain[2])[assetStart+offset],
-					ShouldEqual,
-					uint64(uint64(2)<<32)|uint64(offset),
-				)
-			}
-		})
-
-		Convey("V[0]'s Asset region stays untouched (head of chain)", func() {
-			for offset := 0; offset < stageWords; offset++ {
-				So((*chain[0])[assetStart+offset], ShouldEqual, uint64(0))
-			}
-		})
-	})
-}
-
-func BenchmarkConnWrite(b *testing.B) {
-	bundled := primitive.AllocValue()
-	defer bundled.Close()
-
-	conn, err := NewConn(context.Background(), newStubQueue(nil), bundled)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer conn.Close()
-
-	inbound := primitive.AllocValue()
-	defer inbound.Close()
-
-	frame := make([]byte, core.Cfg.Value.Bytes)
-	if _, readErr := inbound.Read(frame); readErr != io.EOF {
-		b.Fatal(readErr)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for iteration := 0; iteration < b.N; iteration++ {
-		if _, err := conn.Write(frame); err != nil {
-			b.Fatal(err)
-		}
-	}
 }

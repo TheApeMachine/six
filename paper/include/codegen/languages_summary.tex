@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-477 & C++ & 0.0000 & 0.0400 & 0.0020 & 0.0113 \\
-28 & Python & 0.0000 & 0.0400 & 0.0020 & 0.0113 \\
-278 & Java & 0.0000 & 0.0200 & 0.0010 & 0.0056 \\
+497 & C++ & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
+79 & Python & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
+127 & JavaScript & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-1 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 598 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-597 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+39 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{(i*i*i==abs(a)) return true;·    return \ldots}} & \multicolumn{2}{l}{\texttt{·H)i\}·Y-ty/A·CL···)d\}/X···@]QI·H·I·I·I·I\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{])·    'abc'·    """·     return ''.join\ldots}} & \multicolumn{2}{l}{\texttt{·O\textbackslash\{\}·N'ME··JX·NI@·\textbackslash\{\}DHDIPHew]\textasciitilde{}w.3\}·TY·M·H·\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{current\_string.clear()··    return resul\ldots}} & \multicolumn{2}{l}{\texttt{·O\textbackslash\{\}·N'ME··JX·NI@·\textbackslash\{\}DHDIPHew]\textasciitilde{}w.3\}·TY·M·H·\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{·I·H·H·H·H·H·H·HDHEH@HAHTHUH)8\}·X`y-·*ak\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{a,int b)\{·     return (abs(a)\%10)*(abs(b\ldots}} & \multicolumn{2}{l}{\texttt{···· ((·*(b(a*f(E·p*(v(U·()\#+)·)0+)))@·a\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{"""·     return "db" + bin(decimal)[2:] \ldots}} & \multicolumn{2}{l}{\texttt{·!(\&(-(··1(6(·(((F(("q*("·)))·)·++·5)b)K\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{(((··(·(((··**··s*\^{}*w(···+\$+\%)··+·+))N)g\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{(((··(·(((··**··s*\^{}*w(···+\$+\%)··+·+))N)g\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0004} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0113} \\
+\multicolumn{3}{l}{Mean score: 0.0023} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0169} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

@@ -3,6 +3,8 @@ package geometry
 import (
 	"fmt"
 	"math"
+
+	"gonum.org/v1/gonum/mat"
 )
 
 /*
@@ -85,15 +87,13 @@ func Procrustes(matA, matB [][]float64, nSamples, nDim int) (*ProcrustesResult, 
 }
 
 /*
-JacobiSVD computes the thin SVD of an m×n matrix (m ≥ n) using cyclic
-Jacobi rotations on AᵀA. Returns U (m×n), singular values Σ (length n),
-and V (n×n). Convergence criterion: the largest off-diagonal element of
-the Gram matrix drops below ε·‖diag‖.
+JacobiSVD computes the thin SVD of an m×n matrix (m ≥ n). The name is
+historical: the implementation uses LAPACK (via gonum/mat.SVD and
+dgesvd-style backends) rather than the previous cubic Jacobi sweeps,
+giving stable, fast decomposition at large dimensions (e.g. 512×512).
 
-The method repeatedly applies 2×2 Jacobi rotations to pairs (p,q) with
-p < q, zeroing the (p,q) element of AᵀA while accumulating the rotation
-into V. After convergence the singular values are the column norms of the
-updated A, and U is A with each column divided by its singular value.
+Returns U (m×n), singular values Σ (length n, descending), and V (n×n)
+with the same indexing contract as before: A ≈ U·diag(Σ)·Vᵀ.
 */
 func JacobiSVD(matrix [][]float64, rows, cols int) ([][]float64, []float64, [][]float64, error) {
 	if rows < cols {
@@ -102,84 +102,43 @@ func JacobiSVD(matrix [][]float64, rows, cols int) ([][]float64, []float64, [][]
 		))
 	}
 
-	work := make([][]float64, rows)
-	for row := range work {
-		work[row] = make([]float64, cols)
-		copy(work[row], matrix[row])
-	}
+	dense := mat.NewDense(rows, cols, nil)
 
-	vMat := eye(cols)
-
-	const maxSweeps = 100
-	tolerance := 1e-12
-
-	for sweep := 0; sweep < maxSweeps; sweep++ {
-		converged := true
-
-		for p := 0; p < cols-1; p++ {
-			for q := p + 1; q < cols; q++ {
-				var alpha, beta, gamma float64
-
-				for row := 0; row < rows; row++ {
-					alpha += work[row][p] * work[row][p]
-					beta += work[row][q] * work[row][q]
-					gamma += work[row][p] * work[row][q]
-				}
-
-				if math.Abs(gamma) < tolerance*(math.Sqrt(alpha*beta)+tolerance) {
-					continue
-				}
-
-				converged = false
-				zeta := (beta - alpha) / (2.0 * gamma)
-				tangent := math.Copysign(1.0, zeta) / (math.Abs(zeta) + math.Sqrt(1.0+zeta*zeta))
-				cosine := 1.0 / math.Sqrt(1.0+tangent*tangent)
-				sine := tangent * cosine
-
-				for row := 0; row < rows; row++ {
-					wp := work[row][p]
-					wq := work[row][q]
-					work[row][p] = cosine*wp - sine*wq
-					work[row][q] = sine*wp + cosine*wq
-				}
-
-				for row := 0; row < cols; row++ {
-					vp := vMat[row][p]
-					vq := vMat[row][q]
-					vMat[row][p] = cosine*vp - sine*vq
-					vMat[row][q] = sine*vp + cosine*vq
-				}
-			}
-		}
-
-		if converged {
-			break
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			dense.Set(row, col, matrix[row][col])
 		}
 	}
 
-	sigma := make([]float64, cols)
-	uMat := make([][]float64, rows)
-	for row := range uMat {
-		uMat[row] = make([]float64, cols)
+	var svd mat.SVD
+
+	if ok := svd.Factorize(dense, mat.SVDThin); !ok {
+		return nil, nil, nil, ProcrustesError("SVD factorization failed")
 	}
 
-	for col := 0; col < cols; col++ {
-		var norm float64
+	sigma := svd.Values(nil)
 
-		for row := 0; row < rows; row++ {
-			norm += work[row][col] * work[row][col]
-		}
+	var uDense, vDense mat.Dense
 
-		sigma[col] = math.Sqrt(norm)
+	svd.UTo(&uDense)
+	svd.VTo(&vDense)
 
-		if sigma[col] > tolerance {
-			for row := 0; row < rows; row++ {
-				uMat[row][col] = work[row][col] / sigma[col]
-			}
+	return denseToSlice(&uDense), sigma, denseToSlice(&vDense), nil
+}
+
+func denseToSlice(d *mat.Dense) [][]float64 {
+	rows, cols := d.Dims()
+	out := make([][]float64, rows)
+
+	for row := 0; row < rows; row++ {
+		out[row] = make([]float64, cols)
+
+		for col := 0; col < cols; col++ {
+			out[row][col] = d.At(row, col)
 		}
 	}
 
-	return uMat, sigma, vMat, nil
+	return out
 }
 
 /*

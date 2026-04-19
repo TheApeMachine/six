@@ -56,8 +56,19 @@ func FormatBarChartDataForArtifactJSON(chart tools.BarChartData) map[string]any 
 	}
 }
 
+// perValueCap is a heuristic upper bound on the rendered length of one
+// fixed-decimal float in the JSON array: optional sign, ~15 integer digits,
+// the decimal point, the configured fractional digits, and the trailing comma
+// separator. Twenty-four bytes covers every plausible (value, decimals) pair
+// the bar-chart formatter sees, so builder.Grow rarely under-allocates.
+const perValueCap = 24
+
 func marshalBarDataFixedDecimals(values []float64, decimals int) json.RawMessage {
 	builder := strings.Builder{}
+	// 2 reserves room for the surrounding '[' and ']' brackets; the
+	// per-value cap accounts for the value bytes plus their comma.
+	builder.Grow(2 + len(values)*perValueCap)
+
 	builder.WriteByte('[')
 
 	for index, value := range values {

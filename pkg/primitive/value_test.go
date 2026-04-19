@@ -42,10 +42,10 @@ func TestNewValue(t *testing.T) {
 				So(decoded.String(), ShouldEqual, string(payload))
 			})
 
-			Convey("It should survive a Read/Write wire-frame round-trip", func() {
-				// The Read/Write path is the byte-identical contract used
-				// for Publish, trie storage, and gossip replication. Every
-				// word must reappear verbatim on the far side.
+			Convey("It should survive a Read/LoadFullFrame wire-frame round-trip", func() {
+				// Read serializes the full wire frame; LoadFullFrame is the
+				// inverse that restores every word. (Value.Write merges only
+				// selected regions for programmer-role frames, not a full copy.)
 				source := values[0]
 
 				frame := make([]byte, core.Cfg.Value.Bytes)
@@ -54,11 +54,16 @@ func TestNewValue(t *testing.T) {
 				So(err, ShouldEqual, io.EOF)
 				So(n, ShouldEqual, core.Cfg.Value.Bytes)
 
-				target := &Value{}
+				target := AllocValue()
 
-				n, err = target.Write(frame)
+				defer func() {
+					if closeErr := target.Close(); closeErr != nil {
+						t.Log(closeErr)
+					}
+				}()
+
+				err = target.LoadFullFrame(frame)
 				So(err, ShouldBeNil)
-				So(n, ShouldEqual, core.Cfg.Value.Bytes)
 
 				for idx := range *source {
 					So((*target)[idx], ShouldEqual, (*source)[idx])
@@ -167,12 +172,16 @@ func TestFirstSegment(t *testing.T) {
 		capacity := int((core.Cfg.Value.Region.Tokens.Bits + 7) / 8 / 2)
 		payload := bytes.Repeat([]byte{'Z'}, capacity*3)
 
-		Convey("When FirstSegment receives the multi-segment slice", func() {
+		Convey("When NewValue mints the multi-segment payload", func() {
 			values, err := NewValue(payload)
 
-			Convey("It should refuse and return an error", func() {
-				So(err, ShouldNotBeNil)
-				So(len(values), ShouldEqual, 0)
+			Convey("It should return several segments without error", func() {
+				So(err, ShouldBeNil)
+				So(len(values), ShouldBeGreaterThanOrEqualTo, 2)
+			})
+
+			Reset(func() {
+				CloseAll(values)
 			})
 		})
 	})
@@ -239,16 +248,19 @@ func TestValue_Write(t *testing.T) {
 		frame := make([]byte, core.Cfg.Value.Bytes)
 		_, _ = values[0].Read(frame)
 
-		Convey("When Write is called on a fresh Value", func() {
-			target := &Value{}
-			n, writeErr := target.Write(frame)
+		Convey("When LoadFullFrame restores the frame into a fresh Value", func() {
+			target := AllocValue()
 
-			Convey("It should copy the frame verbatim", func() {
-				// Write is a raw wire decode: every word must match the
-				// source frame byte-for-byte, including the ID word so
-				// that Publish/trie routing stays stable.
-				So(writeErr, ShouldBeNil)
-				So(n, ShouldEqual, core.Cfg.Value.Bytes)
+			defer func() {
+				if closeErr := target.Close(); closeErr != nil {
+					t.Log(closeErr)
+				}
+			}()
+
+			loadErr := target.LoadFullFrame(frame)
+
+			Convey("It should match the source word-for-word", func() {
+				So(loadErr, ShouldBeNil)
 				So(target.ID(), ShouldEqual, values[0].ID())
 
 				for idx := range *values[0] {

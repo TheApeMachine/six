@@ -20,6 +20,12 @@ func TestCharacterNgramCosine(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(sim, ShouldEqual, 1)
 	})
+
+	Convey("Unicode falls back to rune n-grams", t, func() {
+		sim, err := CharacterNgramCosine("café", "café", 2)
+		So(err, ShouldBeNil)
+		So(sim, ShouldAlmostEqual, 1, 1e-9)
+	})
 }
 
 func BenchmarkCosineSparseMaps(b *testing.B) {

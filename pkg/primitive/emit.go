@@ -128,8 +128,9 @@ func WithFirmware(firmware core.FirmwareType) EmitOptions {
 			return
 		}
 
-		prog := core.Cfg.Programs[firmware].Compiled
-		value.WriteProgramWords(prog)
+		entry := core.Cfg.Programs[firmware]
+		value.WriteProgramWords(entry.Compiled())
+		value.SetSchedulingNext(entry.ResolveSchedulingNext(value.ID()))
 	}
 }
 

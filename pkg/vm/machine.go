@@ -5,10 +5,12 @@ import (
 	"errors"
 
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/network"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -23,6 +25,7 @@ type Machine struct {
 	host         *network.Host
 	tokenizer    *Tokenizer
 	orchestrator *Orchestrator
+	telemetry    *telemetry.Bridge
 }
 
 type machineOpts func(*Machine)
@@ -32,9 +35,17 @@ func NewMachine(
 ) (*Machine, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	bridge, err := telemetry.NewBridge(ctx, core.Cfg.TelemetryWebSocketURL)
+
+	if err != nil {
+		cancel()
+		return nil, errnie.Error(err)
+	}
+
 	machine := &Machine{
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:       ctx,
+		cancel:    cancel,
+		telemetry: bridge,
 	}
 
 	for _, opt := range opts {
@@ -47,6 +58,7 @@ func NewMachine(
 
 	if machine.orchestrator, machine.err = NewOrchestrator(
 		ctx,
+		machine.telemetry,
 	); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}

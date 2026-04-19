@@ -93,16 +93,16 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 ```text
 ┌─────────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
 │   Tokens    │  Program   │  Signals   │  Context   │   Gradient   │  Properties  │   Assets    │ Prev │ Next │ ID  │   Affinity   │
-│  1024 bits  │  512 bits  │  512 bits  │  512 bits  │   512 bits   │  1024 bits   │  3584 bits  │  64  │  64  │ 64  │   257 bits   │
-│ words 0-15  │ words16-23 │ words24-31 │ words32-39 │  words40-47  │ words48-63   │ words64-119 │ 120  │ 121  │ 122 │ words123-127 │
+│  1024 bits  │  1024 bits │  512 bits  │  512 bits  │   512 bits   │  1024 bits   │  3072 bits  │  64  │  64  │ 64  │   257 bits   │
+│ words 0-15  │ words16-31 │ words32-39 │ words40-47 │  words48-55  │ words 56-71  │ words72-119 │ 120  │ 121  │ 122 │ words123-127 │
 └─────────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
 ```
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
 - **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines which community the Value joins.
 - **Program region**: Packed bits the compute kernels interpret for the **universal bitwise** path: the **low nibble** of the first program word selects the 4-input truth-table opcode; the kernel **broadcasts** that nibble across all 16 internal rotation slots (one schedule—no separate rotation-table word). The next word is **mode** (`accumulate` vs `reduce`); **operand references** occupy the following configured words (`srcA`, `srcB`, `dst` — see `pkg/compute/kernel/layout.go` and `core.Cfg.Value.Region.Program`). **Authoring** does not hand-edit raw words: you write lines of source (see below), `pkg/compute/firmware` **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
-- **Properties region** (words 48–63): 1024-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Fixed slots (TTL, noise, probe ABI, community id, firmware status) use the same word indices as `pkg/compute/kernel/layout.go`.
-- **Asset region** (words 64–119): 3584-bit scratch and bundled payload (the space that remains before Prev/Next/ID/Affinity); scheduler word 117 and kernel frame metadata at words 118–119 live in this span.
+- **Properties region** (words 56–71): 1024-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Fixed slots (TTL, noise, probe ABI, community id, firmware status) use the same word indices as `pkg/compute/kernel/layout.go` and `pkg/primitive/properties.go`.
+- **Asset region** (words 72–119): 3072-bit scratch and bundled payload (the space that remains before Prev/Next/ID/Affinity); scheduler word 117 and kernel frame metadata at words 118–119 live in this span.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
 - **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads) and for maintaining sequence order across tokenizer chunks. Values always know their original ordering.
 - **ID**: 64-bit unique identifier, assigned by atomic counter at mint time.
@@ -110,21 +110,23 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 ### Properties
 
-Canonical **1024-bit** region, spanning words **48 to 63** (see `value.region.properties` in `cmd/cfg/config.yml`). The leading words below match `pkg/compute/kernel/layout.go`; words **58–63** are reserved for forward-compatible extensions.
+Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.properties` in `cmd/cfg/config.yml`). Word offsets below come from `pkg/primitive/properties.go` (the `PropertyType` enum); absolute word = `PropertiesStartWord (56) + offset`. Offsets **13–15** are reserved for forward-compatible extensions.
 
-| Word (absolute) | Region offset | Name                                           | Notes                                                                                                                      |
-|-----------------|---------------|------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
-| 48              | 0             | **labels**                                     | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63     |
-| 49              | 1             | **confidence**                                 | Overall confidence calculated from the results of any algorithm that leaves an arifact (classification, beam search, etc.) |
-| 50              | 2             | **epoch**                                      | +1 for any algorithm run                                                                                                   |
-| 51              | 3             | **TTL** (`PropertiesTTLWord`)                  | Time-to-live for ephemeral Values; zero means dissolve, one means it can take one action, etc.                             |
-| 52              | 4             | **temperature** (`PropertiesNoiseWord`)        | The scaler that determines how "creative" the model will be while executing algorithms                                     |
-| 53              | 5             | **probe state** (`PropertiesProbeStateWord`)   | Packed probe kind + lifecycle status (see `kernel.PackProbeState`)                                                         |
-| 54              | 6             | **probe window** (`PropertiesProbeWindowWord`) | `PackRegionRef` over token words for causal probes                                                                         |
-| 55              | 7             | **probe depth** (`PropertiesProbeDepthWord`)   | Re-stabilisation depth for causal hub probes                                                                               |
-| 56              | 8             | **community** (`PropertiesCommunityWord`)      | Community index after `mesh.Field` routing (see `mesh.communityIDOffset`)                                                  |
-| 57              | 9             | **status** (`PropertiesStatusWord`)            | Value status: IDLE, READY, BUSY, WAITING, DONE, OK, ERROR                                                                  |
-| 58–63           | 10–15         | **fieldId**                                    | The community `Field`'s ID this `Value` belongs to                                                                         |
+| Word (absolute) | Region offset | Name                                       | Notes                                                                                                                                |
+|-----------------|---------------|--------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| 56              | 0             | **labels**                                 | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63               |
+| 57              | 1             | **confidence**                             | Overall confidence calculated from the results of any algorithm that leaves an artifact (classification, beam search, etc.)          |
+| 58              | 2             | **epoch**                                  | +1 for any algorithm run                                                                                                             |
+| 59              | 3             | **TTL** (`PropertiesTTLWord`)              | Time-to-live for ephemeral Values; zero means dissolve, one means it can take one action, etc.                                       |
+| 60              | 4             | **temperature** (`PropertiesNoiseWord`)    | The scaler that determines how "creative" the model will be while executing algorithms                                               |
+| 61              | 5             | **status** (`PropertiesStatusWord`)        | Value status: PENDING, READY, BUSY, WAITING, DONE, RESOLVED, ERROR                                                                   |
+| 62              | 6             | **probe window**                           | `PackRegionRef` over token words for causal probes                                                                                   |
+| 63              | 7             | **probe depth**                            | Re-stabilisation depth for causal hub probes                                                                                         |
+| 64              | 8             | **community** (`PropertiesCommunityWord`)  | Stable `mesh.Field` ID stamped onto the visitor by the leaf `Field.Write` after routing — the visualiser keys community buckets here |
+| 65              | 9             | **target**                                 | ValueID of an addressable target (linker / encounter dispatch)                                                                       |
+| 66              | 10            | **role**                                   | In-band `ValueRole` (e.g. `ValueRoleProgrammer`); zero means no special role                                                         |
+| 67              | 11            | **reference**                              | ValueID to encounter before the target (linker staging)                                                                              |
+| 68              | 12            | **emit**                                   | Single-bit flag asking the post-ALU hook to publish this frame onto the orchestrator's outbound ring                                 |
 
 ### Program Authoring (`pkg/compute/firmware` — config-time DSL only)
 

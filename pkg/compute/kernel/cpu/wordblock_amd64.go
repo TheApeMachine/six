@@ -30,6 +30,12 @@ func popcount(dst, src *uint64, n int)
 //go:noescape
 func hammingMatch(frame *uint64, n int, target uint64, maxDist uint64) bool
 
+/*
+universalBitwise runs the SIMD truth-table over a fixed 64-word A×B surface
+(assembly ABI). Not the same as universalBitwiseSweep in
+wordblock_universal.go, which applies program region refs on the full
+128-word Value frame.
+*/
 //go:noescape
 func universalBitwise(dst *uint64, a, b, m0, m1, m2, m3 *uint64)
 

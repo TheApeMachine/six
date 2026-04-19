@@ -1,7 +1,6 @@
 package mesh
 
 import (
-	"context"
 	"io"
 	"math/rand/v2"
 	"testing"
@@ -18,7 +17,7 @@ an empty Field reports io.EOF so io.Copy terminates cleanly.
 */
 func TestFieldRead(t *testing.T) {
 	Convey("Given a Field populated with three Values", t, func() {
-		field := NewField(context.Background(), 65537, nil)
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer func() {
 			So(field.Close(), ShouldBeNil)
 		}()
@@ -27,7 +26,7 @@ func TestFieldRead(t *testing.T) {
 		for idx := range seeded {
 			seeded[idx] = primitive.AllocValue()
 			seeded[idx].StampNewID()
-			field.AddValue(seeded[idx])
+			field.values = append(field.values, seeded[idx])
 		}
 		defer func() {
 			for _, value := range seeded {
@@ -58,7 +57,7 @@ func TestFieldRead(t *testing.T) {
 	})
 
 	Convey("Given an empty Field", t, func() {
-		field := NewField(context.Background(), 65537, nil)
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer func() {
 			So(field.Close(), ShouldBeNil)
 		}()
@@ -81,7 +80,7 @@ community-spawning parent mode introduced by WithCommunities.
 */
 func TestFieldWrite(t *testing.T) {
 	Convey("Given a fresh Field and a Value whose affinity words are set", t, func() {
-		field := NewField(context.Background(), 65537, nil)
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer func() {
 			So(field.Close(), ShouldBeNil)
 		}()
@@ -89,8 +88,8 @@ func TestFieldWrite(t *testing.T) {
 		source := primitive.AllocValue()
 		source.StampNewID()
 
-		affinityStart, affinityWords := primitive.AffinityRegion.WordExtent()
-		for offset := 0; offset < affinityWords; offset++ {
+		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		for offset := 0; offset < primitive.AffinityWords; offset++ {
 			source.Set(affinityStart+offset, uint64(0xCC00)|uint64(offset))
 		}
 
@@ -104,53 +103,51 @@ func TestFieldWrite(t *testing.T) {
 		Convey("Write registers the Value and folds its affinity into the aggregate", func() {
 			So(writeErr, ShouldBeNil)
 			So(n, ShouldEqual, core.Cfg.Value.Bytes)
-			So(len(field.Values()), ShouldEqual, 1)
+			So(len(field.values), ShouldEqual, 1)
 
-			for offset := 0; offset < affinityWords; offset++ {
-				So(field.Affinity()[offset], ShouldEqual, uint64(0xCC00)|uint64(offset))
+			for offset := 0; offset < primitive.AffinityWords; offset++ {
+				So(field.affinity[offset].Load(), ShouldEqual, uint64(0xCC00)|uint64(offset))
 			}
 		})
 	})
 
 	Convey("Given a routing parent (WithCommunities) and two near-identical affinities", t, func() {
-		parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer func() {
 			So(parent.Close(), ShouldBeNil)
 		}()
 
 		affinityStart, _ := primitive.AffinityRegion.WordExtent()
 
-		// Two sources differing by a single bit — well within the default
-		// 48-bit routing budget, so both must land in the same child.
-		first := writeAffinity(parent, affinityStart, [affinityWords]uint64{
-			0xA5A5A5A5A5A5A5A5, 0x5A5A5A5A5A5A5A5A,
-			0xDEADBEEFCAFEF00D, 0xFEEDFACE12345678,
-			0x0F0F0F0F0F0F0F0F,
+		// Two sparse sources differing by a single bit — well within the
+		// 48-bit Hamming budget AND with a cumulative XOR popcount that
+		// stays comfortably below the Shannon limit (~120 bits at 47% of
+		// 257), so both must land in the same child community.
+		first := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{
+			0x0000000000000001, 0, 0, 0, 0,
 		})
-		second := writeAffinity(parent, affinityStart, [affinityWords]uint64{
-			0xA5A5A5A5A5A5A5A4, 0x5A5A5A5A5A5A5A5A,
-			0xDEADBEEFCAFEF00D, 0xFEEDFACE12345678,
-			0x0F0F0F0F0F0F0F0F,
+		second := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{
+			0x0000000000000003, 0, 0, 0, 0,
 		})
 		defer first.Close()
 		defer second.Close()
 
-		Convey("both frames join the same community and the parent holds no direct values", func() {
-			So(len(parent.Values()), ShouldEqual, 0)
-			So(len(parent.Fields()), ShouldEqual, 1)
-			So(len(parent.Fields()[0].Values()), ShouldEqual, 2)
+		Convey("both frames join the same community; child holds decoded Values and parent retains LINK carriers", func() {
+			So(len(parent.values), ShouldEqual, 2)
+			So(len(parent.fields), ShouldEqual, 1)
+			So(len(parent.fields[0].values), ShouldEqual, 2)
 		})
 
 		Convey("parent aggregate equals XOR of both inbound affinities", func() {
-			for offset := 0; offset < affinityWords; offset++ {
+			for offset := 0; offset < primitive.AffinityWords; offset++ {
 				expected := (*first)[affinityStart+offset] ^ (*second)[affinityStart+offset]
-				So(parent.Affinity()[offset], ShouldEqual, expected)
+				So(parent.affinity[offset].Load(), ShouldEqual, expected)
 			}
 		})
 	})
 
 	Convey("Given a routing parent and two far-apart affinities", t, func() {
-		parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer func() {
 			So(parent.Close(), ShouldBeNil)
 		}()
@@ -160,55 +157,151 @@ func TestFieldWrite(t *testing.T) {
 		// All zeros vs. all ones across every affinity word — Hamming
 		// distance 5*64 = 320, which blows through the 48-bit budget and
 		// must cold-miss into a fresh community.
-		first := writeAffinity(parent, affinityStart, [affinityWords]uint64{0, 0, 0, 0, 0})
-		second := writeAffinity(parent, affinityStart, [affinityWords]uint64{
+		first := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{0, 0, 0, 0, 0})
+		second := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{
 			^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0),
 		})
 		defer first.Close()
 		defer second.Close()
 
 		Convey("each frame seeds its own community", func() {
-			So(len(parent.Fields()), ShouldEqual, 2)
-			So(len(parent.Fields()[0].Values()), ShouldEqual, 1)
-			So(len(parent.Fields()[1].Values()), ShouldEqual, 1)
+			So(len(parent.fields), ShouldEqual, 2)
+			So(len(parent.fields[0].values), ShouldEqual, 1)
+			So(len(parent.fields[1].values), ShouldEqual, 1)
 		})
 	})
 }
 
 /*
-TestFieldFindCommunity locks down the argmin/budget semantics of the
-unrolled scan kernel without round-tripping through wire frames, so a
-regression in the hot path is visible as soon as the test file loads.
+TestFieldFindCommunity locks down the visitor-routing contract of
+findCommunity: a probe that lands within routeBudget joins an existing
+child and gets stamped with that child's id, an out-of-budget probe
+spawns a fresh child, and a visitor that already carries a COMMUNITY
+stamp is left alone.
 */
 func TestFieldFindCommunity(t *testing.T) {
-	Convey("Given a parent with three pre-seeded community fingerprints", t, func() {
-		parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
+	communityWord := core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY)
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+	Convey("Given a parent pre-seeded with one child community at affinity zero", t, func() {
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
 		defer func() {
 			So(parent.Close(), ShouldBeNil)
 		}()
 
-		parent.fields = []*Field{{}, {}, {}}
-		parent.fingers = [][affinityWords]uint64{
-			{0, 0, 0, 0, 0},
-			{^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0)},
-			{0xAAAAAAAAAAAAAAAA, 0, 0, 0, 0},
-		}
+		seed := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{0, 0, 0, 0, 0})
+		defer seed.Close()
+		So(len(parent.fields), ShouldEqual, 1)
+		child := parent.fields[0]
 
-		Convey("an exact match short-circuits to its index", func() {
-			idx := parent.findCommunity(^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0))
-			So(idx, ShouldEqual, 1)
+		Convey("a probe within routeBudget joins the existing child and is stamped with its id", func() {
+			visitor := primitive.AllocValue()
+			visitor.StampNewID()
+			defer visitor.Close()
+
+			visitor.Set(affinityStart, 0x0000000000000003)
+
+			parent.findCommunity(visitor)
+
+			community, err := visitor.Property(primitive.COMMUNITY)
+			So(err, ShouldBeNil)
+			So(community, ShouldEqual, child.id)
+			So(len(parent.fields), ShouldEqual, 1)
 		})
 
-		Convey("a near-match wins argmin over farther candidates", func() {
-			idx := parent.findCommunity(1, 0, 0, 0, 0)
-			So(idx, ShouldEqual, 0)
+		Convey("an out-of-budget probe spawns a fresh community and is stamped with its id", func() {
+			visitor := primitive.AllocValue()
+			visitor.StampNewID()
+			defer visitor.Close()
+
+			for offset := 0; offset < primitive.AffinityWords; offset++ {
+				visitor.Set(affinityStart+offset, ^uint64(0))
+			}
+
+			parent.findCommunity(visitor)
+
+			So(len(parent.fields), ShouldEqual, 2)
+			spawned := parent.fields[1]
+			community, err := visitor.Property(primitive.COMMUNITY)
+			So(err, ShouldBeNil)
+			So(community, ShouldEqual, spawned.id)
+			So(community, ShouldNotEqual, child.id)
 		})
 
-		Convey("an out-of-budget probe reports -1 so the caller spawns a new community", func() {
-			parent.routeBudget = 4
+		Convey("a visitor already stamped with COMMUNITY short-circuits without touching the parent", func() {
+			visitor := primitive.AllocValue()
+			visitor.StampNewID()
+			defer visitor.Close()
 
-			idx := parent.findCommunity(0x5555555555555555, 0, 0, 0, 0)
-			So(idx, ShouldEqual, -1)
+			(*visitor)[communityWord] = 0xDEADBEEF
+
+			before := len(parent.fields)
+			parent.findCommunity(visitor)
+
+			So(len(parent.fields), ShouldEqual, before)
+			So((*visitor)[communityWord], ShouldEqual, uint64(0xDEADBEEF))
+		})
+	})
+}
+
+/*
+TestFieldStampsCommunityID covers the visualiser contract: when a
+Value reaches a leaf Field, the leaf's stable ID gets written into
+the Value's properties COMMUNITY word so the front-end can group
+Values by community without a side channel.
+
+Two scenarios:
+  - direct write to a leaf
+  - write to a routing parent that hands the visitor down to a
+    spawned child (the child is the leaf and stamps with its own ID)
+*/
+func TestFieldStampsCommunityID(t *testing.T) {
+	communityWord := core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY)
+
+	Convey("Given a leaf Field receiving a Value via Write", t, func() {
+		leaf := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(leaf.Close(), ShouldBeNil)
+		}()
+
+		source := primitive.AllocValue()
+		source.StampNewID()
+		defer source.Close()
+
+		frame := make([]byte, core.Cfg.Value.Bytes)
+		_, readErr := source.Read(frame)
+		So(readErr, ShouldEqual, io.EOF)
+
+		_, writeErr := leaf.Write(frame)
+		So(writeErr, ShouldBeNil)
+
+		Convey("the stored visitor carries the leaf's ID in COMMUNITY", func() {
+			values := leaf.values
+			So(len(values), ShouldEqual, 1)
+			So((*values[0])[communityWord], ShouldEqual, leaf.id)
+			So(leaf.id, ShouldNotEqual, uint64(0))
+		})
+	})
+
+	Convey("Given a routing parent that hands the visitor to a spawned child", t, func() {
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(parent.Close(), ShouldBeNil)
+		}()
+
+		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		stored := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{
+			0x0000000000000001, 0, 0, 0, 0,
+		})
+		defer stored.Close()
+
+		Convey("the child stamps its own ID, not the parent's, into COMMUNITY", func() {
+			So(len(parent.fields), ShouldEqual, 1)
+			child := parent.fields[0]
+			members := child.values
+			So(len(members), ShouldEqual, 1)
+			So((*members[0])[communityWord], ShouldEqual, child.id)
+			So((*members[0])[communityWord], ShouldNotEqual, parent.id)
 		})
 	})
 }
@@ -220,12 +313,12 @@ in the Field. Tests own the returned Value for teardown; the source
 Value is closed here since the Field keeps its own decoded copy.
 */
 func writeAffinity(
-	field *Field, affinityStart int, affinity [affinityWords]uint64,
+	field *Field, affinityStart int, affinity [primitive.AffinityWords]uint64,
 ) *primitive.Value {
 	source := primitive.AllocValue()
 	source.StampNewID()
 
-	for offset := 0; offset < affinityWords; offset++ {
+	for offset := 0; offset < primitive.AffinityWords; offset++ {
 		source.Set(affinityStart+offset, affinity[offset])
 	}
 
@@ -238,26 +331,26 @@ func writeAffinity(
 	// The Value that actually got stored is the one the Field decoded
 	// from the frame. Reach into whichever child or leaf bucket ended up
 	// owning it so tests can assert against the canonical copy.
-	if len(field.Fields()) > 0 {
-		children := field.Fields()
-		last := children[len(children)-1].Values()
+	if len(field.fields) > 0 {
+		children := field.fields
+		last := children[len(children)-1].values
 		return last[len(last)-1]
 	}
 
-	values := field.Values()
+	values := field.values
 
 	return values[len(values)-1]
 }
 
 func BenchmarkFieldRead(b *testing.B) {
-	field := NewField(context.Background(), 65537, nil)
+	field := NewField(b.Context(), 65537, nil, newTestQueue(b))
 	defer field.Close()
 
 	values := make([]*primitive.Value, 16)
 	for idx := range values {
 		values[idx] = primitive.AllocValue()
 		values[idx].StampNewID()
-		field.AddValue(values[idx])
+		field.values = append(field.values, values[idx])
 	}
 	defer func() {
 		for _, value := range values {
@@ -278,39 +371,48 @@ func BenchmarkFieldRead(b *testing.B) {
 }
 
 /*
-BenchmarkFieldFindCommunity isolates the hot scan kernel from Write's
-decode cost. The parent is pre-seeded with communityCount fingerprints
-drawn from a fixed PRNG so every iteration walks the same table and
-the POPCNT pipeline stays warm. This is the number to watch when
-tuning the inner loop.
+BenchmarkFieldFindCommunity isolates the routing scan from Write's
+decode cost. The parent is pre-seeded with communityCount child
+fields by driving the real Write path with disjoint affinity seeds,
+then each iteration runs findCommunity against a freshly-allocated
+visitor whose affinity matches the median child so the common
+"join existing community" path is what gets measured.
 */
 func BenchmarkFieldFindCommunity(b *testing.B) {
 	const communityCount = 32
 
-	parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
+	parent := NewField(b.Context(), 65537, nil, newTestQueue(b))
 	defer parent.Close()
 
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
 	rng := rand.New(rand.NewPCG(0xC0FFEE, 0xBADF00D))
-	parent.fingers = make([][affinityWords]uint64, communityCount)
-	parent.fields = make([]*Field, communityCount)
 
-	for idx := range parent.fingers {
-		parent.fields[idx] = &Field{}
-		for wordIdx := 0; wordIdx < affinityWords; wordIdx++ {
-			parent.fingers[idx][wordIdx] = rng.Uint64()
+	seeds := make([][primitive.AffinityWords]uint64, communityCount)
+	for idx := range seeds {
+		for wordIdx := 0; wordIdx < primitive.AffinityWords; wordIdx++ {
+			seeds[idx][wordIdx] = rng.Uint64()
 		}
+		writeAffinity(parent, affinityStart, seeds[idx]).Close()
 	}
 
-	// Probe near the median child so the prune-on-better path fires a
-	// realistic number of times instead of a degenerate best or worst case.
-	target := parent.fingers[communityCount/2]
+	target := seeds[communityCount/2]
 	target[0] ^= 1
+
+	visitor := primitive.AllocValue()
+	visitor.StampNewID()
+	defer visitor.Close()
+
+	communityWord := core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for iteration := 0; iteration < b.N; iteration++ {
-		_ = parent.findCommunity(target[0], target[1], target[2], target[3], target[4])
+		(*visitor)[communityWord] = 0
+		for offset := 0; offset < primitive.AffinityWords; offset++ {
+			visitor.Set(affinityStart+offset, target[offset])
+		}
+		parent.findCommunity(visitor)
 	}
 }
 
@@ -323,7 +425,7 @@ into a hierarchy.
 func BenchmarkFieldWriteRoute(b *testing.B) {
 	const communityCount = 32
 
-	parent := NewField(context.Background(), 65537, nil, WithCommunities(8191, 48))
+	parent := NewField(b.Context(), 65537, nil, newTestQueue(b))
 	defer parent.Close()
 
 	affinityStart, _ := primitive.AffinityRegion.WordExtent()
@@ -333,8 +435,8 @@ func BenchmarkFieldWriteRoute(b *testing.B) {
 	// patterns. Using the real Write path ensures the fingers table is
 	// populated the same way production code would see it.
 	for idx := 0; idx < communityCount; idx++ {
-		seed := [affinityWords]uint64{}
-		for wordIdx := 0; wordIdx < affinityWords; wordIdx++ {
+		seed := [primitive.AffinityWords]uint64{}
+		for wordIdx := 0; wordIdx < primitive.AffinityWords; wordIdx++ {
 			seed[wordIdx] = rng.Uint64()
 		}
 		value := writeAffinity(parent, affinityStart, seed)
@@ -346,7 +448,7 @@ func BenchmarkFieldWriteRoute(b *testing.B) {
 	// spawn path.
 	probe := primitive.AllocValue()
 	probe.StampNewID()
-	for offset := 0; offset < affinityWords; offset++ {
+	for offset := 0; offset < primitive.AffinityWords; offset++ {
 		probe.Set(affinityStart+offset, parent.fingers[communityCount/2][offset])
 	}
 	// Flip a handful of bits so the probe is close but not identical —

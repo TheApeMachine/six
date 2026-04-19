@@ -1,4 +1,4 @@
-.PHONY: build run test coverage metal cuda paper pprof pprof-mem dump capnp
+.PHONY: build run test bench coverage metal cuda paper pprof pprof-mem dump capnp
 
 # The pool package (pkg/pool/lib_runtime_linkage.go) uses go:linkname to
 # reach runtime scheduling symbols such as runtime.dropg. Starting with Go
@@ -12,6 +12,8 @@ DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -na
 # Drop any .md (README.md is injected separately so it is first and only markdown).
 DUMP_FIND := find . -type f \( \( $(DUMP_EXTS) \) -o -path './visualizer/static/index.html' \) \
 	| grep -v '/vendor/' \
+	| grep -v '/experiment/' \
+	| grep -v 'README.md' \
 	| grep -v '/node_modules/' \
 	| grep -v '^\./paper/' \
 	| grep -v '_test\.go$$' \
@@ -55,6 +57,10 @@ run: build
 # long-running TestPipeline suite does not run here (see make paper / pprof).
 test:
 	go test $(LDFLAGS) ./...
+
+# Benchmarks only (-run='^$' matches no tests). Same $(LDFLAGS) as test for pkg/pool.
+bench:
+	go test $(LDFLAGS) '-run=^$$' -bench=. -benchmem ./...
 
 coverage:
 	go test $(LDFLAGS) -coverprofile=coverage.out ./...

@@ -421,8 +421,8 @@ export function ValueInspector({
 		propertiesW56Community && propertiesW56Community !== "0000000000000000"
 			? BigInt(`0x${propertiesW56Community}`).toString(10)
 			: null;
-	const confidence = vals["confidence"] ?? null;
-	const epoch = vals["epoch"] !== undefined ? Math.round(vals["epoch"]) : null;
+	const confidence = vals.confidence ?? null;
+	const epoch = vals.epoch !== undefined ? Math.round(vals.epoch) : null;
 
 	const affinityFromFrame =
 		regions && frameOk
@@ -463,7 +463,7 @@ export function ValueInspector({
 		let hash = 2166136261;
 
 		for (let i = 0; i < frame.byteLength; i++) {
-			hash = Math.imul(hash ^ frame[i]!, 16777619) >>> 0;
+			hash = Math.imul(hash ^ frame[i], 16777619) >>> 0;
 		}
 
 		return `${frame.byteLength}:${hash}`;
@@ -764,8 +764,8 @@ export function ValueInspector({
 					{snap.telemetry?.src ? (
 						<KV k="evt.src" v={snap.telemetry.src} />
 					) : null}
-					{vals["context_dot"] !== undefined ? (
-						<KV k="evt.dot" v={(vals["context_dot"] as number).toFixed(5)} />
+					{vals.context_dot !== undefined ? (
+						<KV k="evt.dot" v={(vals.context_dot as number).toFixed(5)} />
 					) : null}
 				</Region>
 
@@ -773,7 +773,7 @@ export function ValueInspector({
 				<Region
 					label="GRADIENT"
 					words="40–47 · 512b"
-					fill={vals["gradient_norm"] !== undefined ? 0.7 : 0.05}
+					fill={vals.gradient_norm !== undefined ? 0.7 : 0.05}
 					headerClass="bg-violet-500/10"
 					barClass="bg-violet-400"
 					textClass="text-violet-200/80"
@@ -783,8 +783,8 @@ export function ValueInspector({
 					) : (
 						<Dim>no frame</Dim>
 					)}
-					{vals["gradient_norm"] !== undefined ? (
-						<KV k="evt.norm" v={(vals["gradient_norm"] as number).toFixed(5)} />
+					{vals.gradient_norm !== undefined ? (
+						<KV k="evt.norm" v={(vals.gradient_norm as number).toFixed(5)} />
 					) : null}
 					{snap.telemetry?.tgt ? (
 						<KV k="evt.tgt" v={snap.telemetry.tgt} />

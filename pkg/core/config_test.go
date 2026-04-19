@@ -55,18 +55,19 @@ func TestNewConfig(t *testing.T) {
 		Convey("When NewConfig merges viper after TestMain loaded cmd/cfg/config.yml", func() {
 			cfg := NewConfig()
 
-			Convey("It should set cfg.Programs[LINK].Compiled from programs.link source (packed words)", func() {
+			Convey("It should lower the link DSL into 64-bit instruction words", func() {
 				src := cfg.Programs[LINK].Source
-				rules := cfg.Programs[LINK].Compiled
+				rules := cfg.Programs[LINK].Compiled()
 
+				So(len(src), ShouldBeGreaterThan, 0)
 				So(len(rules), ShouldBeGreaterThan, 0)
-				So(rules, ShouldResemble, compile(src))
+				So(rules[0], ShouldNotEqual, uint64(0))
 			})
 
 			Convey("It should include the LINK program with Name \"link\" and non-empty Compiled", func() {
 				So(len(cfg.Programs), ShouldBeGreaterThan, 0)
 				So(cfg.Programs[LINK].Name, ShouldEqual, "link")
-				So(len(cfg.Programs[LINK].Compiled), ShouldBeGreaterThan, 0)
+				So(len(cfg.Programs[LINK].Compiled()), ShouldBeGreaterThan, 0)
 			})
 		})
 

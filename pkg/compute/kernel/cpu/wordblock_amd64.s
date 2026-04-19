@@ -214,7 +214,7 @@ hmatch_done:
 // =========================================================================
 // universalBitwise: AVX2 SIMD truth table across 64-word A×B surface.
 //
-// Staged companion to universalBitwiseV2 in wordblock_universal.go. The wire
+// Staged companion to universalBitwiseSweep in wordblock_universal.go. The wire
 // format for each 4-bit opcode is value.opcodes in cmd/cfg/config.yml (same
 // nibbles as pkg/compute/firmware.OperationType): interpret the four
 // characters as binary with the rightmost digit = LSB. Bit k of the nibble

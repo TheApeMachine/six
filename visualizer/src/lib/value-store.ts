@@ -28,30 +28,31 @@ import {
 import type { FieldMetricsPayload, RawValueFrame } from "./wire";
 
 /*
-PROPERTIES_COMMUNITY_WORD is the absolute word index where the mesh
-routing layer stamps the community id via an ephemeral CopyMaskMerge
-program (see pkg/mesh/field.go:emitCommunityTag). Computed on the Go
-side as propsStart (48) + communityIDOffset (8) = 56 — which sits at
-the first word of the Asset region per the runtime config, not inside
-Properties. The constant name is historical; the value is still the
-word the visualizer has to sample off the wire to recover the mesh's
-community assignment.
+PROPERTIES_COMMUNITY_WORD is the absolute word index where mesh.Field
+stamps the community id directly onto the visitor's wire frame before
+forwarding it through the post-routing telemetry pulse. Computed on
+the Go side as PropertiesStartWord (56) + COMMUNITY offset (8) = 64.
+See pkg/compute/kernel/layout.go and pkg/primitive/properties.go for
+the canonical layout this constant mirrors.
 */
-const PROPERTIES_COMMUNITY_WORD = 56;
+const PROPERTIES_COMMUNITY_WORD = 64;
 
 /*
 Mirror of pkg/compute/kernel/layout.go constants the causal residue
 detector relies on. Keeping them local avoids a cross-package import
 in the TS build; if Go ever moves these, the test at
 value-store.test.ts will catch the drift.
+
+Layout is PropertiesStartWord = 56, AssetStartWord = 72,
+ContextStartWord = 40 — see pkg/compute/kernel/layout.go.
 */
-const PROPERTIES_REFUTATION_TARGET_WORD = 49; // properties[1]
-const PROPERTIES_NOISE_WORD = 52; // properties[4]
-const PROPERTIES_INTERVENTION_WITNESS_WORD = 48; // properties[0]
+const PROPERTIES_REFUTATION_TARGET_WORD = 57; // properties[1]
+const PROPERTIES_NOISE_WORD = 60; // properties[4]
+const PROPERTIES_INTERVENTION_WITNESS_WORD = 56; // properties[0]
 const FALSIFIED_BIT = 1n << 62n;
-const ASSET_GRADIENT_WORD = 64 + 16; // asset[16,8] start — matches kernel AssetStartWord
+const ASSET_GRADIENT_WORD = 72 + 16; // asset[16,8] start — matches kernel AssetStartWord
 const ASSET_GRADIENT_SPAN = 8;
-const CONTEXT_START_WORD = 32;
+const CONTEXT_START_WORD = 40;
 const CONTEXT_SPAN = 8;
 
 export interface DecodedValueFrame {

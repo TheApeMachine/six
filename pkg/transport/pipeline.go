@@ -4,325 +4,148 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 
-	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
-/*
-FramedBytePipe is a single endpoint whose Write side accepts raw bytes and
-whose Read side emits fixed-width Value wire frames. CloseWrite must run when
-the raw source is finished so Read can unblock after the internal buffer drains.
-*/
-type FramedBytePipe interface {
-	io.ReadWriter
-	CloseWrite() error
-}
-
-var ErrPipelineNoEgress = errors.New("transport.Pipeline: Read requires egress mode")
+// ErrEmptyPipeline is returned by Pipeline.Write when the pipeline has no
+// components to forward data to. Returning an error rather than silently
+// discarding bytes prevents callers from believing a write succeeded when
+// the data has nowhere to go.
+var ErrEmptyPipeline = errors.New("transport: write to empty pipeline")
 
 /*
-copyDrainBufPool backs copyContext so each pipeline drain does not allocate a
-fresh 32 KiB buffer.
-*/
-var copyDrainBufPool = sync.Pool{
-	New: func() any {
-		return make([]byte, 32*1024)
-	},
-}
+Pipeline manages a chain of io.ReadWriteCloser components.
 
-/*
-Pipeline moves bytes from its Write side through frame, invokes Publish for
-each logical record, and optionally exposes duplicate wire frames on its Read
-side for chaining (io.Copy(next, pipeline)).
-
-When frame implements PublishedValueDrainer (vm.Tokenizer), the drain path
-publishes live *primitive.Value instances and only serializes to the optional
-egress tee. Other frames still use Stream and ValueFromWireFrame.
-
-CloseWrite must follow the last Write when the byte source ends; Finish (and
-Close, same behavior) waits for the background drain and runs ResetAfterEOF
-on the frame when present (for example *vm.Tokenizer).
-
-With egress enabled, the same frames sent to publishers are readable on Read
-(full Value.Bytes records), so another Pipeline or any io.Writer can io.Copy
-from this stage. A Pipeline satisfies FramedBytePipe and can therefore be the
-frame argument to NewPipeline.
+It connects components together so data flows through all components in sequence.
+Each component can produce data independently.
 */
 type Pipeline struct {
-	ctx context.Context
-
-	frame  FramedBytePipe
-	stream *Stream
-
-	publishers []Publishable
-
-	egressR io.ReadCloser
-	egressW *io.PipeWriter
-
-	wg sync.WaitGroup
-
-	drainMu  sync.Mutex
-	drainErr error
-
-	closeOnce sync.Once
+	ctx        context.Context
+	cancel     context.CancelFunc
+	err        error
+	components []io.ReadWriter
+	processed  bool
 }
 
 /*
-NewPipeline builds a pipeline. When egress is true, Read returns a copy of
-each frame sent to publishers (for nesting or tapping); when false, Read
-returns ErrPipelineNoEgress and publishers alone consume frames.
+NewPipeline creates a pipeline connecting io.ReadWriteCloser components.
 
-ctx is honored on Write and Read via ctx.Err before delegating to frame /
-egress. The background drain uses copyContext so cancellation stops the
-stream ingest path once the frame reader unblocks.
+It connects components together so data written to the pipeline flows through
+all components in sequence.
+
+Example:
+
+	// Simple pipeline
+	p := workflow.NewPipeline(message, agent, provider)
+	io.Copy(os.Stdout, p)
+
+	// Nested pipelines
+	p1 := workflow.NewPipeline(message, agent, provider)
+	p2 := workflow.NewPipeline(message, agent, provider, p1)
+	io.Copy(os.Stdout, p2)
 */
-func NewPipeline(
-	ctx context.Context,
-	egress bool,
-	frame FramedBytePipe,
-	publishers ...Publishable,
-) (*Pipeline, error) {
-	if len(publishers) == 0 {
-		return nil, errors.New("transport.NewPipeline: need at least one Publishable")
+func NewPipeline(ctx context.Context, components ...io.ReadWriter) io.ReadWriteCloser {
+	ctx, cancel := context.WithCancel(ctx)
+
+	return &Pipeline{
+		ctx:        ctx,
+		cancel:     cancel,
+		components: components,
+	}
+}
+
+/*
+Read implements the io.Reader interface.
+
+It reads from the first component and passes data through the pipeline.
+Returns EOF when no more data is available.
+*/
+func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
+	if len(pipeline.components) == 0 {
+		return 0, io.EOF
 	}
 
-	pubs := append([]Publishable(nil), publishers...)
+	select {
+	case <-pipeline.ctx.Done():
+		return 0, pipeline.ctx.Err()
+	default:
+		if !pipeline.processed {
+			for i := range len(pipeline.components) - 1 {
+				// Bytes copied between intermediate components are not bytes
+				// delivered to p, so they must not contribute to n (io.Reader
+				// requires n <= len(p)). The copy itself still has to happen
+				// so the final component has data to read from.
+				if _, err = io.Copy(pipeline.components[i+1], pipeline.components[i]); err != nil {
+					if err == io.EOF {
+						continue
+					}
 
-	var stream *Stream
-	var err error
+					return 0, errnie.Error(err)
+				}
+			}
 
-	if _, direct := frame.(PublishedValueDrainer); !direct {
-		stream, err = NewStream(core.Cfg.Value.Bytes, pubs...)
+			pipeline.processed = true
+		}
+
+		n, err = pipeline.components[len(pipeline.components)-1].Read(p)
 
 		if err != nil {
-			return nil, err
+			if err == io.EOF {
+				pipeline.processed = false
+				return n, err
+			}
+
+			return n, errnie.Error(err)
 		}
-	}
 
-	p := &Pipeline{
-		ctx:        ctx,
-		frame:      frame,
-		stream:     stream,
-		publishers: pubs,
-	}
-
-	if egress {
-		r, w := io.Pipe()
-		p.egressR = r
-		p.egressW = w
-
-		if stream != nil {
-			stream.SetFrameTee(w)
+		if n == 0 {
+			pipeline.processed = false
+			return n, io.EOF
 		}
+
+		return n, nil
 	}
-
-	p.wg.Add(1)
-
-	go p.runDrain()
-
-	return p, nil
 }
 
-func (pipeline *Pipeline) runDrain() {
-	defer pipeline.wg.Done()
+/*
+Write implements the io.Writer interface.
 
-	var drainErr error
-
-	if drainer, ok := pipeline.frame.(PublishedValueDrainer); ok {
-		var tee io.Writer
-
-		if pipeline.egressW != nil {
-			tee = pipeline.egressW
-		}
-
-		drainErr = drainer.DrainPublishedValues(
-			pipeline.ctx,
-			"",
-			pipeline.publishers,
-			tee,
-		)
-	} else {
-		_, drainErr = copyContext(pipeline.ctx, pipeline.stream, pipeline.frame)
-
-		if pipeline.stream != nil {
-			drainErr = errors.Join(drainErr, pipeline.stream.Close())
-		}
-	}
-
-	if pipeline.egressW != nil {
-		_ = pipeline.egressW.Close()
-	}
-
-	pipeline.drainMu.Lock()
-	pipeline.drainErr = drainErr
-	pipeline.drainMu.Unlock()
-}
-
+It writes data to the first component in the pipeline.
+Note that writing is optional - components can produce data independently.
+*/
 func (pipeline *Pipeline) Write(p []byte) (n int, err error) {
-	if pipeline == nil {
-		return 0, errors.New("transport.Pipeline.Write: nil Pipeline")
+	if len(pipeline.components) == 0 {
+		return 0, errnie.Error(ErrEmptyPipeline)
 	}
 
-	if err := pipeline.ctx.Err(); err != nil {
-		return 0, err
+	select {
+	case <-pipeline.ctx.Done():
+		return 0, pipeline.ctx.Err()
+	default:
+		pipeline.processed = false
+		return pipeline.components[0].Write(p)
 	}
-
-	return pipeline.frame.Write(p)
-}
-
-func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
-	if pipeline == nil {
-		return 0, errors.New("transport.Pipeline.Read: nil Pipeline")
-	}
-
-	if pipeline.egressR == nil {
-		return 0, ErrPipelineNoEgress
-	}
-
-	if err := pipeline.ctx.Err(); err != nil {
-		return 0, err
-	}
-
-	return pipeline.egressR.Read(p)
 }
 
 /*
-CloseWrite ends the raw ingest side (for example tokenizer pipe writer) so
-the drain loop can complete.
-*/
-func (pipeline *Pipeline) CloseWrite() error {
-	if pipeline == nil || pipeline.frame == nil {
-		return nil
-	}
+Close implements the io.Closer interface.
 
-	return pipeline.frame.CloseWrite()
-}
-
-/*
-LoadFrom copies r through the pipeline, ends the write side, then finishes.
-*/
-func (pipeline *Pipeline) LoadFrom(r io.Reader) (err error) {
-	if pipeline == nil {
-		return errors.New("transport.Pipeline.LoadFrom: nil Pipeline")
-	}
-
-	_, err = io.Copy(pipeline, r)
-	err = errors.Join(err, pipeline.CloseWrite())
-	err = errors.Join(err, pipeline.Finish())
-
-	return err
-}
-
-/*
-Finish waits for the background drain, closes the egress reader when present,
-resets the frame when it implements ResetAfterEOF, and is idempotent.
-
-Publishable sinks may enqueue follow-on work (for example orchestrator or
-queue handlers) that outlives the drain goroutine. A caller that needs that work
-finished before treating bytes as fully applied must flush the same Queue
-after Finish (vm.Machine.Load does this).
-*/
-func (pipeline *Pipeline) Finish() error {
-	if pipeline == nil {
-		return nil
-	}
-
-	var joined error
-
-	pipeline.closeOnce.Do(func() {
-		if pipeline.egressR != nil {
-			joined = errors.Join(joined, pipeline.egressR.Close())
-		}
-
-		pipeline.wg.Wait()
-
-		pipeline.drainMu.Lock()
-		joined = errors.Join(joined, pipeline.drainErr)
-		pipeline.drainMu.Unlock()
-
-		if nested, nestedOK := pipeline.frame.(*Pipeline); nestedOK {
-			joined = errors.Join(joined, nested.Finish())
-
-			return
-		}
-
-		if downstreamReset, ok := pipeline.frame.(interface {
-			ResetAfterEOF()
-		}); ok {
-			downstreamReset.ResetAfterEOF()
-		}
-	})
-
-	return joined
-}
-
-/*
-Close implements io.Closer as an alias for Finish so Pipeline can serve as an
-io.ReadWriteCloser stage. You must still call CloseWrite after the last Write
-before drain can complete.
+It closes all components in the pipeline that implement io.Closer.
 */
 func (pipeline *Pipeline) Close() error {
-	return pipeline.Finish()
-}
+	var firstErr error
 
-/*
-ResetAfterEOF forwards to the framed endpoint when it supports recycling, so a
-Pipeline can itself act as a FramedBytePipe stage inside an outer Pipeline.
-*/
-func (pipeline *Pipeline) ResetAfterEOF() {
-	if pipeline == nil {
-		return
-	}
-
-	if downstreamReset, ok := pipeline.frame.(interface {
-		ResetAfterEOF()
-	}); ok {
-		downstreamReset.ResetAfterEOF()
-	}
-}
-
-func copyContext(ctx context.Context, dst io.Writer, src io.Reader) (written int64, err error) {
-	buf := copyDrainBufPool.Get().([]byte)
-	buf = buf[:cap(buf)]
-
-	defer func() {
-		copyDrainBufPool.Put(buf)
-	}()
-
-	for {
-		if ctx != nil {
-			if err := ctx.Err(); err != nil {
-				return written, err
-			}
+	for _, component := range pipeline.components {
+		closer, ok := component.(io.Closer)
+		if !ok {
+			continue
 		}
 
-		nr, rErr := src.Read(buf)
-
-		if nr > 0 {
-			nw, wErr := dst.Write(buf[:nr])
-			written += int64(nw)
-
-			if wErr != nil {
-				return written, wErr
-			}
-
-			if nw != nr {
-				return written, io.ErrShortWrite
-			}
-		}
-
-		if rErr != nil {
-			if errors.Is(rErr, io.EOF) {
-				return written, nil
-			}
-
-			return written, rErr
+		if err := closer.Close(); err != nil && firstErr == nil {
+			firstErr = errnie.Error(err)
 		}
 	}
-}
 
-var (
-	_ FramedBytePipe     = (*Pipeline)(nil)
-	_ io.ReadWriteCloser = (*Pipeline)(nil)
-)
+	return firstErr
+}

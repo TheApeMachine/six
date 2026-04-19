@@ -29,8 +29,10 @@ which tends to rank the newest/most-divergent members higher — exactly
 the population the README says should drive eigenmode ranking.
 */
 func (field *Field) detectEigenmodes() *geometry.EigenSnap {
-	members := field.snapshotValues()
+	return detectEigenmodesFromMembers(field.values)
+}
 
+func detectEigenmodesFromMembers(members []*primitive.Value) *geometry.EigenSnap {
 	if len(members) == 0 {
 		return &geometry.EigenSnap{}
 	}
@@ -39,7 +41,7 @@ func (field *Field) detectEigenmodes() *geometry.EigenSnap {
 	// DetectModes closure's lookups O(1) without retaining any Value
 	// pointers beyond the lifetime of this function.
 	participants := make([]geometry.ModeParticipant, 0, len(members))
-	fingers := make([][affinityWords]uint64, 0, len(members))
+	fingers := make([][primitive.AffinityWords]uint64, 0, len(members))
 	idToIdx := make(map[uint64]int, len(members))
 
 	for _, value := range members {
@@ -83,13 +85,11 @@ func (field *Field) detectEigenmodes() *geometry.EigenSnap {
 		participants, eigenmodeCouplingThreshold, couplingFn,
 	)
 
-	snap := geometry.NewEigenSnap(modes, dominantIdx)
-
-	return snap
+	return geometry.NewEigenSnap(modes, dominantIdx)
 }
 
 /*
-updatePhaseDial re-encodes the field's PhaseDial from the current
+updatePhaseDialFromMembers re-encodes the field's PhaseDial from the current
 member population. The dial is the 512-dimensional complex fingerprint
 two fields use to test alignment — rebuilding it per Cycle keeps it in
 step with the population's actual structure rather than drifting on
@@ -100,9 +100,7 @@ geometry.EncodeFromValues' signature; the copy is a 1 KB memmove per
 member which is already cheaper than the per-dimension trig the
 encoder runs.
 */
-func (field *Field) updatePhaseDial() {
-	members := field.snapshotValues()
-
+func (field *Field) updatePhaseDialFromMembers(members []*primitive.Value) {
 	if len(members) == 0 {
 		return
 	}
@@ -123,18 +121,14 @@ func (field *Field) updatePhaseDial() {
 		return
 	}
 
-	field.mu.Lock()
 	dial := field.dial
 	if len(dial) < geometry.PhaseDialDimensions {
 		dial = geometry.NewPhaseDial()
 	}
-	field.mu.Unlock()
 
 	encoded := dial.EncodeFromValues(staged)
 
-	field.mu.Lock()
 	field.dial = encoded
-	field.mu.Unlock()
 }
 
 /*

@@ -8,6 +8,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/program"
 )
 
 func TestNewBackend(t *testing.T) {
@@ -27,6 +28,19 @@ func TestNewBackend(t *testing.T) {
 			So(Available(), ShouldBeGreaterThan, 0)
 		})
 	})
+}
+
+// xorAffinityInstruction is the canonical "fold all 16 token words against
+// themselves with XOR and write the 64-byte signature into the affinity
+// region" sweep, matching the new packed instruction format.
+func xorAffinityInstruction() uint64 {
+	return program.EncodeInstruction(
+		kernel.TokensStartWord, 16,
+		kernel.TokensStartWord, 16,
+		kernel.AffinityStartWord, 5,
+		kernel.OpcodeXOR,
+		program.ModeAccumulate,
+	)
 }
 
 func TestBackend_Execute(t *testing.T) {
@@ -52,41 +66,50 @@ func TestBackend_Execute(t *testing.T) {
 			So(ke.Type, ShouldEqual, kernel.KernelErrNilPointer)
 		})
 
-		Convey("Execute with a truth-table xor frame should succeed", func() {
+		Convey("Execute with a single XOR sweep instruction should succeed", func() {
 			var frame [128]uint64
-			frame[kernel.ProgramOpcodeWord] = kernel.OpcodeXOR
-			frame[kernel.ProgramModeWord] = 0
-			frame[kernel.ProgramSrcAWord] = kernel.PackRegionRef(0, 16)
-			frame[kernel.ProgramSrcBWord] = kernel.PackRegionRef(0, 16)
-			frame[kernel.ProgramDstWord] = kernel.PackRegionRef(kernel.AffinityStartWord, 5)
+			frame[kernel.ProgramStartWord] = program.EncodeInstruction(
+				kernel.TokensStartWord, 16,
+				kernel.TokensStartWord, 16,
+				kernel.AffinityStartWord, 5,
+				kernel.OpcodeXOR,
+				program.ModeAccumulate,
+			)
 
 			ptr := unsafe.Pointer(&frame[0])
 
 			So(backend.ExecutePointers([]unsafe.Pointer{ptr}), ShouldBeNil)
 		})
 
-		Convey("Execute with xor opcode broadcasts low nibble (no separate rotation word)", func() {
-			var frame [128]uint64
-			frame[kernel.ProgramOpcodeWord] = kernel.OpcodeXOR
-			frame[kernel.ProgramModeWord] = 0
-			frame[kernel.ProgramSrcAWord] = kernel.PackRegionRef(0, 16)
-			frame[kernel.ProgramSrcBWord] = kernel.PackRegionRef(0, 16)
-			frame[kernel.ProgramDstWord] = kernel.PackRegionRef(kernel.AffinityStartWord, 5)
-
-			ptr := unsafe.Pointer(&frame[0])
-
-			So(backend.ExecutePointers([]unsafe.Pointer{ptr}), ShouldBeNil)
-		})
-
-		Convey("Execute with two frames and zero rotation tables should succeed", func() {
+		Convey("Execute with two frames should succeed", func() {
 			var frameA, frameB [128]uint64
-			frameA[kernel.ProgramOpcodeWord] = kernel.OpcodeXOR
-			frameB[kernel.ProgramOpcodeWord] = 0x1
+			frameA[kernel.ProgramStartWord] = program.EncodeInstruction(
+				kernel.TokensStartWord, 16,
+				kernel.TokensStartWord, 16,
+				kernel.AffinityStartWord, 5,
+				kernel.OpcodeXOR,
+				program.ModeAccumulate,
+			)
+			frameB[kernel.ProgramStartWord] = program.EncodeInstruction(
+				kernel.TokensStartWord, 16,
+				kernel.TokensStartWord, 16,
+				kernel.AffinityStartWord, 5,
+				kernel.OpcodeAND,
+				program.ModeAccumulate,
+			)
 
 			err := backend.ExecutePointers([]unsafe.Pointer{
 				unsafe.Pointer(&frameA[0]),
 				unsafe.Pointer(&frameB[0]),
 			})
+
+			So(err, ShouldBeNil)
+		})
+
+		Convey("Empty program (zero word) should be a no-op", func() {
+			var frame [128]uint64
+
+			err := backend.ExecutePointers([]unsafe.Pointer{unsafe.Pointer(&frame[0])})
 
 			So(err, ShouldBeNil)
 		})
@@ -97,11 +120,7 @@ func BenchmarkBackend_Execute_xorFrame(b *testing.B) {
 	backend := NewBackend(context.Background())
 
 	var frame [128]uint64
-	frame[kernel.ProgramOpcodeWord] = kernel.OpcodeXOR
-	frame[kernel.ProgramModeWord] = 0
-	frame[kernel.ProgramSrcAWord] = kernel.PackRegionRef(0, 16)
-	frame[kernel.ProgramSrcBWord] = kernel.PackRegionRef(0, 16)
-	frame[kernel.ProgramDstWord] = kernel.PackRegionRef(kernel.AffinityStartWord, 5)
+	frame[kernel.ProgramStartWord] = xorAffinityInstruction()
 
 	ptr := unsafe.Pointer(&frame[0])
 

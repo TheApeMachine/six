@@ -50,13 +50,13 @@ var (
 		"affinity":   AffinityRegion,
 	}
 
-	signalsStart, signalsWords       = SignalsRegion.WordExtent()
-	contextStart, contextWords       = ContextRegion.WordExtent()
-	gradientStart, gradientWords     = GradientRegion.WordExtent()
-	propertiesStart, propertiesWords = PropertiesRegion.WordExtent()
+	signalsStart, signalsWords = SignalsRegion.WordExtent()
+	_, contextWords            = ContextRegion.WordExtent()
+	_, gradientWords           = GradientRegion.WordExtent()
+	_, propertiesWords         = PropertiesRegion.WordExtent()
 
-	stageWords             = signalsWords + contextWords + gradientWords + propertiesWords
-	assetStart, assetWords = AssetRegion.WordExtent()
+	stageWords    = signalsWords + contextWords + gradientWords + propertiesWords
+	assetStart, _ = AssetRegion.WordExtent()
 )
 
 /*
@@ -159,10 +159,18 @@ that frame.
 
 The returned slice is never empty on success. Each element is owned by the
 caller until CloseAll or Close returns them to the arena (or heap fallback).
-Segments are linked:
-word Prev on segment i+1 holds segment i's ID; word Next on segment i holds
-segment i+1's ID (config value.region.prev / next). There is no truncation:
-when the Morton slab fills, packing continues in a fresh segment.
+Segments are linked at mint time: word Prev on segment i+1 holds segment
+i's ID; word Next on segment i holds segment i+1's ID (config
+value.region.prev / next). The first segment's Prev and the last segment's
+Next remain zero so consumers can detect chain endpoints. There is no
+truncation: when the Morton slab fills, packing continues in a fresh segment.
+
+A bootstrap affinity fingerprint is also folded in at mint: the populated
+token words are XOR-rolled into the configured affinity region (one word per
+affinity slot, modulo the affinity word count). This gives the routing parent
+real signal on first contact even before the `affinity` firmware program has
+had a chance to run, while remaining bit-identical to what that program
+would compute on a single pass.
 
 CloseAll closes every non-nil pointer in the slice.
 */
@@ -171,36 +179,54 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 		return nil, io.ErrShortBuffer
 	}
 
-	value := AllocValue()
-	maxCodes := int(core.Cfg.Value.Region.Tokens.Bits / 16)
-	out := make([]*Value, 0, maxCodes)
+	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
+	maxSegCodes := tokenWords * 4
+	out := make([]*Value, 0, (len(p)+maxSegCodes-1)/maxSegCodes)
 
 	var label uint64
 
-	labelsPtr := unsafe.Slice((*uint64)(unsafe.Pointer(&labels[0])), len(labels))
+	if len(labels) > 0 {
+		labelsPtr := unsafe.Slice((*uint64)(unsafe.Pointer(&labels[0])), len(labels))
 
-	if i := slices.IndexFunc(labelsPtr, func(c uint64) bool { return c > 0 }); i >= 0 {
-		label = labelsPtr[i]
+		if i := slices.IndexFunc(labelsPtr, func(c uint64) bool { return c > 0 }); i >= 0 {
+			label = labelsPtr[i]
+		}
 	}
+
+	prevStart := core.Cfg.Value.Region.Prev.Start
+	nextStart := core.Cfg.Value.Region.Next.Start
+	affinityStart, affinityWords := AffinityRegion.WordExtent()
 
 	for idx := 0; idx < len(p); {
 		val := AllocValue()
-		codes := value.TokenWords()
+		codes := tokenSlabWords(val)
+		maxCodes := len(codes) * 4
 		n, pos := 0, uint32(0)
 
 		for idx < len(p) && n < maxCodes {
-			code := EncodeInterleaved8x8(uint32(p[idx]), pos)
+			// Match geometry.SlotCode and Value.String: the raw byte lives on the Y
+			// axis of EncodeInterleaved8x8 so DecodeInterleaved8x8’s Y recovers it.
+			code := EncodeInterleaved8x8(pos, uint32(p[idx]))
 			idx++
 			pos++
 
-			if slices.Contains(unsafe.Slice(
-				(*uint16)(unsafe.Pointer(&codes[0])),
-				n,
-			), code) {
-				continue
+			if n > 0 {
+				duplicate := false
+
+				for i := 0; i < n; i++ {
+					if mortonCodeAt(codes, i) == code {
+						duplicate = true
+
+						break
+					}
+				}
+
+				if duplicate {
+					continue
+				}
 			}
 
-			codes[n] = uint64(code)
+			setMortonCodeAt(codes, n, code)
 			n++
 		}
 
@@ -221,6 +247,32 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 				core.Cfg.Value.Region.Properties.Start,
 				label,
 			)
+		}
+
+		// Bootstrap affinity: XOR-fold the populated token words into the
+		// affinity slots, distributing across the available affinity words
+		// modulo affinityWords. Equivalent to the first pass of the
+		// `affinity` firmware program.
+		if affinityWords > 0 {
+			for i := 0; i < tokenWords; i++ {
+				w := codes[i]
+
+				if w == 0 {
+					continue
+				}
+
+				(*stamp)[affinityStart+(i%affinityWords)] ^= w
+			}
+		}
+
+		// Stamp prev/next links across adjacent segments. The previous
+		// segment learns this segment's ID as its Next; this segment
+		// learns the previous segment's ID as its Prev. Heads and tails
+		// stay zero so consumers can detect chain endpoints.
+		if len(out) > 0 {
+			previous := out[len(out)-1]
+			previous.Set(nextStart, stamp.ID())
+			stamp.Set(prevStart, previous.ID())
 		}
 
 		out = append(out, stamp)
@@ -321,9 +373,19 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
-Write receives an incoming Value as bytes and materializes it
-into a temporary Value, so we can copy the Signals, Context,
-Gradient, and Properties into the Assets region of the host.
+Write receives an incoming Value as bytes and stages the visiting frame into
+the host's Asset region.
+
+Staging is uniform: the inbound Signals + Context + Gradient + Properties
+block lands at asset[0..stageWords). That is the only behaviour Write has —
+there is no special Go-side path that copies a peer's program region across
+based on the visitor's role. Programmer Values express install in-band by
+carrying their compiled bytecode in their Tokens region (the substrate's
+"tape") and emitting it through their own program (the bytecode is moved
+into the visitor's Signals before encounter, so it lands in the host's
+asset[0..8). A resident bootstrap program on the host then OR-accumulates
+that staging slot back into program[0..8), overwriting the bootstrap with
+the new firmware on the next ALU pass.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
@@ -332,21 +394,6 @@ func (value *Value) Write(p []byte) (int, error) {
 
 	tmpVal := AllocValue()
 	valueFrom(p, tmpVal)
-
-	roleWord, errRole := tmpVal.Property(ROLE)
-	target, errTarget := tmpVal.Property(TARGET)
-
-	if errRole == nil && errTarget == nil &&
-		roleWord == uint64(ValueRoleProgrammer) && target != 0 {
-		progStart, progN := core.Cfg.Value.Region.Program.WordExtent()
-
-		if progN > 0 {
-			copy(
-				(*value)[progStart:progStart+progN],
-				(*tmpVal)[progStart:progStart+progN],
-			)
-		}
-	}
 
 	copy(
 		(*value)[assetStart:assetStart+stageWords],
@@ -392,7 +439,10 @@ func (value *Value) Set(region int, data uint64) {
 
 /*
 WriteProgramWords copies words into the configured program region (clamped
-to region length). Used with core.NamedProgramWords after config load.
+to region length). The bytes are exactly what the universal-bitwise kernel
+will execute next pass; callers that also have a continuation word should
+follow up with SetSchedulingNext so the install buffer is complete before
+the Value runs.
 */
 func (value *Value) WriteProgramWords(words []uint64) {
 	if value == nil {
@@ -408,6 +458,28 @@ func (value *Value) WriteProgramWords(words []uint64) {
 	for i := 0; i < n && i < len(words); i++ {
 		value.Set(start+i, words[i])
 	}
+}
+
+/*
+SchedulingNextProgramWord is the absolute word index inside the asset region
+that the runtime checks for `next <id>` / `next self` continuations. Mirrors
+pkg/compute/kernel.SchedulingNextProgramWord (kept here to avoid an import
+cycle from primitive into kernel).
+*/
+const SchedulingNextProgramWord = 117
+
+/*
+SetSchedulingNext stamps the continuation word that drives `next self` and
+`next <id>` semantics. Pass 0 to clear; pass the resident Value's ID for a
+self-loop (callers usually go through ProgramConfig.ResolveSchedulingNext
+which does that substitution against the SelfSentinel).
+*/
+func (value *Value) SetSchedulingNext(next uint64) {
+	if value == nil {
+		return
+	}
+
+	value.Set(SchedulingNextProgramWord, next)
 }
 
 /*
@@ -477,6 +549,30 @@ func (value *Value) ID() uint64 {
 	}
 
 	return (*value)[core.Cfg.Value.Region.ID.Start]
+}
+
+/*
+tokenSlabWords returns the full configured tokens region as a mutable []uint64
+slice. Unlike TokenWords, it is not trimmed: callers building a slab from
+scratch (NewValue) need every word addressable while the region is still zero.
+*/
+func tokenSlabWords(value *Value) []uint64 {
+	tokenStart := core.Cfg.Value.Region.Tokens.Start
+	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
+
+	return (*value)[tokenStart : tokenStart+tokenWords]
+}
+
+func mortonCodeAt(codes []uint64, idx int) uint16 {
+	return uint16(codes[idx/4] >> ((idx % 4) * 16))
+}
+
+func setMortonCodeAt(codes []uint64, idx int, code uint16) {
+	word := idx / 4
+	shift := (idx % 4) * 16
+	mask := uint64(0xFFFF) << shift
+
+	codes[word] = (codes[word] &^ mask) | (uint64(code) << shift)
 }
 
 /*

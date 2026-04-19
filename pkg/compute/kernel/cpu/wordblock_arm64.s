@@ -168,7 +168,7 @@ hmatch_found:
 // ============================================================================
 // universalBitwise: NEON SIMD truth table across 64-word A×B surface.
 //
-// Staged companion to universalBitwiseV2 in wordblock_universal.go. Opcode
+// Staged companion to universalBitwiseSweep in wordblock_universal.go. Opcode
 // nibbles match value.opcodes in cmd/cfg/config.yml (see
 // pkg/compute/firmware.OperationType): four-character binary strings with
 // LSB = rightmost digit. Bit k enables minterm k when masks are 0 or ~0:

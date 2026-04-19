@@ -2,9 +2,11 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"io"
 	"slices"
 
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -12,48 +14,81 @@ import (
 	"github.com/theapemachine/six/pkg/mesh"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
+	"github.com/theapemachine/six/pkg/transport"
 )
 
 /*
-Orchestrator owns the root Field and the pool.Queue shared with that
-Field's gossip.Conn. Cycle ingests tokenizer Values into the Field via
-the Conn ring; compute dispatch from pool.Stream into Executable tasks
-is wired separately when a compute.Backend is registered with the queue.
+Orchestrator owns the global mesh.Field, the shared pool.Queue, and the
+compute.Backend. The root gossip.Conn is not fixed at construction: each
+Cycle builds gossip.NewConn from the non-nil *primitive.Value batch so
+the pipeline stages match the incoming Values (same idea as mesh.Field
+rebuilding its conn from READY members).
+
+Callers pass Values in, receive resolved Values out after draining the
+field (post-encounter, post-ALU, post-metric emissions).
 */
 type Orchestrator struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-	queue  *pool.Queue
-	field  *mesh.Field
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	root      *gossip.Conn
+	queue     *pool.Queue
+	field     *mesh.Field
+	backend   *compute.Backend
+	telemetry *telemetry.Bridge
 }
 
 /*
-NewOrchestrator creates a new orchestrator with a fresh queue and root Field.
+NewOrchestrator builds the seed graph: backend, queue, global Field.
+The root Conn is first allocated in Cycle from the incoming Value batch.
 */
 func NewOrchestrator(
 	ctx context.Context,
+	telemetry *telemetry.Bridge,
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	queue, err := pool.NewQueue(ctx, nil)
+	backend := compute.NewBackend(ctx)
+
+	if backend == nil {
+		cancel()
+		return nil, errnie.Error(
+			errors.New("vm.NewOrchestrator: compute.NewBackend returned nil (no substrates registered)"),
+		)
+	}
+
+	queue, err := pool.NewQueue(ctx, backend.Dispatch)
 
 	if err != nil {
 		cancel()
 		return nil, errnie.Error(err)
 	}
 
+	field := mesh.NewField(ctx, 65537, telemetry, queue)
+
+	if field == nil {
+		cancel()
+		return nil, errnie.Error(errors.New(
+			"vm.NewOrchestrator: mesh.NewField returned nil",
+		))
+	}
+
 	orchestrator := &Orchestrator{
-		ctx:    ctx,
-		cancel: cancel,
-		queue:  queue,
-		field:  mesh.NewField(ctx, 65537, queue),
+		ctx:       ctx,
+		cancel:    cancel,
+		queue:     queue,
+		field:     field,
+		backend:   backend,
+		telemetry: telemetry,
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":    orchestrator.ctx,
-		"cancel": orchestrator.cancel,
-		"field":  orchestrator.field,
+		"ctx":     orchestrator.ctx,
+		"cancel":  orchestrator.cancel,
+		"queue":   orchestrator.queue,
+		"field":   orchestrator.field,
+		"backend": orchestrator.backend,
 	}); err != nil {
 		cancel()
 		return nil, errnie.Error(err)
@@ -63,97 +98,137 @@ func NewOrchestrator(
 }
 
 /*
-Close the orchestrator.
+Close cancels the shared context and tears the substrate down. Order
+matters: cancelling the context unblocks ring readers and pump
+goroutines; then we close the queue (which the pool workers honour
+via context); the backend goes last because outstanding pool tasks
+may still be calling into it during cancellation.
 */
 func (orchestrator *Orchestrator) Close() error {
+	if orchestrator == nil {
+		return nil
+	}
+
 	orchestrator.cancel()
-	orchestrator.queue.Close()
+
+	if orchestrator.queue != nil {
+		_ = orchestrator.queue.Close()
+	}
+
+	if orchestrator.backend != nil {
+		_ = orchestrator.backend.Close()
+	}
+
 	return orchestrator.err
 }
 
 /*
-Error returns the error of the orchestrator.
+Error returns the most recent retained error from the orchestrator.
 */
 func (orchestrator *Orchestrator) Error() error {
 	return orchestrator.err
 }
 
 /*
-Cycle pushes each non-nil Value's wire frame into the Conn ring, closes
-the Conn so the ring read side can finish, then drains Conn.Read into
-the root Field. Conn.Read returns io.EOF after every full frame (tokenizer
-delimiter); io.Copy would stop after the first frame, so the drain is
-implemented as an explicit loop that only stops on (0, io.EOF).
+Cycle ingests a batch of Values, drives them through the gossip graph,
+and drains every frame the system emits during the burst back out as
+[]*Value.
 
-The returned slice is a snapshot of the Field population after ingest
-(ValueFromWireFrame copies held by the Field).
+Two emission paths feed the outbound ring:
+  - Input echo: every non-nil input is republished on root via Emit so
+    the caller always sees its inputs come out the other side. Echoing
+    explicitly (not via the EMIT property) avoids cascading
+    re-emissions during the encounter pass — host Values dispatched by
+    Field.encounterPick stay quiet unless their own firmware raises
+    EmitRequested.
+  - Genuine emissions: post-ALU frames whose EMIT property was set by
+    firmware, plus Field.refreshMetrics carriers and learner Values.
+
+Termination is quiescence-based: when the queue's pending count
+(rings + inflight) is zero AND the backend has no in-flight work AND
+the outbound ring has nothing to drain for several consecutive
+checks, the system has settled. A hard deadline guards against a
+buggy firmware loop emitting forever.
 */
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) (resolved []*primitive.Value, err error) {
-	clones := slices.Clone(values)
+	if orchestrator == nil {
+		return nil, io.ErrClosedPipe
+	}
 
-	conn, err := gossip.NewConn(orchestrator.ctx, orchestrator.queue, clones...)
+	rwcs := make([]io.ReadWriter, 0, len(values))
+
+	for _, val := range values {
+		if val != nil {
+			rwcs = append(rwcs, val)
+		}
+	}
+
+	if len(rwcs) == 0 {
+		return nil, errnie.Error(errors.New(
+			"vm.Orchestrator.Cycle: need at least one non-nil *primitive.Value",
+		))
+	}
+
+	root, err := gossip.NewConn(
+		orchestrator.ctx,
+		orchestrator.queue,
+		orchestrator.telemetry,
+		rwcs...,
+	)
 
 	if err != nil {
 		return nil, errnie.Error(err)
 	}
 
-	defer func() {
-		_ = conn.Close()
-	}()
+	orchestrator.root = root
 
-	frame := make([]byte, core.Cfg.Value.Bytes)
-
-	for _, value := range clones {
-		if value == nil {
-			continue
-		}
-
-		if _, readErr := value.Read(frame); readErr != nil && readErr != io.EOF {
-			return nil, errnie.Error(readErr)
-		}
-
-		if _, writeErr := conn.Write(frame); writeErr != nil {
-			return nil, errnie.Error(writeErr)
-		}
-	}
-
-	/*
-		Close ends the ring stream so Conn.Read returns (0, EOF) once the
-		queued frames drain. Without this, Read blocks forever on an empty
-		Vyukov queue.
-	*/
-	if closeErr := conn.Close(); closeErr != nil {
-		return nil, errnie.Error(closeErr)
-	}
-
-	/*
-		Conn.Read returns io.EOF after each full frame (tokenizer delimiter
-		contract). io.Copy treats (n>0, EOF) as end-of-stream and stops
-		after one frame, so we drain manually until a true stream EOF (0, EOF).
-	*/
-	frameIn := make([]byte, core.Cfg.Value.Bytes)
+	clones := slices.Clone(values)
+	var clone *primitive.Value
+	out := transport.NewCollector(core.Cfg.Value.Bytes)
 
 	for {
-		n, readErr := conn.Read(frameIn)
+		if len(clones) > 0 {
+			clone, clones = clones[0], clones[1:]
+		}
 
-		if readErr == io.EOF && n == 0 {
+		if _, err := io.Copy(orchestrator.field, clone); err != nil {
+			return nil, errnie.Error(err)
+		}
+
+		if _, err := io.Copy(out, orchestrator.field); err != nil {
+			return nil, errnie.Error(err)
+		}
+
+		for out.Len() >= core.Cfg.Value.Bytes {
+			frame := out.Next(core.Cfg.Value.Bytes)
+
+			if frame == nil {
+				break
+			}
+
+			frameValue := primitive.AllocValue()
+
+			if err := frameValue.LoadFullFrame(frame); err != nil {
+				return nil, errnie.Error(err)
+			}
+
+			if status, err := frameValue.Property(
+				primitive.STATUS,
+			); err == nil && status == uint64(
+				primitive.RESOLVED,
+			) {
+				resolved = append(resolved, frameValue)
+			}
+
+			clones = append(clones, frameValue)
+		}
+
+		if len(resolved) > 0 {
 			break
 		}
-
-		if readErr != nil && readErr != io.EOF {
-			return nil, errnie.Error(readErr)
-		}
-
-		if n > 0 {
-			if _, writeErr := orchestrator.field.Write(frameIn[:n]); writeErr != nil {
-				return nil, errnie.Error(writeErr)
-			}
-		}
 	}
-
-	resolved = slices.Clone(orchestrator.field.Values())
 
 	return resolved, nil
 }

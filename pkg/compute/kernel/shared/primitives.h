@@ -5,21 +5,65 @@
 #define SUBSTRATE_PRIMITIVES_H
 
 #define WORDS                                    128
-#define TOKENS_START_WORD                        0
+#define NUM_ROTATIONS                            16
+#define SURFACE_ELEMENTS                         128
 #define TOKEN_WORDS                              16
 #define A_WORDS                                  8
 #define B_WORDS                                  8
+
+#define TOKENS_START_WORD                        0
+#define TOKENS_WORDS                             16
+#define TOKENS_BITS                              1024
+#define TOKENS_LAST_WORD_MASK                    0xFFFFFFFFFFFFFFFFULL
+
 #define PROGRAM_START_WORD                       16
-#define PROGRAM_WORDS                            8
-#define SIGNALS_START_WORD                       24
+#define PROGRAM_WORDS                            16
+#define PROGRAM_BITS                             1024
+#define PROGRAM_LAST_WORD_MASK                   0xFFFFFFFFFFFFFFFFULL
+
+#define SIGNALS_START_WORD                       32
 #define SIGNALS_WORDS                            8
-#define NUM_ROTATIONS                            16
-#define SURFACE_ELEMENTS                         128
+#define SIGNALS_BITS                             512
+#define SIGNALS_LAST_WORD_MASK                   0xFFFFFFFFFFFFFFFFULL
+
+#define CONTEXT_START_WORD                       40
+#define CONTEXT_WORDS                            8
+#define CONTEXT_BITS                             512
+#define CONTEXT_LAST_WORD_MASK                   0xFFFFFFFFFFFFFFFFULL
+
+#define GRADIENT_START_WORD                      48
+#define GRADIENT_WORDS                           8
+#define GRADIENT_BITS                            512
+#define GRADIENT_LAST_WORD_MASK                  0xFFFFFFFFFFFFFFFFULL
+
+#define PROPERTIES_START_WORD                    56
+#define PROPERTIES_WORDS                         16
+#define PROPERTIES_BITS                          1024
+#define PROPERTIES_LAST_WORD_MASK                0xFFFFFFFFFFFFFFFFULL
+
+#define ASSET_START_WORD                         72
+#define ASSET_WORDS                              48
+#define ASSET_BITS                               3072
+#define ASSET_LAST_WORD_MASK                     0xFFFFFFFFFFFFFFFFULL
+
+#define PREV_START_WORD                          120
+#define PREV_WORDS                               1
+#define PREV_BITS                                64
+#define PREV_LAST_WORD_MASK                      0xFFFFFFFFFFFFFFFFULL
+
+#define NEXT_START_WORD                          121
+#define NEXT_WORDS                               1
+#define NEXT_BITS                                64
+#define NEXT_LAST_WORD_MASK                      0xFFFFFFFFFFFFFFFFULL
+
+#define ID_START_WORD                            122
+#define ID_WORDS                                 1
+#define ID_BITS                                  64
+#define ID_LAST_WORD_MASK                        0xFFFFFFFFFFFFFFFFULL
+
 #define AFFINITY_START_WORD                      123
 #define AFFINITY_WORDS                           5
 #define AFFINITY_BITS                            257
 #define AFFINITY_LAST_WORD_MASK                  0x0000000000000001ULL
-#define PROPERTIES_START_WORD                    48
-#define PROPERTIES_WORDS                         8
 
 #endif // SUBSTRATE_PRIMITIVES_H

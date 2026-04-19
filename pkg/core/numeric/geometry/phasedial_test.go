@@ -54,16 +54,18 @@ func TestPhaseDialEncodeFromValues(t *testing.T) {
 
 func TestPhaseDialSimilarity(t *testing.T) {
 	Convey("Given distinct payloads", t, func() {
+		// Identical low bytes (e.g. all 10 vs all 200) can fold to nearly the same
+		// structuralPhaseMix, so normalized dials differ only by global phase.
 		seqA := make([]byte, 50)
 
 		for i := range seqA {
-			seqA[i] = 10
+			seqA[i] = 'a'
 		}
 
 		seqB := make([]byte, 50)
 
 		for i := range seqB {
-			seqB[i] = 200
+			seqB[i] = 'b'
 		}
 
 		va, errA := primitive.NewValue(seqA)

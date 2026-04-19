@@ -41,6 +41,7 @@ system:
   shannonLimit: 0.47
   resonanceThreshold: 0.6
   beliefEpsilon: 0.05
+  routeBudget: 10
 
 value:
   word: 64
@@ -52,24 +53,29 @@ value:
     tokens:
       start: 0
       bits: 1024
+    # Program region holds packed 64-bit instructions (one per DSL line).
+    # 16 words = up to 16 instructions per resident program, enough for
+    # active_inference (12 lines) and the longest current firmware blocks.
     program:
       start: 16
-      bits: 512
+      bits: 1024
     signals:
-      start: 24
-      bits: 512
-    context:
       start: 32
       bits: 512
-    gradient:
+    context:
       start: 40
       bits: 512
-    properties:
+    gradient:
       start: 48
+      bits: 512
+    properties:
+      start: 56
       bits: 1024
+    # Asset shrinks from 56 → 48 words to absorb the extra program words; word
+    # indices for the scheduler (117) and frame metadata (118-119) are unchanged.
     asset:
-      start: 64
-      bits: 3584
+      start: 72
+      bits: 3072
     prev:
       start: 120
       bits: 64

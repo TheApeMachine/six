@@ -11,9 +11,9 @@
   "name": "Prose Chaining",
   "outcome": {
     "actual": 0,
-    "message": "Expected '0' to be greater than or equal to '0.0044124541460313985' (but it wasn't)!",
+    "message": "Expected '0' to be greater than or equal to '0.0048134002650115325' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.0044124541460313985
+    "threshold": 0.0048134002650115325
   },
   "results": [],
   "score": 0,

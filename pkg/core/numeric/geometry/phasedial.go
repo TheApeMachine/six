@@ -63,14 +63,19 @@ func (dial PhaseDial) EncodeFromValues(values []primitive.Value) PhaseDial {
 		dial = NewPhaseDial()
 	}
 
+	structuralScaled := make([]float64, len(values))
+
+	for valueIndex := range values {
+		structuralScaled[valueIndex] = structuralPhaseMix(&values[valueIndex]) * math.Pi * 2
+	}
+
 	for dimIndex := 0; dimIndex < PhaseDialDimensions; dimIndex++ {
 		var sum complex128
 
 		omega := float64(numeric.PhaseDialPrimes[dimIndex])
 
 		for valueIndex := range values {
-			structuralPhase := structuralPhaseMix(&values[valueIndex])
-			phase := (omega * float64(valueIndex+1) * 0.1) + (structuralPhase * math.Pi * 2)
+			phase := (omega * float64(valueIndex+1) * 0.1) + structuralScaled[valueIndex]
 			sum += cmplx.Rect(1.0, phase)
 		}
 

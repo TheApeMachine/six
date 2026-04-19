@@ -25,6 +25,17 @@ ringFrameWords is the fixed payload width of one Vyukov cell, in machine words.
 const ringFrameWords = 128
 
 /*
+ringFramePool recycles Vyukov payload cells between Write (producer) and Read
+(byte-stream consumer). Without pooling, each Push allocated a fresh
+heap slab matching the prior new-per-frame cost but with lower GC churn.
+*/
+var ringFramePool = sync.Pool{
+	New: func() any {
+		return new([ringFrameWords]uint64)
+	},
+}
+
+/*
 ringPayloadBytes is the byte length of one queued frame (128 × 8).
 */
 const ringPayloadBytes = ringFrameWords * 8
@@ -46,9 +57,10 @@ Ring is a fixed-capacity multi-producer multi-consumer queue used
 as PRIORITY spill storage. Push and Pop are lock-free.
 
 Read and Write adapt the queue as a byte stream: each Push carries up
-to ringPayloadBytes bytes (tail zero-padded). readMu and writeMu serialize
-the stream endpoints so partial io.Read/io.Write calls remain coherent;
-the queue itself stays lock-free underneath.
+to ringPayloadBytes bytes (tail zero-padded). Stream state uses atomics
+only so the IO path stays lock-free with the Vyukov queue; concurrent
+Read or concurrent Write on the same Ring is not supported (same contract
+as many io.Reader/io.Writer adapters — undefined interleaving).
 */
 type Ring struct {
 	ctx        context.Context
@@ -59,10 +71,8 @@ type Ring struct {
 	enqueuePos atomic.Uint64
 	dequeuePos atomic.Uint64
 
-	readMu      sync.Mutex
-	writeMu     sync.Mutex
-	readPending unsafe.Pointer
-	readOff     int
+	readPending atomic.Pointer[[ringFrameWords]uint64]
+	readOff     atomic.Uint32
 }
 
 /*
@@ -210,9 +220,6 @@ func (ring *Ring) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
-	ring.writeMu.Lock()
-	defer ring.writeMu.Unlock()
-
 	if ring.ctx.Err() != nil {
 		return 0, io.ErrClosedPipe
 	}
@@ -220,12 +227,18 @@ func (ring *Ring) Write(p []byte) (n int, err error) {
 	written := 0
 
 	for len(p) > 0 {
-		frame := new([ringFrameWords]uint64)
+		frame := ringFramePool.Get().(*[ringFrameWords]uint64)
 		buf := ringFrameBytes(frame)
 		copied := copy(buf, p)
 
+		if copied < len(buf) {
+			clear(buf[copied:])
+		}
+
 		for !ring.Push(unsafe.Pointer(frame)) {
 			if ring.ctx.Err() != nil {
+				ringFramePool.Put(frame)
+
 				return written, io.ErrClosedPipe
 			}
 
@@ -242,8 +255,9 @@ func (ring *Ring) Write(p []byte) (n int, err error) {
 /*
 Read implements io.Reader. It concatenates queued frames into the caller's
 slice; a frame shorter than ringPayloadBytes still occupies a full slot on
-the wire (padded by the writer). When the queue is empty and the ring is
-closed, Read returns io.EOF.
+the wire (padded by the writer). Successful reads return a nil error while
+more data may follow; io.EOF is returned only when the queue is empty and
+the ring is closed (no more bytes will ever arrive).
 */
 func (ring *Ring) Read(p []byte) (n int, err error) {
 	if ring == nil {
@@ -251,24 +265,22 @@ func (ring *Ring) Read(p []byte) (n int, err error) {
 	}
 
 	if len(p) == 0 {
-		return 0, nil
+		return 0, io.ErrShortBuffer
 	}
-
-	ring.readMu.Lock()
-	defer ring.readMu.Unlock()
 
 	total := 0
 
 	for len(p) > 0 {
-		if ring.readPending == nil {
-			var frame unsafe.Pointer
+		pending := ring.readPending.Load()
 
+		if pending == nil {
 			for {
-				frame = ring.Pop()
+				frame := ring.Pop()
 
 				if frame != nil {
-					ring.readPending = frame
-					ring.readOff = 0
+					ptr := (*[ringFrameWords]uint64)(frame)
+					ring.readPending.Store(ptr)
+					ring.readOff.Store(0)
 
 					break
 				}
@@ -283,22 +295,72 @@ func (ring *Ring) Read(p []byte) (n int, err error) {
 
 				runtime.Gosched()
 			}
+
+			pending = ring.readPending.Load()
 		}
 
-		active := (*[ringFrameWords]uint64)(ring.readPending)
-		buf := ringFrameBytes(active)
-		copied := copy(p, buf[ring.readOff:])
-		ring.readOff += copied
+		off := ring.readOff.Load()
+		buf := ringFrameBytes(pending)
+		copied := copy(p, buf[off:])
+		newOff := off + uint32(copied)
+
 		total += copied
 		p = p[copied:]
 
-		if ring.readOff == len(buf) {
-			ring.readPending = nil
-			ring.readOff = 0
+		if int(newOff) >= len(buf) {
+			ring.readPending.Store(nil)
+			ring.readOff.Store(0)
+			ringFramePool.Put(pending)
+		} else {
+			ring.readOff.Store(newOff)
 		}
 	}
 
 	return total, nil
+}
+
+/*
+TryRead is the non-blocking sibling of Read. It returns immediately with
+ok=false when no full frame is currently queued (or only a partial frame
+remains in readPending and the buffer cannot absorb a whole new cell).
+Used by gossip.Conn.Drain to let consumers poll for emitted frames
+without blocking on Gosched.
+
+Same single-consumer constraint as Read.
+*/
+func (ring *Ring) TryRead(p []byte) (n int, ok bool) {
+	if ring == nil || len(p) == 0 {
+		return 0, false
+	}
+
+	pending := ring.readPending.Load()
+
+	if pending == nil {
+		raw := ring.Pop()
+
+		if raw == nil {
+			return 0, false
+		}
+
+		pending = (*[ringFrameWords]uint64)(raw)
+		ring.readPending.Store(pending)
+		ring.readOff.Store(0)
+	}
+
+	off := ring.readOff.Load()
+	buf := ringFrameBytes(pending)
+	copied := copy(p, buf[off:])
+	newOff := off + uint32(copied)
+
+	if int(newOff) >= len(buf) {
+		ringFramePool.Put(pending)
+		ring.readPending.Store(nil)
+		ring.readOff.Store(0)
+	} else {
+		ring.readOff.Store(newOff)
+	}
+
+	return copied, copied > 0
 }
 
 /*

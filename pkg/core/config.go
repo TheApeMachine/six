@@ -2,9 +2,13 @@ package core
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/theapemachine/six/pkg/compute/program"
 )
 
 /*
@@ -56,12 +60,45 @@ type SystemConfig struct {
 	ShannonLimit       float64       `mapstructure:"shannonLimit"`
 	ResonanceThreshold float64       `mapstructure:"resonanceThreshold"`
 	BeliefEpsilon      float64       `mapstructure:"beliefEpsilon"`
+	RouteBudget        int           `mapstructure:"routeBudget"`
 }
 
+/*
+ProgramConfig caches the lowering of a named DSL block: the original Source
+text (for diagnostics and tooling), the packed instruction Words ready to
+load into a Value's program region, and SchedulingNext — the value the
+install path must write into kernel.SchedulingNextProgramWord (word 117).
+
+When SelfNext is true, SchedulingNext is a sentinel: callers replace it with
+the resident Value's ID at install time so `next self` resolves dynamically.
+A literal `next <id>` line leaves SelfNext false and SchedulingNext set to
+the parsed ID.
+*/
 type ProgramConfig struct {
-	Name     string   `mapstructure:"name"`
-	Source   string   `mapstructure:"source"`
-	Compiled []uint64 `mapstructure:"compiled"`
+	Name           string
+	Source         string
+	Words          []uint64
+	SchedulingNext uint64
+	SelfNext       bool
+}
+
+/*
+Compiled returns the program's instruction words. Kept as a method so call
+sites that previously read .Compiled keep working with minimal noise.
+*/
+func (p ProgramConfig) Compiled() []uint64 { return p.Words }
+
+/*
+ResolveSchedulingNext picks the actual scheduler word for an install: when
+the program declared `next self` it returns the resident Value's ID;
+otherwise the literal continuation (0 = no follow-up).
+*/
+func (p ProgramConfig) ResolveSchedulingNext(residentValueID uint64) uint64 {
+	if p.SelfNext {
+		return residentValueID
+	}
+
+	return p.SchedulingNext
 }
 
 /*
@@ -81,17 +118,17 @@ ValueRegionConfig holds the configuration for a Value's region.
 
 Layout (128 uint64 words = 1 KiB):
 
-	Tokens:   words  0–15  (1024 bits; 128 B Morton slab, up to 64 × 16-bit codes)
-	Program:  words  16–23  (512 bits)
-	Signals:  words  24–31  (512 bits)
-	Context:    words  32–39  (512 bits)
-	Gradient:   words  40–47  (512 bits)
-	Properties: words  48–63  (1024 bits; canonical property / forward-transition band)
-	Asset:      words 64–119  (3584 bits; scratch + bundled program payload; words 118–119 are kernel frame metadata — see kernel/frame_meta.go)
-	Prev:     word  120
-	Next:     word  121
-	ID:       word  122
-	Affinity: words 123–127 (257 bits, Fermat prime width)
+	Tokens:     words  0–15   (1024 bits; 128 B Morton slab, up to 64 × 16-bit codes)
+	Program:    words  16–31  (1024 bits; up to 16 packed 64-bit instruction words)
+	Signals:    words  32–39  (512 bits)
+	Context:    words  40–47  (512 bits)
+	Gradient:   words  48–55  (512 bits)
+	Properties: words  56–71  (1024 bits; canonical property / forward-transition band)
+	Asset:      words 72–119  (3072 bits; scratch + bundled program payload; words 117 = scheduler hop, 118–119 = kernel frame metadata)
+	Prev:       word  120
+	Next:       word  121
+	ID:         word  122
+	Affinity:   words 123–127 (257 bits, Fermat prime width)
 */
 type ValueRegionConfig struct {
 	Tokens     ValueOffsetConfig `mapstructure:"tokens"`
@@ -180,6 +217,77 @@ type Config struct {
 }
 
 func NewConfig() *Config {
+	value := ValueConfig{
+		Word:         WithDefault(viper.GetInt("value.word"), 64),
+		Words:        WithDefault(viper.GetInt("value.words"), 128),
+		Bytes:        WithDefault(viper.GetInt("value.bytes"), 1024),
+		NumRotations: WithDefault(viper.GetInt("value.num_rotations"), 16),
+		Region: ValueRegionConfig{
+			Tokens: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.tokens.start"), 0),
+				Bits:  WithDefault(viper.GetUint64("value.region.tokens.bits"), 1024),
+			},
+			Program: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.program.start"), 16),
+				Bits:  WithDefault(viper.GetUint64("value.region.program.bits"), 1024),
+			},
+			Signals: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.signals.start"), 32),
+				Bits:  WithDefault(viper.GetUint64("value.region.signals.bits"), 512),
+			},
+			Context: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.context.start"), 40),
+				Bits:  WithDefault(viper.GetUint64("value.region.context.bits"), 512),
+			},
+			Gradient: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.gradient.start"), 48),
+				Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
+			},
+			Properties: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.properties.start"), 56),
+				Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 1024),
+			},
+			Asset: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.asset.start"), 72),
+				Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 3072),
+			},
+			Prev: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
+				Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
+			},
+			Next: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.next.start"), 121),
+				Bits:  WithDefault(viper.GetUint64("value.region.next.bits"), 64),
+			},
+			ID: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.id.start"), 122),
+				Bits:  WithDefault(viper.GetUint64("value.region.id.bits"), 64),
+			},
+			Affinity: ValueOffsetConfig{
+				Start: WithDefault(viper.GetInt("value.region.affinity.start"), 123),
+				Bits:  WithDefault(viper.GetUint64("value.region.affinity.bits"), 257),
+			},
+		},
+		Opcodes: ValueOpcodesConfig{
+			False:    WithDefault(viper.GetString("value.opcodes.false"), "0000"),
+			And:      WithDefault(viper.GetString("value.opcodes.and"), "0001"),
+			AandNotB: WithDefault(viper.GetString("value.opcodes.aandnotb"), "0010"),
+			A:        WithDefault(viper.GetString("value.opcodes.a"), "0011"),
+			NotAandB: WithDefault(viper.GetString("value.opcodes.notandb"), "0100"),
+			B:        WithDefault(viper.GetString("value.opcodes.b"), "0101"),
+			XOR:      WithDefault(viper.GetString("value.opcodes.xor"), "0110"),
+			OR:       WithDefault(viper.GetString("value.opcodes.or"), "0111"),
+			NOR:      WithDefault(viper.GetString("value.opcodes.nor"), "1000"),
+			XNOR:     WithDefault(viper.GetString("value.opcodes.xnor"), "1001"),
+			NOTB:     WithDefault(viper.GetString("value.opcodes.notb"), "1010"),
+			IFBTHENA: WithDefault(viper.GetString("value.opcodes.ifbthena"), "1011"),
+			NOTA:     WithDefault(viper.GetString("value.opcodes.nota"), "1100"),
+			IFATHENB: WithDefault(viper.GetString("value.opcodes.ifathenb"), "1101"),
+			NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
+			TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
+		},
+	}
+
 	Cfg = &Config{
 		System: SystemConfig{
 			BatchSize:          WithDefault(viper.GetInt("system.batchSize"), 10000),
@@ -188,78 +296,10 @@ func NewConfig() *Config {
 			ShannonLimit:       WithDefault(viper.GetFloat64("system.shannonLimit"), 0.47),
 			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
 			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
+			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 10),
 		},
-		Programs: precompile(),
-		Value: ValueConfig{
-			Word:         WithDefault(viper.GetInt("value.word"), 64),
-			Words:        WithDefault(viper.GetInt("value.words"), 128),
-			Bytes:        WithDefault(viper.GetInt("value.bytes"), 1024),
-			NumRotations: WithDefault(viper.GetInt("value.num_rotations"), 16),
-			Region: ValueRegionConfig{
-				Tokens: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.tokens.start"), 0),
-					Bits:  WithDefault(viper.GetUint64("value.region.tokens.bits"), 1024),
-				},
-				Program: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.program.start"), 16),
-					Bits:  WithDefault(viper.GetUint64("value.region.program.bits"), 512),
-				},
-				Signals: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.signals.start"), 24),
-					Bits:  WithDefault(viper.GetUint64("value.region.signals.bits"), 512),
-				},
-				Context: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.context.start"), 32),
-					Bits:  WithDefault(viper.GetUint64("value.region.context.bits"), 512),
-				},
-				Gradient: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.gradient.start"), 40),
-					Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
-				},
-				Properties: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.properties.start"), 48),
-					Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 1024),
-				},
-				Asset: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.asset.start"), 64),
-					Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 3584),
-				},
-				Prev: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
-					Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
-				},
-				Next: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.next.start"), 121),
-					Bits:  WithDefault(viper.GetUint64("value.region.next.bits"), 64),
-				},
-				ID: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.id.start"), 122),
-					Bits:  WithDefault(viper.GetUint64("value.region.id.bits"), 64),
-				},
-				Affinity: ValueOffsetConfig{
-					Start: WithDefault(viper.GetInt("value.region.affinity.start"), 123),
-					Bits:  WithDefault(viper.GetUint64("value.region.affinity.bits"), 257),
-				},
-			},
-			Opcodes: ValueOpcodesConfig{
-				False:    WithDefault(viper.GetString("value.opcodes.false"), "0000"),
-				And:      WithDefault(viper.GetString("value.opcodes.and"), "0001"),
-				AandNotB: WithDefault(viper.GetString("value.opcodes.aandnotb"), "0010"),
-				A:        WithDefault(viper.GetString("value.opcodes.a"), "0011"),
-				NotAandB: WithDefault(viper.GetString("value.opcodes.notandb"), "0100"),
-				B:        WithDefault(viper.GetString("value.opcodes.b"), "0101"),
-				XOR:      WithDefault(viper.GetString("value.opcodes.xor"), "0110"),
-				OR:       WithDefault(viper.GetString("value.opcodes.or"), "0111"),
-				NOR:      WithDefault(viper.GetString("value.opcodes.nor"), "1000"),
-				XNOR:     WithDefault(viper.GetString("value.opcodes.xnor"), "1001"),
-				NOTB:     WithDefault(viper.GetString("value.opcodes.notb"), "1010"),
-				IFBTHENA: WithDefault(viper.GetString("value.opcodes.ifbthena"), "1011"),
-				NOTA:     WithDefault(viper.GetString("value.opcodes.nota"), "1100"),
-				IFATHENB: WithDefault(viper.GetString("value.opcodes.ifathenb"), "1101"),
-				NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
-				TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
-			},
-		},
+		Value:                 value,
+		Programs:              precompile(value),
 		TelemetryEnabled:      WithDefault(viper.GetBool("telemetry.enabled"), false),
 		TelemetryWebSocketURL: WithDefault(viper.GetString("telemetry.ws_url"), ""),
 	}
@@ -277,13 +317,25 @@ func WithDefault[T comparable](value, defaultValue T) T {
 	return value
 }
 
-func precompile() map[FirmwareType]ProgramConfig {
+/*
+precompile lowers every named DSL block under `programs:` into the packed
+64-bit instruction format the universal-bitwise kernel executes directly.
+
+This runs once during config load: nothing else in the runtime ever parses
+DSL source. Lowering errors are surfaced as a panic because a malformed
+firmware block is a programmer-authored bug we want caught at startup, not
+silently elided into a no-op program.
+*/
+func precompile(value ValueConfig) map[FirmwareType]ProgramConfig {
 	out := make(map[FirmwareType]ProgramConfig)
 
 	raw, ok := viper.Get("programs").(map[string]any)
 	if !ok || raw == nil {
 		return out
 	}
+
+	layout := buildProgramLayout(value)
+	_, maxWords := value.Region.Program.WordExtent()
 
 	for key, val := range raw {
 		source, ok := val.(string)
@@ -297,48 +349,90 @@ func precompile() map[FirmwareType]ProgramConfig {
 			name = key
 		}
 
+		compiled, err := program.Compile(source, layout)
+		if err != nil {
+			panic(fmt.Errorf("config: program %q failed to compile: %w", key, err))
+		}
+
+		if maxWords > 0 && len(compiled.Words) > maxWords {
+			panic(fmt.Errorf(
+				"config: program %q lowered to %d instructions but program region only holds %d words",
+				key, len(compiled.Words), maxWords,
+			))
+		}
+
 		out[ft] = ProgramConfig{
-			Name:     name,
-			Source:   source,
-			Compiled: compile(source),
+			Name:           name,
+			Source:         source,
+			Words:          compiled.Words,
+			SchedulingNext: compiled.SchedulingNext,
+			SelfNext:       compiled.HasSelfNext,
 		}
 	}
 
 	return out
 }
 
-// compile packs firmware source text into up to eight uint64 words (the default
-// program region size). primitive.WriteProgramWords consumes this slice; it is
-// not a semantic DSL lowering.
-func compile(source string) []uint64 {
-	if len(source) == 0 {
-		return nil
+// buildProgramLayout snapshots the active region and opcode tables into the
+// compiler's neutral Layout type so program/ never has to import core.
+func buildProgramLayout(value ValueConfig) program.Layout {
+	r := value.Region
+
+	regions := map[string]program.RegionExtent{
+		"tokens":     extentFor(r.Tokens),
+		"program":    extentFor(r.Program),
+		"signals":    extentFor(r.Signals),
+		"context":    extentFor(r.Context),
+		"gradient":   extentFor(r.Gradient),
+		"properties": extentFor(r.Properties),
+		"asset":      extentFor(r.Asset),
+		"prev":       extentFor(r.Prev),
+		"next":       extentFor(r.Next),
+		"id":         extentFor(r.ID),
+		"affinity":   extentFor(r.Affinity),
 	}
 
-	const maxWords = 8
-
-	src := []byte(source)
-	nWords := (len(src) + 7) / 8
-	if nWords > maxWords {
-		nWords = maxWords
+	opcodes := map[string]uint64{
+		"false":    nibbleOf(value.Opcodes.False, 0x0),
+		"and":      nibbleOf(value.Opcodes.And, 0x1),
+		"aandnotb": nibbleOf(value.Opcodes.AandNotB, 0x2),
+		"a":        nibbleOf(value.Opcodes.A, 0x3),
+		"notandb":  nibbleOf(value.Opcodes.NotAandB, 0x4),
+		"b":        nibbleOf(value.Opcodes.B, 0x5),
+		"xor":      nibbleOf(value.Opcodes.XOR, 0x6),
+		"or":       nibbleOf(value.Opcodes.OR, 0x7),
+		"nor":      nibbleOf(value.Opcodes.NOR, 0x8),
+		"xnor":     nibbleOf(value.Opcodes.XNOR, 0x9),
+		"notb":     nibbleOf(value.Opcodes.NOTB, 0xA),
+		"ifbthena": nibbleOf(value.Opcodes.IFBTHENA, 0xB),
+		"nota":     nibbleOf(value.Opcodes.NOTA, 0xC),
+		"ifathenb": nibbleOf(value.Opcodes.IFATHENB, 0xD),
+		"nand":     nibbleOf(value.Opcodes.NAND, 0xE),
+		"true":     nibbleOf(value.Opcodes.TRUE, 0xF),
 	}
 
-	out := make([]uint64, 0, nWords)
+	return program.Layout{Regions: regions, Opcodes: opcodes}
+}
 
-	for w := 0; w < nWords; w++ {
-		var word uint64
+func extentFor(cfg ValueOffsetConfig) program.RegionExtent {
+	start, words := cfg.WordExtent()
 
-		for b := 0; b < 8; b++ {
-			idx := w*8 + b
-			if idx >= len(src) {
-				break
-			}
+	return program.RegionExtent{Start: start, Words: words}
+}
 
-			word |= uint64(src[idx]) << (8 * b)
-		}
-
-		out = append(out, word)
+// nibbleOf parses a 4-character binary string from the YAML opcode table
+// (e.g. "0110" → 0x6) and falls back to the canonical default if the entry
+// is malformed or missing.
+func nibbleOf(spec string, fallback uint64) uint64 {
+	spec = strings.TrimSpace(spec)
+	if len(spec) == 0 {
+		return fallback
 	}
 
-	return out
+	value, err := strconv.ParseUint(spec, 2, 8)
+	if err != nil || value > 0xF {
+		return fallback
+	}
+
+	return value
 }

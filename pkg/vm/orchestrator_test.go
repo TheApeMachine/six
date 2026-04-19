@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -17,7 +16,7 @@ all three in place would leave a broken seed that silently eats work.
 */
 func TestNewOrchestrator(t *testing.T) {
 	Convey("Given a live context", t, func() {
-		orchestrator, err := NewOrchestrator(context.Background())
+		orchestrator, err := NewOrchestrator(t.Context(), nil)
 
 		So(err, ShouldBeNil)
 		So(orchestrator, ShouldNotBeNil)
@@ -45,7 +44,7 @@ orchestrator.
 */
 func TestOrchestratorClose(t *testing.T) {
 	Convey("Given a freshly built orchestrator", t, func() {
-		orchestrator, err := NewOrchestrator(context.Background())
+		orchestrator, err := NewOrchestrator(t.Context(), nil)
 
 		So(err, ShouldBeNil)
 
@@ -57,17 +56,21 @@ func TestOrchestratorClose(t *testing.T) {
 }
 
 /*
-TestOrchestratorCycle verifies the seed path. Cycle takes Values that
-have just come off the tokenizer and hands each non-nil Value to
-Firmware.Chain via queue.Submit so the pool can walk the rule chain.
-nil entries are skipped so callers can pass segment slices without
-defensive filtering. Cycle returns the Values that fell out of the
-terminal emitter in pass 2 — one per non-nil input, reflecting the
-full io.ReadWriteCloser pipeline the Conn, field, and emitter form.
+TestOrchestratorCycle verifies the seed path. Cycle takes a batch of
+Values, ingests each non-nil one through the root gossip.Conn (which
+fans into the global Field for the encounter pass and dispatches each
+visitor through the queue) and drains every emitted frame back out.
+
+Two emission paths feed the outbound ring: input echo (one frame per
+non-nil input, guaranteed) and genuine emissions (Field metric
+carriers, learner Values, post-ALU EmitRequested firmware output).
+The assertion is therefore "at least one frame per input" — the
+exact count depends on the steady-state metrics of the global field,
+which is intentionally non-deterministic on a fresh boot.
 */
 func TestOrchestratorCycle(t *testing.T) {
 	Convey("Given an orchestrator and a mix of real and nil Values", t, func() {
-		orchestrator, err := NewOrchestrator(context.Background())
+		orchestrator, err := NewOrchestrator(t.Context(), nil)
 
 		So(err, ShouldBeNil)
 
@@ -91,33 +94,29 @@ func TestOrchestratorCycle(t *testing.T) {
 			So(orchestrator.Close(), ShouldBeNil)
 		}()
 
-		defer func() {
-			deadline := time.Now().Add(2 * time.Second)
-			for time.Now().Before(deadline) && len(orchestrator.field.Values()) > 0 {
-				time.Sleep(1 * time.Millisecond)
-			}
-		}()
-
 		// Thread a nil through the slice so we exercise the skip
 		// branch in Cycle without allocating a sentinel type.
 		mixed := append(values, nil)
 
 		resolved, cycleErr := orchestrator.Cycle(mixed...)
 
-		Convey("It tolerates nil entries and returns the pipeline output", func() {
+		Convey("It tolerates nil entries and returns at least one frame per input", func() {
 			So(cycleErr, ShouldBeNil)
-			// nil was compacted out of the bundle, so the emitter
-			// only observes frames for the three real Values.
-			So(len(resolved), ShouldEqual, len(values))
+			So(len(resolved), ShouldBeGreaterThanOrEqualTo, len(values))
 		})
 
 		Convey("It leaves the orchestrator error-clean after submission", func() {
-			// Submissions go directly to pool workers rather than a
-			// ring buffer, so there is nothing synchronous to count;
-			// the invariant worth pinning is that Cycle never flips
-			// the orchestrator into an error state.
 			So(orchestrator.Error(), ShouldBeNil)
 		})
+
+		// Free emitted frames: ValueFromWireFrame allocates from the
+		// arena and Cycle hands those back to the caller, who owns
+		// teardown.
+		for _, value := range resolved {
+			if value != nil {
+				value.Close()
+			}
+		}
 	})
 }
 
@@ -128,7 +127,7 @@ error-propagation chains so the zero-state contract matters.
 */
 func TestOrchestratorError(t *testing.T) {
 	Convey("Given a fresh orchestrator", t, func() {
-		orchestrator, err := NewOrchestrator(context.Background())
+		orchestrator, err := NewOrchestrator(t.Context(), nil)
 
 		So(err, ShouldBeNil)
 
@@ -163,7 +162,7 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 	t.Skip("cross-Value asset staging needs dispatch + stream consumer")
 
 	Convey("Given an orchestrator and three pre-bootstrapped Values", t, func() {
-		orchestrator, err := NewOrchestrator(context.Background())
+		orchestrator, err := NewOrchestrator(t.Context(), nil)
 
 		So(err, ShouldBeNil)
 
@@ -174,13 +173,6 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 		// previous worker is still writing to.
 		defer func() {
 			So(orchestrator.Close(), ShouldBeNil)
-		}()
-
-		defer func() {
-			deadline := time.Now().Add(2 * time.Second)
-			for time.Now().Before(deadline) && len(orchestrator.field.Values()) > 0 {
-				time.Sleep(1 * time.Millisecond)
-			}
 		}()
 
 		prevStart, _ := primitive.PrevRegion.WordExtent()
@@ -294,7 +286,7 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 }
 
 func BenchmarkOrchestratorCycle(b *testing.B) {
-	orchestrator, err := NewOrchestrator(context.Background())
+	orchestrator, err := NewOrchestrator(b.Context(), nil)
 	if err != nil {
 		b.Fatal(err)
 	}

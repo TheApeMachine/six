@@ -49,6 +49,14 @@ two semantics degenerate once a field reaches high-consensus coverage.
 const crystallizationFloor = 0.35
 
 /*
+labelPropertyWords is how many consecutive properties words primitive.Emit
+WithLabels stamps (Properties.Start+LABLES+i). MeasureFieldMetrics must
+scan the same span so slot counts match Emit, not only the first packed
+word.
+*/
+const labelPropertyWords = 4
+
+/*
 shannonConsensus returns 1 − H / log2(N) where H is Shannon entropy in
 bits over the label histogram and N is the number of distinct observed
 labels. The result is 1 when every observed slot carries the same
@@ -95,12 +103,12 @@ JaccardCouplingAffinity returns the Jaccard similarity of two affinity
 fingerprints: popcount(a & b) / popcount(a | b). It is the coupling
 function DetectModes consumes to partition members into eigenmodes.
 
-Unrolled across the fixed affinityWords count so the compiler keeps the
+Unrolled across the fixed primitive.AffinityWords count so the compiler keeps the
 comparison in registers. A union popcount of zero (both fingerprints
 fully blank) is treated as maximal coupling — two blank values are
 trivially indistinguishable and should always share a mode.
 */
-func JaccardCouplingAffinity(a, b [affinityWords]uint64) float64 {
+func JaccardCouplingAffinity(a, b [primitive.AffinityWords]uint64) float64 {
 	inter := bits.OnesCount64(a[0]&b[0]) +
 		bits.OnesCount64(a[1]&b[1]) +
 		bits.OnesCount64(a[2]&b[2]) +
@@ -152,8 +160,8 @@ A nil Value returns the zero fingerprint, which JaccardCouplingAffinity
 treats as maximal coupling — undefined Values cannot meaningfully
 disagree, so they fold into whatever mode claims them first.
 */
-func loadAffinityArray(value *primitive.Value) [affinityWords]uint64 {
-	var out [affinityWords]uint64
+func loadAffinityArray(value *primitive.Value) [primitive.AffinityWords]uint64 {
+	var out [primitive.AffinityWords]uint64
 
 	if value == nil {
 		return out
@@ -161,7 +169,7 @@ func loadAffinityArray(value *primitive.Value) [affinityWords]uint64 {
 
 	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
 
-	for i := 0; i < affinityWords; i++ {
+	for i := 0; i < primitive.AffinityWords; i++ {
 		out[i] = (*value)[start+i]
 	}
 
@@ -200,27 +208,43 @@ func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) F
 	labelSlots := 0
 	labeled := 0
 
+	labelWords := labelPropertyWords
+	if propsWords < labelWords {
+		labelWords = propsWords
+	}
+
 	for _, v := range members {
 		if v == nil {
 			continue
 		}
 
-		w := (*v)[propsStart]
-		slots := 0
+		memberSlots := 0
 
-		for i := 0; i < 4; i++ {
-			if uint16(w>>(i*16)) != 0 {
-				slots++
+		for widx := 0; widx < labelWords; widx++ {
+			w := (*v)[propsStart+widx]
+
+			for lane := 0; lane < 4; lane++ {
+				if uint16(w>>(lane*16)) != 0 {
+					memberSlots++
+				}
 			}
 		}
 
-		if slots > 0 {
-			labeled++
+		// LabelDensity divides by n×4 — at most four supervision slots per member.
+		if memberSlots > 4 {
+			memberSlots = 4
 		}
 
-		labelSlots += slots
+		if memberSlots > 0 {
+			labeled++
 
-		hist[uint16(w&0xFFFF)]++
+			// Consensus histogram: only labeled members (same as Coverage). Unlabeled
+			// frames would otherwise stamp bucket 0 and dilute single-class consensus.
+			w0 := (*v)[propsStart]
+			hist[uint16(w0&0xFFFF)]++
+		}
+
+		labelSlots += memberSlots
 	}
 
 	out.LabeledCount = labeled
@@ -242,6 +266,10 @@ func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) F
 
 // RollupFieldMetrics combines child community metrics for a routing parent (one level).
 func RollupFieldMetrics(children []*Field) FieldMetrics {
+	if len(children) == 0 {
+		return FieldMetrics{}
+	}
+
 	var out FieldMetrics
 
 	var (
@@ -259,25 +287,25 @@ func RollupFieldMetrics(children []*Field) FieldMetrics {
 			continue
 		}
 
-		m := ch.Metrics()
+		metrics := ch.metrics.Load()
 
-		if m.MemberCount == 0 {
+		if metrics.MemberCount == 0 {
 			continue
 		}
 
-		w := float64(m.MemberCount)
-		totalMembers += m.MemberCount
-		sumCryst += m.Crystallization * w
-		sumCoverage += m.Coverage * w
-		sumConsensus += m.Consensus * w
-		sumLabelDensity += m.LabelDensity * w
+		w := float64(metrics.MemberCount)
+		totalMembers += metrics.MemberCount
+		sumCryst += metrics.Crystallization * w
+		sumCoverage += metrics.Coverage * w
+		sumConsensus += metrics.Consensus * w
+		sumLabelDensity += metrics.LabelDensity * w
 
-		if m.ModeCount > maxModeCount {
-			maxModeCount = m.ModeCount
+		if metrics.ModeCount > maxModeCount {
+			maxModeCount = metrics.ModeCount
 		}
 
-		if m.DominantRatio > maxDominant {
-			maxDominant = m.DominantRatio
+		if metrics.DominantRatio > maxDominant {
+			maxDominant = metrics.DominantRatio
 		}
 	}
 

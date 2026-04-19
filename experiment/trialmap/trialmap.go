@@ -2,6 +2,7 @@ package trialmap
 
 import (
 	"fmt"
+	"strconv"
 
 	tools "github.com/theapemachine/six/experiment"
 )
@@ -149,11 +150,20 @@ func TwoScorePanels(
 		labels = make([]string, n)
 
 		for idx := range labels {
-			labels[idx] = fmt.Sprintf("%s%d", prefix, idx+1)
+			labels[idx] = prefix + strconv.Itoa(idx+1)
 		}
 	}
 
-	heatData := make([][]any, 0, n*4)
+	cells := n * 4
+	heatFlat := make([]any, cells*3)
+	heatData := make([][]any, cells)
+
+	for index := range heatData {
+		base := index * 3
+		heatData[index] = heatFlat[base : base+3]
+	}
+
+	idx := 0
 	weightedVals := make([]float64, n)
 	meanLine := make([]float64, n)
 
@@ -164,7 +174,11 @@ func TwoScorePanels(
 			row.Scores.Fuzzy,
 			row.WeightedTotal,
 		} {
-			heatData = append(heatData, []any{cIdx, sIdx, v})
+			base := idx * 3
+			heatFlat[base] = cIdx
+			heatFlat[base+1] = sIdx
+			heatFlat[base+2] = v
+			idx++
 		}
 
 		weightedVals[sIdx] = row.WeightedTotal
