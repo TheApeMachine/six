@@ -193,11 +193,11 @@ func (orchestrator *Orchestrator) Cycle(
 			clone, clones = clones[0], clones[1:]
 		}
 
-		if _, err := io.Copy(orchestrator.field, clone); err != nil {
+		if _, err := io.CopyN(orchestrator.field, clone, int64(core.Cfg.Value.Bytes)); err != nil {
 			return nil, errnie.Error(err)
 		}
 
-		if _, err := io.Copy(out, orchestrator.field); err != nil {
+		if _, err := io.CopyN(out, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
 			return nil, errnie.Error(err)
 		}
 
@@ -225,7 +225,7 @@ func (orchestrator *Orchestrator) Cycle(
 			clones = append(clones, frameValue)
 		}
 
-		if len(resolved) > 0 {
+		if len(resolved) > 0 || len(clones) == 0 {
 			break
 		}
 	}

@@ -24,7 +24,7 @@ export function telemetryHost(): string {
 }
 
 export function telemetryPort(): string {
-	return envValue("VITE_VIZ_PORT") || (typeof window !== "undefined" ? window.location.port : "3000");
+	return envValue("VITE_VIZ_PORT") || (typeof window !== "undefined" ? window.location.port : "6600");
 }
 
 export function telemetryHttpBase(): string {

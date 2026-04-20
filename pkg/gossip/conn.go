@@ -39,7 +39,7 @@ type Conn struct {
 	err       atomic.Value
 	queue     pool.Scheduler
 	telemetry *telemetry.Bridge
-	pipeline  io.ReadWriteCloser
+	pipeline  *transport.Pipeline
 }
 
 /*
@@ -67,7 +67,7 @@ func NewConn(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	feedback := transport.NewFeedback(ctx, telemetry, queue)
+	feedback := transport.NewFeedback(ctx, queue, telemetry)
 	pipeline := transport.NewPipeline(ctx, append([]io.ReadWriter{feedback}, rwcs...)...)
 
 	conn := &Conn{
@@ -86,6 +86,10 @@ func NewConn(
 	}))
 }
 
+func (conn *Conn) Update(components ...io.ReadWriter) {
+	conn.pipeline.Update(components...)
+}
+
 /*
 Read drains exactly one emitted frame from the outbound path. The slice
 must hold at least core.Cfg.Value.Bytes (e.g. 1024); otherwise ErrShortBuffer.
@@ -98,7 +102,10 @@ func (conn *Conn) Read(p []byte) (int, error) {
 	}
 
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, io.ErrShortBuffer
+		return 0, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("conn.Read: len(p) < core.Cfg.Value.Bytes"),
+		)
 	}
 
 	return conn.pipeline.Read(p[:core.Cfg.Value.Bytes])
@@ -136,7 +143,6 @@ func (conn *Conn) Close() error {
 	}
 
 	conn.cancel()
-	conn.telemetry.Close()
 	conn.pipeline.Close()
 
 	return conn.Error()

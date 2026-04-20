@@ -157,30 +157,6 @@ export function FieldViewer({ className }: { className?: string }) {
 				</div>
 
 				<div className="pointer-events-auto flex max-w-[340px] flex-col items-end gap-2 font-mono text-[10px] leading-4 text-right text-white/65">
-					<div className="flex w-full items-start justify-end gap-2">
-						<Button
-							onClick={() => setProgramDrawerOpen((prev) => !prev)}
-							className={cn(
-								"h-7 rounded-md border px-2 font-mono text-[9px] uppercase tracking-wider",
-								programDrawerOpen
-									? "border-fuchsia-400/50 bg-fuchsia-500/20 text-fuchsia-100 hover:bg-fuchsia-500/30"
-									: "border-white/10 bg-[#0a0a14]/80 text-white/60 hover:bg-white/10",
-							)}
-							title="Toggle firmware program viewer"
-						>
-							<IconSchema className="mr-1 h-3.5 w-3.5" />
-							programs
-						</Button>
-					</div>
-					<div>
-						<div className="text-white/38">telemetry</div>
-						<div>values {stats?.values ?? 0}</div>
-						<div>fields {snapshot.fields.length}</div>
-						<div>{formatTimestamp(snapshot.timestamp)}</div>
-						{connectionError && (
-							<div className="mt-2 text-red-300">{connectionError}</div>
-						)}
-					</div>
 					<ProgramLegend snapshot={snapshot} className="w-[320px] text-left" />
 				</div>
 			</div>

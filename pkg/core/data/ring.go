@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"io"
 	"runtime"
 	"sync"
@@ -265,7 +266,10 @@ func (ring *Ring) Read(p []byte) (n int, err error) {
 	}
 
 	if len(p) == 0 {
-		return 0, io.ErrShortBuffer
+		return 0, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("ring.Read: len(p) == 0"),
+		)
 	}
 
 	total := 0

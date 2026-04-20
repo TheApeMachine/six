@@ -2,6 +2,7 @@
 package primitive
 
 import (
+	"errors"
 	"io"
 	"log"
 	"slices"
@@ -147,11 +148,11 @@ geometry.SlotCode, geometry.PositionCode, and the per-segment positionOrdinal
 and idx scan in newValuesFromPayload). When no geometry is provided, NewValue
 uses a balanced default lattice sized to the segment capacity.
 
-If geometry.SlotCode(rollingDigest, rawByte, positionOrdinal) collides with an occupied 16-bit
-key, newValuesFromPayload advances through higher ordinals until a free key
-appears so duplicate stream bytes are preserved in additional slot pairs
-rather than being dropped; tokenBytes and offset still govern how many pairs
-fit in buf before chaining another segment.
+If geometry.SlotCode(rollingDigest, rawByte, positionOrdinal) collides with an
+occupied 16-bit key, newValuesFromPayload advances through higher ordinals
+until a free key appears so duplicate stream bytes are preserved in additional
+slot pairs rather than being dropped; tokenBytes and offset still govern how
+many pairs fit in buf before chaining another segment.
 
 To load an exact wire frame without re-stamping (same ID and affinity bits
 as Read produced), use Write on a pooled *Value — never a second NewValue on
@@ -176,7 +177,10 @@ CloseAll closes every non-nil pointer in the slice.
 */
 func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 	if len(p) == 0 {
-		return nil, io.ErrShortBuffer
+		return nil, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("newValue: len(p) == 0"),
+		)
 	}
 
 	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
@@ -237,7 +241,10 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 				FreeValue(x)
 			}
 
-			return nil, io.ErrShortBuffer
+			return nil, errors.Join(
+				io.ErrShortBuffer,
+				errors.New("newValue: n == 0"),
+			)
 		}
 
 		stamp := val.stampID()
@@ -254,7 +261,7 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 		// modulo affinityWords. Equivalent to the first pass of the
 		// `affinity` firmware program.
 		if affinityWords > 0 {
-			for i := 0; i < tokenWords; i++ {
+			for i := range tokenWords {
 				w := codes[i]
 
 				if w == 0 {
@@ -304,7 +311,10 @@ The caller owns the returned pointer until Close returns it to the arena.
 */
 func ValueFromWireFrame(frame []byte) (*Value, error) {
 	if len(frame) < core.Cfg.Value.Bytes {
-		return nil, io.ErrShortBuffer
+		return nil, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("valueFromWireFrame: len(frame) < core.Cfg.Value.Bytes"),
+		)
 	}
 
 	value := AllocValue()
@@ -324,7 +334,10 @@ func (value *Value) LoadFullFrame(frame []byte) error {
 	}
 
 	if len(frame) < core.Cfg.Value.Bytes {
-		return io.ErrShortBuffer
+		return errors.Join(
+			io.ErrShortBuffer,
+			errors.New("value.LoadFullFrame: len(frame) < core.Cfg.Value.Bytes"),
+		)
 	}
 
 	valueFrom(frame, value)
@@ -365,7 +378,10 @@ end of the byte source.
 */
 func (value *Value) Read(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, io.ErrShortBuffer
+		return 0, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("value.Write: len(p) < core.Cfg.Value.Bytes"),
+		)
 	}
 
 	valueTo(value, p)
@@ -389,7 +405,10 @@ the new firmware on the next ALU pass.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, io.ErrShortBuffer
+		return 0, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("value.Write: len(p) < core.Cfg.Value.Bytes"),
+		)
 	}
 
 	tmpVal := AllocValue()

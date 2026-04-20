@@ -52,6 +52,12 @@ func NewMachine(
 		opt(machine)
 	}
 
+	go func() {
+		if err := bridge.ListenAndServe(); err != nil {
+			errnie.Error(err)
+		}
+	}()
+
 	if machine.host, machine.err = network.NewHost(ctx); machine.err != nil {
 		return nil, errnie.Error(machine.err)
 	}
@@ -102,6 +108,12 @@ func (machine *Machine) Close() error {
 
 	if machine.orchestrator != nil {
 		if err := machine.orchestrator.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if machine.telemetry != nil {
+		if err := machine.telemetry.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}

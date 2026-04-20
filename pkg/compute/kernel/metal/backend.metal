@@ -4,8 +4,6 @@
 #include "device_postexec.metal"
 using namespace metal;
 
-#define CONTEXT_START_WORD 32
-#define GRADIENT_START_WORD 40
 #define OPCODE_GEOMETRIC_MASK 0xF0
 #define OPCODE_GEOMETRIC_COMPOSE 0x10
 #define OPCODE_GEOMETRIC_SANDWICH 0x20
@@ -159,54 +157,6 @@ static inline Multivector sandwich(Multivector motor, Multivector target) {
 static inline void unpack_region_ref(ulong word, thread int* start, thread int* span) {
     *start = (int)(uint)word;
     *span = (int)(uint)(word >> 32);
-}
-
-static inline ulong exact_binary_word(ulong op, ulong a, ulong b) {
-    ulong m0 = (op & 1) ? ~0UL : 0UL;
-    ulong m1 = (op & 2) ? ~0UL : 0UL;
-    ulong m2 = (op & 4) ? ~0UL : 0UL;
-    ulong m3 = (op & 8) ? ~0UL : 0UL;
-    return (a & b & m0) |
-           (a & ~b & m1) |
-           (~a & b & m2) |
-           (~a & ~b & m3);
-}
-
-static inline void copy_mask_merge_device(device ulong* frame) {
-    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
-    int n = aSpan;
-    if (bSpan < n) n = bSpan;
-    if (dstSpan < n) n = dstSpan;
-    if (n <= 0) return;
-    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
-    if (aStart + n > 128 || bStart + n > 128 || dstStart + n > 128) return;
-    for (int idx = 0; idx < n; idx++) {
-        ulong mask = frame[bStart + idx];
-        ulong src = frame[aStart + idx];
-        int dst = dstStart + idx;
-        frame[dst] = (src & mask) | (frame[dst] & ~mask);
-    }
-}
-
-static inline void exact_binary_device(
-    device ulong* frame,
-    ulong op,
-    int aStart, int aSpan,
-    int bStart, int bSpan,
-    int dstStart, int dstSpan
-) {
-    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
-    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
-    int limit = aSpan;
-    if (bSpan < limit) limit = bSpan;
-    if (dstSpan < limit) limit = dstSpan;
-    if (aStart + limit > 128 || bStart + limit > 128 || dstStart + limit > 128) return;
-    for (int idx = 0; idx < limit; idx++) {
-        frame[dstStart + idx] = exact_binary_word(op, frame[aStart + idx], frame[bStart + idx]);
-    }
 }
 
 static inline void universal_bitwise_device(

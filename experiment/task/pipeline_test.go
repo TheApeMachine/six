@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 
 func tryLoadConfigForTaskTests() error {
 	viper.SetConfigType("yml")
-	viper.Set("telemetry.webSocketURL", "ws://127.0.0.1:6600/ws")
+	viper.Set("telemetry.ws_url", "ws://127.0.0.1:6600/ws")
 
 	candidates := []string{
 		filepath.Join("..", "..", "cmd", "cfg", "config.yml"),
@@ -212,7 +212,13 @@ func TestPipeline(t *testing.T) {
 
 				Convey("It should record the aggregate outcome for "+experiment.Name(), func() {
 					actual, assertion, threshold := experiment.Outcome()
-					logPipelineGate(t, experiment.Name(), actual, assertion, threshold)
+					t.Logf(
+						"pipeline gate %s: actual=%v assertion=%v threshold=%v",
+						experiment.Name(),
+						actual,
+						assertion,
+						threshold,
+					)
 				})
 
 				Convey("When paper artifacts are emitted for "+experiment.Name(), func() {
@@ -240,17 +246,6 @@ func pipelineExperimentRowCount(experiment tools.PipelineExperiment) (int, bool)
 	}
 
 	return len(rows), true
-}
-
-func logPipelineGate(t *testing.T, experimentName string, actual any, assertion any, threshold any) {
-	t.Helper()
-	t.Logf(
-		"pipeline gate %s: actual=%v assertion=%v threshold=%v",
-		experimentName,
-		actual,
-		assertion,
-		threshold,
-	)
 }
 
 func classLabelStringForPipeline(experiment tools.PipelineExperiment, value *primitive.Value) string {

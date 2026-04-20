@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
@@ -45,7 +46,7 @@ Example:
 	p2 := workflow.NewPipeline(message, agent, provider, p1)
 	io.Copy(os.Stdout, p2)
 */
-func NewPipeline(ctx context.Context, components ...io.ReadWriter) io.ReadWriteCloser {
+func NewPipeline(ctx context.Context, components ...io.ReadWriter) *Pipeline {
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &Pipeline{
@@ -53,6 +54,10 @@ func NewPipeline(ctx context.Context, components ...io.ReadWriter) io.ReadWriteC
 		cancel:     cancel,
 		components: components,
 	}
+}
+
+func (pipeline *Pipeline) Update(components ...io.ReadWriter) {
+	pipeline.components = append(pipeline.components, components...)
 }
 
 /*
@@ -76,7 +81,11 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 				// delivered to p, so they must not contribute to n (io.Reader
 				// requires n <= len(p)). The copy itself still has to happen
 				// so the final component has data to read from.
-				if _, err = io.Copy(pipeline.components[i+1], pipeline.components[i]); err != nil {
+				if _, err = io.CopyN(
+					pipeline.components[i+1],
+					pipeline.components[i],
+					int64(core.Cfg.Value.Bytes),
+				); err != nil {
 					if err == io.EOF {
 						continue
 					}

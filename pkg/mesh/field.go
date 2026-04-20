@@ -1,7 +1,6 @@
 package mesh
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
+	"github.com/theapemachine/six/pkg/transport"
 )
 
 /*
@@ -131,7 +131,12 @@ func NewField(
 	// will not block. This is the correct behavior for the global
 	// field that does not have communities yet, and for the community
 	// fields that do not have any values yet.
-	conn, err := gossip.NewConn(ctx, queue, telemetry, bytes.NewBuffer(nil))
+	conn, err := gossip.NewConn(
+		ctx, 
+		queue, 
+		telemetry, 
+		transport.NewCollector(core.Cfg.Value.Bytes),
+	)
 
 	if errnie.Error(err) != nil {
 		cancel()
@@ -151,6 +156,7 @@ func NewField(
 		modulus:     modulus,
 		conn:        conn,
 		queue:       queue,
+		telemetry:   telemetry,
 		snap:        &geometry.EigenSnap{},
 		dial:        geometry.NewPhaseDial(),
 		routeBudget: core.Cfg.System.RouteBudget,
@@ -191,11 +197,17 @@ func (field *Field) foldAffinityXOR(value *primitive.Value) {
 	if value == nil {
 		return
 	}
+	visitorAffinity := value.Get(primitive.AffinityRegion)
+	if len(visitorAffinity) == 0 {
+		return
+	}
 
-	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
+	for wordIdx := range visitorAffinity {
+		if wordIdx >= len(field.affinity) {
+			break
+		}
 
-	for wordIdx := range primitive.AffinityWords {
-		contrib := (*value)[start+wordIdx]
+		contrib := visitorAffinity[wordIdx]
 		at := &field.affinity[wordIdx]
 
 		for {
@@ -251,21 +263,25 @@ func (field *Field) Write(p []byte) (n int, err error) {
 	}
 
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, io.ErrShortBuffer
+		return 0, errors.Join(
+			io.ErrShortWrite,
+			errors.New("field.Write: len(p) < core.Cfg.Value.Bytes"),
+		)
 	}
 
 	field.queue.Schedule(func() {
-		visitor, err := primitive.ValueFromWireFrame(p)
+		visitor := primitive.AllocValue()
 
-		if err != nil {
+		if err := visitor.LoadFullFrame(p); err != nil {
+			errnie.Error(errors.Join(
+				io.ErrShortBuffer,
+				errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
+			))
+
 			return
 		}
 
 		field.findCommunity(visitor)
-
-		if _, err := io.Copy(visitor, field.conn); err != nil {
-			return
-		}
 	})
 
 	return field.conn.Write(p)
@@ -285,11 +301,28 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 		// distance of the field's affinity.
 		visitorAffinity := visitor.Get(primitive.AffinityRegion)
 
-		hammingDistance := uint64(0)
+		if len(visitorAffinity) == 0 {
+			continue
+		}
 
-		for i := range len(f.affinity) {
+		hammingDistance := uint64(0)
+		maxWords := max(len(visitorAffinity), len(f.affinity))
+
+		for i := range maxWords {
+			fieldWord := uint64(0)
+
+			if i < len(f.affinity) {
+				fieldWord = f.affinity[i].Load()
+			}
+
+			visitorWord := uint64(0)
+
+			if i < len(visitorAffinity) {
+				visitorWord = visitorAffinity[i]
+			}
+
 			hammingDistance += uint64(
-				bits.OnesCount64(f.affinity[i].Load() ^ visitorAffinity[i]),
+				bits.OnesCount64(fieldWord ^ visitorWord),
 			)
 		}
 
@@ -305,7 +338,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 				f.id,
 			)
 
-			f.updateConn()
+			f.conn.Update(visitor)
 			break
 		}
 	}
@@ -324,45 +357,14 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	newField.foldAffinityXOR(visitor)
 
 	// Update the new field's conn.
-	newField.updateConn()
+	newField.conn.Update(visitor)
 
 	field.fields = append(field.fields, newField)
 
-	rwcs := make([]io.ReadWriter, len(field.fields))
-
-	for idx, f := range field.fields {
-		rwcs[idx] = f.conn
-	}
-
-	field.conn, field.err = gossip.NewConn(
-		field.ctx, field.queue, field.telemetry, rwcs...,
-	)
-
-	if field.err != nil {
-		return
-	}
+	field.conn.Update(newField.conn)
 
 	// Stamp the visitor with the new field's ID.
 	visitor.Set(
 		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), newField.id,
 	)
-}
-
-func (field *Field) updateConn() {
-	rwcs := make([]io.ReadWriter, len(field.values))
-
-	// Add the Values that need to be re-cycled so they can be scheduled
-	// onto the queue for the next ALU pass.
-	for idx, value := range field.values {
-		rwcs[idx] = value
-	}
-
-	if len(rwcs) > 0 {
-		field.conn, field.err = gossip.NewConn(
-			field.ctx,
-			field.queue,
-			field.telemetry,
-			rwcs...,
-		)
-	}
 }

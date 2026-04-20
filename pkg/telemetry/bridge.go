@@ -3,105 +3,96 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
-	"net"
+	"net/http"
+	"sync"
 
 	"github.com/gobwas/ws"
+	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
-/*
-Bridge serves exactly one read-only WebSocket client (the visualizer).
-
-Bridge spawns no goroutines of its own. ListenAndServe blocks on the
-caller's goroutine until Close is called or ctx is cancelled. Write emits
-one binary WS frame per call, serialized by mu so concurrent producers do
-not interleave headers and payloads on the wire.
-*/
 type Bridge struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	err    error
-	ln     net.Listener
-	conn   net.Conn
+	conn   *websocket.Conn
+	queue  sync.Map
 }
 
-func NewBridge(ctx context.Context, _ string) (*Bridge, error) {
+func NewBridge(ctx context.Context, url string) (*Bridge, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &Bridge{
 		ctx:    ctx,
 		cancel: cancel,
+		queue:  sync.Map{},
 	}, nil
 }
 
-/*
-ListenAndServe accepts one connection on :6600, performs the WebSocket
-handshake, and blocks until Close is called or ctx is cancelled. A closed
-listener during shutdown returns nil; only setup failures bubble up.
-*/
 func (bridge *Bridge) ListenAndServe() error {
-	if bridge.ln, bridge.err = net.Listen("tcp", ":6600"); bridge.err != nil {
-		return bridge.err
-	}
-
-	if bridge.conn, bridge.err = bridge.ln.Accept(); bridge.err != nil {
-		return bridge.err
-	}
-
-	if _, bridge.err = ws.Upgrade(bridge.conn); bridge.err != nil {
-		bridge.conn.Close()
-		return bridge.err
-	}
-
-	<-bridge.ctx.Done()
-
-	return bridge.err
-}
-
-/*
-Read is a noop.
-*/
-func (bridge *Bridge) Read(p []byte) (int, error) {
-	return 0, io.EOF
-}
-
-/*
-Write emits one binary WS frame. Before a client connects (or after the
-client drops) Write reports the bytes as written and discards them, so
-producers stay decoupled from visualizer presence.
-*/
-func (bridge *Bridge) Write(p []byte) (int, error) {
-	if bridge == nil {
-		return 0, io.ErrClosedPipe
-	}
-
-	if bridge.conn == nil {
-		return 0, errnie.Error(errors.New("bridge not connected"))
-	}
-
-	select {
-	case <-bridge.ctx.Done():
-		return 0, bridge.ctx.Err()
-	default:
-		header := ws.Header{
-			Fin:    true,
-			OpCode: ws.OpBinary,
-			Length: int64(len(p)),
+	http.ListenAndServe(":6600", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, _, err := ws.UpgradeHTTP(r, w)
+		if err != nil {
+			// handle error
 		}
+		go func() {
+			defer conn.Close()
 
-		if err := ws.WriteHeader(bridge.conn, header); err != nil {
-			bridge.dropConnLocked()
-			return 0, errnie.Error(err)
-		}
+			for {
+				select {
+				case <-bridge.ctx.Done():
+					return
+				default:
+					header, err := ws.ReadHeader(conn)
 
-		if _, err := bridge.conn.Write(p); err != nil {
-			bridge.dropConnLocked()
-			return 0, errnie.Error(err)
-		}
+					if err != nil {
+						errnie.Error(errors.Join(
+							io.ErrShortBuffer,
+							errors.New("bridge.Write: ws.ReadHeader(conn) failed"),
+						))
+					}
 
-		return len(p), nil
-	}
+					payload := make([]byte, header.Length)
+
+					bridge.queue.Range(func(key, value any) bool {
+						payload = append(payload, value.(*primitive.Value).Bytes()...)
+						return true
+					})
+
+					if header.Masked {
+						ws.Cipher(payload, header.Mask, 0)
+					}
+
+					// Reset the Masked flag, server frames must not be masked as
+					// RFC6455 says.
+					header.Masked = false
+
+					if err := ws.WriteHeader(conn, header); err != nil {
+						errnie.Error(errors.Join(
+							io.ErrShortBuffer,
+							errors.New("bridge.Write: ws.WriteHeader(conn, header) failed"),
+						))
+					}
+
+					if _, err := conn.Write(payload); err != nil {
+						errnie.Error(errors.Join(
+							io.ErrShortBuffer,
+							errors.New("bridge.Write: conn.Write(payload) failed"),
+						))
+					}
+
+					if header.OpCode == ws.OpClose {
+						return
+					}
+				}
+			}
+		}()
+	}))
+
+	return nil
 }
 
 func (bridge *Bridge) Close() error {
@@ -111,28 +102,39 @@ func (bridge *Bridge) Close() error {
 
 	bridge.cancel()
 
-	if bridge.conn != nil {
-		bridge.conn.Close()
-		bridge.conn = nil
+	return bridge.err
+}
+
+/*
+Read is a no-op for the bridge.
+*/
+func (bridge *Bridge) Read(p []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (bridge *Bridge) Write(p []byte) (int, error) {
+	if bridge == nil {
+		return 0, io.ErrClosedPipe
 	}
 
-	if bridge.ln != nil {
-		bridge.ln.Close()
-		bridge.ln = nil
+	value := primitive.AllocValue()
+
+	if err := value.LoadFullFrame(p); err != nil {
+		return 0, errnie.Error(errors.Join(
+			io.ErrShortBuffer,
+			fmt.Errorf("bridge.Write: value.LoadFullFrame(p) failed with size %d", len(p)),
+		))
 	}
 
-	return nil
+	bridge.queue.Swap(value.ID(), value)
+
+	return len(p), nil
 }
 
 func (bridge *Bridge) Error() error {
-	return nil
-}
-
-func (bridge *Bridge) dropConnLocked() {
-	if bridge.conn == nil {
-		return
+	if bridge == nil {
+		return nil
 	}
 
-	bridge.conn.Close()
-	bridge.conn = nil
+	return bridge.err
 }

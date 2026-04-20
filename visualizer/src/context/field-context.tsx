@@ -17,10 +17,7 @@ import type {
 	VizRuntimeStats,
 } from "@/features/telemetry/types";
 import { ValueStore } from "@/lib/value-store";
-import {
-	decodeValueWireMessage,
-	ENVELOPE_KIND_FIELD_METRICS,
-} from "@/lib/wire";
+import { decodeValueWireMessage } from "@/lib/wire";
 
 interface FieldContextValue {
 	stats: VizRuntimeStats | null;
@@ -83,15 +80,8 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				*/
 				const decoded = decodeValueWireMessage(message.data);
 
-				if (decoded.frames.length > 0) {
-					store.applyWireFrames(decoded.frames);
-				}
-
-				if (
-					decoded.envelope &&
-					decoded.envelope.kind === ENVELOPE_KIND_FIELD_METRICS
-				) {
-					store.applyFieldMetricsEnvelope(decoded.envelope.payload);
+				if (decoded.length > 0) {
+					store.applyWireFrames(decoded);
 				}
 
 				sync();

@@ -8,7 +8,22 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
+
+func TestNewField(t *testing.T) {
+	Convey("Given a telemetry bridge", t, func() {
+		bridge, err := telemetry.NewBridge(t.Context(), "")
+		So(err, ShouldBeNil)
+
+		field := NewField(t.Context(), 65537, bridge, newTestQueue(t))
+		So(field, ShouldNotBeNil)
+
+		Convey("It retains the bridge for child fields", func() {
+			So(field.telemetry, ShouldEqual, bridge)
+		})
+	})
+}
 
 /*
 TestFieldRead covers the Value-stream view of a Field: each Read

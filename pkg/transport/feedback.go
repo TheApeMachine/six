@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"errors"
 	"io"
 
 	"github.com/theapemachine/six/pkg/errnie"
@@ -126,28 +125,13 @@ func (feedback *Feedback) Write(p []byte) (n int, err error) {
 }
 
 /*
-Close implements io.Closer. It attempts to close both forward and backward
-components if they implement io.Closer.
-
-Returns:
-  - error: Any error that occurred while closing either component
+Close cancels this Feedback's context only. Forward and backward are often
+shared infrastructure (telemetry Bridge, pool.Queue) owned by vm.Machine —
+closing them here would tear down unrelated subsystems when gossip.Conn
+stops.
 */
 func (feedback *Feedback) Close() error {
 	feedback.cancel()
-
-	var fwdErr, bwdErr error
-
-	if closer, ok := feedback.forward.(io.Closer); ok {
-		fwdErr = closer.Close()
-	}
-
-	if closer, ok := feedback.backward.(io.Closer); ok {
-		bwdErr = closer.Close()
-	}
-
-	if joined := errors.Join(fwdErr, bwdErr); joined != nil {
-		return errnie.Error(joined)
-	}
 
 	return nil
 }
