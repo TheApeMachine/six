@@ -142,15 +142,20 @@ func TestFieldCycle(t *testing.T) {
 		}
 
 		Convey("Tick populates Metrics, Snap, and Dial atomically", func() {
-			field.detectEigenmodes()
+			field.snap = field.detectEigenmodes()
+			metrics := field.metrics.Load().Measure(field, field.values, field.snap)
+			field.metrics.Store(&metrics)
 
-			metrics := field.metrics.Load()
-			So(metrics.MemberCount, ShouldBeGreaterThanOrEqualTo, 4)
-			So(metrics.Coverage, ShouldEqual, 1)
-			So(metrics.Consensus, ShouldEqual, 1)
-			So(metrics.LabelDensity, ShouldEqual, 1)
-			So(metrics.Crystallization, ShouldEqual, 1)
-			So(metrics.Saturated, ShouldBeTrue)
+			metricsPtr := field.metrics.Load()
+			if metricsPtr == nil {
+				t.Fatal("metrics is nil")
+			}
+			So(metricsPtr.MemberCount, ShouldBeGreaterThanOrEqualTo, 4)
+			So(metricsPtr.Coverage, ShouldEqual, 1)
+			So(metricsPtr.Consensus, ShouldEqual, 1)
+			So(metricsPtr.LabelDensity, ShouldEqual, 1)
+			So(metricsPtr.Crystallization, ShouldEqual, 1)
+			So(metricsPtr.Saturated, ShouldBeTrue)
 
 			snap := field.snap
 			So(snap, ShouldNotBeNil)
@@ -162,7 +167,7 @@ func TestFieldCycle(t *testing.T) {
 
 		Convey("Tick never mutates field.values regardless of saturation", func() {
 			before := len(field.values)
-			field.detectEigenmodes()
+			field.snap = field.detectEigenmodes()
 
 			after := len(field.values)
 			So(after, ShouldEqual, before)
@@ -194,13 +199,18 @@ func TestFieldCycle(t *testing.T) {
 		*/
 		Convey("Tick marks the field unsaturated without mutating values", func() {
 			before := len(field.values)
-			field.detectEigenmodes()
+			field.snap = field.detectEigenmodes()
+			metrics := field.metrics.Load().Measure(field, field.values, field.snap)
+			field.metrics.Store(&metrics)
 
 			after := len(field.values)
 			So(after, ShouldEqual, before)
 
-			metrics := field.metrics.Load()
-			So(metrics.Saturated, ShouldBeFalse)
+			metricsPtr := field.metrics.Load()
+			if metricsPtr == nil {
+				t.Fatal("metrics is nil")
+			}
+			So(metricsPtr.Saturated, ShouldBeFalse)
 		})
 	})
 }

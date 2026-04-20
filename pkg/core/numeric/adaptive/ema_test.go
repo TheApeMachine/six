@@ -10,7 +10,7 @@ func TestNewEMA(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a fresh EMA", t, func() {
-		ema := NewEMA()
+		ema := NewEMA(0.35)
 
 		Convey("It should not be observed until the first sample", func() {
 			So(ema.observed, ShouldBeFalse)
@@ -22,7 +22,7 @@ func TestEMANext(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given an EMA fed a staircase", t, func() {
-		ema := NewEMA()
+		ema := NewEMA(0.35)
 
 		_, err := ema.Next(0, 1.0)
 
@@ -39,7 +39,7 @@ func TestEMAReset(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given an EMA after observations", t, func() {
-		ema := NewEMA()
+		ema := NewEMA(0.35)
 
 		_, _ = ema.Next(0, 42)
 
@@ -56,7 +56,7 @@ func TestEMAClone(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a cloned EMA", t, func() {
-		orig := NewEMA()
+		orig := NewEMA(0.35)
 
 		_, _ = orig.Next(0, 5)
 		_, _ = orig.Next(0, 10)
@@ -86,7 +86,7 @@ func TestEMAClone(t *testing.T) {
 }
 
 func BenchmarkEMANext(b *testing.B) {
-	ema := NewEMA()
+	ema := NewEMA(0.35)
 
 	var v float64
 

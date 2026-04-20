@@ -22,7 +22,7 @@ func TestNewDerived(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given NewDerived with WithDynamics", t, func() {
-		chain := NewDerived(WithDynamics(adaptive.NewEMA()))
+		chain := NewDerived(WithDynamics(adaptive.NewEMA(0.35)))
 
 		So(chain, ShouldNotBeNil)
 		So(len(chain.dynamics), ShouldEqual, 1)
@@ -33,7 +33,7 @@ func TestDerivedNext(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a Derived EMA chain", t, func() {
-		chain := NewDerived(WithDynamics(adaptive.NewEMA()))
+		chain := NewDerived(WithDynamics(adaptive.NewEMA(0.35)))
 
 		out, err := chain.Next(2.0, 2.0, 2.0)
 
@@ -55,7 +55,7 @@ func TestDerivedReset(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a Derived after Next", t, func() {
-		chain := NewDerived(WithDynamics(adaptive.NewEMA()))
+		chain := NewDerived(WithDynamics(adaptive.NewEMA(0.35)))
 
 		_, _ = chain.Next(9)
 
@@ -87,7 +87,7 @@ func TestDerivedClone(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a Derived clone of an EMA-backed chain", t, func() {
-		original := NewDerived(WithDynamics(adaptive.NewEMA()))
+		original := NewDerived(WithDynamics(adaptive.NewEMA(0.35)))
 
 		_, _ = original.Next(4, 8)
 
@@ -115,8 +115,8 @@ func TestWithDynamics(t *testing.T) {
 	t.Parallel()
 
 	Convey("WithDynamics appends multiple dynamics in order", t, func() {
-		first := adaptive.NewEMA()
-		second := adaptive.NewSpread()
+		first := adaptive.NewEMA(0.35)
+		second := adaptive.NewSpread(0.35)
 
 		chain := NewDerived(WithDynamics(first, second))
 
@@ -127,7 +127,7 @@ func TestWithDynamics(t *testing.T) {
 }
 
 func BenchmarkDerivedNext(b *testing.B) {
-	chain := NewDerived(WithDynamics(adaptive.NewEMA()))
+	chain := NewDerived(WithDynamics(adaptive.NewEMA(0.35)))
 
 	var v float64
 
@@ -145,7 +145,7 @@ func BenchmarkDerivedNext(b *testing.B) {
 }
 
 func BenchmarkDerivedClone(b *testing.B) {
-	original := NewDerived(WithDynamics(adaptive.NewEMA(), adaptive.NewSigmaClamp(2, 8, 0.1)))
+	original := NewDerived(WithDynamics(adaptive.NewEMA(0.35), adaptive.NewSigmaClamp(2, 8, 0.1)))
 
 	_, _ = original.Next(1.5, 2.5, 3.5)
 

@@ -28,8 +28,10 @@ type EMA struct {
 NewEMA creates a new EMA. No initial value or rate is
 needed — both are derived from the first observations.
 */
-func NewEMA() *EMA {
-	return &EMA{}
+func NewEMA(rate float64) *EMA {
+	return &EMA{
+		rate: rate,
+	}
 }
 
 /*

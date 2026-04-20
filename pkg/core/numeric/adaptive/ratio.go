@@ -29,7 +29,7 @@ by an EMA that bootstraps itself from the observed
 ratios.
 */
 func NewRatio(raw float64) *Ratio {
-	return &Ratio{raw: raw, smoother: NewEMA()}
+	return &Ratio{raw: raw, smoother: NewEMA(raw)}
 }
 
 /*

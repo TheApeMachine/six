@@ -12,11 +12,11 @@ export const WORD = {
 	The orchestrator stages predecessor/successor IDs into the first two Asset
 	words of each Value before the link firmware copies them into Prev/Next.
 	pkg/vm/orchestrator.go resolves that start from core.Cfg.Value.Region.Asset
-	(default start word 64), so the viz has to read from the same words or the
+	(default start word 72), so the viz has to read from the same words or the
 	chain preview lies about what's staged.
 	*/
-	ASSET_PREV: 64,
-	ASSET_NEXT: 65,
+	ASSET_PREV: 72,
+	ASSET_NEXT: 73,
 	PREV: 120,
 	NEXT: 121,
 	ID: 122,

@@ -4,8 +4,8 @@ type Spread struct {
 	smoother *EMA
 }
 
-func NewSpread() *Spread {
-	return &Spread{smoother: NewEMA()}
+func NewSpread(rate float64) *Spread {
+	return &Spread{smoother: NewEMA(rate)}
 }
 
 func (spread *Spread) Next(out float64, values ...float64) (float64, error) {

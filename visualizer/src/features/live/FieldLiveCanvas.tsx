@@ -287,6 +287,7 @@ export function FieldLiveCanvas({
 
 					for (const member of field.members) {
 						if (budget <= 0) break;
+						budget--;
 						seen.add(member.id);
 						particleToField.set(member.id, field.id);
 						anchor.memberCount++;
@@ -359,6 +360,7 @@ export function FieldLiveCanvas({
 
 				for (const orphan of snap.orphanValues) {
 					if (budget <= 0) break;
+					budget--;
 					seen.add(orphan.id);
 
 					const category = categoryForMember(orphan);
@@ -570,7 +572,7 @@ export function FieldLiveCanvas({
 
 			function drawCommunities() {
 				for (const [, anchor] of fieldAnchors) {
-					if (anchor.memberCount < 3) continue;
+					if (anchor.memberCount < 1) continue;
 
 					const [r, g, b] = anchor.color;
 					const alpha = anchor.resonanceLevel * 200;
@@ -801,7 +803,7 @@ export function FieldLiveCanvas({
 					}
 
 					for (const [, anchor] of fieldAnchors) {
-						if (anchor.memberCount < 3) continue;
+						if (anchor.memberCount < 1) continue;
 						const radius = (40 + anchor.memberCount * 10) / zoom;
 						if (
 							p.dist(anchor.pos.x, anchor.pos.y, world.x, world.y) <= radius

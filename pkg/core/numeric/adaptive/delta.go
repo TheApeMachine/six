@@ -20,7 +20,7 @@ is handled by an EMA that bootstraps itself.
 */
 func NewDelta(initial float64) *Delta {
 	return &Delta{
-		smoother: NewEMA(),
+		smoother: NewEMA(initial),
 		previous: initial,
 	}
 }

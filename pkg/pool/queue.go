@@ -38,7 +38,6 @@ type Scheduler interface {
 	io.ReadWriteCloser
 	Submit(value *primitive.Value)
 	Schedule(fn func())
-	Len() int
 	Error() error
 }
 
@@ -181,51 +180,14 @@ func NewQueue(
 }
 
 /*
-Len returns the aggregate number of slots waiting across normal, priority,
-and spill rings, plus the count of tasks the pool has accepted but not
-yet finished. Orchestrator quiescence relies on this being a true zero
-when nothing is pending or executing.
-*/
-func (queue *Queue) Len() int {
-	if queue == nil {
-		return 0
-	}
-
-	return queue.normal.Len() +
-		queue.priority.Len() +
-		queue.spill.Len() +
-		int(queue.inflight.Load())
-}
-
-/*
-SetEmitHook installs the post-dispatch callback. The hook receives the
-post-ALU wire frame whenever a Value has Value.EmitRequested set. Pure
-write of an atomic pointer — safe to call before or after Submit.
-*/
-func (queue *Queue) SetEmitHook(hook func([]byte)) {
-	if queue == nil {
-		return
-	}
-
-	if hook == nil {
-		queue.emitHook.Store(nil)
-
-		return
-	}
-
-	queue.emitHook.Store(&hook)
-}
-
-/*
-Read implements io.Reader by dequeuing byte frames from the dedicated
-stream ring (see queue.stream).
+Read implements io.Reader and is a no-op.
 */
 func (queue *Queue) Read(p []byte) (n int, err error) {
 	if queue == nil || queue.stream == nil {
 		return 0, io.ErrClosedPipe
 	}
 
-	return queue.stream.Read(p)
+	return 0, io.EOF
 }
 
 /*
@@ -239,7 +201,11 @@ func (queue *Queue) Write(p []byte) (n int, err error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	return queue.stream.Write(p)
+	value := primitive.AllocValue()
+	value.LoadFullFrame(p)
+	queue.Submit(value)
+
+	return len(p), nil
 }
 
 /*
@@ -293,7 +259,6 @@ func (queue *Queue) Schedule(fn func()) {
 
 	queue.pool.Schedule(func() {
 		defer queue.inflight.Add(-1)
-
 		fn()
 	})
 }

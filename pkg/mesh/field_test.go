@@ -42,7 +42,13 @@ func TestFieldRead(t *testing.T) {
 			seeded[idx] = primitive.AllocValue()
 			seeded[idx].StampNewID()
 			field.values = append(field.values, seeded[idx])
+			field.conn.Write(seeded[idx].Bytes())
 		}
+		done := make(chan struct{})
+		field.queue.Schedule(func() {
+			close(done)
+		})
+		<-done
 		defer func() {
 			for _, value := range seeded {
 				value.Close()

@@ -8,13 +8,15 @@ import (
 )
 
 func TestShannonEntropy(t *testing.T) {
+	shannon := NewShannon()
+
 	t.Parallel()
 
 	Convey("Given ShannonEntropy on nonnegative counts", t, func() {
 		Convey("It should return zero for an all-zero vector", func() {
 			var vec [8]uint64
 
-			So(ShannonEntropy(vec), ShouldEqual, 0)
+			So(shannon.Entropy(vec), ShouldEqual, 0)
 		})
 
 		Convey("It should reach log2(K) for K equal bins", func() {
@@ -25,12 +27,14 @@ func TestShannonEntropy(t *testing.T) {
 			vec[3] = 5
 			vec[4] = 5
 
-			So(ShannonEntropy(vec), ShouldAlmostEqual, 2.0, 1e-12)
+			So(shannon.Entropy(vec), ShouldAlmostEqual, 2.0, 1e-12)
 		})
 	})
 }
 
 func TestShannonEntropyBitsFromMap(t *testing.T) {
+	shannon := NewShannon()
+
 	t.Parallel()
 
 	Convey("Given ShannonEntropyBitsFromMap", t, func() {
@@ -40,19 +44,19 @@ func TestShannonEntropyBitsFromMap(t *testing.T) {
 				"b": 50,
 			}
 
-			h := ShannonEntropyBitsFromMap(scores, 1.0/100.0)
+			h := shannon.EntropyBitsFromMap(scores, 1.0/100.0)
 
 			So(h, ShouldAlmostEqual, 1.0, 1e-12)
 		})
 
 		Convey("It should return NaN when scale is non-positive", func() {
-			h := ShannonEntropyBitsFromMap(map[string]float64{"x": 1}, 0)
+			h := shannon.EntropyBitsFromMap(map[string]float64{"x": 1}, 0)
 
 			So(math.IsNaN(h), ShouldBeTrue)
 		})
 
 		Convey("It should return NaN when any entry is negative", func() {
-			h := ShannonEntropyBitsFromMap(map[string]float64{"x": -1}, 0.5)
+			h := shannon.EntropyBitsFromMap(map[string]float64{"x": -1}, 0.5)
 
 			So(math.IsNaN(h), ShouldBeTrue)
 		})
@@ -60,18 +64,22 @@ func TestShannonEntropyBitsFromMap(t *testing.T) {
 }
 
 func BenchmarkShannonEntropy(b *testing.B) {
+	shannon := NewShannon()
+
 	vec := [8]uint64{1, 2, 3, 4, 5, 6, 7, 8}
 
 	var h float64
 
 	for range b.N {
-		h = ShannonEntropy(vec)
+		h = shannon.Entropy(vec)
 	}
 
 	_ = h
 }
 
 func BenchmarkShannonEntropyBitsFromMap(b *testing.B) {
+	shannon := NewShannon()
+
 	scores := map[string]float64{
 		"a": 25, "b": 25, "c": 25, "d": 25,
 	}
@@ -79,7 +87,7 @@ func BenchmarkShannonEntropyBitsFromMap(b *testing.B) {
 	var h float64
 
 	for range b.N {
-		h = ShannonEntropyBitsFromMap(scores, 1.0/100.0)
+		h = shannon.EntropyBitsFromMap(scores, 1.0/100.0)
 	}
 
 	_ = h

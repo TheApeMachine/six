@@ -132,9 +132,9 @@ func NewField(
 	// field that does not have communities yet, and for the community
 	// fields that do not have any values yet.
 	conn, err := gossip.NewConn(
-		ctx, 
-		queue, 
-		telemetry, 
+		ctx,
+		queue,
+		telemetry,
 		transport.NewCollector(core.Cfg.Value.Bytes),
 	)
 
@@ -146,7 +146,7 @@ func NewField(
 	policy := make(map[core.FirmwareType]*learned.Weight, len(core.Cfg.Programs))
 
 	for fw := range core.Cfg.Programs {
-		policy[fw] = learned.NewWeight()
+		policy[fw] = learned.NewWeight(0.35)
 	}
 
 	field := &Field{
@@ -162,6 +162,7 @@ func NewField(
 		routeBudget: core.Cfg.System.RouteBudget,
 		policy:      policy,
 		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		metrics:     atomic.Pointer[FieldMetrics]{},
 	}
 
 	return field
@@ -284,6 +285,10 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		field.findCommunity(visitor)
 	})
 
+	field.queue.Schedule(func() {
+		field.metrics.Load().Refresh(field)
+	})
+
 	return field.conn.Write(p)
 }
 
@@ -291,6 +296,12 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	// Check if the visitor is already a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
 		// The visitor is already a member of a field.
+		for _, f := range field.fields {
+			if f.id == community {
+				f.metrics.Load().Refresh(f)
+				break
+			}
+		}
 		return
 	}
 
@@ -339,6 +350,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 			)
 
 			f.conn.Update(visitor)
+			f.metrics.Load().Refresh(f)
 			break
 		}
 	}

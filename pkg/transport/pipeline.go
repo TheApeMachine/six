@@ -20,6 +20,7 @@ Pipeline manages a chain of io.ReadWriteCloser components.
 
 It connects components together so data flows through all components in sequence.
 Each component can produce data independently.
+It cycles through the components, and re-orders the output.
 */
 type Pipeline struct {
 	ctx        context.Context
@@ -27,6 +28,8 @@ type Pipeline struct {
 	err        error
 	components []io.ReadWriter
 	processed  bool
+	ptr        int
+	seq        int
 }
 
 /*
@@ -53,6 +56,8 @@ func NewPipeline(ctx context.Context, components ...io.ReadWriter) *Pipeline {
 		ctx:        ctx,
 		cancel:     cancel,
 		components: components,
+		seq:        0,
+		ptr:        -1,
 	}
 }
 
@@ -76,14 +81,16 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 		return 0, pipeline.ctx.Err()
 	default:
 		if !pipeline.processed {
-			for i := range len(pipeline.components) - 1 {
+			// Each time this is called, we start from the next component compared
+			// to the previous one.
+			for i := (pipeline.seq + 1) % len(pipeline.components); i < len(pipeline.components)-1; i++ {
 				// Bytes copied between intermediate components are not bytes
 				// delivered to p, so they must not contribute to n (io.Reader
 				// requires n <= len(p)). The copy itself still has to happen
 				// so the final component has data to read from.
 				if _, err = io.CopyN(
-					pipeline.components[i+1],
 					pipeline.components[i],
+					pipeline.components[i+1],
 					int64(core.Cfg.Value.Bytes),
 				); err != nil {
 					if err == io.EOF {
@@ -97,7 +104,8 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 			pipeline.processed = true
 		}
 
-		n, err = pipeline.components[len(pipeline.components)-1].Read(p)
+		n, err = pipeline.components[pipeline.seq].Read(p)
+		pipeline.seq = (pipeline.seq + 1) % len(pipeline.components)
 
 		if err != nil {
 			if err == io.EOF {

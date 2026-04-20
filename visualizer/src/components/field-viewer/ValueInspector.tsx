@@ -45,14 +45,17 @@ const PROBE_STATUS_LABELS: Record<number, string> = {
 };
 
 /*
-FIRMWARE_STATUS_LABELS mirrors pkg/compute/kernel/layout.go:StatusRaw/StatusReady
-stored at absolute word 57 (kernel calls it properties[9], config layout puts it
-at the start of the Asset region). 0=raw means the firmware chain has not
-completed; 1=ready means link → affinity → resident all wrote their words.
+FIRMWARE_STATUS_LABELS mirrors pkg/primitive/properties.go:StatusType
+stored at absolute word 61 (properties[5]).
 */
 const FIRMWARE_STATUS_LABELS: Record<number, string> = {
-	0: "raw",
+	0: "pending",
 	1: "ready",
+	2: "busy",
+	3: "waiting",
+	4: "done",
+	5: "resolved",
+	6: "error",
 };
 
 /*
@@ -383,43 +386,40 @@ export function ValueInspector({
 	const wordAt = (idx: number): string | null =>
 		formatWordHexAt(regions, frame, idx);
 
-	const propertiesW48 = wordAt(48);
-	const propertiesW49 = wordAt(49);
-	const propertiesW50 = wordAt(50);
-	const propertiesW51 = wordAt(51);
-	const propertiesW52 = wordAt(52);
-	const propertiesW53 = wordAt(53);
-	const propertiesW54 = wordAt(54);
-	const propertiesW55 = wordAt(55);
-	/*
-	Properties is the extended 24-word band per cmd/cfg/config.yml. Community
-	id lives at w56 (properties[8], stamped by mesh.Field routing) and firmware
-	lifecycle status lives at w57 (properties[9], stamped by the rule engine
-	after link → affinity → resident completes). Surfacing both inside the
-	PROPERTIES region — where they actually live — matches the wire layout.
-	*/
-	const propertiesW56Community = wordAt(56);
-	const propertiesW57Status = wordAt(57);
-	const probeStatus = decodeProbeStatus(propertiesW53);
-	const firmwareStatus = decodeFirmwareStatus(propertiesW57Status);
-	const noiseFalsified = decodeNoiseFalsified(propertiesW52);
-	const probeWindow = decodeRegionRef(propertiesW54);
+	const propertiesW56Labels = wordAt(56);
+	const propertiesW57Confidence = wordAt(57);
+	const propertiesW58Epoch = wordAt(58);
+	const propertiesW59Ttl = wordAt(59);
+	const propertiesW60Noise = wordAt(60);
+	const propertiesW61Status = wordAt(61);
+	const propertiesW62Window = wordAt(62);
+	const propertiesW63Depth = wordAt(63);
+	const propertiesW64Community = wordAt(64);
+	const propertiesW65Target = wordAt(65);
+	const propertiesW66Role = wordAt(66);
+	const propertiesW67Reference = wordAt(67);
+	const propertiesW68Emit = wordAt(68);
+
+	const probeStatus = decodeProbeStatus(propertiesW61Status);
+	const firmwareStatus = decodeFirmwareStatus(propertiesW61Status);
+	const noiseFalsified = decodeNoiseFalsified(propertiesW60Noise);
+	const probeWindow = decodeRegionRef(propertiesW62Window);
 	const ttlExpired =
-		propertiesW51 !== null &&
+		propertiesW59Ttl !== null &&
 		((): boolean => {
 			try {
-				return (BigInt(`0x${propertiesW51}`) & (1n << 63n)) !== 0n;
+				return (BigInt(`0x${propertiesW59Ttl}`) & (1n << 63n)) !== 0n;
 			} catch {
 				return false;
 			}
 		})();
 	const refuteTarget =
-		propertiesW49 && propertiesW49 !== "0000000000000000"
-			? propertiesW49
+		propertiesW65Target && propertiesW65Target !== "0000000000000000"
+			? propertiesW65Target
 			: null;
 	const communityIdFromFrame =
-		propertiesW56Community && propertiesW56Community !== "0000000000000000"
-			? BigInt(`0x${propertiesW56Community}`).toString(10)
+		propertiesW64Community && propertiesW64Community !== "0000000000000000"
+			? BigInt(`0x${propertiesW64Community}`).toString(10)
 			: null;
 	const confidence = vals.confidence ?? null;
 	const epoch = vals.epoch !== undefined ? Math.round(vals.epoch) : null;
@@ -479,7 +479,12 @@ export function ValueInspector({
 	const programWire = regions ? decodeProgramWire(regions.program) : null;
 
 	return (
-		<div className={cn("space-y-2", className)}>
+		<div
+			className={cn("space-y-2", className)}
+			onWheel={(e) => e.stopPropagation()}
+			onPointerDown={(e) => e.stopPropagation()}
+			onPointerMove={(e) => e.stopPropagation()}
+		>
 			{/* ── Identity + belief gap ─────────────────────────────────────────── */}
 			<Card>
 				<CardContent className="px-3 py-2 flex items-center gap-3 flex-wrap">
@@ -791,80 +796,45 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* PROPERTIES 48–63 · 1024 bits — canonical property band */}
+				{/* PROPERTIES 56–71 · 1024 bits — canonical property band */}
 				<Region
 					label="PROPERTIES"
-					words="48–63 · 1024b"
+					words="56–71 · 1024b"
 					fill={1 - snap.gap}
 					headerClass="bg-amber-500/10"
 					barClass="bg-amber-400"
 					textClass="text-amber-200/80"
 				>
-					<KV k="w48 labels" v={hexOrDash(propertiesW48)} />
+					<KV k="w56 labels" v={hexOrDash(propertiesW56Labels)} />
+					<KV k="w57 conf" v={hexOrDash(propertiesW57Confidence)} />
 					<KV
-						k="w49 refute"
-						v={
-							refuteTarget
-								? formatValueWordId(refuteTarget)
-								: hexOrDash(propertiesW49)
-						}
-						vClass={refuteTarget ? "text-red-300" : undefined}
+						k="w58 epoch"
+						v={propertiesW58Epoch ?? (epoch !== null ? String(epoch) : "—")}
 					/>
 					<KV
-						k="w50 rsv"
-						v={propertiesW50 ?? (epoch !== null ? String(epoch) : "—")}
-					/>
-					<KV
-						k="w51 ttl"
+						k="w59 ttl"
 						v={
 							ttlExpired
-								? `${hexOrDash(propertiesW51)} · expired`
-								: hexOrDash(propertiesW51)
+								? `${hexOrDash(propertiesW59Ttl)} · expired`
+								: hexOrDash(propertiesW59Ttl)
 						}
 						vClass={ttlExpired ? "text-red-300" : undefined}
 					/>
 					<KV
-						k="w52 noise"
+						k="w60 noise"
 						v={
 							noiseFalsified === true
-								? `${hexOrDash(propertiesW52)} · falsified`
-								: hexOrDash(propertiesW52)
+								? `${hexOrDash(propertiesW60Noise)} · falsified`
+								: hexOrDash(propertiesW60Noise)
 						}
 						vClass={noiseFalsified === true ? "text-red-300" : undefined}
 					/>
 					<KV
-						k="w53 probe"
-						v={
-							probeStatus
-								? `${hexOrDash(propertiesW53)} · ${probeStatus}`
-								: hexOrDash(propertiesW53)
-						}
-						vClass={probeStatus === "settled" ? "text-emerald-300" : undefined}
-					/>
-					<KV
-						k="w54 window"
-						v={
-							probeWindow
-								? `${hexOrDash(propertiesW54)} · ${probeWindow}`
-								: hexOrDash(propertiesW54)
-						}
-					/>
-					<KV k="w55 depth" v={hexOrDash(propertiesW55)} />
-					<KV
-						k="w56 community"
-						v={
-							communityIdFromFrame
-								? `${hexOrDash(propertiesW56Community)} · #${communityIdFromFrame}`
-								: hexOrDash(propertiesW56Community)
-						}
-						vClass={communityIdFromFrame ? "text-sky-300" : undefined}
-					/>
-					<KV
-						k="w57 status"
+						k="w61 status"
 						v={
 							firmwareStatus
-								? `${hexOrDash(propertiesW57Status)} · ${firmwareStatus}`
-								: hexOrDash(propertiesW57Status)
+								? `${hexOrDash(propertiesW61Status)} · ${firmwareStatus}`
+								: hexOrDash(propertiesW61Status)
 						}
 						vClass={
 							firmwareStatus === "ready"
@@ -874,11 +844,42 @@ export function ValueInspector({
 									: undefined
 						}
 					/>
+					<KV
+						k="w62 window"
+						v={
+							probeWindow
+								? `${hexOrDash(propertiesW62Window)} · ${probeWindow}`
+								: hexOrDash(propertiesW62Window)
+						}
+					/>
+					<KV k="w63 depth" v={hexOrDash(propertiesW63Depth)} />
+					<KV
+						k="w64 community"
+						v={
+							communityIdFromFrame
+								? `${hexOrDash(propertiesW64Community)} · #${communityIdFromFrame}`
+								: hexOrDash(propertiesW64Community)
+						}
+						vClass={communityIdFromFrame ? "text-sky-300" : undefined}
+					/>
+					<KV
+						k="w65 target"
+						v={
+							refuteTarget
+								? formatValueWordId(refuteTarget)
+								: hexOrDash(propertiesW65Target)
+						}
+						vClass={refuteTarget ? "text-red-300" : undefined}
+					/>
+					<KV k="w66 role" v={hexOrDash(propertiesW66Role)} />
+					<KV k="w67 ref" v={hexOrDash(propertiesW67Reference)} />
+					<KV k="w68 emit" v={hexOrDash(propertiesW68Emit)} />
+
 					<div className="mt-1 border-t border-amber-500/25 pt-1 text-[7px] uppercase tracking-wide text-amber-200/35">
-						extended w58–w63
+						extended w69–w71
 					</div>
 					{frameOk ? (
-						<WordHexRows from={58} to={63} wordAt={wordAt} />
+						<WordHexRows from={69} to={71} wordAt={wordAt} />
 					) : (
 						<Dim>no frame</Dim>
 					)}

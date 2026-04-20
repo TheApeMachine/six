@@ -1,10 +1,11 @@
 package mesh
 
 import (
-	"math"
 	"math/bits"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric"
+	"github.com/theapemachine/six/pkg/core/numeric/adaptive"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -27,75 +28,33 @@ treat score==0 with members>0 as a legitimate "diffuse" state, not an
 error.
 */
 type FieldMetrics struct {
-	MemberCount     int     // how many Values live in this field right now
-	LabeledCount    int     // members with ≥1 non-zero label slot in properties[0]
-	SlotSum         int     // total non-zero label slots across the population
-	Coverage        float64 // LabeledCount / MemberCount
-	Consensus       float64 // 1 − normalised Shannon entropy of label distribution
-	LabelDensity    float64 // SlotSum / (MemberCount × 4)
-	Crystallization float64 // Coverage × Consensus × LabelDensity
-	DominantRatio   float64 // dominant eigenmode energy / total energy
-	ModeCount       int     // partitioned eigenmode count (≥1 when populated)
-	PressureMult    float64 // 1 − DominantRatio; drives carrier emission urgency
-	Saturated       bool    // true when Crystallization ≥ crystallizationFloor
+	MemberCount          int     // how many Values live in this field right now
+	LabeledCount         int     // members with ≥1 non-zero label slot in properties[0]
+	SlotSum              int     // total non-zero label slots across the population
+	Coverage             float64 // LabeledCount / MemberCount
+	Consensus            float64 // 1 − normalised Shannon entropy of label distribution
+	LabelDensity         float64 // SlotSum / (MemberCount × 4)
+	Crystallization      float64 // Coverage × Consensus × LabelDensity
+	DominantRatio        float64 // dominant eigenmode energy / total energy
+	ModeCount            int     // partitioned eigenmode count (≥1 when populated)
+	PressureMult         float64 // 1 − DominantRatio; drives carrier emission urgency
+	Saturated            bool    // true when Crystallization ≥ crystallizationFloor
+	shannon              *adaptive.Shannon
+	crystallizationFloor *numeric.Derived
 }
 
-/*
-crystallizationFloor matches README §Field Crystallization — communities
-below this Coverage threshold emit labelling pressure. The same floor
-is reused for the overall Crystallization saturation flag because the
-two semantics degenerate once a field reaches high-consensus coverage.
-*/
-const crystallizationFloor = 0.35
-
-/*
-labelPropertyWords is how many consecutive properties words primitive.Emit
-WithLabels stamps (Properties.Start+LABLES+i). MeasureFieldMetrics must
-scan the same span so slot counts match Emit, not only the first packed
-word.
-*/
-const labelPropertyWords = 4
-
-/*
-shannonConsensus returns 1 − H / log2(N) where H is Shannon entropy in
-bits over the label histogram and N is the number of distinct observed
-labels. The result is 1 when every observed slot carries the same
-label (total consensus) and 0 when the labels are uniformly spread.
-An empty or single-bucket histogram returns 1 so a newly-seeded field
-does not get artificially penalised for lack of diversity.
-*/
-func shannonConsensus(histogram map[uint16]int) float64 {
-	if len(histogram) <= 1 {
-		return 1
+func NewFieldMetrics() *FieldMetrics {
+	return &FieldMetrics{
+		MemberCount:  0,
+		LabeledCount: 0,
+		SlotSum:      0,
+		Coverage:     0,
+		Consensus:    0,
+		shannon:      adaptive.NewShannon(),
+		crystallizationFloor: numeric.NewDerived(
+			numeric.WithDynamics(adaptive.NewEMA(0.35)),
+		),
 	}
-
-	var total float64
-
-	for _, count := range histogram {
-		total += float64(count)
-	}
-
-	if total == 0 {
-		return 1
-	}
-
-	var entropy float64
-
-	for _, count := range histogram {
-		p := float64(count) / total
-
-		if p > 0 {
-			entropy -= p * math.Log2(p)
-		}
-	}
-
-	maxEntropy := math.Log2(float64(len(histogram)))
-
-	if maxEntropy == 0 {
-		return 1
-	}
-
-	return 1 - entropy/maxEntropy
 }
 
 /*
@@ -181,7 +140,15 @@ MeasureFieldMetrics aggregates crystallisation-style metrics from a member
 slice and the current eigenmode snapshot. Used when a Field ingests frames
 (io.Write) so observation stays on the streaming path instead of a separate Cycle.
 */
-func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) FieldMetrics {
+func (metrics *FieldMetrics) Measure(
+	field *Field,
+	members []*primitive.Value,
+	snap *geometry.EigenSnap,
+) FieldMetrics {
+	if field == nil {
+		return FieldMetrics{}
+	}
+
 	var out FieldMetrics
 
 	n := 0
@@ -208,7 +175,10 @@ func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) F
 	labelSlots := 0
 	labeled := 0
 
-	labelWords := labelPropertyWords
+	labelWords := 4
+
+	// primitive.EmitWithLabels stamps 4 consecutive properties words,
+	// so we need to check if the number of properties words is less than 4.
 	if propsWords < labelWords {
 		labelWords = propsWords
 	}
@@ -251,9 +221,9 @@ func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) F
 	out.SlotSum = labelSlots
 	out.Coverage = float64(labeled) / float64(n)
 	out.LabelDensity = float64(labelSlots) / float64(n*4)
-	out.Consensus = shannonConsensus(hist)
+	out.Consensus = metrics.shannon.Consensus(hist)
 	out.Crystallization = out.Coverage * out.Consensus * out.LabelDensity
-	out.Saturated = out.Crystallization >= crystallizationFloor
+	out.Saturated = out.Crystallization >= metrics.crystallizationFloor.Value()
 
 	if snap != nil {
 		out.ModeCount = len(snap.Modes())
@@ -265,7 +235,7 @@ func MeasureFieldMetrics(members []*primitive.Value, snap *geometry.EigenSnap) F
 }
 
 // RollupFieldMetrics combines child community metrics for a routing parent (one level).
-func RollupFieldMetrics(children []*Field) FieldMetrics {
+func (metrics *FieldMetrics) Rollup(children []*Field) FieldMetrics {
 	if len(children) == 0 {
 		return FieldMetrics{}
 	}
@@ -320,8 +290,42 @@ func RollupFieldMetrics(children []*Field) FieldMetrics {
 		out.Coverage = sumCoverage * inv
 		out.Consensus = sumConsensus * inv
 		out.LabelDensity = sumLabelDensity * inv
-		out.Saturated = out.Crystallization >= crystallizationFloor
+		out.Saturated = out.Crystallization >= metrics.crystallizationFloor.Value()
 	}
 
 	return out
+}
+
+func (metrics *FieldMetrics) Refresh(field *Field) {
+	if field == nil || field.queue == nil {
+		return
+	}
+
+	if !field.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+
+	field.queue.Schedule(func() {
+		defer field.refreshing.Store(false)
+
+		metrics := metrics.Measure(field, field.values, field.snap)
+		field.metrics.Store(&metrics)
+
+		// Check if coverage is below crystallization floor (0.35)
+		if metrics.Coverage < metrics.crystallizationFloor.Value() && len(field.values) > 0 {
+			// Build a pressure carrier
+			carrier := primitive.Emit(
+				primitive.WithFirmware(core.HYPOTHESIS),
+				primitive.WithTTL(5),
+			)
+
+			// Stage the dominant value's state into the carrier
+			// For simplicity, we just use the first value for now
+			// or we can just emit it to the field's conn and let the
+			// gossip substrate handle the staging if it's routed.
+			if field.conn != nil {
+				field.conn.Write(carrier.Bytes())
+			}
+		}
+	})
 }

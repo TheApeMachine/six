@@ -3,21 +3,21 @@ Region layout mirrors the authoritative runtime config in cmd/cfg/config.yml
 (loaded via pkg/core/config.go → viper) and the kernel word addresses in
 pkg/compute/kernel/layout.go:
 
-  tokens   w0..w15    (1024 bits)
-  program  w16..w23   (512 bits)
-  signals  w24..w31   (512 bits)
-  context  w32..w39   (512 bits)
-  gradient w40..w47   (512 bits)
-  properties w48..w63 (1024 bits — community id at w56, firmware status at w57,
-                       TTL at w51, etc.)
-  asset    w64..w119 (3584 bits — chain staging + peer S/C/G/P + scratch)
-  prev     w120
-  next     w121
-  id       w122
-  affinity w123..w127 (257 bits rounded up to 5 words)
+  tokens     w0..w15    (1024 bits)
+  program    w16..w31   (1024 bits)
+  signals    w32..w39   (512 bits)
+  context    w40..w47   (512 bits)
+  gradient   w48..w55   (512 bits)
+  properties w56..w71   (1024 bits — community id at w64, firmware status at w65,
+                         TTL at w59, etc.)
+  asset      w72..w119  (3072 bits — chain staging + peer S/C/G/P + scratch)
+  prev       w120
+  next       w121
+  id         w122
+  affinity   w123..w127 (257 bits rounded up to 5 words)
 
 pkg/core/config.go NewConfig() defaults match cmd/cfg/config.yml (properties 1024b,
-asset 3584b). Keep REGION_SPECS aligned with that yaml — that is what flows on the
+asset 3072b). Keep REGION_SPECS aligned with that yaml — that is what flows on the
 wire the visualizer consumes.
 */
 
@@ -96,12 +96,12 @@ export const REGION_SPECS: ReadonlyArray<{
 	wordCount: number;
 }> = [
 	{ name: "tokens", startWord: 0, wordCount: 16 },
-	{ name: "program", startWord: 16, wordCount: 8 },
-	{ name: "signals", startWord: 24, wordCount: 8 },
-	{ name: "context", startWord: 32, wordCount: 8 },
-	{ name: "gradient", startWord: 40, wordCount: 8 },
-	{ name: "properties", startWord: 48, wordCount: 16 },
-	{ name: "asset", startWord: 64, wordCount: 56 },
+	{ name: "program", startWord: 16, wordCount: 16 },
+	{ name: "signals", startWord: 32, wordCount: 8 },
+	{ name: "context", startWord: 40, wordCount: 8 },
+	{ name: "gradient", startWord: 48, wordCount: 8 },
+	{ name: "properties", startWord: 56, wordCount: 16 },
+	{ name: "asset", startWord: 72, wordCount: 48 },
 	{ name: "prev", startWord: 120, wordCount: 1 },
 	{ name: "next", startWord: 121, wordCount: 1 },
 	{ name: "id", startWord: 122, wordCount: 1 },

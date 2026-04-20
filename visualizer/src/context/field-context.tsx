@@ -58,7 +58,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				return;
 			}
 
-			const socket = new WebSocket(telemetryWebSocketURL());
+			const socket = new WebSocket("ws://localhost:6600/ws");
 			socket.binaryType = "arraybuffer";
 			socketRef.current = socket;
 

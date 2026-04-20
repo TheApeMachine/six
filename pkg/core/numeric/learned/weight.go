@@ -27,10 +27,10 @@ type Weight struct {
 NewWeight creates a new Weight. All internal rates are derived from the prediction
 errors the weight observes — no initial configuration is needed.
 */
-func NewWeight() *Weight {
+func NewWeight(rate float64) *Weight {
 	return &Weight{
-		errorEMA: adaptive.NewEMA(),
-		deltaEMA: adaptive.NewEMA(),
+		errorEMA: adaptive.NewEMA(rate),
+		deltaEMA: adaptive.NewEMA(rate),
 	}
 }
 

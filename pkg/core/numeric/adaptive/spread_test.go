@@ -10,7 +10,7 @@ func TestNewSpread(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given NewSpread", t, func() {
-		spread := NewSpread()
+		spread := NewSpread(0.35)
 
 		out, err := spread.Next(0, 1)
 
@@ -23,7 +23,7 @@ func TestSpreadNext(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a Spread with zero reference out", t, func() {
-		spread := NewSpread()
+		spread := NewSpread(0.35)
 
 		Convey("It should square the observation as the first EMA sample", func() {
 			out, err := spread.Next(0, 7)
@@ -38,7 +38,7 @@ func TestSpreadReset(t *testing.T) {
 	t.Parallel()
 
 	Convey("Given a Spread after observations", t, func() {
-		spread := NewSpread()
+		spread := NewSpread(0.35)
 
 		_, err := spread.Next(0, 4)
 
@@ -54,7 +54,7 @@ func TestSpreadReset(t *testing.T) {
 }
 
 func BenchmarkSpreadNext(b *testing.B) {
-	spread := NewSpread()
+	spread := NewSpread(0.35)
 
 	var v float64
 

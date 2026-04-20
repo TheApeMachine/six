@@ -38,8 +38,6 @@ outside this viewer.
 function CommunityMetricsStrip({ field }: { field: FieldSnapshot }) {
 	const causalSum =
 		field.hypothesizingCount + field.falsifiedCount + field.interveningCount;
-	const crystalColor =
-		field.crystallization >= 0.35 ? "text-emerald-300" : "text-amber-300";
 
 	return (
 		<div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-fuchsia-500/20 bg-fuchsia-500/5 px-3 py-2 font-mono text-[10px] text-white/70">
@@ -47,22 +45,7 @@ function CommunityMetricsStrip({ field }: { field: FieldSnapshot }) {
 				field #{field.id}
 			</span>
 			<span>
-				cov <span className="text-white">{field.coverage.toFixed(2)}</span>
-				<span className="text-white/30"> · </span>
-				cons <span className="text-white">{field.consensus.toFixed(2)}</span>
-				<span className="text-white/30"> · </span>
-				lbl <span className="text-white">{field.labelDensity.toFixed(2)}</span>
-			</span>
-			<span>
-				⇒ crystal{" "}
-				<span className={crystalColor}>{field.crystallization.toFixed(3)}</span>
-			</span>
-			<span>
-				modes <span className="text-white">{field.modeCount}</span>
-				<span className="text-white/30"> · </span>
-				dom <span className="text-white">{field.dominantRatio.toFixed(2)}</span>
-				<span className="text-white/30"> · </span>π{" "}
-				<span className="text-white">{field.pressureMult.toFixed(2)}×</span>
+				<span className="text-white">{field.memberCount}</span> members
 			</span>
 			{causalSum > 0 && (
 				<span className="flex items-center gap-2 text-[9px]">
@@ -185,7 +168,12 @@ export function FieldViewer({ className }: { className?: string }) {
 
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
 				{selection && (
-					<div className="pointer-events-auto mb-3 max-h-[34vh] space-y-2 overflow-auto rounded-xl border border-white/10 bg-[#0a0a14]/95 p-3">
+					<div
+						className="pointer-events-auto mb-3 max-h-[34vh] space-y-2 overflow-auto rounded-xl border border-white/10 bg-[#0a0a14]/95 p-3"
+						onWheel={(e) => e.stopPropagation()}
+						onPointerDown={(e) => e.stopPropagation()}
+						onPointerMove={(e) => e.stopPropagation()}
+					>
 						{selection.communityId >= 0 && selectedField ? (
 							<CommunityMetricsStrip field={selectedField} />
 						) : null}

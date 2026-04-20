@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { FieldMetricsPayload } from "./value-store";
 import { decodeValueFrame, ValueStore } from "./value-store";
 import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT, WORD } from "./valueLayout";
-import {
-	decodeValueWireMessage,
-	ENVELOPE_HEADER_BYTES,
-	ENVELOPE_KIND_FIELD_METRICS,
-	ENVELOPE_MAGIC,
-	type FieldMetricsPayload,
-} from "./wire";
+import { decodeValueWireMessage } from "./wire";
 
 /*
 PROPERTIES_COMMUNITY_WORD is absolute word 64, computed on the Go side as
@@ -126,26 +121,6 @@ function makeValueFrame(init?: {
 	return frame;
 }
 
-function encodeEnvelopeBytes(
-	kind: number,
-	payload: Record<string, unknown>,
-): Uint8Array {
-	const body = new TextEncoder().encode(JSON.stringify(payload));
-	const buf = new Uint8Array(ENVELOPE_HEADER_BYTES + body.byteLength);
-
-	buf[0] = ENVELOPE_MAGIC[0];
-	buf[1] = ENVELOPE_MAGIC[1];
-	buf[2] = ENVELOPE_MAGIC[2];
-	buf[3] = ENVELOPE_MAGIC[3];
-	buf[4] = kind & 0xff;
-	buf[5] = (kind >>> 8) & 0xff;
-	buf[6] = (kind >>> 16) & 0xff;
-	buf[7] = (kind >>> 24) & 0xff;
-	buf.set(body, ENVELOPE_HEADER_BYTES);
-
-	return buf;
-}
-
 const blankMetrics: FieldMetricsPayload = {
 	communityIdx: 0,
 	memberCount: 0,
@@ -217,22 +192,13 @@ test("ValueStore reads community id from the on-wire properties word", () => {
 	const store = new ValueStore();
 
 	store.ensure("0000000000000001");
-	store.applyWireFrame(
-		0x1n,
-		makeValueFrame({ id: 0x1n, communityId: 7n }),
-	);
+	store.applyWireFrame(0x1n, makeValueFrame({ id: 0x1n, communityId: 7n }));
 
 	store.ensure("0000000000000002");
-	store.applyWireFrame(
-		0x2n,
-		makeValueFrame({ id: 0x2n, communityId: 7n }),
-	);
+	store.applyWireFrame(0x2n, makeValueFrame({ id: 0x2n, communityId: 7n }));
 
 	store.ensure("0000000000000003");
-	store.applyWireFrame(
-		0x3n,
-		makeValueFrame({ id: 0x3n, communityId: 42n }),
-	);
+	store.applyWireFrame(0x3n, makeValueFrame({ id: 0x3n, communityId: 42n }));
 
 	const snapshot = store.getState().snapshot;
 
@@ -371,10 +337,7 @@ test("applyFieldMetricsEnvelope merges crystallization into the matching FieldSn
 	const store = new ValueStore();
 
 	store.ensure("0000000000000020");
-	store.applyWireFrame(
-		0x20n,
-		makeValueFrame({ id: 0x20n, communityId: 5n }),
-	);
+	store.applyWireFrame(0x20n, makeValueFrame({ id: 0x20n, communityId: 5n }));
 	store.ensure("0000000000000021");
 	store.applyWireFrame(
 		0x21n,
@@ -426,10 +389,7 @@ test("applyFieldMetricsEnvelope with negative communityIdx leaves the cache unto
 	const store = new ValueStore();
 
 	store.ensure("0000000000000022");
-	store.applyWireFrame(
-		0x22n,
-		makeValueFrame({ id: 0x22n, communityId: 9n }),
-	);
+	store.applyWireFrame(0x22n, makeValueFrame({ id: 0x22n, communityId: 9n }));
 
 	store.applyFieldMetricsEnvelope({
 		...blankMetrics,
@@ -457,10 +417,7 @@ test("FieldSnapshot defaults to zero metrics when no envelope has arrived", () =
 	const store = new ValueStore();
 
 	store.ensure("0000000000000023");
-	store.applyWireFrame(
-		0x23n,
-		makeValueFrame({ id: 0x23n, communityId: 11n }),
-	);
+	store.applyWireFrame(0x23n, makeValueFrame({ id: 0x23n, communityId: 11n }));
 
 	const snapshot = store.getState().snapshot;
 	const field = snapshot.fields.find((candidate) => candidate.id === 11);
@@ -474,44 +431,6 @@ test("FieldSnapshot defaults to zero metrics when no envelope has arrived", () =
 	assert.equal(field?.saturated, false);
 });
 
-test("decodeValueWireMessage routes VZB1 envelopes to applyFieldMetricsEnvelope", () => {
-	const store = new ValueStore();
-
-	store.ensure("0000000000000030");
-	store.applyWireFrame(
-		0x30n,
-		makeValueFrame({ id: 0x30n, communityId: 13n }),
-	);
-
-	const wire = encodeEnvelopeBytes(ENVELOPE_KIND_FIELD_METRICS, {
-		...blankMetrics,
-		communityIdx: 13,
-		crystallization: 0.42,
-		dominantRatio: 0.6,
-		modeCount: 3,
-		pressureMult: 1.1,
-	});
-
-	const decoded = decodeValueWireMessage(wire);
-
-	assert.equal(decoded.frames.length, 0);
-	assert.ok(decoded.envelope);
-	assert.equal(decoded.envelope?.kind, ENVELOPE_KIND_FIELD_METRICS);
-
-	if (decoded.envelope?.kind === ENVELOPE_KIND_FIELD_METRICS) {
-		store.applyFieldMetricsEnvelope(decoded.envelope.payload);
-	}
-
-	const snapshot = store.getState().snapshot;
-	const field = snapshot.fields.find((candidate) => candidate.id === 13);
-
-	assert.ok(field);
-	assert.equal(field?.crystallization, 0.42);
-	assert.equal(field?.dominantRatio, 0.6);
-	assert.equal(field?.modeCount, 3);
-	assert.equal(field?.pressureMult, 1.1);
-});
-
 test("decodeValueWireMessage still splits raw 1024-byte value frames", () => {
 	const a = makeValueFrame({ id: 0x40n });
 	const b = makeValueFrame({ id: 0x41n });
@@ -521,8 +440,7 @@ test("decodeValueWireMessage still splits raw 1024-byte value frames", () => {
 
 	const decoded = decodeValueWireMessage(joined);
 
-	assert.equal(decoded.envelope, null);
-	assert.equal(decoded.frames.length, 2);
-	assert.equal(decoded.frames[0].valueId, 0x40n);
-	assert.equal(decoded.frames[1].valueId, 0x41n);
+	assert.equal(decoded.length, 2);
+	assert.equal(decoded[0].valueId, 0x40n);
+	assert.equal(decoded[1].valueId, 0x41n);
 });

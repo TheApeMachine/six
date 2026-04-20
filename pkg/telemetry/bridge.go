@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -36,55 +37,39 @@ func (bridge *Bridge) ListenAndServe() error {
 	http.ListenAndServe(":6600", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
-			// handle error
+			errnie.Error(errors.Join(
+				err,
+				fmt.Errorf("ws.UpgradeHTTP(r, w) failed"),
+			))
+
+			return
 		}
 		go func() {
-			defer conn.Close()
-
 			for {
 				select {
 				case <-bridge.ctx.Done():
 					return
 				default:
-					header, err := ws.ReadHeader(conn)
+					var payload []byte
 
-					if err != nil {
-						errnie.Error(errors.Join(
-							io.ErrShortBuffer,
-							errors.New("bridge.Write: ws.ReadHeader(conn) failed"),
-						))
-					}
-
-					payload := make([]byte, header.Length)
-
-					bridge.queue.Range(func(key, value any) bool {
-						payload = append(payload, value.(*primitive.Value).Bytes()...)
+					bridge.queue.Range(func(_, v any) bool {
+						payload = append(payload, v.(*primitive.Value).Bytes()...)
+						bridge.queue.Delete(v.(*primitive.Value).ID())
+						primitive.FreeValue(v.(*primitive.Value))
 						return true
 					})
 
-					if header.Masked {
-						ws.Cipher(payload, header.Mask, 0)
+					if len(payload) == 0 {
+						continue
 					}
 
-					// Reset the Masked flag, server frames must not be masked as
-					// RFC6455 says.
-					header.Masked = false
-
-					if err := ws.WriteHeader(conn, header); err != nil {
+					if err := wsutil.WriteServerMessage(
+						conn, websocket.BinaryMessage, payload,
+					); err != nil {
 						errnie.Error(errors.Join(
-							io.ErrShortBuffer,
-							errors.New("bridge.Write: ws.WriteHeader(conn, header) failed"),
+							err,
+							fmt.Errorf("wsutil.WriteServerMessage(conn, websocket.BinaryMessage, payload) failed"),
 						))
-					}
-
-					if _, err := conn.Write(payload); err != nil {
-						errnie.Error(errors.Join(
-							io.ErrShortBuffer,
-							errors.New("bridge.Write: conn.Write(payload) failed"),
-						))
-					}
-
-					if header.OpCode == ws.OpClose {
 						return
 					}
 				}
@@ -114,7 +99,7 @@ func (bridge *Bridge) Read(p []byte) (int, error) {
 
 func (bridge *Bridge) Write(p []byte) (int, error) {
 	if bridge == nil {
-		return 0, io.ErrClosedPipe
+		return 0, errnie.Error(io.ErrClosedPipe, errors.New("bridge is nil"))
 	}
 
 	value := primitive.AllocValue()

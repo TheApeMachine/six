@@ -20,6 +20,9 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 
 		Convey("measureCrystallization reports zero across the board", func() {
 			metrics := field.metrics.Load()
+			if metrics == nil {
+				t.Fatal("metrics is nil")
+			}
 
 			So(metrics.MemberCount, ShouldEqual, 0)
 			So(metrics.Coverage, ShouldEqual, 0)
@@ -53,8 +56,21 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		blank.StampNewID()
 		field.values = append(field.values, blank)
 
+		// Wait for queue to process
+		done := make(chan struct{})
+		field.queue.Schedule(func() {
+			close(done)
+		})
+		<-done
+
+		metrics := field.metrics.Load().Measure(field, field.values, field.snap)
+		field.metrics.Store(&metrics)
+
 		Convey("Coverage, Consensus, LabelDensity degenerate to the expected fractions", func() {
 			metrics := field.metrics.Load()
+			if metrics == nil {
+				t.Fatal("metrics is nil")
+			}
 
 			So(metrics.MemberCount, ShouldEqual, 3)
 			So(metrics.LabeledCount, ShouldEqual, 2)
@@ -93,8 +109,21 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		field.values = append(field.values, classB)
 		field.values = append(field.values, classB)
 
+		// Wait for queue to process
+		done := make(chan struct{})
+		field.queue.Schedule(func() {
+			close(done)
+		})
+		<-done
+
+		metrics := field.metrics.Load().Measure(field, field.values, field.snap)
+		field.metrics.Store(&metrics)
+
 		Convey("Consensus drops to zero and drags Crystallization with it", func() {
 			metrics := field.metrics.Load()
+			if metrics == nil {
+				t.Fatal("metrics is nil")
+			}
 
 			So(metrics.Coverage, ShouldEqual, 1)
 			So(metrics.LabelDensity, ShouldEqual, 1)

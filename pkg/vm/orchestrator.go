@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 
@@ -214,6 +215,8 @@ func (orchestrator *Orchestrator) Cycle(
 				return nil, errnie.Error(err)
 			}
 
+			fmt.Println("Cycle: frameValue", frameValue.ID())
+
 			if status, err := frameValue.Property(
 				primitive.STATUS,
 			); err == nil && status == uint64(
@@ -226,6 +229,7 @@ func (orchestrator *Orchestrator) Cycle(
 		}
 
 		if len(resolved) > 0 || len(clones) == 0 {
+			fmt.Println("Cycle: resolved", len(resolved), "clones", len(clones))
 			break
 		}
 	}

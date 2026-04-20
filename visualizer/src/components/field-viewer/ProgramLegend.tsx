@@ -86,6 +86,7 @@ function Glyph({
 		case "square":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>square</title>
 					<rect
 						x={half - 5}
 						y={half - 5}
@@ -100,6 +101,7 @@ function Glyph({
 		case "triangle_up":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>triangle_up</title>
 					<polygon
 						points={`${half},${half - 6} ${half + 6},${half + 5} ${half - 6},${half + 5}`}
 						fill="none"
@@ -111,6 +113,7 @@ function Glyph({
 		case "triangle_down":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>triangle_down</title>
 					<polygon
 						points={`${half},${half + 6} ${half + 6},${half - 5} ${half - 6},${half - 5}`}
 						fill="none"
@@ -122,6 +125,7 @@ function Glyph({
 		case "diamond":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>diamond</title>
 					<polygon
 						points={`${half},${half - 7} ${half + 7},${half} ${half},${half + 7} ${half - 7},${half}`}
 						fill="none"
@@ -140,6 +144,7 @@ function Glyph({
 			}
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>pentagon</title>
 					<polygon
 						points={pts.join(" ")}
 						fill="none"
@@ -152,6 +157,7 @@ function Glyph({
 		case "hourglass":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>hourglass</title>
 					<polygon
 						points={`${half - 6},${half - 6} ${half + 6},${half - 6} ${half - 6},${half + 6} ${half + 6},${half + 6}`}
 						fill="none"
@@ -163,11 +169,12 @@ function Glyph({
 		case "asterisk":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>asterisk</title>
 					{Array.from({ length: 6 }).map((_, index) => {
 						const a = (index * Math.PI * 2) / 6;
 						return (
 							<line
-								key={index}
+								key={String(index)}
 								x1={half}
 								y1={half}
 								x2={half + Math.cos(a) * 7}
@@ -182,6 +189,7 @@ function Glyph({
 		case "ring":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>ring</title>
 					<circle
 						cx={half}
 						cy={half}
@@ -203,6 +211,7 @@ function Glyph({
 		case "bar":
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>bar</title>
 					<rect
 						x={half - 7}
 						y={half - 2}
@@ -214,10 +223,10 @@ function Glyph({
 					/>
 				</svg>
 			);
-		case "circle":
 		default:
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>circle</title>
 					<circle
 						cx={half}
 						cy={half}

@@ -29,7 +29,7 @@ the integral.
 func NewAccumulator(initial float64) *Accumulator {
 	return &Accumulator{
 		value:    initial,
-		smoother: NewEMA(),
+		smoother: NewEMA(initial),
 	}
 }
 

@@ -51,6 +51,10 @@ const (
 	CLASSIFY_READOUT   FirmwareType = "classify_readout"
 	EPISODIC_REPLAY    FirmwareType = "episodic_replay"
 	INTERVENTION       FirmwareType = "intervene"
+	HYPOTHESIS         FirmwareType = "hypothesis"
+	FALSIFICATION      FirmwareType = "falsification"
+	CAUSAL_EXPLORE     FirmwareType = "causal_explore"
+	CAUSAL_HUB         FirmwareType = "causal_hub"
 )
 
 type SystemConfig struct {

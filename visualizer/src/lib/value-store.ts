@@ -25,7 +25,22 @@ import {
 	decodeValueRegions,
 	REGION_SPECS,
 } from "./valueRegions";
-import type { FieldMetricsPayload, RawValueFrame } from "./wire";
+import type { RawValueFrame } from "./wire";
+
+export interface FieldMetricsPayload {
+	communityIdx: number;
+	memberCount: number;
+	labeledCount: number;
+	slotSum: number;
+	coverage: number;
+	consensus: number;
+	labelDensity: number;
+	crystallization: number;
+	dominantRatio: number;
+	modeCount: number;
+	pressureMult: number;
+	saturated: boolean;
+}
 
 /*
 PROPERTIES_COMMUNITY_WORD is the absolute word index where mesh.Field
