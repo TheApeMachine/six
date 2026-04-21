@@ -98,6 +98,20 @@ func (feedback *Feedback) Read(p []byte) (n int, err error) {
 	}
 }
 
+func (feedback *Feedback) Update(components ...io.ReadWriter) {
+	if feedback == nil {
+		return
+	}
+
+	if updater, ok := feedback.forward.(interface {
+		Update(components ...io.ReadWriter)
+	}); ok {
+		updater.Update(components...)
+	}
+
+	feedback.tee = io.TeeReader(feedback.forward, feedback.backward)
+}
+
 /*
 Write implements io.Writer. It writes data to both the forward writer and the
 backward writer, mirroring the tee semantics of Read. The backward write is

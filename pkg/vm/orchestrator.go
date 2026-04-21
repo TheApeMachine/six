@@ -3,8 +3,10 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
+	"time"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
@@ -50,9 +52,8 @@ func NewOrchestrator(
 	output := transport.NewCollector(core.Cfg.Value.Bytes)
 
 	queue := compute.NewQueue(ctx)
-	backend := compute.NewBackend(ctx, queue, queue) // Output to queue so it flows back through the pipeline
-
 	field := mesh.NewField(ctx, 65537, telemetry, queue)
+	backend := compute.NewBackend(ctx, queue, field)
 
 	if field == nil {
 		cancel()
@@ -173,7 +174,11 @@ func (orchestrator *Orchestrator) Cycle(
 	// We check if the queue has any pending work or if the backend has inflight work.
 	// We also need to yield to allow workers to run.
 	quiescentCount := 0
+	deadline := time.Now().Add(100 * time.Millisecond)
 	for {
+		if time.Now().After(deadline) {
+			break
+		}
 		pending := orchestrator.queue.Len()
 		inflight := orchestrator.backend.Inflight()
 		streamLen := orchestrator.queue.StreamLen()
@@ -190,10 +195,13 @@ func (orchestrator *Orchestrator) Cycle(
 		// Read any available frames from the output to prevent the stream from filling up
 		// and blocking the ALU from writing its results.
 		if streamLen >= 1 {
-			if _, err := io.CopyN(orchestrator.output, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
-				if err != io.EOF {
+			buf := make([]byte, core.Cfg.Value.Bytes)
+			if _, err := io.ReadFull(orchestrator.queue, buf); err != nil {
+				if err != io.EOF && err != io.ErrUnexpectedEOF {
 					return nil, errnie.Error(err)
 				}
+			} else {
+				orchestrator.output.Write(buf)
 			}
 		} else {
 			runtime.Gosched()
@@ -201,11 +209,18 @@ func (orchestrator *Orchestrator) Cycle(
 	}
 
 	// 3. Drain any remaining frames
+	drainDeadline := time.Now().Add(100 * time.Millisecond)
 	for orchestrator.queue.StreamLen() >= 1 {
-		if _, err := io.CopyN(orchestrator.output, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
-			if err != io.EOF {
+		if time.Now().After(drainDeadline) {
+			break
+		}
+		buf := make([]byte, core.Cfg.Value.Bytes)
+		if _, err := io.ReadFull(orchestrator.queue, buf); err != nil {
+			if err != io.EOF && err != io.ErrUnexpectedEOF {
 				return nil, errnie.Error(err)
 			}
+		} else {
+			orchestrator.output.Write(buf)
 		}
 	}
 
@@ -229,7 +244,9 @@ func (orchestrator *Orchestrator) Cycle(
 			primitive.RESOLVED,
 		) {
 			resolved = append(resolved, frameValue)
+			fmt.Println("RESOLVED:", frameValue.ID())
 		} else {
+			fmt.Println("NOT RESOLVED:", status)
 			primitive.FreeValue(frameValue)
 		}
 	}

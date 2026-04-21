@@ -1,26 +1,39 @@
 \begin{table}[htbp]
 \centering
-\caption{Compression — standardised result summary (N=1).}
+\caption{Compression — standardised result summary (N=50).}
 \label{tab:compression_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+16 &  & 0.0000 & 0.0312 & 0.0010 & 0.0087 \\
+49 &  & 0.0000 & 0.0312 & 0.0010 & 0.0087 \\
+45 &  & 0.0000 & 0.0312 & 0.0010 & 0.0087 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+1 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+48 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+47 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{oiNBN1OO6;qljjM.\textasciitilde{}j/'TfbjN]z|7L9B}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\textasciitilde{}(-hP<epR|cG)\%LCIPa05:``iDzh\textbackslash\{\}ar'}} & \multicolumn{2}{l}{\texttt{·*"·· 9 "((A·N·O*·y(\textbackslash\{\}·\}·)··!·\#\#)j\#+·m)!\#\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{(wb6wNR)VE":`a'f(Tc5kJ//\$45g\textasciitilde{}H0Z}} & \multicolumn{2}{l}{\texttt{· ···  0· *· "*F"o(··\textasciitilde{}·\}···!\#····\#\#?)B)\#\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{>qLKmI1TY\textbackslash\{\}1?Cz?uKBb9O8H!k]7V(0iM}} & \multicolumn{2}{l}{\texttt{("·· · ·*·*"7 ·k"F··R((v·"*+\#\#·!+··!·!h\#\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\textbackslash\{\}\%F\#Nw*\#Ge4y?Z\$R.+Wf==\&V7KEvY`8e}} & \multicolumn{2}{l}{\texttt{*··· :· *· ((f ·P·Y"\textasciitilde{}*"+·,!)·+9)·····N)·\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: } \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 50} & \multicolumn{3}{l}{Holdout: } \\
+\multicolumn{3}{l}{Mean score: 0.0017} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0087} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

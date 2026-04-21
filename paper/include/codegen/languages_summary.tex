@@ -9,9 +9,9 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-497 & C++ & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
-79 & Python & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
-127 & JavaScript & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
+579 & Rust & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
+574 & Rust & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
+571 & Rust & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
@@ -19,21 +19,21 @@
 \midrule
 599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 598 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-39 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+4 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{a,int b)\{·     return (abs(a)\%10)*(abs(b\ldots}} & \multicolumn{2}{l}{\texttt{···· ((·*(b(a*f(E·p*(v(U·()\#+)·)0+)))@·a\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{"""·     return "db" + bin(decimal)[2:] \ldots}} & \multicolumn{2}{l}{\texttt{·!(\&(-(··1(6(·(((F(("q*("·)))·)·++·5)b)K\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{(((··(·(((··**··s*\^{}*w(···+\$+\%)··+·+))N)g\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{(((··(·(((··**··s*\^{}*w(···+\$+\%)··+·+))N)g\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{g() + \&out + \&"db".to\_string();·    retu\ldots}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\_iter().map(|x| x.to\_string()).collect()\ldots}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0023} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0169} \\
+\multicolumn{3}{l}{Mean score: 0.0029} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0169} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

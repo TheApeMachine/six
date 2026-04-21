@@ -1,7 +1,6 @@
 package mesh
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -93,6 +92,8 @@ type Field struct {
 	metrics     atomic.Pointer[FieldMetrics]
 	routeBudget int
 
+	resolvedOutputs chan *primitive.Value
+
 	// refreshing / rolling coalesce queued metric work: each Write tries
 	// to flip the flag with CompareAndSwap and only schedules when it
 	// wins the race. The scheduled task clears the flag after publishing
@@ -151,18 +152,19 @@ func NewField(
 	}
 
 	field := &Field{
-		ctx:         ctx,
-		cancel:      cancel,
-		id:          fieldIDSeq.Add(1),
-		modulus:     modulus,
-		conn:        conn,
-		queue:       queue,
-		telemetry:   telemetry,
-		snap:        &geometry.EigenSnap{},
-		dial:        geometry.NewPhaseDial(),
-		routeBudget: core.Cfg.System.RouteBudget,
-		policy:      policy,
-		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		ctx:             ctx,
+		cancel:          cancel,
+		id:              fieldIDSeq.Add(1),
+		modulus:         modulus,
+		conn:            conn,
+		queue:           queue,
+		telemetry:       telemetry,
+		snap:            &geometry.EigenSnap{},
+		dial:            geometry.NewPhaseDial(),
+		routeBudget:     core.Cfg.System.RouteBudget,
+		policy:          policy,
+		rng:             rand.New(rand.NewSource(time.Now().UnixNano())),
+		resolvedOutputs: make(chan *primitive.Value, 1000),
 	}
 	field.metrics.Store(NewFieldMetrics())
 
@@ -232,7 +234,19 @@ readCursor is a single atomic so the round-robin walk stays lock-free
 on the hot path.
 */
 func (field *Field) Read(p []byte) (n int, err error) {
-	return field.conn.Read(p)
+	select {
+	case <-field.ctx.Done():
+		return 0, io.EOF
+	case val := <-field.resolvedOutputs:
+		if val == nil {
+			return 0, io.EOF
+		}
+		n = copy(p, val.Bytes())
+		primitive.FreeValue(val)
+		return n, nil
+	default:
+		return 0, io.EOF
+	}
 }
 
 /*
@@ -286,7 +300,20 @@ func (field *Field) Write(p []byte) (n int, err error) {
 
 	field.metrics.Load().Refresh(field)
 
-	return field.conn.Write(visitor.Bytes())
+	status, _ := visitor.Property(primitive.STATUS)
+	if status == uint64(primitive.RESOLVED) {
+		select {
+		case field.resolvedOutputs <- visitor:
+			return len(p), nil
+		default:
+			primitive.FreeValue(visitor)
+			return len(p), nil
+		}
+	}
+
+	n, err = field.conn.Write(visitor.Bytes())
+	primitive.FreeValue(visitor)
+	return n, err
 }
 
 func (field *Field) findCommunity(visitor *primitive.Value) {
@@ -314,13 +341,14 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 		}
 
 		hammingDistance := uint64(0)
-		maxWords := max(len(visitorAffinity), len(f.affinity))
+		centroidAffinity := f.values[0].Get(primitive.AffinityRegion)
+		maxWords := max(len(visitorAffinity), len(centroidAffinity))
 
 		for i := range maxWords {
 			fieldWord := uint64(0)
 
-			if i < len(f.affinity) {
-				fieldWord = f.affinity[i].Load()
+			if i < len(centroidAffinity) {
+				fieldWord = centroidAffinity[i]
 			}
 
 			visitorWord := uint64(0)
@@ -340,6 +368,26 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 			// Update the field's affinity with the visitor's affinity.
 			f.foldAffinityXOR(visitor)
 
+			// Select a program for the visitor using the field's policy state machine
+			var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
+
+			labels, _ := visitor.Property(primitive.LABELS)
+			confidence, _ := visitor.Property(primitive.CONFIDENCE)
+			beliefGap := float64(labels) / 512.0
+
+			if confidence != 0 {
+				visitorFw = "falsification"
+			} else if beliefGap <= core.Cfg.System.BeliefEpsilon {
+				visitorFw = "hypothesis"
+			} else {
+				visitorFw = "beam_swarm_step"
+			}
+
+			if vProgram, ok := core.Cfg.Programs[visitorFw]; ok {
+				visitor.WriteProgramWords(vProgram.Compiled())
+				visitor.SetSchedulingNext(vProgram.ResolveSchedulingNext(visitor.ID()))
+			}
+
 			// Stamp the visitor with the field's ID.
 			visitor.Set(
 				core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY),
@@ -352,7 +400,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 				uint64(primitive.READY),
 			)
 
-			f.conn.Update(bytes.NewBuffer(visitor.Bytes()))
+			f.conn.Update(visitor)
 			f.metrics.Load().Refresh(f)
 			break
 		}
@@ -372,11 +420,31 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	newField.foldAffinityXOR(visitor)
 
 	// Update the new field's conn.
-	newField.conn.Update(bytes.NewBuffer(visitor.Bytes()))
+	newField.conn.Update(visitor)
 
 	field.fields = append(field.fields, newField)
 
 	field.conn.Update(newField.conn)
+
+	// Select a program for the visitor using the new field's policy state machine
+	var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
+
+	labels, _ := visitor.Property(primitive.LABELS)
+	confidence, _ := visitor.Property(primitive.CONFIDENCE)
+	beliefGap := float64(labels) / 512.0
+
+	if confidence != 0 {
+		visitorFw = "falsification"
+	} else if beliefGap <= core.Cfg.System.BeliefEpsilon {
+		visitorFw = "hypothesis"
+	} else {
+		visitorFw = "beam_swarm_step"
+	}
+
+	if vProgram, ok := core.Cfg.Programs[visitorFw]; ok {
+		visitor.WriteProgramWords(vProgram.Compiled())
+		visitor.SetSchedulingNext(vProgram.ResolveSchedulingNext(visitor.ID()))
+	}
 
 	// Stamp the visitor with the new field's ID.
 	visitor.Set(

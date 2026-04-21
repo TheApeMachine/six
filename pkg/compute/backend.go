@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"runtime"
@@ -192,6 +193,7 @@ func (b *Backend) Run() {
 
 					errVal, _ := work.Value.Property(primitive.LABELS)
 					beliefGap := float64(errVal) / 512.0
+					fmt.Println("BeliefGap:", beliefGap)
 
 					if work.Value.SchedulingNext() == 0 {
 						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.RESOLVED))
@@ -209,7 +211,8 @@ func (b *Backend) Run() {
 							work.Value.Set(core.Cfg.Value.Region.Next.Start, child.ID())
 							child.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.EMIT), 0)
 
-							if b.output != nil {
+							fmt.Println("Backend: Streamed RESOLVED to b.output!")
+						if b.output != nil {
 								if _, err := io.Copy(b.output, child); err != nil {
 									errnie.Error(err)
 								}
@@ -223,13 +226,21 @@ func (b *Backend) Run() {
 					// Update kernels if needed
 					b.updateKernels(work.Value)
 
-					// Stream the result into the IO pipeline!
-					if b.output != nil {
-						_, err := io.Copy(b.output, work.Value)
+					status, _ := work.Value.Property(primitive.STATUS)
+					if status == uint64(primitive.RESOLVED) {
+						// Stream the result into the IO pipeline ONLY when resolved!
+						fmt.Println("Backend: Streamed RESOLVED to b.output!")
+						if b.output != nil {
+							_, err := io.Copy(b.output, work.Value)
 
-						if err != nil {
-							errnie.Error(err)
+							if err != nil {
+								errnie.Error(err)
+							}
 						}
+					} else {
+						// Re-submit to the queue for the next pass!
+						b.queue.Submit(work.Value)
+						fmt.Println("Backend: Re-submitted to queue!")
 					}
 				})
 			}

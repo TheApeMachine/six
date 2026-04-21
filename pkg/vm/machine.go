@@ -145,20 +145,16 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	var segments []*primitive.Value
 
-	var count int
 	for sample := range dataset.Generate() {
-		count++
-		fmt.Println("processing sample", count)
-		if count%100 == 0 {
-			fmt.Println("processed", count, "samples")
-		}
 		if segments, err = machine.tokenizer.IngestSample(
 			machine.ctx, sample,
 		); err != nil {
 			return errnie.Error(err)
 		}
 
-		machine.orchestrator.Cycle(segments...)
+		if _, err := machine.orchestrator.Cycle(segments...); err != nil {
+			fmt.Println("Cycle error:", err)
+		}
 	}
 
 	return nil
