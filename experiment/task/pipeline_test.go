@@ -149,18 +149,21 @@ func TestPipeline(t *testing.T) {
 
 				Convey("And a machine", func() {
 					machine, err := vm.NewMachine(t.Context())
-					So(err, ShouldBeNil)
-					So(machine, ShouldNotBeNil)
+
+					if err != nil {
+						t.Fatalf("vm.NewMachine: %v", err)
+					}
 
 					defer func() {
-						if closeErr := machine.Close(); closeErr != nil {
-							t.Fatalf("machine.Close: %v", closeErr)
-						}
+						So(machine.Close(), ShouldBeNil)
 					}()
 
+					So(err, ShouldBeNil)
+					So(machine, ShouldNotBeNil)
 					So(machine.Load(experiment.Dataset()), ShouldBeNil)
 
 					for idx, prompt := range experiment.Prompts() {
+						fmt.Println("processing prompt", idx)
 						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
 						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
 						segments, segErr := primitive.NewValue([]byte(prompt))

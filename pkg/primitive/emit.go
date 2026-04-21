@@ -36,61 +36,61 @@ func WithLabels(labels ...uint64) EmitOptions {
 
 func WithTTL(ttl uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(TTL), ttl)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(TTL), ttl)
 	}
 }
 
 func WithNoise(noise uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(NOISE), noise)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(NOISE), noise)
 	}
 }
 
 func WithCommunity(community uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(COMMUNITY), community)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(COMMUNITY), community)
 	}
 }
 
 func WithStatus(status uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(STATUS), status)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(STATUS), status)
 	}
 }
 
 func WithFieldID(fieldID uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(TARGET), fieldID)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(TARGET), fieldID)
 	}
 }
 
 func WithConfidence(confidence uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(CONFIDENCE), confidence)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(CONFIDENCE), confidence)
 	}
 }
 
 func WithEpoch(epoch uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(EPOCH), epoch)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(EPOCH), epoch)
 	}
 }
 
 func WithProbeState(probeState uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(STATUS), probeState)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(STATUS), probeState)
 	}
 }
 
 func WithProbeWindow(probeWindow uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(WINDOW), probeWindow)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(WINDOW), probeWindow)
 	}
 }
 
 func WithProbeDepth(probeDepth uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(DEPTH), probeDepth)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(DEPTH), probeDepth)
 	}
 }
 
@@ -100,13 +100,13 @@ func WithRole(role uint64) EmitOptions {
 			return
 		}
 
-		value.Set(int(ROLE), role)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(ROLE), role)
 	}
 }
 
 func WithTarget(target uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(int(TARGET), target)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(TARGET), target)
 	}
 }
 

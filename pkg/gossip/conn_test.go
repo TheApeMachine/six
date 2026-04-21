@@ -15,8 +15,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/pool"
 )
 
 /*
@@ -65,14 +65,10 @@ because Conn.Write fans every leg through queue.Schedule; a stub that
 just records calls would make the assertions racy with the real
 fan-out timing.
 */
-func newRealQueue(tb testing.TB) *pool.Queue {
+func newRealQueue(tb testing.TB) *compute.Queue {
 	tb.Helper()
 
-	queue, err := pool.NewQueue(context.Background())
-
-	if err != nil {
-		tb.Fatal(err)
-	}
+	queue := compute.NewQueue(context.Background())
 
 	return queue
 }

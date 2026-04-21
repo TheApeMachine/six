@@ -48,3 +48,15 @@ func (gate *GateWriter) Write(p []byte) (n int, err error) {
 
 	return len(p), nil
 }
+
+func (gate *GateWriter) Read(p []byte) (n int, err error) {
+	if gate == nil || gate.W == nil {
+		return 0, io.ErrClosedPipe
+	}
+
+	if r, ok := gate.W.(io.Reader); ok {
+		return r.Read(p)
+	}
+
+	return 0, io.EOF
+}

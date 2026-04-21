@@ -1,7 +1,6 @@
 package pool
 
 import (
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -37,14 +36,8 @@ NewPool returns a new thread pool. The optional dispatch handler receives
 every non-nil Executable returned by a task — this is how the compute
 Backend picks up work without the task closure knowing about substrates.
 */
-func NewPool(size uint64, dispatch ...func(*primitive.Value)) *Pool {
-	pool := &Pool{maxSize: size}
-
-	if len(dispatch) > 0 {
-		pool.dispatch = dispatch[0]
-	}
-
-	return pool
+func NewPool(size uint64) *Pool {
+	return &Pool{maxSize: size}
 }
 
 // Submit submits a new task to the pool
@@ -116,11 +109,7 @@ func (self *Pool) loopQ(slot *Slot) {
 }
 
 // global memory pool for all items used in Pool
-var (
-	itemPool  = sync.Pool{New: func() any { return new(Node) }}
-	itemAlloc = itemPool.Get
-	itemFree  = itemPool.Put
-)
+// (removed to avoid ABA problem and use-after-free)
 
 /*
 Node is a single node in this stack
@@ -149,9 +138,6 @@ func (self *Pool) pop() (value *Slot) {
 
 		if self.top.CompareAndSwap(top, next) {
 			value = top.value
-			top.value = nil
-			top.next.Store(nil)
-			itemFree(top)
 			return
 		}
 	}
@@ -163,10 +149,8 @@ push pushes a value on top of the stack
 func (self *Pool) push(value *Slot) {
 	var (
 		top  *Node
-		item = itemAlloc().(*Node)
+		item = &Node{value: value}
 	)
-
-	item.value = value
 
 	for {
 		top = self.top.Load()

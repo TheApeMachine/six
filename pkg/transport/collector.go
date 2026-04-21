@@ -1,6 +1,8 @@
 package transport
 
-import "io"
+import (
+	"io"
+)
 
 /*
 Collector is a growable byte buffer used as an io.Writer destination for
@@ -80,6 +82,5 @@ func (collector *Collector) Write(p []byte) (n int, err error) {
 	}
 
 	collector.buf = append(collector.buf, p...)
-
 	return len(p), nil
 }

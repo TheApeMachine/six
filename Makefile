@@ -1,9 +1,10 @@
-.PHONY: build run test bench coverage metal cuda paper pprof pprof-mem dump capnp
+.PHONY: build run test bench coverage metal cuda bridge paper pprof pprof-mem dump capnp
 
 # The pool package (pkg/pool/lib_runtime_linkage.go) uses go:linkname to
-# reach runtime scheduling symbols such as runtime.dropg. Starting with Go
-# 1.26, plain `go test` / `go build` fails at link time with:
+# reach runtime scheduling symbols (e.g. runtime.dropg, runtime.casgstatus).
+# Starting with Go 1.26, plain `go test` / `go build` fails at link time with:
 #   link: .../pkg/pool: invalid reference to runtime.dropg
+#   link: .../pkg/pool: invalid reference to runtime.casgstatus
 # Pass -checklinkname=0 so the linker allows those references (see `go help build`).
 LDFLAGS := -ldflags='-checklinkname=0'
 
@@ -76,6 +77,9 @@ cuda:
 	go generate ./pkg/primitive/...
 	cd pkg/compute/kernel/cuda \
 		&& go generate
+
+bridge:
+	go run ${LDFLAGS} main.go bridge
 
 # For the live 3D viz: open http://127.0.0.1:6600 before this finishes — the
 # pipeline starts the viz server on the first experiment and replays history

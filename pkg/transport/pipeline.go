@@ -81,16 +81,10 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 		return 0, pipeline.ctx.Err()
 	default:
 		if !pipeline.processed {
-			// Each time this is called, we start from the next component compared
-			// to the previous one.
-			for i := (pipeline.seq + 1) % len(pipeline.components); i < len(pipeline.components)-1; i++ {
-				// Bytes copied between intermediate components are not bytes
-				// delivered to p, so they must not contribute to n (io.Reader
-				// requires n <= len(p)). The copy itself still has to happen
-				// so the final component has data to read from.
+			for i := 0; i < len(pipeline.components)-1; i++ {
 				if _, err = io.CopyN(
-					pipeline.components[i],
 					pipeline.components[i+1],
+					pipeline.components[i],
 					int64(core.Cfg.Value.Bytes),
 				); err != nil {
 					if err == io.EOF {
@@ -104,8 +98,7 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 			pipeline.processed = true
 		}
 
-		n, err = pipeline.components[pipeline.seq].Read(p)
-		pipeline.seq = (pipeline.seq + 1) % len(pipeline.components)
+		n, err = pipeline.components[len(pipeline.components)-1].Read(p)
 
 		if err != nil {
 			if err == io.EOF {
@@ -121,6 +114,7 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 			return n, io.EOF
 		}
 
+		pipeline.processed = false
 		return n, nil
 	}
 }

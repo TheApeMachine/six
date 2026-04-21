@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -9,12 +10,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/geometry"
 	"github.com/theapemachine/six/pkg/core/numeric/learned"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/transport"
@@ -67,7 +68,7 @@ type Field struct {
 		tests that never set it just drop emissions on the floor.
 	*/
 	emit      *gossip.Conn
-	queue     *pool.Queue
+	queue     compute.Scheduler
 	telemetry *telemetry.Bridge
 
 	fields  []*Field
@@ -100,8 +101,8 @@ type Field struct {
 	// scans and starves backend.Dispatch — Values then never reach
 	// RESOLVED and Orchestrator.Cycle spins.
 	refreshing atomic.Bool
-	rolling    atomic.Bool
-	readCursor atomic.Uint64
+	// rolling    atomic.Bool
+	// readCursor atomic.Uint64
 
 	lastAction core.FirmwareType
 	policy     map[core.FirmwareType]*learned.Weight
@@ -117,7 +118,7 @@ func NewField(
 	ctx context.Context,
 	modulus uint32,
 	telemetry *telemetry.Bridge,
-	queue *pool.Queue,
+	queue compute.Scheduler,
 ) *Field {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -162,8 +163,8 @@ func NewField(
 		routeBudget: core.Cfg.System.RouteBudget,
 		policy:      policy,
 		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
-		metrics:     atomic.Pointer[FieldMetrics]{},
 	}
+	field.metrics.Store(NewFieldMetrics())
 
 	return field
 }
@@ -270,26 +271,22 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		)
 	}
 
-	field.queue.Schedule(func() {
-		visitor := primitive.AllocValue()
+	visitor := primitive.AllocValue()
 
-		if err := visitor.LoadFullFrame(p); err != nil {
-			errnie.Error(errors.Join(
-				io.ErrShortBuffer,
-				errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
-			))
+	if err := visitor.LoadFullFrame(p); err != nil {
+		errnie.Error(errors.Join(
+			io.ErrShortBuffer,
+			errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
+		))
 
-			return
-		}
+		return 0, err
+	}
 
-		field.findCommunity(visitor)
-	})
+	field.findCommunity(visitor)
 
-	field.queue.Schedule(func() {
-		field.metrics.Load().Refresh(field)
-	})
+	field.metrics.Load().Refresh(field)
 
-	return field.conn.Write(p)
+	return field.conn.Write(visitor.Bytes())
 }
 
 func (field *Field) findCommunity(visitor *primitive.Value) {
@@ -349,7 +346,13 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 				f.id,
 			)
 
-			f.conn.Update(visitor)
+			// Mark the visitor as READY so it can be executed by the ALU.
+			visitor.Set(
+				core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
+				uint64(primitive.READY),
+			)
+
+			f.conn.Update(bytes.NewBuffer(visitor.Bytes()))
 			f.metrics.Load().Refresh(f)
 			break
 		}
@@ -369,7 +372,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	newField.foldAffinityXOR(visitor)
 
 	// Update the new field's conn.
-	newField.conn.Update(visitor)
+	newField.conn.Update(bytes.NewBuffer(visitor.Bytes()))
 
 	field.fields = append(field.fields, newField)
 
@@ -378,5 +381,11 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	// Stamp the visitor with the new field's ID.
 	visitor.Set(
 		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), newField.id,
+	)
+
+	// Mark the visitor as READY so it can be executed by the ALU.
+	visitor.Set(
+		core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
+		uint64(primitive.READY),
 	)
 }

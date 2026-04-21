@@ -99,8 +99,11 @@ func (feedback *Feedback) Read(p []byte) (n int, err error) {
 }
 
 /*
-Write implements io.Writer. It writes data to the forward writer and updates
-the tee reader to reflect the new content.
+Write implements io.Writer. It writes data to both the forward writer and the
+backward writer, mirroring the tee semantics of Read. The backward write is
+best-effort: its error is intentionally swallowed so a slow or unavailable
+sink (e.g. a telemetry bridge with no connected WebSocket) never stalls the
+hot path.
 
 Parameters:
   - p: Byte slice containing data to write
@@ -114,8 +117,6 @@ func (feedback *Feedback) Write(p []byte) (n int, err error) {
 	case <-feedback.ctx.Done():
 		return 0, feedback.ctx.Err()
 	default:
-		// The tee holds an interface reference to forward, so subsequent
-		// reads pick up bytes appended here without rewrapping.
 		if n, err = feedback.forward.Write(p); err != nil {
 			return n, errnie.Error(err)
 		}

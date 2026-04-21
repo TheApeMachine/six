@@ -502,6 +502,23 @@ func (value *Value) SetSchedulingNext(next uint64) {
 }
 
 /*
+SchedulingNext returns word 117: continuation for `next <id>` / `next self` (0 = none).
+*/
+func (value *Value) SchedulingNext() uint64 {
+	if value == nil {
+		return 0
+	}
+
+	w := SchedulingNextProgramWord
+
+	if w < 0 || w >= len(*value) {
+		return 0
+	}
+
+	return (*value)[w]
+}
+
+/*
 WordExtent returns the absolute start word index and word count for this
 coarse region name, matching Value.Get slicing for the active config.
 */

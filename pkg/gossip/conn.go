@@ -6,10 +6,10 @@ import (
 	"io"
 	"sync/atomic"
 
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/transport"
 )
@@ -37,7 +37,7 @@ type Conn struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	err       atomic.Value
-	queue     pool.Scheduler
+	queue     compute.Scheduler
 	telemetry *telemetry.Bridge
 	pipeline  *transport.Pipeline
 }
@@ -49,7 +49,7 @@ spawns a fresh goroutine on the hot path.
 */
 func NewConn(
 	ctx context.Context,
-	queue pool.Scheduler,
+	queue compute.Scheduler,
 	telemetry *telemetry.Bridge,
 	rwcs ...io.ReadWriter,
 ) (*Conn, error) {

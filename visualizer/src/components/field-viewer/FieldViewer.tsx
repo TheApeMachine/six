@@ -73,15 +73,8 @@ function CommunityMetricsStrip({ field }: { field: FieldSnapshot }) {
 }
 
 export function FieldViewer({ className }: { className?: string }) {
-	const {
-		connectionError,
-		selection,
-		sendPrompt,
-		selectValueById,
-		snapshot,
-		stats,
-	} = useField();
-	const [promptText, setPromptText] = useState("");
+	const { connectionError, selection, selectValueById, snapshot, stats } =
+		useField();
 	const [programDrawerOpen, setProgramDrawerOpen] = useState(false);
 
 	const selectedField = useMemo(() => {
@@ -93,16 +86,6 @@ export function FieldViewer({ className }: { className?: string }) {
 			(candidate) => candidate.id === selection.communityId,
 		);
 	}, [selection, snapshot.fields]);
-
-	function submitPrompt() {
-		const trimmed = promptText.trim();
-		if (!trimmed) {
-			return;
-		}
-
-		sendPrompt(trimmed);
-		setPromptText("");
-	}
 
 	return (
 		<div

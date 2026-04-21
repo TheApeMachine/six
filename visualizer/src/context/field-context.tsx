@@ -7,10 +7,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import {
-	telemetryHttpBase,
-	telemetryWebSocketURL,
-} from "@/features/telemetry/endpoint";
 import type {
 	VizGraphSnapshot,
 	VizInspectSnapshot,
@@ -24,7 +20,6 @@ interface FieldContextValue {
 	snapshot: VizGraphSnapshot;
 	selection: VizInspectSnapshot | null;
 	connectionError: string | null;
-	sendPrompt: (text: string) => void;
 	selectValueById: (id: string) => boolean;
 }
 
@@ -63,10 +58,12 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 			socketRef.current = socket;
 
 			socket.onopen = () => {
+				console.log("telemetry bridge connected");
 				setConnectionError(null);
 			};
 
 			socket.onmessage = (message) => {
+				console.log("telemetry bridge message", message);
 				if (!(message.data instanceof ArrayBuffer)) {
 					return;
 				}
@@ -87,11 +84,14 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				sync();
 			};
 
-			socket.onerror = () => {
+			socket.onerror = (e) => {
+				console.log("telemetry bridge error", e);
 				setConnectionError("telemetry bridge unavailable");
 			};
 
 			socket.onclose = () => {
+				console.log("telemetry bridge disconnected");
+
 				if (destroyed) {
 					return;
 				}
@@ -115,36 +115,6 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 		};
 	}, [store]);
 
-	const sendPrompt = useCallback(async (text: string) => {
-		const trimmed = text.trim();
-		if (!trimmed) {
-			return;
-		}
-
-		try {
-			const response = await fetch(`${telemetryHttpBase()}/api/prompt`, {
-				body: JSON.stringify({ prompt: trimmed }),
-				headers: { "content-type": "application/json" },
-				method: "POST",
-			});
-
-			if (!response.ok) {
-				const payload = (await response.json().catch(() => null)) as {
-					error?: string;
-				} | null;
-				throw new Error(
-					payload?.error || `prompt request failed: ${response.status}`,
-				);
-			}
-
-			setConnectionError(null);
-		} catch (error) {
-			setConnectionError(
-				error instanceof Error ? error.message : String(error),
-			);
-		}
-	}, []);
-
 	const selectValueById = useCallback(
 		(id: string) => {
 			const nextState = store.selectValueById(id);
@@ -164,7 +134,6 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				snapshot,
 				selection,
 				connectionError,
-				sendPrompt,
 				selectValueById,
 			}}
 		>

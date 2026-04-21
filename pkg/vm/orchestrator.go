@@ -3,17 +3,14 @@ package vm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"slices"
+	"runtime"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/mesh"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/transport"
@@ -33,11 +30,11 @@ type Orchestrator struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	err       error
-	root      *gossip.Conn
-	queue     *pool.Queue
+	queue     *compute.Queue
 	field     *mesh.Field
 	backend   *compute.Backend
 	telemetry *telemetry.Bridge
+	output    *transport.Collector
 }
 
 /*
@@ -50,21 +47,10 @@ func NewOrchestrator(
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	backend := compute.NewBackend(ctx)
+	output := transport.NewCollector(core.Cfg.Value.Bytes)
 
-	if backend == nil {
-		cancel()
-		return nil, errnie.Error(
-			errors.New("vm.NewOrchestrator: compute.NewBackend returned nil (no substrates registered)"),
-		)
-	}
-
-	queue, err := pool.NewQueue(ctx, backend.Dispatch)
-
-	if err != nil {
-		cancel()
-		return nil, errnie.Error(err)
-	}
+	queue := compute.NewQueue(ctx)
+	backend := compute.NewBackend(ctx, queue, queue) // Output to queue so it flows back through the pipeline
 
 	field := mesh.NewField(ctx, 65537, telemetry, queue)
 
@@ -82,14 +68,17 @@ func NewOrchestrator(
 		field:     field,
 		backend:   backend,
 		telemetry: telemetry,
+		output:    output,
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":     orchestrator.ctx,
-		"cancel":  orchestrator.cancel,
-		"queue":   orchestrator.queue,
-		"field":   orchestrator.field,
-		"backend": orchestrator.backend,
+		"ctx":       orchestrator.ctx,
+		"cancel":    orchestrator.cancel,
+		"queue":     orchestrator.queue,
+		"field":     orchestrator.field,
+		"backend":   orchestrator.backend,
+		"output":    orchestrator.output,
+		"telemetry": orchestrator.telemetry,
 	}); err != nil {
 		cancel()
 		return nil, errnie.Error(err)
@@ -113,11 +102,10 @@ func (orchestrator *Orchestrator) Close() error {
 	orchestrator.cancel()
 
 	if orchestrator.queue != nil {
-		_ = orchestrator.queue.Close()
-	}
-
-	if orchestrator.backend != nil {
-		_ = orchestrator.backend.Close()
+		orchestrator.err = errors.Join(
+			orchestrator.err,
+			orchestrator.queue.Close(),
+		)
 	}
 
 	return orchestrator.err
@@ -172,65 +160,77 @@ func (orchestrator *Orchestrator) Cycle(
 		))
 	}
 
-	root, err := gossip.NewConn(
-		orchestrator.ctx,
-		orchestrator.queue,
-		orchestrator.telemetry,
-		rwcs...,
-	)
-
-	if err != nil {
-		return nil, errnie.Error(err)
-	}
-
-	orchestrator.root = root
-
-	clones := slices.Clone(values)
-	var clone *primitive.Value
-	out := transport.NewCollector(core.Cfg.Value.Bytes)
-
-	for {
-		if len(clones) > 0 {
-			clone, clones = clones[0], clones[1:]
-		}
-
-		if _, err := io.CopyN(orchestrator.field, clone, int64(core.Cfg.Value.Bytes)); err != nil {
-			return nil, errnie.Error(err)
-		}
-
-		if _, err := io.CopyN(out, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
-			return nil, errnie.Error(err)
-		}
-
-		for out.Len() >= core.Cfg.Value.Bytes {
-			frame := out.Next(core.Cfg.Value.Bytes)
-
-			if frame == nil {
-				break
-			}
-
-			frameValue := primitive.AllocValue()
-
-			if err := frameValue.LoadFullFrame(frame); err != nil {
+	// 1. Write all initial values to the field
+	for _, val := range values {
+		if val != nil {
+			if _, err := io.CopyN(orchestrator.field, val, int64(core.Cfg.Value.Bytes)); err != nil {
 				return nil, errnie.Error(err)
 			}
+		}
+	}
 
-			fmt.Println("Cycle: frameValue", frameValue.ID())
+	// 2. Wait for quiescence (ALU to finish processing)
+	// We check if the queue has any pending work or if the backend has inflight work.
+	// We also need to yield to allow workers to run.
+	quiescentCount := 0
+	for {
+		pending := orchestrator.queue.Len()
+		inflight := orchestrator.backend.Inflight()
+		streamLen := orchestrator.queue.StreamLen()
 
-			if status, err := frameValue.Property(
-				primitive.STATUS,
-			); err == nil && status == uint64(
-				primitive.RESOLVED,
-			) {
-				resolved = append(resolved, frameValue)
+		if pending == 0 && inflight == 0 {
+			quiescentCount++
+			if quiescentCount > 10 {
+				break
 			}
-
-			clones = append(clones, frameValue)
+		} else {
+			quiescentCount = 0
 		}
 
-		if len(resolved) > 0 || len(clones) == 0 {
-			fmt.Println("Cycle: resolved", len(resolved), "clones", len(clones))
+		// Read any available frames from the output to prevent the stream from filling up
+		// and blocking the ALU from writing its results.
+		if streamLen >= 1 {
+			if _, err := io.CopyN(orchestrator.output, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
+				if err != io.EOF {
+					return nil, errnie.Error(err)
+				}
+			}
+		} else {
+			runtime.Gosched()
+		}
+	}
+
+	// 3. Drain any remaining frames
+	for orchestrator.queue.StreamLen() >= 1 {
+		if _, err := io.CopyN(orchestrator.output, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
+			if err != io.EOF {
+				return nil, errnie.Error(err)
+			}
+		}
+	}
+
+	// 4. Process all drained frames
+	for orchestrator.output.Len() >= core.Cfg.Value.Bytes {
+		frame := orchestrator.output.Next(core.Cfg.Value.Bytes)
+
+		if frame == nil {
 			break
+		}
+
+		frameValue := primitive.AllocValue()
+
+		if err := frameValue.LoadFullFrame(frame); err != nil {
+			return nil, errnie.Error(err)
+		}
+
+		if status, err := frameValue.Property(
+			primitive.STATUS,
+		); err == nil && status == uint64(
+			primitive.RESOLVED,
+		) {
+			resolved = append(resolved, frameValue)
+		} else {
+			primitive.FreeValue(frameValue)
 		}
 	}
 

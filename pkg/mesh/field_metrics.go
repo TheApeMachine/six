@@ -146,10 +146,15 @@ func (metrics *FieldMetrics) Measure(
 	snap *geometry.EigenSnap,
 ) FieldMetrics {
 	if field == nil {
-		return FieldMetrics{}
+		return FieldMetrics{
+			shannon:              metrics.shannon,
+			crystallizationFloor: metrics.crystallizationFloor,
+		}
 	}
 
 	var out FieldMetrics
+	out.shannon = metrics.shannon
+	out.crystallizationFloor = metrics.crystallizationFloor
 
 	n := 0
 
@@ -236,11 +241,14 @@ func (metrics *FieldMetrics) Measure(
 
 // RollupFieldMetrics combines child community metrics for a routing parent (one level).
 func (metrics *FieldMetrics) Rollup(children []*Field) FieldMetrics {
-	if len(children) == 0 {
-		return FieldMetrics{}
+	out := FieldMetrics{
+		shannon:              metrics.shannon,
+		crystallizationFloor: metrics.crystallizationFloor,
 	}
 
-	var out FieldMetrics
+	if len(children) == 0 {
+		return out
+	}
 
 	var (
 		totalMembers    int
