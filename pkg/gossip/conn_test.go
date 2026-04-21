@@ -147,7 +147,7 @@ bytes — and the constructor refuses to build one.
 */
 func TestNewConnRequiresQueue(t *testing.T) {
 	Convey("Given a missing queue", t, func() {
-		conn, err := NewConn(t.Context(), nil, nil)
+		conn, err := NewConn(t.Context(), nil, nil, nil)
 
 		Convey("NewConn refuses to build a broken pipeline", func() {
 			So(err, ShouldNotBeNil)
@@ -167,7 +167,7 @@ func TestConnFanOutToSinks(t *testing.T) {
 		queue := newRealQueue(t)
 
 		conn, err := NewConn(
-			t.Context(), queue, nil,
+			t.Context(), queue, nil, nil,
 		)
 
 		So(err, ShouldBeNil)
@@ -233,7 +233,7 @@ func TestConnWriteShortBuffer(t *testing.T) {
 		queue := newRealQueue(t)
 
 		conn, err := NewConn(
-			t.Context(), queue, nil,
+			t.Context(), queue, nil, nil,
 		)
 
 		So(err, ShouldBeNil)
@@ -259,7 +259,7 @@ func TestConnReadShortBuffer(t *testing.T) {
 		queue := newRealQueue(t)
 
 		conn, err := NewConn(
-			t.Context(), queue, nil,
+			t.Context(), queue, nil, nil,
 		)
 
 		So(err, ShouldBeNil)

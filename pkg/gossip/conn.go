@@ -3,9 +3,7 @@ package gossip
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
@@ -15,38 +13,52 @@ import (
 	"github.com/theapemachine/six/pkg/transport"
 )
 
+/*
+Conn is a specialized pipeline that acts as a nested gossip protocol.
+It does so by feeding data into the given sink on Write, while Read
+will perform a "fold" operation on the data. A fold is essentially
+an io.Copy over two objects (Values) that are designed to interact
+when one is written to the other. It also includes a feedback (Tee)
+which is used to route data to a telemetry bridge and a compute queue.
+*/
 type Conn struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
-	err       atomic.Value
+	err       error
 	queue     compute.Scheduler
 	telemetry *telemetry.Bridge
-	pipeline  *transport.Feedback
+	pipeline  *transport.Pipeline
 }
 
+/*
+NewConn allocates a pipeline that feeds data into the given sink
+on Write, while Read will perform a "fold" operation on the data.
+*/
 func NewConn(
 	ctx context.Context,
 	queue compute.Scheduler,
 	telemetry *telemetry.Bridge,
+	sink io.ReadWriter,
 	rwcs ...io.ReadWriter,
 ) (*Conn, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	if queue == nil {
-		errnie.Error(errors.New("gossip.NewConn: queue is nil"))
-		cancel()
-		return nil, errors.New("queue is nil")
-	}
+	feedback := transport.NewFeedback(
+		ctx, io.MultiWriter(queue, telemetry),
+	)
 
-	pipeline := transport.NewPipeline(ctx, rwcs...)
-	feedback := transport.NewFeedback(ctx, pipeline, io.MultiWriter(queue, telemetry))
+	pipeline := transport.NewPipeline(
+		ctx,
+		sink,
+		append([]io.ReadWriter{feedback}, rwcs...)...,
+	)
 
 	conn := &Conn{
 		ctx:       ctx,
 		cancel:    cancel,
 		queue:     queue,
 		telemetry: telemetry,
-		pipeline:  feedback,
+		pipeline:  pipeline,
 	}
 
 	return conn, errnie.Error(validate.Require(map[string]any{
@@ -57,10 +69,11 @@ func NewConn(
 	}))
 }
 
-func (conn *Conn) Update(components ...io.ReadWriter) {
+func (conn *Conn) Update(components ...io.Reader) {
 	if conn == nil {
 		return
 	}
+
 	conn.pipeline.Update(components...)
 }
 
@@ -76,11 +89,11 @@ func (conn *Conn) Read(p []byte) (int, error) {
 		)
 	}
 
-	return conn.pipeline.Read(p[:core.Cfg.Value.Bytes])
+	return conn.pipeline.Read(p)
 }
 
 func (conn *Conn) Write(p []byte) (int, error) {
-	if conn == nil {
+	if conn == nil || conn.pipeline == nil {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -88,38 +101,30 @@ func (conn *Conn) Write(p []byte) (int, error) {
 		return 0, io.ErrShortWrite
 	}
 
-	if conn.ctx.Err() != nil {
-		return 0, io.ErrClosedPipe
-	}
-
 	return conn.pipeline.Write(p)
 }
 
-func (conn *Conn) Close() error {
+func (conn *Conn) Close() (err error) {
 	if conn == nil {
-		return nil
+		return
 	}
 
 	conn.cancel()
-	conn.pipeline.Close()
 
-	return conn.Error()
+	if err = conn.pipeline.Close(); err != nil {
+		err = errors.Join(err, errnie.Error(err))
+	}
+
+	return err
 }
 
-func (conn *Conn) Error() error {
+/*
+Error returns the most recent error that occurred during reading or writing.
+*/
+func (conn *Conn) Error() string {
 	if conn == nil {
-		return io.ErrClosedPipe
+		return ""
 	}
 
-	err := conn.err.Load()
-
-	if err == nil {
-		return nil
-	}
-
-	if e, ok := err.(error); ok {
-		return e
-	}
-
-	return fmt.Errorf("%v", err)
+	return conn.err.Error()
 }

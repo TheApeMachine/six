@@ -2,8 +2,6 @@ package compute
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"math"
 	"runtime"
 	"sync/atomic"
@@ -15,7 +13,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -58,11 +55,10 @@ type Backend struct {
 	cpuStats   *SubstrateStats
 	pool       *pool.Pool
 	queue      *Queue
-	output     io.Writer
 	popped     atomic.Int64
 }
 
-func NewBackend(ctx context.Context, q *Queue, out io.Writer) *Backend {
+func NewBackend(ctx context.Context, q *Queue) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	// We reserve 1 goroutine for the orchestrator loop so it doesn't
@@ -78,7 +74,6 @@ func NewBackend(ctx context.Context, q *Queue, out io.Writer) *Backend {
 		err:    nil,
 		pool:   pool.NewPool(poolSize),
 		queue:  q,
-		output: out,
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -162,61 +157,15 @@ func (b *Backend) Run() {
 
 				b.pool.Schedule(func() {
 					defer best.Inflight.Add(-1)
-
 					start := time.Now()
 
 					// Execute on the chosen kernel
 					frames := []unsafe.Pointer{unsafe.Pointer(work.Value)}
 					indices, err := primitive.IndicesFromPointers(frames)
 
-					var execErr error
-
-					if err == nil {
-						execErr = best.Substrate.Execute(indices)
-					} else {
-						// Fallback to CPU for non-arena frames
-						if cb, ok := best.Substrate.(*cpu.Backend); ok {
-							execErr = cb.ExecutePointers(frames)
-						} else {
-							// If best wasn't CPU, force it to CPU
-							if cb, ok := b.cpuStats.Substrate.(*cpu.Backend); ok {
-								execErr = cb.ExecutePointers(frames)
-							}
-						}
-					}
-
-					if execErr != nil {
-						// Handle error if needed
-						errnie.Error(execErr)
+					if err = best.Substrate.Execute(indices); err != nil {
+						errnie.Error(err)
 						return
-					}
-
-					errVal, _ := work.Value.Property(primitive.SURPRISAL)
-					beliefGap := float64(errVal) / 512.0
-
-					if work.Value.SchedulingNext() == 0 {
-						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.RESOLVED))
-					} else if beliefGap <= core.Cfg.System.BeliefEpsilon {
-						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.RESOLVED))
-						work.Value.SetSchedulingNext(0)
-					} else {
-						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.READY))
-					}
-
-					if work.Value.EmitRequested() {
-						child := primitive.EmitCloneHost(work.Value)
-						if child != nil {
-							child.Set(core.Cfg.Value.Region.Prev.Start, work.Value.ID())
-							work.Value.Set(core.Cfg.Value.Region.Next.Start, child.ID())
-							child.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.EMIT), 0)
-
-							fmt.Println("Backend: Streamed RESOLVED to b.output!")
-							if b.output != nil {
-								if _, err := io.Copy(b.output, child); err != nil {
-									errnie.Error(err)
-								}
-							}
-						}
 					}
 
 					// Record how long it took to update the EMA budget
@@ -225,19 +174,9 @@ func (b *Backend) Run() {
 					// Update kernels if needed
 					b.updateKernels(work.Value)
 
-					status, _ := work.Value.Property(primitive.STATUS)
-					if status == uint64(primitive.RESOLVED) {
-						// Stream the result into the IO pipeline ONLY when resolved!
-						if b.output != nil {
-							_, err := io.Copy(b.output, work.Value)
-
-							if err != nil {
-								errnie.Error(err)
-							}
-						}
-					} else {
-						// Re-submit to the queue for the next pass!
-						b.queue.Submit(work.Value)
+					// Return the computed result to the queue's output stream
+					if err := b.queue.Return(work.Value); err != nil {
+						errnie.Error(err)
 					}
 				})
 			}

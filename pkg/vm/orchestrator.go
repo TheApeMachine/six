@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
-	"runtime"
 	"time"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/mesh"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
@@ -28,16 +28,14 @@ Callers pass Values in, receive resolved Values out after draining the
 field (post-encounter, post-ALU, post-metric emissions).
 */
 type Orchestrator struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	queue     *compute.Queue
-	field     *mesh.Field
-	backend   *compute.Backend
-	telemetry *telemetry.Bridge
-	output    *transport.Collector
-	// DrainTimeout caps the post-quiescence drain loop. Zero uses
-	// core.Cfg.System.DrainTimeout, or 100ms when that is also unset.
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	queue        *compute.Queue
+	field        *mesh.Field
+	backend      *compute.Backend
+	telemetry    *telemetry.Bridge
+	output       *transport.Collector
 	DrainTimeout time.Duration
 }
 
@@ -51,25 +49,15 @@ func NewOrchestrator(
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	output := transport.NewCollector(core.Cfg.Value.Bytes)
-
+	output := transport.NewCollector()
 	queue := compute.NewQueue(ctx)
-	field := mesh.NewField(ctx, 65537, telemetry, queue)
-	backend := compute.NewBackend(ctx, queue, field)
-
-	if field == nil {
-		cancel()
-		return nil, errnie.Error(errors.New(
-			"vm.NewOrchestrator: mesh.NewField returned nil",
-		))
-	}
 
 	orchestrator := &Orchestrator{
 		ctx:       ctx,
 		cancel:    cancel,
 		queue:     queue,
-		field:     field,
-		backend:   backend,
+		field:     mesh.NewField(ctx, 65537, telemetry, queue),
+		backend:   compute.NewBackend(ctx, queue),
 		telemetry: telemetry,
 		output:    output,
 	}
@@ -115,161 +103,83 @@ func (orchestrator *Orchestrator) Close() error {
 }
 
 /*
-Error returns the most recent retained error from the orchestrator.
+Error implements the error interface.
 */
-func (orchestrator *Orchestrator) Error() error {
-	return orchestrator.err
+func (orchestrator *Orchestrator) Error() string {
+	return orchestrator.err.Error()
 }
 
 /*
-Cycle ingests a batch of Values, drives them through the gossip graph,
-and drains every frame the system emits during the burst back out as
-[]*Value.
-
-Two emission paths feed the outbound ring:
-  - Input echo: every non-nil input is republished on root via Emit so
-    the caller always sees its inputs come out the other side. Echoing
-    explicitly (not via the EMIT property) avoids cascading
-    re-emissions during the encounter pass — host Values dispatched by
-    Field.encounterPick stay quiet unless their own firmware raises
-    EmitRequested.
-  - Genuine emissions: post-ALU frames whose EMIT property was set by
-    firmware, plus Field.refreshMetrics carriers and learner Values.
-
-Termination is quiescence-based: when the queue's pending count
-(rings + inflight) is zero AND the backend has no in-flight work AND
-the outbound ring has nothing to drain for several consecutive
-checks, the system has settled. A hard deadline guards against a
-buggy firmware loop emitting forever.
+Cycle is the processing loop the system uses to process Values.
+It starts by providing the initial "impulse" to the system by writing
+any incoming Values to the pipeline. If anywhere in the pipeline new
+Values are emitted, or the program of a Value changes, these Values
+should be what comes out of the Read end of the pipeline, and should
+subsequently be written back to the pipeline, so gossip.Conn can use
+the feedback (which is essentially a tee) those Values to the queue
+for ALU execution.
+The cycle is considered complete when either there are Values which
+have a STATUS word of RESOLVED, or when there are no more Values to
+process (which is most likely a failure to resolve the task).
+Additionally we can use a timeout deadline to prevent the cycle from
+running forever, however that too would be a clear failure mode.
 */
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) (resolved []*primitive.Value, err error) {
-	if orchestrator == nil {
-		return nil, io.ErrClosedPipe
-	}
-
 	rwcs := make([]io.ReadWriter, 0, len(values))
 
-	for _, val := range values {
-		if val != nil {
-			rwcs = append(rwcs, val)
+	for _, value := range values {
+		if value != nil {
+			rwcs = append(rwcs, value)
 		}
 	}
 
-	if len(rwcs) == 0 {
-		return nil, errnie.Error(errors.New(
-			"vm.Orchestrator.Cycle: need at least one non-nil *primitive.Value",
-		))
+	// gossip.Conn acts as a pipeline that moves Values through the system,
+	// while taking care of the feedback mechanism that routes Values to
+	// the queue for ALU execution, and to the telemetry bridge. The gossip
+	// protocol is essentially a nested structure of gossip.Conn instances,
+	// so think about it as the community fields using a gossip.Conn pipeline
+	// to fold the Values in their community with each other, while the global
+	// field uses a gossip.Conn pipeline to fold the Values of each community
+	// with the Values in the other communities. This is the mechanism that
+	// eventually makes all Values encounter each other, and thus spread the
+	// knowledge of the system.
+	pipeline, err := gossip.NewConn(
+		orchestrator.ctx,
+		orchestrator.queue,
+		orchestrator.telemetry,
+		orchestrator.field,
+		rwcs...,
+	)
+
+	if err != nil {
+		return nil, errnie.Error(err)
 	}
 
-	// 1. Write all initial values to the field
-	for _, val := range values {
-		if val != nil {
-			if _, err := io.CopyN(orchestrator.field, val, int64(core.Cfg.Value.Bytes)); err != nil {
+	for {
+		select {
+		case <-orchestrator.ctx.Done():
+			return nil, orchestrator.ctx.Err()
+		case val := <-orchestrator.output.Next(core.Cfg.Value.Bytes):
+			resolved = append(resolved, val)
+		default:
+			var nn int64
+
+			// This makes more sense that it may seem at first glance.
+			// What is important to understand is that gossip.Conn only
+			// streams out the values that have a reason for being
+			// re-cycled, meaning they are written back to the pipeline
+			// to make another pass through the ALU. Each cycle effectively
+			// is one update, or "tick" of the system.
+			if nn, err = io.Copy(pipeline, pipeline); err != nil {
 				return nil, errnie.Error(err)
 			}
-		}
-	}
 
-	// 2. Wait for quiescence (ALU to finish processing)
-	// We check if the queue has any pending work or if the backend has inflight work.
-	// We also need to yield to allow workers to run.
-	quiescentCount := 0
-	qt := core.Cfg.System.QuiescenceTimeout
-	if qt <= 0 {
-		qt = 100 * time.Millisecond
-	}
-	deadline := time.Now().Add(qt)
-	buf := make([]byte, core.Cfg.Value.Bytes)
-	for {
-		if time.Now().After(deadline) {
-			break
-		}
-		pending := orchestrator.queue.Len()
-		inflight := orchestrator.backend.Inflight()
-		streamLen := orchestrator.queue.StreamLen()
-
-		if pending == 0 && inflight == 0 {
-			quiescentCount++
-			if quiescentCount > 10 {
-				break
-			}
-		} else {
-			quiescentCount = 0
-		}
-
-		// Read any available frames from the field (which returns RESOLVED values)
-		for {
-			if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
-				if err != io.EOF && err != io.ErrUnexpectedEOF {
-					return nil, errnie.Error(err)
-				}
-				break
-			} else {
-				orchestrator.output.Write(buf)
+			// No more values to process, return the resolved values.
+			if nn == 0 {
+				return resolved, nil
 			}
 		}
-
-		// Also drain the queue stream to prevent it from filling up
-		if streamLen >= 1 {
-			if _, err := io.ReadFull(orchestrator.queue, buf); err != nil {
-				if err != io.EOF && err != io.ErrUnexpectedEOF {
-					return nil, errnie.Error(err)
-				}
-			}
-		} else {
-			runtime.Gosched()
-		}
 	}
-
-	// 3. Drain any remaining frames
-	dt := orchestrator.DrainTimeout
-	if dt <= 0 {
-		dt = core.Cfg.System.DrainTimeout
-	}
-	if dt <= 0 {
-		dt = 100 * time.Millisecond
-	}
-	drainDeadline := time.Now().Add(dt)
-	for {
-		if time.Now().After(drainDeadline) {
-			break
-		}
-		if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
-			if err != io.EOF && err != io.ErrUnexpectedEOF {
-				return nil, errnie.Error(err)
-			}
-			break
-		} else {
-			orchestrator.output.Write(buf)
-		}
-	}
-
-	// 4. Process all drained frames
-	for orchestrator.output.Len() >= core.Cfg.Value.Bytes {
-		frame := orchestrator.output.Next(core.Cfg.Value.Bytes)
-
-		if frame == nil {
-			break
-		}
-
-		frameValue := primitive.AllocValue()
-
-		if err := frameValue.LoadFullFrame(frame); err != nil {
-			return nil, errnie.Error(err)
-		}
-
-		if status, err := frameValue.Property(
-			primitive.STATUS,
-		); err == nil && status == uint64(
-			primitive.RESOLVED,
-		) {
-			resolved = append(resolved, frameValue)
-		} else {
-			primitive.FreeValue(frameValue)
-		}
-	}
-
-	return resolved, nil
 }

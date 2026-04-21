@@ -10,6 +10,7 @@ require (
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
+	github.com/tphakala/simd v1.0.22
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/net v0.52.0
@@ -31,7 +32,6 @@ require (
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
-	github.com/tphakala/simd v1.0.22 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	go.opentelemetry.io/otel v1.28.0 // indirect
 	go.opentelemetry.io/otel/metric v1.28.0 // indirect
@@ -50,6 +50,7 @@ require (
 	github.com/parquet-go/parquet-go v0.29.0
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
+	github.com/smallnest/ringbuffer v0.1.1
 	github.com/smarty/assertions v1.16.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect

@@ -10,7 +10,7 @@ import (
 
 func TestCollectorLenNextWrite(t *testing.T) {
 	Convey("Collector accumulates bytes and exposes Buffer-like Len/Next", t, func() {
-		c := NewCollector(16)
+		c := NewCollector()
 		So(c.Len(), ShouldEqual, 0)
 
 		n, err := c.Write([]byte{1, 2, 3})
@@ -31,7 +31,7 @@ func TestCollectorLenNextWrite(t *testing.T) {
 
 func TestCollectorWriteCopiesNotAliases(t *testing.T) {
 	Convey("Write copies so reused buffers do not corrupt prior data", t, func() {
-		c := NewCollector(0)
+		c := NewCollector()
 		shared := []byte{1, 2, 3}
 
 		_, err := c.Write(shared)
@@ -45,7 +45,7 @@ func TestCollectorWriteCopiesNotAliases(t *testing.T) {
 
 func TestCollectorRead(t *testing.T) {
 	Convey("Read drains from the front", t, func() {
-		c := NewCollector(0)
+		c := NewCollector()
 		_, _ = c.Write([]byte("abcd"))
 
 		buf := make([]byte, 2)
@@ -68,7 +68,7 @@ func TestCollectorRead(t *testing.T) {
 
 func TestCollectorIoCopyDoesNotUseReaderFrom(t *testing.T) {
 	Convey("io.Copy into Collector uses Write path (smoke)", t, func() {
-		c := NewCollector(64)
+		c := NewCollector()
 		src := bytes.NewReader(bytes.Repeat([]byte{'x'}, 100))
 
 		written, err := io.Copy(c, src)

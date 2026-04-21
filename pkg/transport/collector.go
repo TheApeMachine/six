@@ -1,7 +1,11 @@
 package transport
 
 import (
-	"io"
+	"context"
+
+	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -17,18 +21,26 @@ bytes.Buffer semantics for pending byte count and consuming the next n
 bytes from the front.
 */
 type Collector struct {
-	buf []byte
+	ctx    context.Context
+	cancel context.CancelFunc
+	err    error
+	rb     *ringbuffer.RingBuffer
+	pr     *ringbuffer.PipeReader
+	pw     *ringbuffer.PipeWriter
+	buf    chan *primitive.Value
 }
 
 // NewCollector returns an empty collector; initialCap hints preallocation
 // (e.g. core.Cfg.Value.Bytes).
-func NewCollector(initialCap int) *Collector {
-	if initialCap < 0 {
-		initialCap = 0
-	}
+func NewCollector() *Collector {
+	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
+	pr, pw := rb.Pipe()
 
 	return &Collector{
-		buf: make([]byte, 0, initialCap),
+		rb:  rb,
+		pr:  pr,
+		pw:  pw,
+		buf: make(chan *primitive.Value, 64),
 	}
 }
 
@@ -43,44 +55,68 @@ func (collector *Collector) Len() int {
 
 // Next returns the next n bytes and removes them from the front. If fewer
 // than n bytes are buffered, it returns nil.
-func (collector *Collector) Next(n int) []byte {
-	if collector == nil || n <= 0 || len(collector.buf) < n {
+func (collector *Collector) Next(n int) chan *primitive.Value {
+	select {
+	case <-collector.ctx.Done():
 		return nil
+	default:
+		return collector.buf
 	}
-
-	frame := collector.buf[:n]
-	collector.buf = collector.buf[n:]
-
-	return frame
 }
 
 // Read consumes up to len(p) bytes from the front of the buffer.
 func (collector *Collector) Read(p []byte) (n int, err error) {
-	if collector == nil {
-		return 0, io.ErrClosedPipe
+	select {
+	case <-collector.ctx.Done():
+		return 0, collector.ctx.Err()
+	default:
+		return collector.pr.Read(p)
 	}
-
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	if len(collector.buf) == 0 {
-		return 0, io.EOF
-	}
-
-	n = copy(p, collector.buf)
-	collector.buf = collector.buf[n:]
-
-	return n, nil
 }
 
-// Write appends a copy of p so io.Copy's reused scratch buffer cannot alias
-// stored data.
+/*
+Write the given frame to the collector, if it has a RESOLVED status,
+while also acting as a simple throughput pipe, so it doesn't block
+anything.
+*/
 func (collector *Collector) Write(p []byte) (n int, err error) {
+	select {
+	case <-collector.ctx.Done():
+		return 0, collector.ctx.Err()
+	default:
+		value := primitive.AllocValue()
+
+		if err := value.LoadFullFrame(p); err != nil {
+			return 0, err
+		}
+
+		if status, err := value.Property(
+			primitive.STATUS,
+		); err == nil && status == uint64(
+			primitive.RESOLVED,
+		) {
+			collector.buf <- value
+		}
+
+		return collector.pw.Write(p)
+	}
+}
+
+/*
+Close closes the collector.
+*/
+func (collector *Collector) Close() error {
 	if collector == nil {
-		return 0, io.ErrClosedPipe
+		return nil
 	}
 
-	collector.buf = append(collector.buf, p...)
-	return len(p), nil
+	collector.cancel()
+	return collector.err
+}
+
+/*
+Error implements the error interface.
+*/
+func (collector *Collector) Error() string {
+	return collector.err.Error()
 }

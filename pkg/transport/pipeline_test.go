@@ -79,7 +79,7 @@ func TestWrite(t *testing.T) {
 
 func TestEmptyPipeline(t *testing.T) {
 	Convey("Given an empty pipeline with no components", t, func() {
-		pipeline := NewPipeline(context.Background())
+		pipeline := NewPipeline(context.Background(), nil)
 		buf := make([]byte, 10)
 
 		Convey("When reading", func() {
@@ -90,7 +90,7 @@ func TestEmptyPipeline(t *testing.T) {
 
 		Convey("When writing", func() {
 			n, err := pipeline.Write([]byte("test"))
-			So(err, ShouldEqual, ErrEmptyPipeline)
+			So(err, ShouldEqual, io.ErrClosedPipe)
 			So(n, ShouldEqual, 0)
 		})
 	})
@@ -188,7 +188,6 @@ func BenchmarkPipelineSmallData(b *testing.B) {
 	out := make([]byte, len(payload))
 
 	b.ReportAllocs()
-	
 
 	for b.Loop() {
 		buf1 := bytes.NewBuffer(make([]byte, 0, len(payload)))
@@ -213,7 +212,6 @@ func BenchmarkPipelineLargeData(b *testing.B) {
 
 	b.SetBytes(int64(len(largeData)))
 	b.ReportAllocs()
-	
 
 	for b.Loop() {
 		intermediate := bytes.NewBuffer(make([]byte, 0, len(largeData)))

@@ -17,7 +17,6 @@ import (
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
-	"github.com/theapemachine/six/pkg/transport"
 )
 
 /*
@@ -92,7 +91,6 @@ type Field struct {
 	metrics     atomic.Pointer[FieldMetrics]
 	routeBudget int
 
-	resolvedOutputs   chan *primitive.Value
 	resolvedDropCount atomic.Uint64
 
 	// refreshing / rolling coalesce queued metric work: each Write tries
@@ -109,6 +107,7 @@ type Field struct {
 	lastAction core.FirmwareType
 	policy     map[core.FirmwareType]*learned.Weight
 	rng        *rand.Rand
+	program    *Program
 }
 
 /*
@@ -130,22 +129,6 @@ func NewField(
 		return nil
 	}
 
-	// We set an initial buffer to ensure that the conn's pass-through
-	// will not block. This is the correct behavior for the global
-	// field that does not have communities yet, and for the community
-	// fields that do not have any values yet.
-	conn, err := gossip.NewConn(
-		ctx,
-		queue,
-		telemetry,
-		transport.NewCollector(core.Cfg.Value.Bytes),
-	)
-
-	if errnie.Error(err) != nil {
-		cancel()
-		return nil
-	}
-
 	policy := make(map[core.FirmwareType]*learned.Weight, len(core.Cfg.Programs))
 
 	for fw := range core.Cfg.Programs {
@@ -153,20 +136,20 @@ func NewField(
 	}
 
 	field := &Field{
-		ctx:             ctx,
-		cancel:          cancel,
-		id:              fieldIDSeq.Add(1),
-		modulus:         modulus,
-		conn:            conn,
-		queue:           queue,
-		telemetry:       telemetry,
-		snap:            &geometry.EigenSnap{},
-		dial:            geometry.NewPhaseDial(),
-		routeBudget:     core.Cfg.System.RouteBudget,
-		policy:          policy,
-		rng:             rand.New(rand.NewSource(time.Now().UnixNano())),
-		resolvedOutputs: make(chan *primitive.Value, 1000),
+		ctx:         ctx,
+		cancel:      cancel,
+		id:          fieldIDSeq.Add(1),
+		modulus:     modulus,
+		queue:       queue,
+		telemetry:   telemetry,
+		snap:        &geometry.EigenSnap{},
+		dial:        geometry.NewPhaseDial(),
+		routeBudget: core.Cfg.System.RouteBudget,
+		policy:      policy,
+		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		program:     NewProgram(),
 	}
+
 	field.metrics.Store(NewFieldMetrics())
 
 	return field
@@ -238,15 +221,8 @@ func (field *Field) Read(p []byte) (n int, err error) {
 	select {
 	case <-field.ctx.Done():
 		return 0, io.EOF
-	case val := <-field.resolvedOutputs:
-		if val == nil {
-			return 0, io.EOF
-		}
-		n = copy(p, val.Bytes())
-		primitive.FreeValue(val)
-		return n, nil
 	default:
-		return 0, io.EOF
+		return field.conn.Read(p)
 	}
 }
 
@@ -286,147 +262,86 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		)
 	}
 
-	visitor := primitive.AllocValue()
+	select {
+	case <-field.ctx.Done():
+		return 0, io.EOF
+	default:
+		visitor := primitive.AllocValue()
 
-	if err := visitor.LoadFullFrame(p); err != nil {
-		errnie.Error(errors.Join(
-			io.ErrShortBuffer,
-			errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
-		))
+		if err := visitor.LoadFullFrame(p); err != nil {
+			errnie.Error(errors.Join(
+				io.ErrShortBuffer,
+				errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
+			))
 
-		return 0, err
-	}
-
-	field.findCommunity(visitor)
-
-	field.metrics.Load().Refresh(field)
-
-	status, _ := visitor.Property(primitive.STATUS)
-	if status == uint64(primitive.RESOLVED) {
-		select {
-		case field.resolvedOutputs <- visitor:
-			return len(p), nil
-		default:
-			errnie.Warn(
-				"mesh.field.resolved_outputs_buffer_full",
-				"visitor_id", visitor.ID(),
-				"message", "resolved output buffer full; dropping frame",
-			)
-			field.resolvedDropCount.Add(1)
-			primitive.FreeValue(visitor)
-			return len(p), nil
+			return 0, err
 		}
-	}
 
-	n, err = field.conn.Write(visitor.Bytes())
-	primitive.FreeValue(visitor)
-	return n, err
-}
+		field.findCommunity(visitor)
+		field.metrics.Load().Refresh(field)
 
-func (field *Field) selectProgram(visitor *primitive.Value) {
-	if field == nil || visitor == nil {
-		return
-	}
+		// Update the program policy with the new metrics
+		field.program.Update(field.metrics.Load())
 
-	var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
+		emissions := field.program.Select(visitor.ID())
+		primitive.FreeValue(visitor)
 
-	surprisal, _ := visitor.Property(primitive.SURPRISAL)
-	confidence, _ := visitor.Property(primitive.CONFIDENCE)
-	beliefGap := float64(surprisal) / 512.0
+		if n, err = field.conn.Write(emissions.Bytes()); err != nil {
+			return n, err
+		}
 
-	if confidence != 0 {
-		visitorFw = "falsification"
-	} else if beliefGap <= core.Cfg.System.BeliefEpsilon {
-		visitorFw = "hypothesis"
-	} else {
-		visitorFw = "beam_swarm_step"
-	}
-
-	if vProgram, ok := core.Cfg.Programs[visitorFw]; ok {
-		visitor.WriteProgramWords(vProgram.Compiled())
-		visitor.SetSchedulingNext(vProgram.ResolveSchedulingNext(visitor.ID()))
+		return n, nil
 	}
 }
 
 func (field *Field) findCommunity(visitor *primitive.Value) {
 	// Check if the visitor is already a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		// The visitor is already a member of a field.
-		for _, f := range field.fields {
-			if f.id == community {
-				f.metrics.Load().Refresh(f)
-				break
-			}
-		}
 		return
 	}
 
 	// Find the community that the visitor belongs to.
 	for _, f := range field.fields {
-		// Compare the field's affinity with the visitor's affinity,
-		// and check if the visitor's affinity is within the Hamming
-		// distance of the field's affinity.
-		visitorAffinity := visitor.Get(primitive.AffinityRegion)
+		// First we check if the field has reached the Shannon limit.
+		totalAffinity := uint64(0)
 
-		if len(visitorAffinity) == 0 {
+		for wordIdx := range f.affinity {
+			totalAffinity += uint64(bits.OnesCount64(f.affinity[wordIdx].Load()))
+		}
+
+		if float64(totalAffinity)/float64(core.Cfg.Value.Region.Affinity.Bits) >= core.Cfg.System.ShannonLimit {
 			continue
 		}
 
+		// Then we check if the visitor's affinity is within the Hamming
+		// distance of the field's affinity.
 		hammingDistance := uint64(0)
-		centroidAffinity := f.values[0].Get(primitive.AffinityRegion)
-		maxWords := max(len(visitorAffinity), len(centroidAffinity))
 
-		for i := range maxWords {
-			fieldWord := uint64(0)
-
-			if i < len(centroidAffinity) {
-				fieldWord = centroidAffinity[i]
+		// We need to check the Hamming distance between the field's seed
+		// and the visitor's affinity.
+		for wordIdx := range visitor.Get(primitive.AffinityRegion) {
+			if wordIdx >= len(f.seed) {
+				break
 			}
-
-			visitorWord := uint64(0)
-
-			if i < len(visitorAffinity) {
-				visitorWord = visitorAffinity[i]
-			}
-
 			hammingDistance += uint64(
-				bits.OnesCount64(fieldWord ^ visitorWord),
+				bits.OnesCount64(f.seed[wordIdx] ^ visitor.Get(primitive.AffinityRegion)[wordIdx]),
 			)
 		}
 
 		if hammingDistance <= uint64(field.routeBudget) {
+			// We are good to go, so we add the visitor to the field and
+			// update the field's affinity.
 			f.values = append(f.values, visitor)
-
-			// Update the field's affinity with the visitor's affinity.
 			f.foldAffinityXOR(visitor)
 
-			field.selectProgram(visitor)
-
-			// Stamp the visitor with the field's ID.
 			visitor.Set(
-				core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY),
-				f.id,
+				core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), f.id,
 			)
 
-			// For classification tasks, the visitor inherits the label of the community centroid
-			// if it doesn't have one already.
-			if visitorLabels, _ := visitor.Property(primitive.LABELS); visitorLabels == 0 {
-				if centroidLabels, _ := f.values[0].Property(primitive.LABELS); centroidLabels != 0 {
-					visitor.Set(
-						core.Cfg.Value.Region.Properties.Start+int(primitive.LABELS),
-						centroidLabels,
-					)
-				}
-			}
-
-			// Mark the visitor as READY so it can be executed by the ALU.
-			visitor.Set(
-				core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
-				uint64(primitive.READY),
-			)
-
+			// Update the field's conn to include the new visitor, so it
+			// will be folded with all the other values.
 			f.conn.Update(visitor)
-			f.metrics.Load().Refresh(f)
+
 			break
 		}
 	}
@@ -437,30 +352,31 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 		return
 	}
 
-	// If not, we need to create a new field.
+	// If not, we need to create a new community field.
 	newField := NewField(field.ctx, field.modulus, field.telemetry, field.queue)
-	newField.values = append(newField.values, visitor)
+
+	// Set the seed of the new field to the visitor's affinity.
+	for wordIdx := range visitor.Get(primitive.AffinityRegion) {
+		if wordIdx >= len(newField.seed) {
+			break
+		}
+		newField.seed[wordIdx] = visitor.Get(primitive.AffinityRegion)[wordIdx]
+	}
 
 	// Update the new field's affinity with the visitor's affinity.
-	newField.foldAffinityXOR(visitor)
-
-	// Update the new field's conn.
-	newField.conn.Update(visitor)
-
-	field.fields = append(field.fields, newField)
-
-	field.conn.Update(newField.conn)
-
-	field.selectProgram(visitor)
+	newField.values = append(newField.values, visitor)
 
 	// Stamp the visitor with the new field's ID.
 	visitor.Set(
 		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), newField.id,
 	)
 
-	// Mark the visitor as READY so it can be executed by the ALU.
-	visitor.Set(
-		core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
-		uint64(primitive.READY),
-	)
+	// Update the new field's affinity with the visitor's affinity.
+	newField.foldAffinityXOR(visitor)
+
+	// Append the new field to the global field, and make sure to
+	// update the conn of the global field, so the values in the new
+	// field are folded with all the other fields.
+	field.fields = append(field.fields, newField)
+	field.conn.Update(newField)
 }

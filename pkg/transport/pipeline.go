@@ -1,162 +1,146 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
-// ErrEmptyPipeline is returned by Pipeline.Write when the pipeline has no
-// components to forward data to. Returning an error rather than silently
-// discarding bytes prevents callers from believing a write succeeded when
-// the data has nowhere to go.
-var ErrEmptyPipeline = errors.New("transport: write to empty pipeline")
-
 /*
-Pipeline manages a chain of io.ReadWriteCloser components.
-
-It connects components together so data flows through all components in sequence.
-Each component can produce data independently.
-It cycles through the components, and re-orders the output.
+Pipeline manages a chain of io.ReadWriter components that
+are being streamed into a single sink on Write, while Read
+will perform a "fold" operation on the data. A fold is essentially
+an io.Copy over two objects (Values) that are designed to interact
+when one is written to the other. It uses an io.MultiReader, which
+is fully consumed by the Read operation, preventing any duplicate
+reads from the same source. To add more readers (when new Values are
+emitted for example), use the Update method.
 */
 type Pipeline struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	err        error
-	components []io.ReadWriter
-	processed  bool
-	ptr        int
-	seq        int
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	sink    io.ReadWriter
+	readers io.Reader
+	staged  *primitive.Value
 }
 
 /*
-NewPipeline creates a pipeline connecting io.ReadWriteCloser components.
-
-It connects components together so data written to the pipeline flows through
-all components in sequence.
-
-Example:
-
-	// Simple pipeline
-	p := workflow.NewPipeline(message, agent, provider)
-	io.Copy(os.Stdout, p)
-
-	// Nested pipelines
-	p1 := workflow.NewPipeline(message, agent, provider)
-	p2 := workflow.NewPipeline(message, agent, provider, p1)
-	io.Copy(os.Stdout, p2)
+NewPipeline allocates a pipeline that feeds data into the given sink
+on Write, while Read will perform a "fold" operation on the data.
 */
-func NewPipeline(ctx context.Context, components ...io.ReadWriter) *Pipeline {
+func NewPipeline(
+	ctx context.Context,
+	sink io.ReadWriter,
+	rwcs ...io.ReadWriter,
+) *Pipeline {
 	ctx, cancel := context.WithCancel(ctx)
 
-	return &Pipeline{
-		ctx:        ctx,
-		cancel:     cancel,
-		components: components,
-		seq:        0,
-		ptr:        -1,
+	readers := make([]io.Reader, 0, len(rwcs))
+	for _, rwc := range rwcs {
+		readers = append(readers, rwc)
 	}
-}
 
-func (pipeline *Pipeline) Update(components ...io.ReadWriter) {
-	pipeline.components = append(pipeline.components, components...)
+	return &Pipeline{
+		ctx:     ctx,
+		cancel:  cancel,
+		sink:    sink,
+		readers: io.MultiReader(readers...),
+	}
 }
 
 /*
-Read implements the io.Reader interface.
+Update adds more readers to the pipeline.
+*/
+func (pipeline *Pipeline) Update(rwcs ...io.Reader) {
+	pipeline.readers = io.MultiReader(
+		pipeline.readers, io.MultiReader(rwcs...),
+	)
+}
 
-It reads from the first component and passes data through the pipeline.
-Returns EOF when no more data is available.
+/*
+Read reads data from the pipeline.
 */
 func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
-	if len(pipeline.components) == 0 {
-		return 0, io.EOF
-	}
-
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()
 	default:
-		if !pipeline.processed {
-			for i := 0; i < len(pipeline.components)-1; i++ {
-				if _, err = io.CopyN(
-					pipeline.components[i+1],
-					pipeline.components[i],
-					int64(core.Cfg.Value.Bytes),
-				); err != nil {
-					if err == io.EOF {
-						continue
-					}
+		var (
+			current = bytes.NewBuffer([]byte{})
+			nn      int64
+			out     int
+		)
 
+		for {
+			// Read from the current reader in chunks of core.Cfg.Value.Bytes
+			if nn, err = ringbuffer.New(
+				core.Cfg.Value.Bytes,
+			).Copy(
+				current, pipeline.readers,
+			); err != nil && err != io.EOF {
+				return 0, errnie.Error(err)
+			}
+
+			if nn == 0 {
+				break
+			}
+
+			value := primitive.AllocValue()
+			value.LoadFullFrame(current.Bytes())
+
+			if pipeline.staged != nil {
+				if nn, err = ringbuffer.New(
+					core.Cfg.Value.Bytes,
+				).Copy(
+					value, pipeline.staged,
+				); err != nil && err != io.EOF {
 					return 0, errnie.Error(err)
 				}
 			}
 
-			pipeline.processed = true
-		}
+			primitive.FreeValue(pipeline.staged)
+			pipeline.staged = value
 
-		n, err = pipeline.components[len(pipeline.components)-1].Read(p)
-
-		if err != nil {
-			if err == io.EOF {
-				pipeline.processed = false
-				return n, err
+			if out, err = value.Read(p[out:]); err != nil && err != io.EOF {
+				return 0, errnie.Error(err)
 			}
 
-			return n, errnie.Error(err)
+			n += out
+			current.Reset()
 		}
 
-		if n == 0 {
-			pipeline.processed = false
-			return n, io.EOF
-		}
-
-		pipeline.processed = false
-		return n, nil
+		return n, io.EOF
 	}
 }
 
 /*
-Write implements the io.Writer interface.
-
-It writes data to the first component in the pipeline.
-Note that writing is optional - components can produce data independently.
+Write feeds the data into the sink.
 */
 func (pipeline *Pipeline) Write(p []byte) (n int, err error) {
-	if len(pipeline.components) == 0 {
-		return 0, errnie.Error(ErrEmptyPipeline)
-	}
-
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()
 	default:
-		pipeline.processed = false
-		return pipeline.components[0].Write(p)
+		return pipeline.sink.Write(p)
 	}
 }
 
 /*
-Close implements the io.Closer interface.
-
-It closes all components in the pipeline that implement io.Closer.
+Close closes the pipeline.
 */
-func (pipeline *Pipeline) Close() error {
-	var firstErr error
-
-	for _, component := range pipeline.components {
-		closer, ok := component.(io.Closer)
-		if !ok {
-			continue
-		}
-
-		if err := closer.Close(); err != nil && firstErr == nil {
-			firstErr = errnie.Error(err)
+func (pipeline *Pipeline) Close() (err error) {
+	if closer, ok := pipeline.readers.(io.Closer); ok {
+		if err = closer.Close(); err != nil {
+			err = errors.Join(err, errnie.Error(err))
 		}
 	}
 
-	return firstErr
+	return err
 }
