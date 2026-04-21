@@ -135,6 +135,9 @@ func (feedback *Feedback) Write(p []byte) (n int, err error) {
 			return n, errnie.Error(err)
 		}
 
+		// Best-effort write to backward
+		_, _ = feedback.backward.Write(p)
+
 		return n, nil
 	}
 }

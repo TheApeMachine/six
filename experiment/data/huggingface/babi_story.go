@@ -143,7 +143,7 @@ func (dataset *Dataset) streamBabiJSON(reader io.Reader, fn rowVisitor) error {
 func babiQAtoRowSample(qa babiQASample) rowSample {
 	return rowSample{
 		streamText:  qa.Full,
-		promptText:  extractBabiQuestion(qa.Visible),
+		promptText:  qa.Visible,
 		labelText:   qa.Answer,
 		hasLabel:    qa.Answer != "",
 		labelIsText: true,

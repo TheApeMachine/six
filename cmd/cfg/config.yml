@@ -170,9 +170,9 @@ programs:
   beam_swarm_step: |
     tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    signals[0,8]    signals[0,8]    properties[0,1] xor reduce
-    properties[0,1] properties[1,1] properties[0,1] or  accumulate
-    properties[0,1] affinity[0,5]   affinity[0,5]   xor accumulate
+    signals[0,8]    signals[0,8]    properties[13,1] xor reduce
+    properties[13,1] properties[1,1] properties[13,1] or  accumulate
+    properties[13,1] affinity[0,5]   affinity[0,5]   xor accumulate
     signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate
     next self
 
@@ -186,7 +186,7 @@ programs:
   # the chain elsewhere.
   surprisal: |
     tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[0,1] xor reduce
+    signals[0,8] signals[0,8] properties[13,1] xor reduce
     signals[0,8] gradient[0,8] gradient[0,8]  xor accumulate
     next self
 
@@ -257,8 +257,8 @@ programs:
   causal_explore: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
-    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
-    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    signals[0,8]    signals[0,8]    properties[13,2] xor reduce
+    properties[13,2] properties[2,2] properties[13,2] or  accumulate
 
   # Causal Hub: iterative causal-gap exploration. Loops via `next self`
   # until the queue or a finalizer breaks the circuit. Each iteration
@@ -273,8 +273,8 @@ programs:
   causal_hub: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
-    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
-    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    signals[0,8]    signals[0,8]    properties[13,2] xor reduce
+    properties[13,2] properties[2,2] properties[13,2] or  accumulate
     asset[40,8]     gradient[0,8]   gradient[0,8]   xor accumulate
     next self
 
@@ -342,5 +342,5 @@ programs:
   # cascade.
   intervene: |
     context[0,8] asset[16,8]  signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[0,1] or  reduce
+    signals[0,8] signals[0,8] properties[13,1] or  reduce
     asset[16,8]  gradient[0,8] gradient[0,8]  xor accumulate

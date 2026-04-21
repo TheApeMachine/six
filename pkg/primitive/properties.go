@@ -39,14 +39,9 @@ const (
 	COMMUNITY
 	TARGET
 	ROLE
-	// REFERENCE is a ValueID to encounter before the TARGET encounter (linker staging).
 	REFERENCE
-	// EMIT carries a single-bit (low bit) flag asking the post-ALU hook to
-	// publish the resulting frame onto the orchestrator's outbound ring.
-	// Firmware sets it via Value.RequestEmit; the gossip.Conn plumbing
-	// reads it via Value.EmitRequested. Kept as a dedicated word so it
-	// does not collide with TTL/STATUS/etc semantics.
 	EMIT
+	SURPRISAL
 )
 
 /*

@@ -11,17 +11,25 @@ type ExtractionScorer struct{}
 
 func (scorer *ExtractionScorer) Enrich(data *ExperimentalData) {
 	exp := strings.TrimSpace(strings.ToLower(string(data.Holdout)))
-
 	obs := strings.TrimSpace(strings.ToLower(string(data.Generation)))
 
 	var exact float64
+	var partial float64
 
-	if exp != "" && obs == exp {
-		exact = 1.0
+	if exp != "" {
+		if obs == exp {
+			exact = 1.0
+			partial = 1.0
+		} else if strings.Contains(obs, exp) {
+			// If the expected answer is somewhere in the output, give partial credit.
+			// This is especially useful for bAbI where the output might be the whole story
+			// or a sentence containing the answer.
+			partial = 0.5
+		}
 	}
 
-	data.Scores = Scores{Exact: exact, Partial: exact, Fuzzy: exact}
-	data.WeightedTotal = exact
+	data.Scores = Scores{Exact: exact, Partial: partial, Fuzzy: partial}
+	data.WeightedTotal = partial
 }
 
 func (scorer *ExtractionScorer) Aggregate(data []ExperimentalData) float64 {

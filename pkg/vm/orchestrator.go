@@ -199,15 +199,24 @@ func (orchestrator *Orchestrator) Cycle(
 			quiescentCount = 0
 		}
 
-		// Read any available frames from the output to prevent the stream from filling up
-		// and blocking the ALU from writing its results.
+		// Read any available frames from the field (which returns RESOLVED values)
+		for {
+			if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
+				if err != io.EOF && err != io.ErrUnexpectedEOF {
+					return nil, errnie.Error(err)
+				}
+				break
+			} else {
+				orchestrator.output.Write(buf)
+			}
+		}
+
+		// Also drain the queue stream to prevent it from filling up
 		if streamLen >= 1 {
 			if _, err := io.ReadFull(orchestrator.queue, buf); err != nil {
 				if err != io.EOF && err != io.ErrUnexpectedEOF {
 					return nil, errnie.Error(err)
 				}
-			} else {
-				orchestrator.output.Write(buf)
 			}
 		} else {
 			runtime.Gosched()
@@ -223,14 +232,15 @@ func (orchestrator *Orchestrator) Cycle(
 		dt = 100 * time.Millisecond
 	}
 	drainDeadline := time.Now().Add(dt)
-	for orchestrator.queue.StreamLen() >= 1 {
+	for {
 		if time.Now().After(drainDeadline) {
 			break
 		}
-		if _, err := io.ReadFull(orchestrator.queue, buf); err != nil {
+		if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
 			if err != io.EOF && err != io.ErrUnexpectedEOF {
 				return nil, errnie.Error(err)
 			}
+			break
 		} else {
 			orchestrator.output.Write(buf)
 		}

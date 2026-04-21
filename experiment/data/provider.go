@@ -23,6 +23,7 @@ type Sample struct {
 	SampleID uint32
 	Text     []byte
 	Label    []byte
+	LabelInt uint64
 	Prompt   []byte
 }
 

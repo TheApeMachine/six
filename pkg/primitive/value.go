@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log"
-	"slices"
 	"sync/atomic"
 	"unsafe"
 
@@ -175,7 +174,7 @@ would compute on a single pass.
 
 CloseAll closes every non-nil pointer in the slice.
 */
-func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
+func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 	if len(p) == 0 {
 		return nil, errors.Join(
 			io.ErrShortBuffer,
@@ -190,10 +189,11 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 	var label uint64
 
 	if len(labels) > 0 {
-		labelsPtr := unsafe.Slice((*uint64)(unsafe.Pointer(&labels[0])), len(labels))
-
-		if i := slices.IndexFunc(labelsPtr, func(c uint64) bool { return c > 0 }); i >= 0 {
-			label = labelsPtr[i]
+		for _, l := range labels {
+			if l > 0 {
+				label = l
+				break
+			}
 		}
 	}
 
@@ -203,6 +203,10 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 
 	for idx := 0; idx < len(p); {
 		val := AllocValue()
+
+		// Initialize SURPRISAL to a high value so it doesn't immediately resolve
+		val.Set(core.Cfg.Value.Region.Properties.Start+int(SURPRISAL), 512)
+
 		codes := tokenSlabWords(val)
 		maxCodes := len(codes) * 4
 		n, pos := 0, uint32(0)

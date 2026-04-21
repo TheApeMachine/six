@@ -245,10 +245,16 @@ func (dataset *Dataset) materializeSample(sample rowSample, sampleIdx uint32) da
 
 	textBytes := []byte(full.String())
 
+	var labelInt uint64
+	if sample.hasLabel {
+		labelInt = uint64(sample.labelInt) + 1
+	}
+
 	return data.Sample{
 		SampleID: sampleIdx,
 		Text:     textBytes,
 		Label:    label,
+		LabelInt: labelInt,
 		Prompt:   prompt,
 	}
 }
@@ -371,6 +377,7 @@ func cloneSampleSlice(samples []data.Sample) []data.Sample {
 			SampleID: samples[index].SampleID,
 			Text:     append([]byte(nil), samples[index].Text...),
 			Label:    append([]byte(nil), samples[index].Label...),
+			LabelInt: samples[index].LabelInt,
 			Prompt:   append([]byte(nil), samples[index].Prompt...),
 		}
 	}

@@ -163,7 +163,6 @@ func TestPipeline(t *testing.T) {
 					So(machine.Load(experiment.Dataset()), ShouldBeNil)
 
 					for idx, prompt := range experiment.Prompts() {
-						fmt.Println("processing prompt", idx)
 						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
 						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
 						segments, segErr := primitive.NewValue([]byte(prompt))
@@ -182,17 +181,25 @@ func TestPipeline(t *testing.T) {
 							classLabels = append(classLabels, classLabelStringForPipeline(experiment, result))
 						}
 
+						var classification []byte
+						if len(classLabels) > 0 {
+							classification = []byte(classLabels[0])
+						}
+
 						// Score() / Outcome() read tableData filled by AddResult; without this,
 						// aggregate gates see an empty run even when per-prompt checks pass.
 						pipeline.experiment.AddResult(
 							tools.ExperimentalData{
-								Idx:         idx,
-								Generation:  bytes.Clone(resolved[0].Bytes()),
-								Holdout:     bytes.Clone(holdoutBytes),
-								Prompt:      prompt,
-								Segments:    segments,
-								Resolved:    resolved,
-								ClassLabels: classLabels,
+								Idx:               idx,
+								Generation:        []byte(resolved[0].String()),
+								Holdout:           bytes.Clone(holdoutBytes),
+								Prompt:            prompt,
+								Segments:          segments,
+								Resolved:          resolved,
+								ClassLabels:       classLabels,
+								Classification:    classification,
+								ExecutionSettled:  true,
+								ReasoningResolved: true,
 							},
 						)
 
@@ -265,8 +272,8 @@ func classLabelStringForPipeline(experiment tools.PipelineExperiment, value *pri
 	if named, ok := experiment.(interface{ ClassLabels() []string }); ok {
 		names := named.ClassLabels()
 
-		if labelWord < uint64(len(names)) {
-			return names[labelWord]
+		if labelWord > 0 && labelWord <= uint64(len(names)) {
+			return names[labelWord-1]
 		}
 	}
 

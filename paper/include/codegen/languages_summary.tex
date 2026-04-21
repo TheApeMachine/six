@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-579 & Rust & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
-574 & Rust & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
-571 & Rust & 0.0000 & 0.0600 & 0.0029 & 0.0169 \\
+107 & JavaScript & 0.0000 & 0.2800 & 0.2188 & 0.1161 \\
+31 & Python & 0.0000 & 0.2400 & 0.1875 & 0.0995 \\
+24 & Python & 0.0000 & 0.2200 & 0.1719 & 0.0913 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
 599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-598 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-4 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+460 & C++ & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+20 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{g() + \&out + \&"db".to\_string();·    retu\ldots}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\_iter().map(|x| x.to\_string()).collect()\ldots}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{·(\#(····((((b(K(d*(((\^{}*··+!·)·+)·\#7)`+·D\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{rings.filter(x => x.indexOf(substring) !\ldots}} & \multicolumn{2}{l}{\texttt{ven substring·  >>> filterBySubstring([]\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{k == 0:·            return False·    ret\ldots}} & \multicolumn{2}{l}{\texttt{prime(101)·    True·    >>> is\_prime(11)\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{ce, collections::\{HashSet, HashMap\}, ops\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{td;·int sum\_to\_n(int n)\{·     return n*(\ldots}} & \multicolumn{2}{l}{\texttt{\_to\_n(30)·465·>>> sum\_to\_n(100)·5050·>>>\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0029} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0169} \\
+\multicolumn{3}{l}{Mean score: 0.0295} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1161} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

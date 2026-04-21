@@ -57,7 +57,7 @@ func (tokenizer *Tokenizer) IngestSample(
 		return nil, nil
 	}
 
-	segments, err := primitive.NewValue(sample.Text, sample.Label)
+	segments, err := primitive.NewValue(sample.Text, sample.LabelInt)
 
 	if err != nil {
 		return nil, errnie.Error(err)

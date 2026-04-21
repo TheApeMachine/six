@@ -191,7 +191,7 @@ func (b *Backend) Run() {
 						return
 					}
 
-					errVal, _ := work.Value.Property(primitive.LABELS)
+					errVal, _ := work.Value.Property(primitive.SURPRISAL)
 					beliefGap := float64(errVal) / 512.0
 
 					if work.Value.SchedulingNext() == 0 {

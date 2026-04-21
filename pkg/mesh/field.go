@@ -330,9 +330,9 @@ func (field *Field) selectProgram(visitor *primitive.Value) {
 
 	var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
 
-	labels, _ := visitor.Property(primitive.LABELS)
+	surprisal, _ := visitor.Property(primitive.SURPRISAL)
 	confidence, _ := visitor.Property(primitive.CONFIDENCE)
-	beliefGap := float64(labels) / 512.0
+	beliefGap := float64(surprisal) / 512.0
 
 	if confidence != 0 {
 		visitorFw = "falsification"
@@ -407,6 +407,17 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 				core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY),
 				f.id,
 			)
+
+			// For classification tasks, the visitor inherits the label of the community centroid
+			// if it doesn't have one already.
+			if visitorLabels, _ := visitor.Property(primitive.LABELS); visitorLabels == 0 {
+				if centroidLabels, _ := f.values[0].Property(primitive.LABELS); centroidLabels != 0 {
+					visitor.Set(
+						core.Cfg.Value.Region.Properties.Start+int(primitive.LABELS),
+						centroidLabels,
+					)
+				}
+			}
 
 			// Mark the visitor as READY so it can be executed by the ALU.
 			visitor.Set(
