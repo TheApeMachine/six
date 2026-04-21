@@ -362,49 +362,50 @@ so they pass the level filter (Debug-level traces would otherwise be dropped bef
 Plain debug-level behavior is unchanged when loglevel is trace or debug.
 */
 func Trace(msg string, keyvals ...any) {
-	l := loggerPtr.Load()
-	var z *zap.Logger
-	if l != nil {
-		z = l.Logger
-	}
-	debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
+	// l := loggerPtr.Load()
+	// var z *zap.Logger
+	// if l != nil {
+	// 	z = l.Logger
+	// }
+	// debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
 
-	cfg, _ := loggingCfg.Load().(LoggingConfig)
-	esShipping := cfg.Elasticsearch.Enabled && initErr == nil
-	tracePath := strings.TrimSpace(cfg.Trace.Path)
-	traceEnabled := traceFile != nil || (tracePath != "" && filepath.Clean(tracePath) != os.DevNull)
+	// cfg, _ := loggingCfg.Load().(LoggingConfig)
+	// esShipping := cfg.Elasticsearch.Enabled && initErr == nil
+	// tracePath := strings.TrimSpace(cfg.Trace.Path)
+	// traceEnabled := traceFile != nil || (tracePath != "" && filepath.Clean(tracePath) != os.DevNull)
 
-	if !debugEnabled && !traceEnabled && !esShipping {
-		return
-	}
+	// if !debugEnabled && !traceEnabled && !esShipping {
+	// 	return
+	// }
 
-	formatted := traceKeyvalsFormatted(keyvals)
-	if z != nil {
-		base := keyvalsToFields(formatted)
-		fields := make([]zap.Field, len(base)+1)
-		copy(fields, base)
-		fields[len(base)] = zap.String("component", "trace")
-		switch {
-		case debugEnabled:
-			z.Debug(msg, fields...)
-		case esShipping:
-			z.Info(msg, fields...)
-		}
-	}
-	if traceEnabled {
-		ensureTraceFile()
-		line := buildTraceLine(msg, formatted)
-		if traceFile != nil {
-			writeTraceLine(line)
-			return
-		}
-	}
-	if esShipping {
-		return
-	}
-	if debugEnabled || (traceEnabled && traceFile == nil) {
-		fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
-	}
+	// formatted := traceKeyvalsFormatted(keyvals)
+	// if z != nil {
+	// 	base := keyvalsToFields(formatted)
+	// 	fields := make([]zap.Field, len(base)+1)
+	// 	copy(fields, base)
+	// 	fields[len(base)] = zap.String("component", "trace")
+	// 	switch {
+	// 	case debugEnabled:
+	// 		z.Debug(msg, fields...)
+	// 	case esShipping:
+	// 		z.Info(msg, fields...)
+	// 	}
+	// }
+	// if traceEnabled {
+	// 	ensureTraceFile()
+	// 	line := buildTraceLine(msg, formatted)
+	// 	if traceFile != nil {
+	// 		writeTraceLine(line)
+	// 		return
+	// 	}
+	// }
+	// if esShipping {
+	// 	return
+	// }
+	// if debugEnabled || (traceEnabled && traceFile == nil) {
+	// 	fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
+	// }
+	// fmt.Println(msg, keyvals)
 }
 
 func Error(err error, keyvals ...any) error {

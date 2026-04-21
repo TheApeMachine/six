@@ -59,6 +59,8 @@ func NewPipeline(
 Update adds more readers to the pipeline.
 */
 func (pipeline *Pipeline) Update(rwcs ...io.Reader) {
+	errnie.Trace("transport.Pipeline.Update")
+
 	pipeline.readers = io.MultiReader(
 		pipeline.readers, io.MultiReader(rwcs...),
 	)
@@ -68,6 +70,8 @@ func (pipeline *Pipeline) Update(rwcs ...io.Reader) {
 Read reads data from the pipeline.
 */
 func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
+	errnie.Trace("transport.Pipeline.Read")
+
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()
@@ -124,6 +128,8 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 Write feeds the data into the sink.
 */
 func (pipeline *Pipeline) Write(p []byte) (n int, err error) {
+	errnie.Trace("transport.Pipeline.Write")
+
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()

@@ -8,6 +8,7 @@ import (
 
 	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -96,13 +97,10 @@ type Scheduler interface {
 }
 
 type Queue struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	err    error
-	rb     *ringbuffer.RingBuffer
-	pr     *ringbuffer.PipeReader
-	pw     *ringbuffer.PipeWriter
-
+	ctx      context.Context
+	cancel   context.CancelFunc
+	err      error
+	rb       *ringbuffer.RingBuffer
 	normal   *lockFreeQueue
 	priority *lockFreeQueue
 }
@@ -111,14 +109,11 @@ func NewQueue(ctx context.Context) *Queue {
 	ctx, cancel := context.WithCancel(ctx)
 
 	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
-	pr, pw := rb.Pipe()
 
 	q := &Queue{
 		ctx:      ctx,
 		cancel:   cancel,
 		rb:       rb,
-		pr:       pr,
-		pw:       pw,
 		normal:   newLockFreeQueue(),
 		priority: newLockFreeQueue(),
 	}
@@ -132,11 +127,13 @@ pipeline, it doesn't output directly via Read anymore. The Backend handles
 the output stream.
 */
 func (q *Queue) Read(p []byte) (n int, err error) {
+	errnie.Trace("compute.Queue.Read")
+
 	select {
 	case <-q.ctx.Done():
 		return 0, q.ctx.Err()
 	default:
-		return q.pr.Read(p)
+		return q.rb.Read(p)
 	}
 }
 
@@ -145,6 +142,8 @@ Write implements io.Writer. It accepts incoming data from the
 IO pipeline, converts it to a task, and queues it.
 */
 func (q *Queue) Write(p []byte) (n int, err error) {
+	errnie.Trace("compute.Queue.Write")
+
 	select {
 	case <-q.ctx.Done():
 		return 0, q.ctx.Err()
@@ -173,6 +172,8 @@ Return writes a computed result back to the queue's output stream.
 This ensures that when we read from the queue, we are reading results only.
 */
 func (q *Queue) Return(value *primitive.Value) error {
+	errnie.Trace("compute.Queue.Return")
+
 	if q == nil || q.rb == nil || value == nil {
 		return nil
 	}
@@ -182,7 +183,7 @@ func (q *Queue) Return(value *primitive.Value) error {
 		uint64(primitive.DONE),
 	)
 
-	_, err := q.pw.Write(value.Bytes())
+	_, err := q.rb.Write(value.Bytes())
 	return err
 }
 
@@ -191,7 +192,6 @@ Close closes the queue.
 */
 func (q *Queue) Close() error {
 	q.cancel()
-	q.pw.Close()
 	q.rb.CloseWriter()
 	return q.err
 }
@@ -209,6 +209,8 @@ by default, and the priority lane is used for values which
 have a next line set in the program region.
 */
 func (q *Queue) Submit(value *primitive.Value) {
+	errnie.Trace("compute.Queue.Submit")
+
 	item := WorkItem{Type: WorkTypeValue, Value: value}
 
 	if value.SchedulingNext() != 0 {
@@ -222,6 +224,8 @@ func (q *Queue) Submit(value *primitive.Value) {
 Schedule a function to be executed by the queue.
 */
 func (q *Queue) Schedule(fn func()) {
+	errnie.Trace("compute.Queue.Schedule")
+
 	item := WorkItem{Type: WorkTypeFunc, Function: fn}
 	q.normal.enqueue(item)
 }
@@ -230,6 +234,8 @@ func (q *Queue) Schedule(fn func()) {
 Pop blocks until work is available, strictly preferring the priority lane.
 */
 func (q *Queue) Pop() (WorkItem, error) {
+	errnie.Trace("compute.Queue.Pop")
+
 	for {
 		if item, ok := q.priority.dequeue(); ok {
 			return item, nil

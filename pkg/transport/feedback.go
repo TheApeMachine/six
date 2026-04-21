@@ -18,8 +18,6 @@ type Feedback struct {
 	cancel   context.CancelFunc
 	err      error
 	rb       *ringbuffer.RingBuffer
-	pr       *ringbuffer.PipeReader
-	pw       *ringbuffer.PipeWriter
 	backward io.Writer
 	tee      io.Reader
 }
@@ -31,16 +29,13 @@ func NewFeedback(ctx context.Context, backward io.Writer) *Feedback {
 	ctx, cancel := context.WithCancel(ctx)
 
 	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
-	pr, pw := rb.Pipe()
 
 	return &Feedback{
 		ctx:      ctx,
 		cancel:   cancel,
 		rb:       rb,
-		pr:       pr,
-		pw:       pw,
 		backward: backward,
-		tee:      io.TeeReader(pr, backward),
+		tee:      io.TeeReader(rb, backward),
 	}
 }
 
@@ -51,6 +46,8 @@ Read will both act as a straight throughput path, as well as a
 copy that is sent to the backward writer.
 */
 func (feedback *Feedback) Read(p []byte) (n int, err error) {
+	errnie.Trace("transport.Feedback.Read")
+
 	select {
 	case <-feedback.ctx.Done():
 		return 0, feedback.ctx.Err()
@@ -65,11 +62,13 @@ which acts as a pipe completing the throughput part of the
 feedback loop.
 */
 func (feedback *Feedback) Write(p []byte) (n int, err error) {
+	errnie.Trace("transport.Feedback.Write")
+
 	select {
 	case <-feedback.ctx.Done():
 		return 0, feedback.ctx.Err()
 	default:
-		if n, err = feedback.pw.Write(p); err != nil {
+		if n, err = feedback.rb.Write(p); err != nil {
 			return n, errnie.Error(err)
 		}
 
@@ -86,7 +85,6 @@ func (feedback *Feedback) Close() (err error) {
 	}
 
 	feedback.cancel()
-	feedback.pw.Close()
 	feedback.rb.CloseWriter()
 
 	return err

@@ -136,6 +136,7 @@ func (b *Backend) Run() {
 			}
 
 			if work.Type == WorkTypeFunc {
+				errnie.Trace("backend.Run: scheduling function")
 				// Functions MUST run on the CPU.
 				// We increment CPU inflight, run it, and decrement.
 				b.cpuStats.Inflight.Add(1)
@@ -150,6 +151,7 @@ func (b *Backend) Run() {
 			}
 
 			if work.Type == WorkTypeValue {
+				errnie.Trace("backend.Run: scheduling value")
 				// Values can run anywhere. Find the lowest pressure substrate!
 				best := b.findLowestPressureSubstrate()
 				best.Inflight.Add(1)

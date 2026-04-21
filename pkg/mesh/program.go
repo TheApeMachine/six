@@ -74,7 +74,7 @@ func (program *Program) Select(visitorID uint64) *primitive.Value {
 	carrier := primitive.Emit(
 		primitive.WithFirmware(selectedFw),
 		primitive.WithTarget(visitorID),
-		primitive.WithTTL(5),
+		primitive.WithStatus(uint64(primitive.READY)),
 	)
 
 	return carrier

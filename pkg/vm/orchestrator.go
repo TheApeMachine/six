@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -127,7 +128,7 @@ running forever, however that too would be a clear failure mode.
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) (resolved []*primitive.Value, err error) {
-	rwcs := make([]io.ReadWriter, 0, len(values))
+	rwcs := make([]io.Reader, 0, len(values))
 
 	for _, value := range values {
 		if value != nil {
@@ -150,7 +151,14 @@ func (orchestrator *Orchestrator) Cycle(
 		orchestrator.queue,
 		orchestrator.telemetry,
 		orchestrator.field,
-		rwcs...,
+	)
+
+	if err != nil {
+		return nil, errnie.Error(err)
+	}
+
+	_, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
+		pipeline, io.MultiReader(rwcs...),
 	)
 
 	if err != nil {
@@ -161,9 +169,8 @@ func (orchestrator *Orchestrator) Cycle(
 		select {
 		case <-orchestrator.ctx.Done():
 			return nil, orchestrator.ctx.Err()
-		case val := <-orchestrator.output.Next(core.Cfg.Value.Bytes):
-			resolved = append(resolved, val)
 		default:
+			errnie.Trace("orchestrator.Cycle: entering loop")
 			var nn int64
 
 			// This makes more sense that it may seem at first glance.
@@ -172,7 +179,9 @@ func (orchestrator *Orchestrator) Cycle(
 			// re-cycled, meaning they are written back to the pipeline
 			// to make another pass through the ALU. Each cycle effectively
 			// is one update, or "tick" of the system.
-			if nn, err = io.Copy(pipeline, pipeline); err != nil {
+			if nn, err = ringbuffer.New(
+				core.Cfg.Value.Bytes,
+			).Copy(pipeline, pipeline); err != nil {
 				return nil, errnie.Error(err)
 			}
 

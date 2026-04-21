@@ -218,6 +218,8 @@ readCursor is a single atomic so the round-robin walk stays lock-free
 on the hot path.
 */
 func (field *Field) Read(p []byte) (n int, err error) {
+	errnie.Trace("mesh.Field.Read")
+
 	select {
 	case <-field.ctx.Done():
 		return 0, io.EOF
@@ -251,6 +253,8 @@ fanned out to field.conn so attached observers see every inbound
 frame without the Field knowing about them.
 */
 func (field *Field) Write(p []byte) (n int, err error) {
+	errnie.Trace("mesh.Field.Write")
+
 	if field == nil {
 		return 0, io.ErrClosedPipe
 	}
@@ -286,18 +290,15 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		emissions := field.program.Select(visitor.ID())
 		primitive.FreeValue(visitor)
 
-		if n, err = field.conn.Write(emissions.Bytes()); err != nil {
-			return n, err
-		}
-
-		return n, nil
+		field.conn.Update(emissions)
+		return len(p), nil
 	}
 }
 
-func (field *Field) findCommunity(visitor *primitive.Value) {
+func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 	// Check if the visitor is already a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		return
+		return err
 	}
 
 	// Find the community that the visitor belongs to.
@@ -340,6 +341,22 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 
 			// Update the field's conn to include the new visitor, so it
 			// will be folded with all the other values.
+			if f.conn == nil {
+				f.conn, err = gossip.NewConn(
+					f.ctx,
+					f.queue,
+					f.telemetry,
+					f,
+					visitor,
+				)
+
+				if err != nil {
+					return errnie.Error(err)
+				}
+
+				break
+			}
+
 			f.conn.Update(visitor)
 
 			break
@@ -349,7 +366,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	// Check if the visitor is now a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
 		// The visitor was assigned to a field above.
-		return
+		return errnie.Error(err)
 	}
 
 	// If not, we need to create a new community field.
@@ -378,5 +395,20 @@ func (field *Field) findCommunity(visitor *primitive.Value) {
 	// update the conn of the global field, so the values in the new
 	// field are folded with all the other fields.
 	field.fields = append(field.fields, newField)
+
+	if field.conn == nil {
+		field.conn, err = gossip.NewConn(
+			field.ctx,
+			field.queue,
+			field.telemetry,
+			field,
+			newField,
+		)
+
+		return errnie.Error(err)
+	}
+
 	field.conn.Update(newField)
+
+	return nil
 }

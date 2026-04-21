@@ -3,9 +3,9 @@
   "name": "Compression",
   "outcome": {
     "actual": 0,
-    "message": "Expected '0' to be greater than or equal to '0.00416610499416107' (but it wasn't)!",
+    "message": "Expected '0' to be greater than or equal to '0.00432926773239352' (but it wasn't)!",
     "passed": false,
-    "threshold": 0.00416610499416107
+    "threshold": 0.00432926773239352
   },
   "results": [],
   "score": 0,

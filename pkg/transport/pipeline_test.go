@@ -6,7 +6,9 @@ import (
 	"io"
 	"testing"
 
+	"github.com/smallnest/ringbuffer"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
 )
 
 func TestPipeline(t *testing.T) {
@@ -18,7 +20,7 @@ func TestPipeline(t *testing.T) {
 		pipeline := NewPipeline(context.Background(), c1, c2)
 
 		Convey("When reading without writing first", func() {
-			n, err := io.Copy(c3, pipeline)
+			n, err := ringbuffer.New(core.Cfg.Value.Bytes).Copy(c3, pipeline)
 			So(n, ShouldNotEqual, 0)
 			So(err, ShouldBeNil)
 			So(c3.String(), ShouldEqual, "data from first")
@@ -32,11 +34,11 @@ func TestPipeline(t *testing.T) {
 		pipeline := NewPipeline(context.Background(), bytes.NewBuffer([]byte{}), bytes.NewBuffer([]byte{}))
 
 		Convey("When reading after writing", func() {
-			n, err := io.Copy(pipeline, in1)
+			n, err := ringbuffer.New(core.Cfg.Value.Bytes).Copy(pipeline, in1)
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, len("data from first"))
 
-			n, err = io.Copy(buf, pipeline)
+			n, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(buf, pipeline)
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, len("data from first"))
 			So(buf.String(), ShouldEqual, "data from first")
@@ -66,11 +68,11 @@ func TestWrite(t *testing.T) {
 		c4 := bytes.NewBuffer([]byte{})
 
 		pipeline := NewPipeline(context.Background(), c2, c3)
-		n, err := io.Copy(pipeline, c1)
+		n, err := ringbuffer.New(core.Cfg.Value.Bytes).Copy(pipeline, c1)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, len("data from first"))
 
-		n, err = io.Copy(c4, pipeline)
+		n, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(c4, pipeline)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, len("data from first"))
 		So(c4.String(), ShouldEqual, "data from first")
@@ -111,11 +113,11 @@ func TestLargeDataPipeline(t *testing.T) {
 		pipeline := NewPipeline(context.Background(), intermediate)
 
 		Convey("When copying large data through pipeline", func() {
-			n, err := io.Copy(pipeline, src)
+			n, err := ringbuffer.New(core.Cfg.Value.Bytes).Copy(pipeline, src)
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, len(largeData))
 
-			n, err = io.Copy(dest, pipeline)
+			n, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(dest, pipeline)
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, len(largeData))
 			So(bytes.Equal(dest.Bytes(), largeData), ShouldBeTrue)
@@ -217,11 +219,11 @@ func BenchmarkPipelineLargeData(b *testing.B) {
 		intermediate := bytes.NewBuffer(make([]byte, 0, len(largeData)))
 		pipeline := NewPipeline(context.Background(), intermediate)
 
-		if _, err := io.Copy(pipeline, bytes.NewReader(largeData)); err != nil {
+		if _, err := ringbuffer.New(core.Cfg.Value.Bytes).Copy(pipeline, bytes.NewReader(largeData)); err != nil {
 			b.Fatalf("copy in: %v", err)
 		}
 
-		if _, err := io.Copy(io.Discard, pipeline); err != nil {
+		if _, err := ringbuffer.New(core.Cfg.Value.Bytes).Copy(io.Discard, pipeline); err != nil {
 			b.Fatalf("copy out: %v", err)
 		}
 	}

@@ -70,6 +70,8 @@ func NewConn(
 }
 
 func (conn *Conn) Update(components ...io.Reader) {
+	errnie.Trace("gossip.Conn.Update")
+
 	if conn == nil {
 		return
 	}
@@ -78,6 +80,8 @@ func (conn *Conn) Update(components ...io.Reader) {
 }
 
 func (conn *Conn) Read(p []byte) (int, error) {
+	errnie.Trace("gossip.Conn.Read")
+
 	if conn == nil || conn.pipeline == nil {
 		return 0, io.ErrClosedPipe
 	}
@@ -93,6 +97,8 @@ func (conn *Conn) Read(p []byte) (int, error) {
 }
 
 func (conn *Conn) Write(p []byte) (int, error) {
+	errnie.Trace("gossip.Conn.Write")
+
 	if conn == nil || conn.pipeline == nil {
 		return 0, io.ErrClosedPipe
 	}
