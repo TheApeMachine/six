@@ -128,7 +128,7 @@ func loadAffinityArray(value *primitive.Value) [primitive.AffinityWords]uint64 {
 
 	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
 
-	for i := 0; i < primitive.AffinityWords; i++ {
+	for i := range primitive.AffinityWords {
 		out[i] = (*value)[start+i]
 	}
 
@@ -179,14 +179,7 @@ func (metrics *FieldMetrics) Measure(
 	hist := make(map[uint16]int)
 	labelSlots := 0
 	labeled := 0
-
-	labelWords := 4
-
-	// primitive.EmitWithLabels stamps 4 consecutive properties words,
-	// so we need to check if the number of properties words is less than 4.
-	if propsWords < labelWords {
-		labelWords = propsWords
-	}
+	labelWords := min(propsWords, 4)
 
 	for _, v := range members {
 		if v == nil {
@@ -195,10 +188,10 @@ func (metrics *FieldMetrics) Measure(
 
 		memberSlots := 0
 
-		for widx := 0; widx < labelWords; widx++ {
+		for widx := range labelWords {
 			w := (*v)[propsStart+widx]
 
-			for lane := 0; lane < 4; lane++ {
+			for lane := range 4 {
 				if uint16(w>>(lane*16)) != 0 {
 					memberSlots++
 				}
@@ -313,27 +306,8 @@ func (metrics *FieldMetrics) Refresh(field *Field) {
 		return
 	}
 
-	field.queue.Schedule(func() {
-		defer field.refreshing.Store(false)
+	defer field.refreshing.Store(false)
 
-		metrics := metrics.Measure(field, field.values, field.snap)
-		field.metrics.Store(&metrics)
-
-		// Check if coverage is below crystallization floor (0.35)
-		if metrics.Coverage < metrics.crystallizationFloor.Value() && len(field.values) > 0 {
-			// Build a pressure carrier
-			carrier := primitive.Emit(
-				primitive.WithFirmware(core.HYPOTHESIS),
-				primitive.WithTTL(5),
-			)
-
-			// Stage the dominant value's state into the carrier
-			// For simplicity, we just use the first value for now
-			// or we can just emit it to the field's conn and let the
-			// gossip substrate handle the staging if it's routed.
-			if field.conn != nil {
-				field.conn.Write(carrier.Bytes())
-			}
-		}
-	})
+	metric := metrics.Measure(field, field.values, field.snap)
+	field.metrics.Store(&metric)
 }

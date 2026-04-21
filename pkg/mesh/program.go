@@ -6,6 +6,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/numeric/learned"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -75,6 +76,12 @@ func (program *Program) Select(visitorID uint64) *primitive.Value {
 		primitive.WithFirmware(selectedFw),
 		primitive.WithTarget(visitorID),
 		primitive.WithStatus(uint64(primitive.READY)),
+	)
+
+	errnie.Trace(
+		"mesh.Program.Select",
+		"selectedFw", string(selectedFw),
+		"visitorID", visitorID,
 	)
 
 	return carrier

@@ -28,9 +28,9 @@ func EmitCloneHost(parent *Value) *Value {
 
 	noise := (*parent)[core.Cfg.Value.Region.Properties.Start+int(NOISE)]
 
-	for word := 0; word < affinityLaneWords; word++ {
+	for word := range affinityLaneWords {
 		(*child)[core.Cfg.Value.Region.Affinity.Start+int(word)] ^= noise ^ (uint64(parentIdx) << (word * 13))
 	}
 
-	return child.StampNewID()
+	return child.StampID()
 }

@@ -150,6 +150,7 @@ func NewField(
 		program:     NewProgram(),
 	}
 
+	field.conn, field.err = gossip.NewConn(ctx, queue, telemetry, field)
 	field.metrics.Store(NewFieldMetrics())
 
 	return field
@@ -286,12 +287,10 @@ func (field *Field) Write(p []byte) (n int, err error) {
 
 		// Update the program policy with the new metrics
 		field.program.Update(field.metrics.Load())
-
 		emissions := field.program.Select(visitor.ID())
-		primitive.FreeValue(visitor)
-
 		field.conn.Update(emissions)
-		return len(p), nil
+
+		return field.conn.Write(p)
 	}
 }
 
@@ -408,6 +407,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 		return errnie.Error(err)
 	}
 
+	newField.conn.Update(visitor)
 	field.conn.Update(newField)
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -251,7 +252,7 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 			)
 		}
 
-		stamp := val.stampID()
+		stamp := val.StampID()
 
 		if label > 0 {
 			stamp.Set(
@@ -349,7 +350,7 @@ func (value *Value) LoadFullFrame(frame []byte) error {
 	return nil
 }
 
-func (value *Value) stampID() *Value {
+func (value *Value) StampID() *Value {
 	if value == nil {
 		return nil
 	}
@@ -357,15 +358,6 @@ func (value *Value) stampID() *Value {
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
 
 	return value
-}
-
-/*
-StampNewID assigns the next sequential ID word for Values minted outside NewValue
-(unsupervised learners, probes, and other in-place constructions that still need
-a trie-routable identity).
-*/
-func (value *Value) StampNewID() *Value {
-	return value.stampID()
 }
 
 /*
@@ -381,6 +373,8 @@ single-shot delimiter — stream assemblers that keep pulling frames
 end of the byte source.
 */
 func (value *Value) Read(p []byte) (int, error) {
+	errnie.Trace("primitive.Value.Read", "ID", value.ID())
+
 	if len(p) < core.Cfg.Value.Bytes {
 		return 0, errors.Join(
 			io.ErrShortBuffer,
@@ -417,6 +411,10 @@ func (value *Value) Write(p []byte) (int, error) {
 
 	tmpVal := AllocValue()
 	valueFrom(p, tmpVal)
+
+	errnie.Trace(
+		"primitive.Value.Write", "ID", value.ID(), "tmpValID", tmpVal.ID(),
+	)
 
 	copy(
 		(*value)[assetStart:assetStart+stageWords],

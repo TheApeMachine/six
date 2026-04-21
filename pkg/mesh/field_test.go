@@ -40,7 +40,7 @@ func TestFieldRead(t *testing.T) {
 		seeded := make([]*primitive.Value, 3)
 		for idx := range seeded {
 			seeded[idx] = primitive.AllocValue()
-			seeded[idx].StampNewID()
+			seeded[idx].StampID()
 			field.values = append(field.values, seeded[idx])
 			field.conn.Write(seeded[idx].Bytes())
 		}
@@ -107,7 +107,7 @@ func TestFieldWrite(t *testing.T) {
 		}()
 
 		source := primitive.AllocValue()
-		source.StampNewID()
+		source.StampID()
 
 		affinityStart, _ := primitive.AffinityRegion.WordExtent()
 		for offset := 0; offset < primitive.AffinityWords; offset++ {
@@ -217,7 +217,7 @@ func TestFieldFindCommunity(t *testing.T) {
 
 		Convey("a probe within routeBudget joins the existing child and is stamped with its id", func() {
 			visitor := primitive.AllocValue()
-			visitor.StampNewID()
+			visitor.StampID()
 			defer visitor.Close()
 
 			visitor.Set(affinityStart, 0x0000000000000003)
@@ -232,7 +232,7 @@ func TestFieldFindCommunity(t *testing.T) {
 
 		Convey("an out-of-budget probe spawns a fresh community and is stamped with its id", func() {
 			visitor := primitive.AllocValue()
-			visitor.StampNewID()
+			visitor.StampID()
 			defer visitor.Close()
 
 			for offset := 0; offset < primitive.AffinityWords; offset++ {
@@ -251,7 +251,7 @@ func TestFieldFindCommunity(t *testing.T) {
 
 		Convey("a visitor already stamped with COMMUNITY short-circuits without touching the parent", func() {
 			visitor := primitive.AllocValue()
-			visitor.StampNewID()
+			visitor.StampID()
 			defer visitor.Close()
 
 			(*visitor)[communityWord] = 0xDEADBEEF
@@ -286,7 +286,7 @@ func TestFieldStampsCommunityID(t *testing.T) {
 		}()
 
 		source := primitive.AllocValue()
-		source.StampNewID()
+		source.StampID()
 		defer source.Close()
 
 		frame := make([]byte, core.Cfg.Value.Bytes)
@@ -337,7 +337,7 @@ func writeAffinity(
 	field *Field, affinityStart int, affinity [primitive.AffinityWords]uint64,
 ) *primitive.Value {
 	source := primitive.AllocValue()
-	source.StampNewID()
+	source.StampID()
 
 	for offset := 0; offset < primitive.AffinityWords; offset++ {
 		source.Set(affinityStart+offset, affinity[offset])
@@ -370,7 +370,7 @@ func BenchmarkFieldRead(b *testing.B) {
 	values := make([]*primitive.Value, 16)
 	for idx := range values {
 		values[idx] = primitive.AllocValue()
-		values[idx].StampNewID()
+		values[idx].StampID()
 		field.values = append(field.values, values[idx])
 	}
 	defer func() {
@@ -420,7 +420,7 @@ func BenchmarkFieldFindCommunity(b *testing.B) {
 	target[0] ^= 1
 
 	visitor := primitive.AllocValue()
-	visitor.StampNewID()
+	visitor.StampID()
 	defer visitor.Close()
 
 	communityWord := core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY)
@@ -468,8 +468,8 @@ func BenchmarkFieldWriteRoute(b *testing.B) {
 	// the benchmark measures the common "join" path, not the cold-miss
 	// spawn path.
 	probe := primitive.AllocValue()
-	probe.StampNewID()
-	for offset := 0; offset < primitive.AffinityWords; offset++ {
+	probe.StampID()
+	for offset := range primitive.AffinityWords {
 		probe.Set(affinityStart+offset, parent.fingers[communityCount/2][offset])
 	}
 	// Flip a handful of bits so the probe is close but not identical —
@@ -481,9 +481,8 @@ func BenchmarkFieldWriteRoute(b *testing.B) {
 	probe.Close()
 
 	b.ReportAllocs()
-	b.ResetTimer()
 
-	for iteration := 0; iteration < b.N; iteration++ {
+	for b.Loop() {
 		if _, err := parent.Write(frame); err != nil {
 			b.Fatal(err)
 		}

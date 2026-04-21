@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestNewPool(t *testing.T) {
@@ -14,26 +13,6 @@ func TestNewPool(t *testing.T) {
 
 	Convey("NewPool returns a pool with the configured max size", t, func() {
 		So(NewPool(8), ShouldNotBeNil)
-	})
-}
-
-func TestPoolSubmit(t *testing.T) {
-	Convey("Submit runs tasks on worker goroutines", t, func() {
-		var counter atomic.Int32
-		var wait sync.WaitGroup
-
-		workerPool := NewPool(4)
-
-		for range 64 {
-			wait.Add(1)
-
-			workerPool.Submit(&primitive.Value{})
-			counter.Add(1)
-			wait.Done()
-		}
-
-		wait.Wait()
-		So(counter.Load(), ShouldEqual, 64)
 	})
 }
 
@@ -67,22 +46,6 @@ func TestPoolWithFuncInvoke(t *testing.T) {
 
 		So(sum.Load(), ShouldEqual, expected)
 	})
-}
-
-func BenchmarkPoolSubmit(b *testing.B) {
-	workerPool := NewPool(4)
-	var wait sync.WaitGroup
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		wait.Add(1)
-
-		workerPool.Submit(&primitive.Value{})
-		wait.Done()
-	}
-
-	wait.Wait()
 }
 
 func BenchmarkPoolWithFuncInvoke(b *testing.B) {

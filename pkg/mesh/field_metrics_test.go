@@ -53,7 +53,7 @@ func TestFieldMeasureCrystallization(t *testing.T) {
 		}
 
 		blank := primitive.AllocValue()
-		blank.StampNewID()
+		blank.StampID()
 		field.values = append(field.values, blank)
 
 		// Wait for queue to process

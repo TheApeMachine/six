@@ -38,19 +38,15 @@ func NewConn(
 	ctx context.Context,
 	queue compute.Scheduler,
 	telemetry *telemetry.Bridge,
-	sink io.ReadWriter,
+	sink io.Writer,
 	rwcs ...io.ReadWriter,
 ) (*Conn, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	feedback := transport.NewFeedback(
-		ctx, io.MultiWriter(queue, telemetry),
-	)
-
 	pipeline := transport.NewPipeline(
 		ctx,
-		sink,
-		append([]io.ReadWriter{feedback}, rwcs...)...,
+		io.MultiWriter(sink, queue, telemetry),
+		rwcs...,
 	)
 
 	conn := &Conn{

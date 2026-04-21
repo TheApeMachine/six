@@ -159,11 +159,9 @@ func (q *Queue) Write(p []byte) (n int, err error) {
 
 		if err == nil && status == uint64(primitive.READY) {
 			q.Submit(value)
-			return len(p), nil
-		} else {
-			primitive.FreeValue(value)
-			return len(p), nil
 		}
+
+		return len(p), nil
 	}
 }
 
@@ -201,6 +199,16 @@ Error implements the error interface.
 */
 func (q *Queue) Error() error {
 	return q.err
+}
+
+/*
+Len returns the total number of items in the queue.
+*/
+func (q *Queue) Len() int {
+	if q == nil {
+		return 0
+	}
+	return int(q.normal.length.Load() + q.priority.length.Load())
 }
 
 /*

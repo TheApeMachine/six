@@ -16,7 +16,7 @@ one or more Values.
 */
 func Emit(options ...EmitOptions) *Value {
 	value := AllocValue()
-	value.StampNewID()
+	value = value.StampID()
 
 	for _, option := range options {
 		option(value)

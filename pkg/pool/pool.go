@@ -40,32 +40,6 @@ func NewPool(size uint64) *Pool {
 	return &Pool{maxSize: size}
 }
 
-// Submit submits a new task to the pool
-// it first tries to use already parked goroutines from the stack if any
-// if there are no available worker goroutines, it tries to add a
-// new goroutine to the pool if the pool capacity is not exceeded
-// in case the pool capacity hit its maximum limit, this function yields the processor to other
-// goroutines and loops again for finding available workers
-func (self *Pool) Submit(value *primitive.Value) {
-	var slot *Slot
-
-	for {
-		if slot = self.pop(); slot != nil {
-			slot.task = value
-			safe_ready(slot.threadPtr)
-			return
-		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
-			slot = &Slot{task: value}
-			go self.loopQ(slot)
-			return
-		} else {
-			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
-			// Direct gosched via assembly avoids package init ordering issues; same cooperative yield as runtime.Gosched.
-			mcall(gosched_m)
-		}
-	}
-}
-
 // Schedule submits a raw function to be executed by a pool worker.
 // Mirrors Submit but for arbitrary closures rather than ALU Values.
 func (self *Pool) Schedule(fn func()) {

@@ -405,7 +405,7 @@ func Trace(msg string, keyvals ...any) {
 	// if debugEnabled || (traceEnabled && traceFile == nil) {
 	// 	fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
 	// }
-	// fmt.Println(msg, keyvals)
+	fmt.Println(msg, keyvals)
 }
 
 func Error(err error, keyvals ...any) error {

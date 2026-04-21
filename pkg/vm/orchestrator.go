@@ -11,7 +11,6 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/mesh"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
@@ -146,22 +145,9 @@ func (orchestrator *Orchestrator) Cycle(
 	// with the Values in the other communities. This is the mechanism that
 	// eventually makes all Values encounter each other, and thus spread the
 	// knowledge of the system.
-	pipeline, err := gossip.NewConn(
-		orchestrator.ctx,
-		orchestrator.queue,
-		orchestrator.telemetry,
-		orchestrator.field,
-	)
-
-	if err != nil {
-		return nil, errnie.Error(err)
-	}
-
-	_, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
-		pipeline, io.MultiReader(rwcs...),
-	)
-
-	if err != nil {
+	if _, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
+		orchestrator.field, io.MultiReader(rwcs...),
+	); err != nil {
 		return nil, errnie.Error(err)
 	}
 
@@ -179,15 +165,29 @@ func (orchestrator *Orchestrator) Cycle(
 			// re-cycled, meaning they are written back to the pipeline
 			// to make another pass through the ALU. Each cycle effectively
 			// is one update, or "tick" of the system.
-			if nn, err = ringbuffer.New(
-				core.Cfg.Value.Bytes,
-			).Copy(pipeline, pipeline); err != nil {
+			if nn, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
+				orchestrator.field, orchestrator.field,
+			); err != nil {
 				return nil, errnie.Error(err)
 			}
 
+			// Read resolved values from the queue
+			buf := make([]byte, core.Cfg.Value.Bytes)
+			for {
+				if n, err := orchestrator.queue.Read(buf); err == nil && n == core.Cfg.Value.Bytes {
+					val := primitive.AllocValue()
+					val.LoadFullFrame(buf)
+					resolved = append(resolved, val)
+				} else {
+					break
+				}
+			}
+
 			// No more values to process, return the resolved values.
-			if nn == 0 {
+			if nn == 0 && orchestrator.backend.Inflight() == 0 && orchestrator.queue.Len() == 0 {
 				return resolved, nil
+			} else if nn == 0 {
+				time.Sleep(time.Millisecond)
 			}
 		}
 	}

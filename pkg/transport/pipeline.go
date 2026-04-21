@@ -26,7 +26,7 @@ type Pipeline struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	err     error
-	sink    io.ReadWriter
+	sink    io.Writer
 	readers io.Reader
 	staged  *primitive.Value
 }
@@ -37,7 +37,7 @@ on Write, while Read will perform a "fold" operation on the data.
 */
 func NewPipeline(
 	ctx context.Context,
-	sink io.ReadWriter,
+	sink io.Writer,
 	rwcs ...io.ReadWriter,
 ) *Pipeline {
 	ctx, cancel := context.WithCancel(ctx)

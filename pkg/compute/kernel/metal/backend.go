@@ -83,7 +83,7 @@ func drainMetalSpawns() {
 			continue
 		}
 
-		child.StampNewID()
+		child.StampID()
 	}
 
 	*packed = slab

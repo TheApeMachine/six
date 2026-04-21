@@ -25,7 +25,7 @@ func TestFieldDetectEigenmodes(t *testing.T) {
 
 		for idx := 0; idx < 3; idx++ {
 			value := primitive.AllocValue()
-			value.StampNewID()
+			value.StampID()
 
 			// All five affinity words identical → Jaccard = 1 > threshold
 			// → everyone shares one mode.
@@ -59,7 +59,7 @@ func TestFieldDetectEigenmodes(t *testing.T) {
 		// Group A: top half bits set.
 		for idx := 0; idx < 3; idx++ {
 			value := primitive.AllocValue()
-			value.StampNewID()
+			value.StampID()
 			for offset := 0; offset < primitive.AffinityWords; offset++ {
 				value.Set(affStart+offset, 0xFFFFFFFF00000000)
 			}
@@ -71,7 +71,7 @@ func TestFieldDetectEigenmodes(t *testing.T) {
 		// all 64 bits per word → Jaccard = 0 < threshold → separate mode.
 		for idx := 0; idx < 2; idx++ {
 			value := primitive.AllocValue()
-			value.StampNewID()
+			value.StampID()
 			for offset := 0; offset < primitive.AffinityWords; offset++ {
 				value.Set(affStart+offset, 0x00000000FFFFFFFF)
 			}
@@ -182,7 +182,7 @@ func TestFieldCycle(t *testing.T) {
 
 		for idx := 0; idx < 3; idx++ {
 			value := primitive.AllocValue()
-			value.StampNewID()
+			value.StampID()
 			for offset := 0; offset < primitive.AffinityWords; offset++ {
 				value.Set(affStart+offset, 0xAAAAAAAAAAAAAAAA)
 			}
@@ -222,9 +222,9 @@ func BenchmarkFieldDetectEigenmodes(b *testing.B) {
 	affStart, _ := core.Cfg.Value.Region.Affinity.WordExtent()
 	propsStart, _ := core.Cfg.Value.Region.Properties.WordExtent()
 
-	for idx := 0; idx < 64; idx++ {
+	for idx := range 64 {
 		value := primitive.AllocValue()
-		value.StampNewID()
+		value.StampID()
 
 		pattern := uint64(0xA5A5A5A5A5A5A5A5)
 
@@ -232,7 +232,7 @@ func BenchmarkFieldDetectEigenmodes(b *testing.B) {
 			pattern = ^pattern
 		}
 
-		for offset := 0; offset < primitive.AffinityWords; offset++ {
+		for offset := range primitive.AffinityWords {
 			value.Set(affStart+offset, pattern)
 		}
 
@@ -241,9 +241,9 @@ func BenchmarkFieldDetectEigenmodes(b *testing.B) {
 	}
 
 	b.ReportAllocs()
-	b.ResetTimer()
+	
 
-	for iteration := 0; iteration < b.N; iteration++ {
+	for b.Loop() {
 		_ = field.detectEigenmodes()
 	}
 }

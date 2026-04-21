@@ -190,7 +190,7 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 
 		for idx := range chain {
 			chain[idx] = primitive.AllocValue()
-			chain[idx].StampNewID()
+			chain[idx].StampID()
 
 			// Force resident on the first hop so the chain executes
 			// without spending time on link/affinity firmware. This
@@ -198,7 +198,7 @@ func TestOrchestratorCycleChainsValues(t *testing.T) {
 			// wired by submitChainHop.
 			chain[idx].Set(prevStart, 0xDEADBEEF)
 			chain[idx].Set(nextStart, 0xFEEDFACE)
-			for offset := 0; offset < affinityWords; offset++ {
+			for offset := range affinityWords {
 				chain[idx].Set(affinityStart+offset, 0x1111_2222_3333_4444)
 			}
 
