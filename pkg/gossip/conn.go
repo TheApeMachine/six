@@ -3,6 +3,7 @@ package gossip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 
@@ -116,5 +117,9 @@ func (conn *Conn) Error() error {
 		return nil
 	}
 
-	return err.(error)
+	if e, ok := err.(error); ok {
+		return e
+	}
+
+	return fmt.Errorf("%v", err)
 }

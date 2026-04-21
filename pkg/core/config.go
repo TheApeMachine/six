@@ -65,6 +65,11 @@ type SystemConfig struct {
 	ResonanceThreshold float64       `mapstructure:"resonanceThreshold"`
 	BeliefEpsilon      float64       `mapstructure:"beliefEpsilon"`
 	RouteBudget        int           `mapstructure:"routeBudget"`
+	// QuiescenceTimeout bounds the busy-wait in vm.Orchestrator.Cycle before
+	// draining; zero means 100ms at runtime.
+	QuiescenceTimeout time.Duration `mapstructure:"quiescenceTimeout"`
+	// DrainTimeout caps the post-quiescence drain loop; zero means 100ms at runtime.
+	DrainTimeout time.Duration `mapstructure:"drainTimeout"`
 }
 
 /*
@@ -292,6 +297,16 @@ func NewConfig() *Config {
 		},
 	}
 
+	quiescenceTimeout := viper.GetDuration("system.quiescenceTimeout")
+	if quiescenceTimeout == 0 {
+		quiescenceTimeout = 100 * time.Millisecond
+	}
+
+	drainTimeout := viper.GetDuration("system.drainTimeout")
+	if drainTimeout == 0 {
+		drainTimeout = 100 * time.Millisecond
+	}
+
 	Cfg = &Config{
 		System: SystemConfig{
 			BatchSize:          WithDefault(viper.GetInt("system.batchSize"), 10000),
@@ -301,6 +316,8 @@ func NewConfig() *Config {
 			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
 			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
 			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 10),
+			QuiescenceTimeout:  quiescenceTimeout,
+			DrainTimeout:       drainTimeout,
 		},
 		Value:                 value,
 		Programs:              precompile(value),

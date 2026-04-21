@@ -42,6 +42,10 @@ system:
   resonanceThreshold: 0.6
   beliefEpsilon: 0.05
   routeBudget: 10
+  # Busy-wait bound in vm.Orchestrator.Cycle before draining emitted frames.
+  quiescenceTimeout: 100ms
+  # Post-quiescence drain loop cap.
+  drainTimeout: 100ms
 
 value:
   word: 64

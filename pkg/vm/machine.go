@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
@@ -153,7 +152,7 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 
 		if _, err := machine.orchestrator.Cycle(segments...); err != nil {
-			fmt.Println("Cycle error:", err)
+			return errnie.Error(err)
 		}
 	}
 

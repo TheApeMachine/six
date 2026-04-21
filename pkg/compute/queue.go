@@ -2,7 +2,6 @@ package compute
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/theapemachine/six/pkg/core/data"
@@ -104,7 +103,7 @@ func (q *Queue) Write(p []byte) (n int, err error) {
 	}
 
 	status, err := value.Property(primitive.STATUS)
-	fmt.Println("queue.Write received status:", status)
+
 	if err == nil && status == uint64(primitive.READY) {
 		q.Submit(value)
 		return q.stream.Write(p)
