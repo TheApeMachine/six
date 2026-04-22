@@ -386,3 +386,4 @@ func (md *multiDataset) Read(p []byte) (n int, err error) {
 func (md *multiDataset) Close() error {
 	return nil
 }
+

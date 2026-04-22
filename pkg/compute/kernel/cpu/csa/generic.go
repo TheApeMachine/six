@@ -122,3 +122,4 @@ func count64generic(counts *[64]int, buf []uint64) {
 		}
 	}
 }
+

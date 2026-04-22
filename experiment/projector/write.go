@@ -237,3 +237,4 @@ func WriteImageStrip(
 
 	return is.Generate()
 }
+

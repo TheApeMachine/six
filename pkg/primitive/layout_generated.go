@@ -83,3 +83,4 @@ var RegionSpecs = []RegionSpec{
 	{Name: "id", StartWord: IDStartWord, Words: IDWords, Bits: IDBits, LastWordMask: IDLastWordMask},
 	{Name: "affinity", StartWord: AffinityStartWord, Words: AffinityWords, Bits: AffinityBits, LastWordMask: AffinityLastWordMask},
 }
+

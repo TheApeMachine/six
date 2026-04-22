@@ -7,3 +7,4 @@ TEXT ·GetG(SB),NOSPLIT,$0-8
     get_tls(R1)
     MOVD    R1, gp+0(FP)
     RET
+

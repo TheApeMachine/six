@@ -58,3 +58,4 @@ func BarChartWithMeta(title, caption, label string) barChartOpts {
 func BarChartWithOutput(outDir, filename string) barChartOpts {
 	return func(c *BarChart) { c.outDir = outDir; c.filename = filename }
 }
+

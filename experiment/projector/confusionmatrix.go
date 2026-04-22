@@ -172,3 +172,4 @@ func ConfusionMatrixWithMeanScore(score float64) confusionMatrixOpts {
 		cm.meanScore = score
 	}
 }
+

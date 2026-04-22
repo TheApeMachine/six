@@ -275,7 +275,13 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 
 				(*stamp)[affinityStart+(i%affinityWords)] ^= w
 			}
+			stamp.NormalizeAffinity()
 		}
+
+		// A freshly minted Value should be executable when it first enters a
+		// gossip.Conn. The affinity firmware is a safe bootstrap: it strengthens
+		// routing signal without making a task-specific cognitive commitment.
+		stamp.InstallFirmware(core.AFFINITY)
 
 		// Stamp prev/next links across adjacent segments. The previous
 		// segment learns this segment's ID as its Next; this segment

@@ -69,3 +69,28 @@ func affinityCoupling(a *uint64, b *uint64, out *uint32) {
 	results[1] = uint32(union)
 }
 
+/*
+batchAffinityDistances is the portable reference for the SIMD routing primitive.
+Candidates are a row-major table of 8-word vectors; affinity rows occupy the
+first 5 words and the remaining lanes are zero-padded.
+*/
+func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *uint32) {
+	if query == nil || candidates == nil || out == nil || count <= 0 {
+		return
+	}
+
+	queryWords := (*[5]uint64)(unsafe.Pointer(query))
+	candidateWords := (*[1 << 30]uint64)(unsafe.Pointer(candidates))
+	results := (*[1 << 30]uint32)(unsafe.Pointer(out))
+
+	for idx := 0; idx < count; idx++ {
+		base := idx * affinityDistanceVectorWords
+		total := bits.OnesCount64(queryWords[0]^candidateWords[base+0]) +
+			bits.OnesCount64(queryWords[1]^candidateWords[base+1]) +
+			bits.OnesCount64(queryWords[2]^candidateWords[base+2]) +
+			bits.OnesCount64(queryWords[3]^candidateWords[base+3]) +
+			int((queryWords[4]^candidateWords[base+4])&1)
+
+		results[idx] = uint32(total)
+	}
+}

@@ -7,6 +7,12 @@ import type {
 	VizInspectSnapshot,
 } from "@/features/telemetry/types";
 import {
+	ASSET_START_WORD,
+	CONTEXT_START_WORD,
+	PROPERTIES_START_WORD,
+	VALUE_WORD_COUNT,
+} from "./layoutGenerated";
+import {
 	type ClassifiedProgram,
 	classifyProgramWire,
 	ROLE_BY_CATEGORY,
@@ -14,8 +20,6 @@ import {
 import {
 	chainIdFromWord,
 	readWordU64LE,
-	VALUE_FRAME_BYTE_LENGTH,
-	VALUE_WORD_COUNT,
 	WORD,
 } from "./valueLayout";
 import type { DecodedValueRegions } from "./valueRegions";
@@ -23,7 +27,6 @@ import {
 	affinityHexFromRegions,
 	decodeProgramWire,
 	decodeValueRegions,
-	REGION_SPECS,
 } from "./valueRegions";
 import type { RawValueFrame } from "./wire";
 
@@ -61,13 +64,11 @@ value-store.test.ts will catch the drift.
 Layout is PropertiesStartWord = 56, AssetStartWord = 72,
 ContextStartWord = 40 — see pkg/compute/kernel/layout.go.
 */
-const PROPERTIES_REFUTATION_TARGET_WORD = 57; // properties[1]
-const PROPERTIES_NOISE_WORD = 60; // properties[4]
-const PROPERTIES_INTERVENTION_WITNESS_WORD = 56; // properties[0]
+const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTIES_START_WORD + 1;
+const PROPERTIES_NOISE_WORD = PROPERTIES_START_WORD + 4;
 const FALSIFIED_BIT = 1n << 62n;
-const ASSET_GRADIENT_WORD = 72 + 16; // asset[16,8] start — matches kernel AssetStartWord
+const ASSET_GRADIENT_WORD = ASSET_START_WORD + 16;
 const ASSET_GRADIENT_SPAN = 8;
-const CONTEXT_START_WORD = 40;
 const CONTEXT_SPAN = 8;
 
 export interface DecodedValueFrame {
@@ -274,113 +275,30 @@ function inspectFromStored(
 	};
 }
 
-/*
-buildGraphSnapshot groups Values by their on-wire community id (stamped
-by the mesh routing layer into properties[8]) and emits FieldSnapshot
-entries for the canvas. Values whose community word is still zero land
-in orphanValues — they haven't been processed by a community field yet.
+interface CommunityData {
+	affinityHex: string;
+	members: Map<string, FieldValueSnapshot>;
+	hypothesizing: number;
+	falsified: number;
+	intervening: number;
+}
 
-Field-level crystallization metrics (coverage, consensus, density, …)
-arrive separately as telemetry envelopes and are stashed in the
-store's fieldMetrics cache. Per-community tallies of causal residues
-(hypothesising, falsified, intervening) are derived here in one pass
-over the members so the UI doesn't have to iterate twice.
-*/
-function buildGraphSnapshot(store: ValueStore): VizGraphSnapshot {
-	const communityMap = new Map<
-		number,
-		{
-			members: FieldValueSnapshot[];
-			affinityHex: string;
-			hypothesizing: number;
-			falsified: number;
-			intervening: number;
-		}
-	>();
-	const orphanValues: FieldValueSnapshot[] = [];
-
-	for (const stored of store.list()) {
-		if (stored.communityId < 0) {
-			orphanValues.push(fieldSnapshotFromStored(stored, ""));
-			continue;
-		}
-
-		let bucket = communityMap.get(stored.communityId);
-
-		if (!bucket) {
-			bucket = {
-				members: [],
-				affinityHex: stored.affinityHex,
-				hypothesizing: 0,
-				falsified: 0,
-				intervening: 0,
-			};
-			communityMap.set(stored.communityId, bucket);
-		}
-
-		bucket.members.push(
-			fieldSnapshotFromStored(stored, bucket.affinityHex),
-		);
-
-		if (stored.causal.hypothesizing) {
-			bucket.hypothesizing++;
-		}
-
-		if (stored.causal.falsified) {
-			bucket.falsified++;
-		}
-
-		if (stored.causal.intervening) {
-			bucket.intervening++;
-		}
+function applyCausalDelta(
+	data: CommunityData,
+	causal: CausalState,
+	sign: number,
+) {
+	if (causal.hypothesizing) {
+		data.hypothesizing += sign;
 	}
 
-	const metricsByCommunity = store.metricsCache();
-	const fields: FieldSnapshot[] = [];
-
-	for (const [id, bucket] of communityMap) {
-		const metrics = metricsByCommunity.get(id);
-
-		fields.push({
-			id,
-			memberCount: bucket.members.length,
-			saturated: metrics?.saturated ?? false,
-			/*
-			Legacy `saturation` is kept as an alias for crystallization so
-			pre-existing HUD widgets that sampled that field keep working
-			while new widgets consume the richer set explicitly.
-			*/
-			saturation: metrics?.crystallization ?? 0,
-			lastAction: "",
-			actionCount: 0,
-			reactionCount: 0,
-			affinityHex: bucket.affinityHex,
-			concentration:
-				store.size > 0 ? bucket.members.length / store.size : 0,
-			members: bucket.members,
-			coverage: metrics?.coverage ?? 0,
-			consensus: metrics?.consensus ?? 0,
-			labelDensity: metrics?.labelDensity ?? 0,
-			crystallization: metrics?.crystallization ?? 0,
-			dominantRatio: metrics?.dominantRatio ?? 0,
-			modeCount: metrics?.modeCount ?? 0,
-			pressureMult: metrics?.pressureMult ?? 0,
-			hypothesizingCount: bucket.hypothesizing,
-			falsifiedCount: bucket.falsified,
-			interveningCount: bucket.intervening,
-		});
+	if (causal.falsified) {
+		data.falsified += sign;
 	}
 
-	fields.sort((left, right) => left.id - right.id);
-	orphanValues.sort((left, right) => left.id.localeCompare(right.id));
-
-	return {
-		timestamp: Date.now(),
-		fields,
-		orphanValues,
-		totalValues: store.size,
-		totalCommunities: fields.length,
-	};
+	if (causal.intervening) {
+		data.intervening += sign;
+	}
 }
 
 export function decodeValueFrame(frame: Uint8Array): DecodedValueFrame {
@@ -419,6 +337,12 @@ export class ValueStore {
 	*/
 	private readonly fieldMetrics = new Map<number, FieldMetricsPayload>();
 	private selectedId: string | null = null;
+
+	private readonly communityIndex = new Map<number, CommunityData>();
+	private readonly orphanMembers = new Map<string, FieldValueSnapshot>();
+	private graphDirty = true;
+	private graphSeq = 0;
+	private snapshotCache: VizGraphSnapshot | null = null;
 
 	get(id: string): StoredValue | undefined {
 		return this.values.get(id);
@@ -459,6 +383,11 @@ export class ValueStore {
 				causal: blankCausalState(),
 			};
 			this.values.set(normalized, value);
+			this.orphanMembers.set(
+				normalized,
+				fieldSnapshotFromStored(value, ""),
+			);
+			this.markGraphDirty();
 		}
 
 		if (init?.role !== undefined) {
@@ -494,6 +423,7 @@ export class ValueStore {
 	}
 
 	private attachFrame(value: StoredValue, frame: Uint8Array) {
+		const prevCommunity = value.communityId;
 		const decoded = decodeValueFrame(frame);
 
 		value.id = decoded.id || value.id;
@@ -546,10 +476,163 @@ export class ValueStore {
 		overhead per frame is negligible.
 		*/
 		value.causal = readCausalState(decoded.words);
+
+		this.syncMembership(value, prevCommunity, value.communityId);
+	}
+
+	private markGraphDirty() {
+		this.graphDirty = true;
+	}
+
+	private removeMemberFromCommunity(communityId: number, valueId: string) {
+		const data = this.communityIndex.get(communityId);
+
+		if (!data) {
+			return;
+		}
+
+		const snap = data.members.get(valueId);
+
+		if (!snap) {
+			return;
+		}
+
+		applyCausalDelta(data, snap.causal, -1);
+		data.members.delete(valueId);
+
+		if (data.members.size === 0) {
+			this.communityIndex.delete(communityId);
+		}
+	}
+
+	private addMemberToCommunity(communityId: number, stored: StoredValue) {
+		let data = this.communityIndex.get(communityId);
+
+		if (!data) {
+			data = {
+				affinityHex: stored.affinityHex,
+				members: new Map(),
+				hypothesizing: 0,
+				falsified: 0,
+				intervening: 0,
+			};
+			this.communityIndex.set(communityId, data);
+		}
+
+		const snap = fieldSnapshotFromStored(stored, data.affinityHex);
+		data.members.set(stored.id, snap);
+		applyCausalDelta(data, snap.causal, 1);
+	}
+
+	private updateMemberSnapshot(stored: StoredValue) {
+		if (stored.communityId < 0) {
+			const snap = this.orphanMembers.get(stored.id);
+
+			if (snap) {
+				Object.assign(snap, fieldSnapshotFromStored(stored, ""));
+			}
+
+			return;
+		}
+
+		const data = this.communityIndex.get(stored.communityId);
+		const snap = data?.members.get(stored.id);
+
+		if (!data || !snap) {
+			return;
+		}
+
+		const oldCausal = snap.causal;
+		applyCausalDelta(data, oldCausal, -1);
+		Object.assign(snap, fieldSnapshotFromStored(stored, data.affinityHex));
+		applyCausalDelta(data, snap.causal, 1);
+	}
+
+	private syncMembership(
+		stored: StoredValue,
+		prevCommunity: number,
+		nextCommunity: number,
+	) {
+		if (prevCommunity === nextCommunity) {
+			this.updateMemberSnapshot(stored);
+			this.markGraphDirty();
+			return;
+		}
+
+		if (prevCommunity < 0) {
+			this.orphanMembers.delete(stored.id);
+		} else {
+			this.removeMemberFromCommunity(prevCommunity, stored.id);
+		}
+
+		if (nextCommunity < 0) {
+			this.orphanMembers.set(
+				stored.id,
+				fieldSnapshotFromStored(stored, ""),
+			);
+		} else {
+			this.addMemberToCommunity(nextCommunity, stored);
+		}
+
+		this.markGraphDirty();
+	}
+
+	private materializeSnapshot(): VizGraphSnapshot {
+		if (!this.graphDirty && this.snapshotCache) {
+			return this.snapshotCache;
+		}
+
+		this.graphSeq++;
+		const n = this.values.size;
+		const fields: FieldSnapshot[] = [];
+
+		for (const [id, data] of this.communityIndex) {
+			const metrics = this.fieldMetrics.get(id);
+			const members = Array.from(data.members.values());
+
+			fields.push({
+				id,
+				memberCount: members.length,
+				saturated: metrics?.saturated ?? false,
+				saturation: metrics?.crystallization ?? 0,
+				lastAction: "",
+				actionCount: 0,
+				reactionCount: 0,
+				affinityHex: data.affinityHex,
+				concentration: n > 0 ? members.length / n : 0,
+				members,
+				coverage: metrics?.coverage ?? 0,
+				consensus: metrics?.consensus ?? 0,
+				labelDensity: metrics?.labelDensity ?? 0,
+				crystallization: metrics?.crystallization ?? 0,
+				dominantRatio: metrics?.dominantRatio ?? 0,
+				modeCount: metrics?.modeCount ?? 0,
+				pressureMult: metrics?.pressureMult ?? 0,
+				hypothesizingCount: data.hypothesizing,
+				falsifiedCount: data.falsified,
+				interveningCount: data.intervening,
+			});
+		}
+
+		fields.sort((left, right) => left.id - right.id);
+
+		const orphanValues = Array.from(this.orphanMembers.values());
+		orphanValues.sort((left, right) => left.id.localeCompare(right.id));
+
+		this.snapshotCache = {
+			timestamp: Date.now(),
+			graphSeq: this.graphSeq,
+			fields,
+			orphanValues,
+			totalValues: n,
+			totalCommunities: fields.length,
+		};
+		this.graphDirty = false;
+		return this.snapshotCache;
 	}
 
 	private rebuildUiState(): TelemetryState {
-		const snapshot = buildGraphSnapshot(this);
+		const snapshot = this.materializeSnapshot();
 
 		let selected: VizInspectSnapshot | null = null;
 
@@ -597,6 +680,7 @@ export class ValueStore {
 		}
 
 		this.fieldMetrics.set(payload.communityIdx, payload);
+		this.markGraphDirty();
 		return this.rebuildUiState();
 	}
 

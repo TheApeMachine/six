@@ -10,7 +10,7 @@ import (
 func TestBridge_Write(t *testing.T) {
 	t.Parallel()
 
-	Convey("Write succeeds when no client is connected", t, func() {
+	Convey("Write succeeds when the bridge URL is empty (no uplink)", t, func() {
 		bridge, err := NewBridge(context.Background(), "")
 
 		So(err, ShouldBeNil)

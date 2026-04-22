@@ -23,3 +23,4 @@ managed memory, and no escape analysis on the value pointer.
 
 //go:noescape
 func UniversalBitwise(value unsafe.Pointer)
+

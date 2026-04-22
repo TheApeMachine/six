@@ -53,6 +53,9 @@ type ValueRole uint64
 const (
 	ValueRoleNone ValueRole = iota
 	ValueRoleProgrammer
+	ValueRoleLearner
+	ValueRoleReadout
+	ValueRoleAssociation
 )
 
 func (value *Value) Property(property PropertyType) (uint64, error) {
@@ -60,13 +63,100 @@ func (value *Value) Property(property PropertyType) (uint64, error) {
 		return 0, errors.New("value is nil")
 	}
 
-	if property > EMIT {
+	if property < 0 || property > SURPRISAL {
 		return 0, errors.New("property out of range")
 	}
 
 	start := core.Cfg.Value.Region.Properties.Start
 
 	return (*value)[start+int(property)], nil
+}
+
+func PropertyWord(property PropertyType) int {
+	return core.Cfg.Value.Region.Properties.Start + int(property)
+}
+
+func (value *Value) SetProperty(property PropertyType, data uint64) {
+	if value == nil || property < 0 || property > SURPRISAL {
+		return
+	}
+
+	value.Set(PropertyWord(property), data)
+}
+
+func (value *Value) Status() StatusType {
+	word, err := value.Property(STATUS)
+	if err != nil {
+		return ERROR
+	}
+
+	return StatusType(word)
+}
+
+func (value *Value) SetStatus(status StatusType) {
+	value.SetProperty(STATUS, uint64(status))
+}
+
+func (value *Value) Role() ValueRole {
+	word, err := value.Property(ROLE)
+	if err != nil {
+		return ValueRoleNone
+	}
+
+	return ValueRole(word)
+}
+
+func (value *Value) Target() uint64 {
+	word, err := value.Property(TARGET)
+	if err != nil {
+		return 0
+	}
+
+	return word
+}
+
+func (value *Value) Surprisal() uint64 {
+	word, err := value.Property(SURPRISAL)
+	if err != nil {
+		return 0
+	}
+
+	return word
+}
+
+func (value *Value) Epoch() uint64 {
+	word, err := value.Property(EPOCH)
+	if err != nil {
+		return 0
+	}
+
+	return word
+}
+
+func (value *Value) IncEpoch() uint64 {
+	next := value.Epoch() + 1
+	value.SetProperty(EPOCH, next)
+	return next
+}
+
+func (value *Value) TTL() uint64 {
+	word, err := value.Property(TTL)
+	if err != nil {
+		return 0
+	}
+
+	return word
+}
+
+func (value *Value) DecTTL() uint64 {
+	ttl := value.TTL()
+	if ttl == 0 {
+		return 0
+	}
+
+	ttl--
+	value.SetProperty(TTL, ttl)
+	return ttl
 }
 
 /*

@@ -159,6 +159,7 @@ func (b *Backend) Run() {
 
 				b.pool.Schedule(func() {
 					defer best.Inflight.Add(-1)
+					defer primitive.FreeValue(work.Value)
 					start := time.Now()
 
 					// Execute on the chosen kernel
@@ -198,6 +199,54 @@ func (b *Backend) findLowestPressureSubstrate() *SubstrateStats {
 		}
 	}
 	return best
+}
+
+// nearestAffinitySubstrate is implemented by CUDA/Metal backends (and test spies) for
+// packed batch Hamming distance; the generic kernel.Substrate contract stays minimal.
+type nearestAffinitySubstrate interface {
+	NearestAffinity(query unsafe.Pointer, candidates unsafe.Pointer, count int) ([]uint32, error)
+}
+
+// affinityBatchRowWords is the packed row width for query/candidate buffers shared by
+// cpu.AffinityDistances and GPU NearestAffinity kernels. Keep in sync with
+// kernel/cpu/affinity_distances.go (affinityDistanceVectorWords).
+const affinityBatchRowWords = 8
+
+/*
+AffinityDistances returns per-candidate Hamming distance from query to each row.
+It prefers the lowest-pressure substrate that supports NearestAffinity, then falls
+back to the CPU batch implementation (same as mesh AffinityRouter wiring).
+*/
+func (b *Backend) AffinityDistances(
+	query *[primitive.AffinityWords]uint64,
+	candidates [][primitive.AffinityWords]uint64,
+) []uint32 {
+	if b == nil || query == nil || len(candidates) == 0 {
+		return nil
+	}
+
+	if best := b.findLowestPressureSubstrate(); best != nil {
+		if sub, ok := best.Substrate.(nearestAffinitySubstrate); ok {
+			var packedQuery [affinityBatchRowWords]uint64
+			copy(packedQuery[:], query[:])
+
+			packedCandidates := make([]uint64, len(candidates)*affinityBatchRowWords)
+			for i, row := range candidates {
+				base := i * affinityBatchRowWords
+				copy(packedCandidates[base:base+primitive.AffinityWords], row[:])
+			}
+
+			if dist, err := sub.NearestAffinity(
+				unsafe.Pointer(&packedQuery[0]),
+				unsafe.Pointer(&packedCandidates[0]),
+				len(candidates),
+			); err == nil {
+				return dist
+			}
+		}
+	}
+
+	return cpu.AffinityDistances(query, candidates)
 }
 
 func (b *Backend) updateKernels(result *primitive.Value) {

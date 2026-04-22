@@ -181,3 +181,4 @@ func Surprisal(probability float64, floor float64) float64 {
 
 	return -math.Log2(probability)
 }
+

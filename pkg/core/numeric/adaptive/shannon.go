@@ -105,3 +105,4 @@ func (shannon *Shannon) Consensus(histogram map[uint16]int) float64 {
 
 	return 1 - entropy/maxEntropy
 }
+

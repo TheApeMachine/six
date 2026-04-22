@@ -75,3 +75,4 @@ func writeConfig() error {
 	fmt.Printf("Writing default configuration to %s\n", configPath)
 	return os.WriteFile(configPath, b, 0644)
 }
+

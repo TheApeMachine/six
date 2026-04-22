@@ -16,3 +16,4 @@ func normalizeClassificationLabelIndex(label int, labels []string) (int, bool) {
 
 	return 0, false
 }
+

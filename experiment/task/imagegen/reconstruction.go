@@ -391,3 +391,4 @@ func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
+

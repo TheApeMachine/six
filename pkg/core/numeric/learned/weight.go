@@ -108,3 +108,4 @@ func (weight *Weight) Reset() error {
 
 	return weight.deltaEMA.Reset()
 }
+

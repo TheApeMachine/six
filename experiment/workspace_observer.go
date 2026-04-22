@@ -15,3 +15,4 @@ variants.
 type WorkspaceTokenObserver interface {
 	ObserveWorkspaceAsTokens() bool
 }
+

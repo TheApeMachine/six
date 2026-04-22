@@ -10,3 +10,4 @@ func count64safe(counts *[64]int, buf []uint64) {
 		}
 	}
 }
+

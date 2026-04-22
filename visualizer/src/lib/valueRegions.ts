@@ -22,27 +22,20 @@ wire the visualizer consumes.
 */
 
 import {
+	REGION_SPECS as GENERATED_REGION_SPECS,
+	type RegionSpec as GeneratedRegionSpec,
+	VALUE_FRAME_BYTE_LENGTH,
+	VALUE_WORD_COUNT,
+	type ValueRegionName,
+} from "./layoutGenerated";
+import {
 	chainIdFromWord,
 	formatWordHex64,
 	readWordU64LE,
-	VALUE_FRAME_BYTE_LENGTH,
-	VALUE_WORD_COUNT,
 	WORD,
 } from "./valueLayout";
 
-/** Canonical region keys aligned with kernel naming. */
-export type ValueRegionName =
-	| "tokens"
-	| "program"
-	| "signals"
-	| "context"
-	| "gradient"
-	| "properties"
-	| "asset"
-	| "prev"
-	| "next"
-	| "id"
-	| "affinity";
+export type { ValueRegionName } from "./layoutGenerated";
 
 export interface ValueRegionSlice {
 	name: ValueRegionName;
@@ -69,44 +62,13 @@ export interface DecodedValueRegions {
 }
 
 /*
-REGION_SPECS mirrors the runtime layout declared in cmd/cfg/config.yml and
-consumed by pkg/primitive via core.Cfg:
-
-  tokens   w0..w15    (1024 bits — Morton slab)
-  program  w16..w23   (512 bits)
-  signals  w24..w31   (512 bits)
-  context  w32..w39   (512 bits)
-  gradient w40..w47   (512 bits)
-  properties w48..w63 (1024 bits — canonical band; community id at
-                       w56 = properties[8], firmware status at w57 = properties[9])
-  asset    w64..w119  (3584 bits — peer S+C+G+P staging + scratch + scheduler)
-  prev     w120
-  next     w121
-  id       w122
-  affinity w123..w127 (257 bits rounded up to 5 words)
-
-mesh.Field stamps the community id at absolute word 56, which sits inside
-PROPERTIES (not ASSET) — the inspector surfaces it alongside the rest of the
-properties labels. Do NOT change these offsets without updating config.yml
-in lockstep or StageAssetFrom will mis-stage peer state.
+REGION_SPECS is generated from cmd/cfg/config.yml. The visualizer must consume
+that table directly so the wire decoder, program classifier, and inspector stay
+aligned with the same layout the kernels execute.
 */
-export const REGION_SPECS: ReadonlyArray<{
-	name: ValueRegionName;
-	startWord: number;
-	wordCount: number;
-}> = [
-	{ name: "tokens", startWord: 0, wordCount: 16 },
-	{ name: "program", startWord: 16, wordCount: 16 },
-	{ name: "signals", startWord: 32, wordCount: 8 },
-	{ name: "context", startWord: 40, wordCount: 8 },
-	{ name: "gradient", startWord: 48, wordCount: 8 },
-	{ name: "properties", startWord: 56, wordCount: 16 },
-	{ name: "asset", startWord: 72, wordCount: 48 },
-	{ name: "prev", startWord: 120, wordCount: 1 },
-	{ name: "next", startWord: 121, wordCount: 1 },
-	{ name: "id", startWord: 122, wordCount: 1 },
-	{ name: "affinity", startWord: 123, wordCount: 5 },
-] as const;
+export const REGION_SPECS: ReadonlyArray<
+	Pick<GeneratedRegionSpec, "name" | "startWord" | "wordCount">
+> = GENERATED_REGION_SPECS;
 
 /** Program sub-indices relative to program region base (word 16). */
 export const PROGRAM = {
@@ -147,7 +109,9 @@ export interface DecodedProgramWire {
 /*
 DecodeProgramWire interprets the eight-word program region per kernel layout.
 */
-export function decodeProgramWire(program: ValueRegionSlice): DecodedProgramWire {
+export function decodeProgramWire(
+	program: ValueRegionSlice,
+): DecodedProgramWire {
 	const w = program.words;
 	const opcodeWord = w[PROGRAM.OPCODE] ?? 0n;
 	const low = Number(opcodeWord & 0xffn);
@@ -236,7 +200,9 @@ export function wordsFromFrame(frame: Uint8Array): bigint[] {
 /*
 DecodeValueRegionsFromFrame is the ergonomic single entry for raw bytes.
 */
-export function decodeValueRegionsFromFrame(frame: Uint8Array): DecodedValueRegions {
+export function decodeValueRegionsFromFrame(
+	frame: Uint8Array,
+): DecodedValueRegions {
 	return decodeValueRegions(wordsFromFrame(frame));
 }
 
@@ -255,9 +221,7 @@ export function formatWordHexAt(
 				wordIndex >= slice.startWord &&
 				wordIndex < slice.startWord + slice.wordCount
 			) {
-				return formatWordHex64(
-					slice.words[wordIndex - slice.startWord],
-				);
+				return formatWordHex64(slice.words[wordIndex - slice.startWord]);
 			}
 		}
 	}

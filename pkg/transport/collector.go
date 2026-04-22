@@ -33,14 +33,17 @@ type Collector struct {
 // NewCollector returns an empty collector; initialCap hints preallocation
 // (e.g. core.Cfg.Value.Bytes).
 func NewCollector() *Collector {
+	ctx, cancel := context.WithCancel(context.Background())
 	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
 	pr, pw := rb.Pipe()
 
 	return &Collector{
-		rb:  rb,
-		pr:  pr,
-		pw:  pw,
-		buf: make(chan *primitive.Value, 64),
+		ctx:    ctx,
+		cancel: cancel,
+		rb:     rb,
+		pr:     pr,
+		pw:     pw,
+		buf:    make(chan *primitive.Value, 64),
 	}
 }
 
@@ -96,6 +99,8 @@ func (collector *Collector) Write(p []byte) (n int, err error) {
 			primitive.RESOLVED,
 		) {
 			collector.buf <- value
+		} else {
+			primitive.FreeValue(value)
 		}
 
 		return collector.pw.Write(p)
@@ -110,7 +115,14 @@ func (collector *Collector) Close() error {
 		return nil
 	}
 
-	collector.cancel()
+	if collector.cancel != nil {
+		collector.cancel()
+	}
+
+	if collector.pw != nil {
+		_ = collector.pw.Close()
+	}
+
 	return collector.err
 }
 
@@ -118,5 +130,9 @@ func (collector *Collector) Close() error {
 Error implements the error interface.
 */
 func (collector *Collector) Error() string {
+	if collector == nil || collector.err == nil {
+		return ""
+	}
+
 	return collector.err.Error()
 }

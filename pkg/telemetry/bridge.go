@@ -3,85 +3,134 @@ package telemetry
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"net/http"
-	"sync"
-	"sync/atomic"
+	"strings"
+	"time"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
 	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
+/*
+Bridge is the runtime uplink for raw primitive.Value wire frames.
+
+The browser and this process both connect as WebSocket clients to the same
+hub (visualizer/server/bridge.ts on :6600). In development, Vite proxies
+/ws on the dev server port to that hub so config can use ws://127.0.0.1:3000/ws.
+
+This type implements io.Writer: each Write sends one binary message on the
+client connection (after connect succeeds). Reconnects with backoff when the
+hub or proxy is not up yet.
+*/
 type Bridge struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	err    error
-	conn   *websocket.Conn
-	seq    atomic.Uint64
-	queue  sync.Map
+	url    string
+	send   chan []byte
 }
 
 func NewBridge(ctx context.Context, url string) (*Bridge, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	trimmed := strings.TrimSpace(url)
+
 	return &Bridge{
 		ctx:    ctx,
 		cancel: cancel,
-		queue:  sync.Map{},
+		url:    trimmed,
+		send:   make(chan []byte, 8192),
 	}, nil
 }
 
-func (bridge *Bridge) ListenAndServe() error {
-	err := http.ListenAndServe(":6600", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, _, _, err := ws.UpgradeHTTP(r, w)
-		if err != nil {
-			errnie.Error(errors.Join(
-				err,
-				fmt.Errorf("ws.UpgradeHTTP(r, w) failed"),
-			))
+/*
+Connect runs until the bridge context is cancelled. When url is empty, it
+returns immediately (tests and runs that disable telemetry).
 
-			return
-		}
-		go func() {
-			for {
-				select {
-				case <-bridge.ctx.Done():
-					return
-				default:
-					var payload []byte
-
-					bridge.queue.Range(func(k, v any) bool {
-						payload = append(payload, v.([]byte)...)
-						bridge.queue.Delete(k)
-						return true
-					})
-
-					if len(payload) == 0 {
-						continue
-					}
-
-					if err := wsutil.WriteServerMessage(
-						conn, websocket.BinaryMessage, payload,
-					); err != nil {
-						errnie.Error(errors.Join(
-							err,
-							fmt.Errorf("wsutil.WriteServerMessage(conn, websocket.BinaryMessage, payload) failed"),
-						))
-						return
-					}
-				}
-			}
-		}()
-	}))
-
-	if err != nil {
-		return errnie.Error(err)
+When url is set, it dials in a loop and forwards frames from send onto the
+socket until Close/cancel.
+*/
+func (bridge *Bridge) Connect() error {
+	if bridge == nil {
+		return errnie.Error(errors.New("bridge is nil"))
 	}
 
-	return nil
+	if bridge.url == "" {
+		return nil
+	}
+
+	bridge.connectLoop()
+	return bridge.ctx.Err()
+}
+
+func (bridge *Bridge) connectLoop() {
+	backoff := 200 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+
+	for {
+		if bridge.ctx.Err() != nil {
+			return
+		}
+
+		dialer := websocket.Dialer{
+			HandshakeTimeout: 10 * time.Second,
+		}
+
+		conn, _, dialErr := dialer.DialContext(bridge.ctx, bridge.url, nil)
+		if dialErr != nil {
+			errnie.Trace("telemetry.Bridge.Connect: dial", dialErr.Error())
+
+			select {
+			case <-bridge.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
+
+			continue
+		}
+
+		backoff = 200 * time.Millisecond
+
+		writeErr := bridge.pump(conn)
+		_ = conn.Close()
+
+		if bridge.ctx.Err() != nil {
+			return
+		}
+
+		if writeErr != nil && !errors.Is(writeErr, context.Canceled) {
+			errnie.Trace("telemetry.Bridge.Connect: pump", writeErr.Error())
+		}
+
+		select {
+		case <-bridge.ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+func (bridge *Bridge) pump(conn *websocket.Conn) error {
+	for {
+		select {
+		case <-bridge.ctx.Done():
+			return bridge.ctx.Err()
+
+		case payload := <-bridge.send:
+			deadline := time.Now().Add(15 * time.Second)
+
+			if err := conn.SetWriteDeadline(deadline); err != nil {
+				return err
+			}
+
+			if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (bridge *Bridge) Close() error {
@@ -91,7 +140,7 @@ func (bridge *Bridge) Close() error {
 
 	bridge.cancel()
 
-	return bridge.err
+	return nil
 }
 
 /*
@@ -110,17 +159,19 @@ func (bridge *Bridge) Write(p []byte) (int, error) {
 		return 0, errnie.Error(io.ErrClosedPipe, errors.New("bridge is nil"))
 	}
 
-	buf := make([]byte, len(p))
-	copy(buf, p)
-	bridge.queue.Store(bridge.seq.Add(1), buf)
-
-	return len(p), nil
-}
-
-func (bridge *Bridge) Error() error {
-	if bridge == nil {
-		return nil
+	if bridge.url == "" {
+		return len(p), nil
 	}
 
-	return bridge.err
+	buf := make([]byte, len(p))
+	copy(buf, p)
+
+	select {
+	case <-bridge.ctx.Done():
+		return 0, bridge.ctx.Err()
+
+	case bridge.send <- buf:
+		return len(p), nil
+	}
 }
+

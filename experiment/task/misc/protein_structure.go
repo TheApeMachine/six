@@ -321,3 +321,4 @@ structural attractor classes from raw amino acid byte patterns at
 this resolution.`
 	}
 }
+

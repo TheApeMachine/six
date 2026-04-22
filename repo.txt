@@ -91,16 +91,6 @@
 ./experiment/trialmap/trialmap.go
 ./experiment/workspace_observer.go
 ./main.go
-./patch_backend_loop.go
-./patch_conn2.go
-./patch_conn_read.go
-./patch_cycle_deadline.go
-./patch_cycle_deadline_step3.go
-./patch_field_force_beam.go
-./patch_field_remove_update.go
-./patch_field_submit.go
-./patch_field_write.go
-./patch_orchestrator.go
 ./pkg/compute/backend.go
 ./pkg/compute/errors.go
 ./pkg/compute/kernel/correlation.go
@@ -195,10 +185,10 @@
 ./pkg/errnie/logging_config.go
 ./pkg/errnie/trace_format.go
 ./pkg/gossip/conn.go
-./pkg/gossip/frame.go
 ./pkg/mesh/field.go
 ./pkg/mesh/field_eigenmodes.go
 ./pkg/mesh/field_metrics.go
+./pkg/mesh/program.go
 ./pkg/network/conn.go
 ./pkg/network/errors.go
 ./pkg/network/host.go
@@ -230,7 +220,6 @@
 ./pkg/pool/lib_runtime_linkage.go
 ./pkg/pool/pool.go
 ./pkg/primitive/emit.go
-./pkg/primitive/emit_clone_host.go
 ./pkg/primitive/errors.go
 ./pkg/primitive/gen.go
 ./pkg/primitive/geometry.go
@@ -944,24 +933,45 @@ See repository for license details.
 package cmd
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+
 	"github.com/spf13/cobra"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 var bridgeCmd = &cobra.Command{
 	Use:   "bridge",
-	Short: "Run the bridge",
-	Long:  "Run the bridge",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		bridge, err := telemetry.NewBridge(cmd.Context(), "ws://localhost:6600")
+	Short: "Run the visualizer WebSocket telemetry hub (Node)",
+	Long: `Runs the fan-out hub that accepts WebSocket clients on port 6600
+(see visualizer/server/bridge.ts). The Go runtime connects to this hub as a
+client (via telemetry.ws_url in config, often through the Vite /ws proxy).
 
+From the repository root: same as "cd visualizer && npm run bridge".`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		workDir, err := os.Getwd()
 		if err != nil {
-			return err
+			return errnie.Error(err)
 		}
 
-		if err := bridge.ListenAndServe(); err != nil {
-			errnie.Error(err)
+		vizDir := filepath.Join(workDir, "visualizer")
+		if _, statErr := os.Stat(filepath.Join(vizDir, "package.json")); statErr != nil {
+			return errnie.Error(fmt.Errorf(
+				"visualizer/package.json not found under %s — run this command from the repo root",
+				workDir,
+			))
+		}
+
+		c := exec.CommandContext(cmd.Context(), "npm", "run", "bridge")
+		c.Dir = vizDir
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		c.Stdin = os.Stdin
+
+		if runErr := c.Run(); runErr != nil {
+			return errnie.Error(runErr)
 		}
 
 		return nil
@@ -1017,7 +1027,13 @@ system:
   shannonLimit: 0.47
   resonanceThreshold: 0.6
   beliefEpsilon: 0.05
-  routeBudget: 10
+  # Max Hamming distance (total popcount over affinity words) to join an
+  # existing child field; higher values merge more visitors per community.
+  routeBudget: 128
+  # Busy-wait bound in vm.Orchestrator.Cycle before draining emitted frames.
+  quiescenceTimeout: 100ms
+  # Post-quiescence drain loop cap.
+  drainTimeout: 100ms
 
 value:
   word: 64
@@ -1142,9 +1158,9 @@ programs:
   beam_swarm_step: |
     tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    signals[0,8]    signals[0,8]    properties[0,1] xor reduce
-    properties[0,1] properties[1,1] properties[0,1] or  accumulate
-    properties[0,1] affinity[0,5]   affinity[0,5]   xor accumulate
+    signals[0,8]    signals[0,8]    properties[13,1] xor reduce
+    properties[13,1] properties[1,1] properties[13,1] or  accumulate
+    properties[13,1] affinity[0,5]   affinity[0,5]   xor accumulate
     signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate
     next self
 
@@ -1158,7 +1174,7 @@ programs:
   # the chain elsewhere.
   surprisal: |
     tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[0,1] xor reduce
+    signals[0,8] signals[0,8] properties[13,1] xor reduce
     signals[0,8] gradient[0,8] gradient[0,8]  xor accumulate
     next self
 
@@ -1229,8 +1245,8 @@ programs:
   causal_explore: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
-    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
-    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    signals[0,8]    signals[0,8]    properties[13,2] xor reduce
+    properties[13,2] properties[2,2] properties[13,2] or  accumulate
 
   # Causal Hub: iterative causal-gap exploration. Loops via `next self`
   # until the queue or a finalizer breaks the circuit. Each iteration
@@ -1245,8 +1261,8 @@ programs:
   causal_hub: |
     tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
     gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
-    signals[0,8]    signals[0,8]    properties[0,2] xor reduce
-    properties[0,2] properties[2,2] properties[0,2] or  accumulate
+    signals[0,8]    signals[0,8]    properties[13,2] xor reduce
+    properties[13,2] properties[2,2] properties[13,2] or  accumulate
     asset[40,8]     gradient[0,8]   gradient[0,8]   xor accumulate
     next self
 
@@ -1314,7 +1330,7 @@ programs:
   # cascade.
   intervene: |
     context[0,8] asset[16,8]  signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[0,1] or  reduce
+    signals[0,8] signals[0,8] properties[13,1] or  reduce
     asset[16,8]  gradient[0,8] gradient[0,8]  xor accumulate
 <<<END>>>
 <<<FILE ./cmd/init.go>>>
@@ -2429,7 +2445,7 @@ func (dataset *Dataset) streamBabiJSON(reader io.Reader, fn rowVisitor) error {
 func babiQAtoRowSample(qa babiQASample) rowSample {
 	return rowSample{
 		streamText:  qa.Full,
-		promptText:  extractBabiQuestion(qa.Visible),
+		promptText:  qa.Visible,
 		labelText:   qa.Answer,
 		hasLabel:    qa.Answer != "",
 		labelIsText: true,
@@ -2866,10 +2882,16 @@ func (dataset *Dataset) materializeSample(sample rowSample, sampleIdx uint32) da
 
 	textBytes := []byte(full.String())
 
+	var labelInt uint64
+	if sample.hasLabel {
+		labelInt = uint64(sample.labelInt) + 1
+	}
+
 	return data.Sample{
 		SampleID: sampleIdx,
 		Text:     textBytes,
 		Label:    label,
+		LabelInt: labelInt,
 		Prompt:   prompt,
 	}
 }
@@ -2992,6 +3014,7 @@ func cloneSampleSlice(samples []data.Sample) []data.Sample {
 			SampleID: samples[index].SampleID,
 			Text:     append([]byte(nil), samples[index].Text...),
 			Label:    append([]byte(nil), samples[index].Label...),
+			LabelInt: samples[index].LabelInt,
 			Prompt:   append([]byte(nil), samples[index].Prompt...),
 		}
 	}
@@ -3950,6 +3973,7 @@ type Sample struct {
 	SampleID uint32
 	Text     []byte
 	Label    []byte
+	LabelInt uint64
 	Prompt   []byte
 }
 
@@ -7335,17 +7359,25 @@ type ExtractionScorer struct{}
 
 func (scorer *ExtractionScorer) Enrich(data *ExperimentalData) {
 	exp := strings.TrimSpace(strings.ToLower(string(data.Holdout)))
-
 	obs := strings.TrimSpace(strings.ToLower(string(data.Generation)))
 
 	var exact float64
+	var partial float64
 
-	if exp != "" && obs == exp {
-		exact = 1.0
+	if exp != "" {
+		if obs == exp {
+			exact = 1.0
+			partial = 1.0
+		} else if strings.Contains(obs, exp) {
+			// If the expected answer is somewhere in the output, give partial credit.
+			// This is especially useful for bAbI where the output might be the whole story
+			// or a sentence containing the answer.
+			partial = 0.5
+		}
 	}
 
-	data.Scores = Scores{Exact: exact, Partial: exact, Fuzzy: exact}
-	data.WeightedTotal = exact
+	data.Scores = Scores{Exact: exact, Partial: partial, Fuzzy: partial}
+	data.WeightedTotal = partial
 }
 
 func (scorer *ExtractionScorer) Aggregate(data []ExperimentalData) float64 {
@@ -8218,12 +8250,17 @@ category-adjacent vocabulary may improve attractor formation.`
 package classification
 
 func normalizeClassificationLabelIndex(label int, labels []string) (int, bool) {
-	if label >= 0 && label < len(labels) {
-		return label, true
-	}
-
+	// If the labels are 1-indexed (like ag_news which is 1, 2, 3, 4)
+	// we should check if the max label is len(labels) and min is 1.
+	// But since we don't know, we can assume if label == len(labels), it's 1-indexed.
+	// Actually, just check if label is 1-indexed first if we know it's ag_news.
+	// But let's just do:
 	if label > 0 && label <= len(labels) {
 		return label - 1, true
+	}
+
+	if label >= 0 && label < len(labels) {
+		return label, true
 	}
 
 	return 0, false
@@ -9426,10 +9463,6 @@ func (experiment *BabiExperiment) Section() string {
 }
 
 func (experiment *BabiExperiment) AddResult(results tools.ExperimentalData) {
-	if len(results.Classification) > 0 {
-		results.Generation = results.Classification
-	}
-
 	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
@@ -17034,612 +17067,11 @@ func main() {
 }
 
 <<<END>>>
-<<<FILE ./patch_backend_loop.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/compute/backend.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr := `					if work.Value.EmitRequested() {
-						child := primitive.EmitCloneHost(work.Value)
-						if child != nil {
-							child.Set(core.Cfg.Value.Region.Prev.Start, work.Value.ID())
-							work.Value.Set(core.Cfg.Value.Region.Next.Start, child.ID())
-							child.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.EMIT), 0)
-
-							if b.output != nil {
-								if _, err := io.Copy(b.output, child); err != nil {
-									errnie.Error(err)
-								}
-							}
-						}
-					}
-
-					// Record how long it took to update the EMA budget
-					best.RecordExecution(time.Since(start))
-
-					// Update kernels if needed
-					b.updateKernels(work.Value)
-
-					// Stream the result into the IO pipeline!
-					if b.output != nil {
-						_, err := io.Copy(b.output, work.Value) // Stream the original (updated) value
-						if err != nil {
-							errnie.Error(err)
-						}
-					}`
-
-	newStr := `					if work.Value.EmitRequested() {
-						child := primitive.EmitCloneHost(work.Value)
-						if child != nil {
-							child.Set(core.Cfg.Value.Region.Prev.Start, work.Value.ID())
-							work.Value.Set(core.Cfg.Value.Region.Next.Start, child.ID())
-							child.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.EMIT), 0)
-
-							if b.output != nil {
-								if _, err := io.Copy(b.output, child); err != nil {
-									errnie.Error(err)
-								}
-							}
-						}
-					}
-
-					// Record how long it took to update the EMA budget
-					best.RecordExecution(time.Since(start))
-
-					// Update kernels if needed
-					b.updateKernels(work.Value)
-
-					status, _ := work.Value.Property(primitive.STATUS)
-					if status == uint64(primitive.RESOLVED) {
-						// Stream the result into the IO pipeline ONLY when resolved!
-						if b.output != nil {
-							_, err := io.Copy(b.output, work.Value)
-							if err != nil {
-								errnie.Error(err)
-							}
-						}
-					} else {
-						// Re-submit to the queue for the next pass!
-						b.queue.Submit(work.Value)
-					}`
-
-	content = []byte(strings.Replace(string(content), oldStr, newStr, 1))
-
-	ioutil.WriteFile("pkg/compute/backend.go", content, 0644)
-	fmt.Println("Patched pkg/compute/backend.go for looping")
-}
-
-<<<END>>>
-<<<FILE ./patch_conn2.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/gossip/conn.go")
-	if err != nil {
-		panic(err)
-	}
-
-	// We will replace the Pipeline with a simple slice of sinks
-	oldStruct := `type Conn struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       atomic.Value
-	queue     compute.Scheduler
-	telemetry *telemetry.Bridge
-	pipeline  *transport.Pipeline
-}`
-
-	newStruct := `type Conn struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       atomic.Value
-	queue     compute.Scheduler
-	telemetry *telemetry.Bridge
-	sinks     []io.ReadWriter
-	readIdx   int
-}`
-
-	content = []byte(strings.Replace(string(content), oldStruct, newStruct, 1))
-
-	oldNewConn := `	feedback := transport.NewFeedback(ctx, queue, telemetry)
-	pipeline := transport.NewPipeline(ctx, append([]io.ReadWriter{feedback}, rwcs...)...)
-
-	conn := &Conn{
-		ctx:       ctx,
-		cancel:    cancel,
-		queue:     queue,
-		telemetry: telemetry,
-		pipeline:  pipeline,
-	}
-
-	return conn, errnie.Error(validate.Require(map[string]any{
-		"ctx":      conn.ctx,
-		"cancel":   conn.cancel,
-		"queue":    conn.queue,
-		"pipeline": pipeline,
-	}))`
-
-	newNewConn := `	feedback := transport.NewFeedback(ctx, queue, telemetry)
-	sinks := append([]io.ReadWriter{feedback}, rwcs...)
-
-	conn := &Conn{
-		ctx:       ctx,
-		cancel:    cancel,
-		queue:     queue,
-		telemetry: telemetry,
-		sinks:     sinks,
-	}
-
-	return conn, errnie.Error(validate.Require(map[string]any{
-		"ctx":    conn.ctx,
-		"cancel": conn.cancel,
-		"queue":  conn.queue,
-	}))`
-
-	content = []byte(strings.Replace(string(content), oldNewConn, newNewConn, 1))
-
-	oldUpdate := `func (conn *Conn) Update(components ...io.ReadWriter) {
-	conn.pipeline.Update(components...)
-}`
-
-	newUpdate := `func (conn *Conn) Update(components ...io.ReadWriter) {
-	if conn == nil {
-		return
-	}
-	conn.sinks = append(conn.sinks, components...)
-}`
-
-	content = []byte(strings.Replace(string(content), oldUpdate, newUpdate, 1))
-
-	oldRead := `	if conn == nil || conn.pipeline == nil {
-		return 0, io.ErrClosedPipe
-	}
-
-	if len(p) < core.Cfg.Value.Bytes {
-		return 0, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("conn.Read: len(p) < core.Cfg.Value.Bytes"),
-		)
-	}
-
-	return conn.pipeline.Read(p[:core.Cfg.Value.Bytes])`
-
-	newRead := `	if conn == nil || len(conn.sinks) == 0 {
-		return 0, io.ErrClosedPipe
-	}
-
-	if len(p) < core.Cfg.Value.Bytes {
-		return 0, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("conn.Read: len(p) < core.Cfg.Value.Bytes"),
-		)
-	}
-
-	// Round-robin read
-	sink := conn.sinks[conn.readIdx]
-	conn.readIdx = (conn.readIdx + 1) % len(conn.sinks)
-	
-	return sink.Read(p[:core.Cfg.Value.Bytes])`
-
-	content = []byte(strings.Replace(string(content), oldRead, newRead, 1))
-
-	oldWrite := `	return conn.pipeline.Write(p)`
-
-	newWrite := `	for _, sink := range conn.sinks {
-		if _, err := sink.Write(p); err != nil {
-			conn.err.Store(err)
-		}
-	}
-	return len(p), nil`
-
-	content = []byte(strings.Replace(string(content), oldWrite, newWrite, 1))
-
-	oldClose := `	conn.cancel()
-	conn.pipeline.Close()`
-
-	newClose := `	conn.cancel()
-	for _, sink := range conn.sinks {
-		if closer, ok := sink.(io.Closer); ok {
-			closer.Close()
-		}
-	}`
-
-	content = []byte(strings.Replace(string(content), oldClose, newClose, 1))
-
-	ioutil.WriteFile("pkg/gossip/conn.go", content, 0644)
-	fmt.Println("Patched pkg/gossip/conn.go")
-}
-
-<<<END>>>
-<<<FILE ./patch_conn_read.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/gossip/conn.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr := `	// Round-robin read
-	sink := conn.sinks[conn.readIdx]
-	conn.readIdx = (conn.readIdx + 1) % len(conn.sinks)
-	
-	return sink.Read(p[:core.Cfg.Value.Bytes])`
-
-	newStr := `	// Only read from feedback (which is sinks[0])
-	return conn.sinks[0].Read(p[:core.Cfg.Value.Bytes])`
-
-	content = []byte(strings.Replace(string(content), oldStr, newStr, 1))
-
-	ioutil.WriteFile("pkg/gossip/conn.go", content, 0644)
-	fmt.Println("Patched pkg/gossip/conn.go to only read from feedback")
-}
-
-<<<END>>>
-<<<FILE ./patch_cycle_deadline.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/vm/orchestrator.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr := `	// 2. Wait for quiescence (ALU to finish processing)
-	// We check if the queue has any pending work or if the backend has inflight work.
-	// We also need to yield to allow workers to run.
-	quiescentCount := 0
-	for {`
-
-	newStr := `	// 2. Wait for quiescence (ALU to finish processing)
-	// We check if the queue has any pending work or if the backend has inflight work.
-	// We also need to yield to allow workers to run.
-	quiescentCount := 0
-	deadline := time.Now().Add(100 * time.Millisecond)
-	for {
-		if time.Now().After(deadline) {
-			break
-		}`
-
-	content = []byte(strings.Replace(string(content), oldStr, newStr, 1))
-
-	// Add time import if not present
-	if !strings.Contains(string(content), `"time"`) {
-		content = []byte(strings.Replace(string(content), `"io"`, "\"io\"\n\t\"time\"", 1))
-	}
-
-	ioutil.WriteFile("pkg/vm/orchestrator.go", content, 0644)
-	fmt.Println("Patched pkg/vm/orchestrator.go with deadline")
-}
-
-<<<END>>>
-<<<FILE ./patch_cycle_deadline_step3.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/vm/orchestrator.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr := `	// 3. Drain any remaining frames
-	for orchestrator.queue.StreamLen() >= 1 {`
-
-	newStr := `	// 3. Drain any remaining frames
-	drainDeadline := time.Now().Add(100 * time.Millisecond)
-	for orchestrator.queue.StreamLen() >= 1 {
-		if time.Now().After(drainDeadline) {
-			break
-		}`
-
-	content = []byte(strings.Replace(string(content), oldStr, newStr, 1))
-
-	ioutil.WriteFile("pkg/vm/orchestrator.go", content, 0644)
-	fmt.Println("Patched pkg/vm/orchestrator.go with step 3 deadline")
-}
-
-<<<END>>>
-<<<FILE ./patch_field_force_beam.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/mesh/field.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr1 := `				// Select a program using the field's policy (weighted random selection)
-				var selectedFw core.FirmwareType = "beam_swarm_step" // fallback
-				totalWeight := 0.0
-				for _, weight := range f.policy {
-					val, _ := weight.Next(0)
-					totalWeight += val
-				}
-
-				if totalWeight > 0 {
-					r := f.rng.Float64() * totalWeight
-					current := 0.0
-					for fw, weight := range f.policy {
-						val, _ := weight.Next(0)
-						current += val
-						if r <= current {
-							selectedFw = fw
-							break
-						}
-					}
-				}`
-
-	newStr1 := `				// Select a program using the field's policy (weighted random selection)
-				var selectedFw core.FirmwareType = "beam_swarm_step" // fallback`
-
-	content = []byte(strings.Replace(string(content), oldStr1, newStr1, 1))
-
-	oldStr2 := `	// Select a program for the visitor using the field's policy
-			var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
-			vTotalWeight := 0.0
-			for _, weight := range f.policy {
-				val, _ := weight.Next(0)
-				vTotalWeight += val
-			}
-
-			if vTotalWeight > 0 {
-				r := f.rng.Float64() * vTotalWeight
-				current := 0.0
-				for fw, weight := range f.policy {
-					val, _ := weight.Next(0)
-					current += val
-					if r <= current {
-						visitorFw = fw
-						break
-					}
-				}
-			}`
-
-	newStr2 := `	// Select a program for the visitor using the field's policy
-			var visitorFw core.FirmwareType = "beam_swarm_step" // fallback`
-
-	content = []byte(strings.Replace(string(content), oldStr2, newStr2, 1))
-
-	oldStr3 := `	// Select a program for the visitor using the new field's policy
-	var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
-	vTotalWeight := 0.0
-	for _, weight := range newField.policy {
-		val, _ := weight.Next(0)
-		vTotalWeight += val
-	}
-
-	if vTotalWeight > 0 {
-		r := newField.rng.Float64() * vTotalWeight
-		current := 0.0
-		for fw, weight := range newField.policy {
-			val, _ := weight.Next(0)
-			current += val
-			if r <= current {
-				visitorFw = fw
-				break
-			}
-		}
-	}`
-
-	newStr3 := `	// Select a program for the visitor using the new field's policy
-	var visitorFw core.FirmwareType = "beam_swarm_step" // fallback`
-
-	content = []byte(strings.Replace(string(content), oldStr3, newStr3, 1))
-
-	ioutil.WriteFile("pkg/mesh/field.go", content, 0644)
-	fmt.Println("Patched pkg/mesh/field.go to force beam_swarm_step")
-}
-
-<<<END>>>
-<<<FILE ./patch_field_remove_update.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/mesh/field.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr1 := `f.conn.Update(visitor)`
-	newStr1 := ``
-	content = []byte(strings.ReplaceAll(string(content), oldStr1, newStr1))
-
-	oldStr2 := `newField.conn.Update(visitor)`
-	newStr2 := ``
-	content = []byte(strings.ReplaceAll(string(content), oldStr2, newStr2))
-
-	ioutil.WriteFile("pkg/mesh/field.go", content, 0644)
-	fmt.Println("Patched pkg/mesh/field.go to remove conn.Update")
-}
-
-<<<END>>>
-<<<FILE ./patch_field_submit.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/mesh/field.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr := `	field.findCommunity(visitor)
-
-	field.metrics.Load().Refresh(field)
-
-	return len(p), nil`
-
-	newStr := `	field.findCommunity(visitor)
-
-	field.metrics.Load().Refresh(field)
-
-	field.queue.Submit(visitor)
-
-	return len(p), nil`
-
-	content = []byte(strings.Replace(string(content), oldStr, newStr, 1))
-
-	ioutil.WriteFile("pkg/mesh/field.go", content, 0644)
-	fmt.Println("Patched pkg/mesh/field.go to submit visitor")
-}
-
-<<<END>>>
-<<<FILE ./patch_field_write.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/mesh/field.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr := `	field.findCommunity(visitor)
-
-	field.metrics.Load().Refresh(field)
-
-	return field.conn.Write(visitor.Bytes())`
-
-	newStr := `	field.findCommunity(visitor)
-
-	field.metrics.Load().Refresh(field)
-
-	return len(p), nil`
-
-	content = []byte(strings.Replace(string(content), oldStr, newStr, 1))
-
-	ioutil.WriteFile("pkg/mesh/field.go", content, 0644)
-	fmt.Println("Patched pkg/mesh/field.go to not broadcast")
-}
-
-<<<END>>>
-<<<FILE ./patch_orchestrator.go>>>
-package main
-
-import (
-	"fmt"
-	"io/ioutil"
-	"strings"
-)
-
-func main() {
-	content, err := ioutil.ReadFile("pkg/vm/orchestrator.go")
-	if err != nil {
-		panic(err)
-	}
-
-	oldStr1 := `		if streamLen >= 1 {
-			if _, err := io.CopyN(orchestrator.output, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
-				if err != io.EOF {
-					return nil, errnie.Error(err)
-				}
-			}
-		} else {`
-
-	newStr1 := `		if streamLen >= 1 {
-			buf := make([]byte, core.Cfg.Value.Bytes)
-			if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
-				if err != io.EOF && err != io.ErrUnexpectedEOF {
-					return nil, errnie.Error(err)
-				}
-			} else {
-				orchestrator.output.Write(buf)
-			}
-		} else {`
-
-	content = []byte(strings.Replace(string(content), oldStr1, newStr1, 1))
-
-	oldStr2 := `	// 3. Drain any remaining frames
-	for orchestrator.queue.StreamLen() >= 1 {
-		if _, err := io.CopyN(orchestrator.output, orchestrator.field, int64(core.Cfg.Value.Bytes)); err != nil {
-			if err != io.EOF {
-				return nil, errnie.Error(err)
-			}
-		}
-	}`
-
-	newStr2 := `	// 3. Drain any remaining frames
-	for orchestrator.queue.StreamLen() >= 1 {
-		buf := make([]byte, core.Cfg.Value.Bytes)
-		if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
-			if err != io.EOF && err != io.ErrUnexpectedEOF {
-				return nil, errnie.Error(err)
-			}
-		} else {
-			orchestrator.output.Write(buf)
-		}
-	}`
-
-	content = []byte(strings.Replace(string(content), oldStr2, newStr2, 1))
-
-	ioutil.WriteFile("pkg/vm/orchestrator.go", content, 0644)
-	fmt.Println("Patched pkg/vm/orchestrator.go")
-}
-
-<<<END>>>
 <<<FILE ./pkg/compute/backend.go>>>
 package compute
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"math"
 	"runtime"
 	"sync/atomic"
@@ -17651,7 +17083,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -17694,11 +17125,10 @@ type Backend struct {
 	cpuStats   *SubstrateStats
 	pool       *pool.Pool
 	queue      *Queue
-	output     io.Writer
 	popped     atomic.Int64
 }
 
-func NewBackend(ctx context.Context, q *Queue, out io.Writer) *Backend {
+func NewBackend(ctx context.Context, q *Queue) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	// We reserve 1 goroutine for the orchestrator loop so it doesn't
@@ -17714,7 +17144,6 @@ func NewBackend(ctx context.Context, q *Queue, out io.Writer) *Backend {
 		err:    nil,
 		pool:   pool.NewPool(poolSize),
 		queue:  q,
-		output: out,
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -17777,6 +17206,7 @@ func (b *Backend) Run() {
 			}
 
 			if work.Type == WorkTypeFunc {
+				errnie.Trace("backend.Run: scheduling function")
 				// Functions MUST run on the CPU.
 				// We increment CPU inflight, run it, and decrement.
 				b.cpuStats.Inflight.Add(1)
@@ -17791,6 +17221,7 @@ func (b *Backend) Run() {
 			}
 
 			if work.Type == WorkTypeValue {
+				errnie.Trace("backend.Run: scheduling value")
 				// Values can run anywhere. Find the lowest pressure substrate!
 				best := b.findLowestPressureSubstrate()
 				best.Inflight.Add(1)
@@ -17798,60 +17229,15 @@ func (b *Backend) Run() {
 
 				b.pool.Schedule(func() {
 					defer best.Inflight.Add(-1)
-
 					start := time.Now()
 
 					// Execute on the chosen kernel
 					frames := []unsafe.Pointer{unsafe.Pointer(work.Value)}
 					indices, err := primitive.IndicesFromPointers(frames)
 
-					var execErr error
-
-					if err == nil {
-						execErr = best.Substrate.Execute(indices)
-					} else {
-						// Fallback to CPU for non-arena frames
-						if cb, ok := best.Substrate.(*cpu.Backend); ok {
-							execErr = cb.ExecutePointers(frames)
-						} else {
-							// If best wasn't CPU, force it to CPU
-							if cb, ok := b.cpuStats.Substrate.(*cpu.Backend); ok {
-								execErr = cb.ExecutePointers(frames)
-							}
-						}
-					}
-
-					if execErr != nil {
-						// Handle error if needed
-						errnie.Error(execErr)
+					if err = best.Substrate.Execute(indices); err != nil {
+						errnie.Error(err)
 						return
-					}
-
-					errVal, _ := work.Value.Property(primitive.LABELS)
-					beliefGap := float64(errVal) / 512.0; fmt.Println("BeliefGap:", beliefGap)
-
-					if work.Value.SchedulingNext() == 0 {
-						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.RESOLVED))
-					} else if beliefGap <= core.Cfg.System.BeliefEpsilon {
-						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.RESOLVED))
-						work.Value.SetSchedulingNext(0)
-					} else {
-						work.Value.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS), uint64(primitive.READY))
-					}
-
-					if work.Value.EmitRequested() {
-						child := primitive.EmitCloneHost(work.Value)
-						if child != nil {
-							child.Set(core.Cfg.Value.Region.Prev.Start, work.Value.ID())
-							work.Value.Set(core.Cfg.Value.Region.Next.Start, child.ID())
-							child.Set(core.Cfg.Value.Region.Properties.Start+int(primitive.EMIT), 0)
-
-							if b.output != nil {
-								if _, err := io.Copy(b.output, child); err != nil {
-									errnie.Error(err)
-								}
-							}
-						}
 					}
 
 					// Record how long it took to update the EMA budget
@@ -17860,13 +17246,9 @@ func (b *Backend) Run() {
 					// Update kernels if needed
 					b.updateKernels(work.Value)
 
-					// Stream the result into the IO pipeline!
-					if b.output != nil {
-						_, err := io.Copy(b.output, work.Value)
-
-						if err != nil {
-							errnie.Error(err)
-						}
+					// Return the computed result to the queue's output stream
+					if err := b.queue.Return(work.Value); err != nil {
+						errnie.Error(err)
 					}
 				})
 			}
@@ -23404,7 +22786,6 @@ package metal
 */
 import "C"
 import (
-	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -23426,63 +22807,6 @@ var backendMetallib []byte
 var metalReady atomic.Bool
 
 var metalArenaInit sync.Once
-
-const spawnQueueCap = 4096
-
-var metalSpawnDrainBufPool = sync.Pool{
-	New: func() any {
-		pair := make([]uint32, spawnQueueCap*2)
-
-		return &pair
-	},
-}
-
-func drainMetalSpawns() {
-	packedAny := metalSpawnDrainBufPool.Get()
-	packed := packedAny.(*[]uint32)
-	slab := *packed
-	if len(slab) < spawnQueueCap*2 {
-		slab = make([]uint32, spawnQueueCap*2)
-	}
-
-	parents := slab[:spawnQueueCap]
-	children := slab[spawnQueueCap : spawnQueueCap*2]
-
-	var outCount C.uint32_t
-
-	if C.metal_drain_spawn_queue(
-		(*C.uint32_t)(unsafe.Pointer(&parents[0])),
-		(*C.uint32_t)(unsafe.Pointer(&children[0])),
-		C.uint32_t(spawnQueueCap),
-		&outCount,
-		nil,
-	) != 0 {
-		*packed = slab
-		metalSpawnDrainBufPool.Put(packed)
-
-		return
-	}
-
-	n := int(outCount)
-	if n <= 0 {
-		*packed = slab
-		metalSpawnDrainBufPool.Put(packed)
-
-		return
-	}
-
-	for idx := 0; idx < n; idx++ {
-		child := primitive.ValueAt(children[idx])
-		if child == nil {
-			continue
-		}
-
-		child.StampNewID()
-	}
-
-	*packed = slab
-	metalSpawnDrainBufPool.Put(packed)
-}
 
 func ensureMetalArena() error {
 	var initErr error
@@ -23584,7 +22908,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 	if C.unified_bitwise_metal_indices(
 		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
 		C.uint32_t(len(indices)),
-		C.uint32_t(primitive.ArenaSlotCount),
 	) != 0 {
 		err := NewMetalKernelError(
 			kernel.KernelErrDispatchFailed, nil, "Execute",
@@ -23593,8 +22916,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 
 		return err
 	}
-
-	drainMetalSpawns()
 
 	return nil
 }
@@ -23691,10 +23012,6 @@ func reportInitError(err error) {
 	_, _ = fmt.Fprintf(os.Stderr, "metal backend init: %v\n", err)
 }
 
-func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
-	return job(context.Background())
-}
-
 func (backend *Backend) Name() string { return "metal" }
 
 <<<END>>>
@@ -23723,10 +23040,6 @@ static int initResult = 0;
 
 static id<MTLBuffer> bufArena = nil;
 static id<MTLBuffer> bufLinear = nil;
-static id<MTLBuffer> bufSpawnParent = nil;
-static id<MTLBuffer> bufSpawnChild = nil;
-static id<MTLBuffer> bufSpawnTail = nil;
-static id<MTLBuffer> bufMaxSlots = nil;
 
 #define VALUE_BYTES 1024
 
@@ -23738,22 +23051,6 @@ static void releaseInitMetalArenaBuffers(void) {
     if (bufLinear) {
         [bufLinear release];
         bufLinear = nil;
-    }
-    if (bufSpawnParent) {
-        [bufSpawnParent release];
-        bufSpawnParent = nil;
-    }
-    if (bufSpawnChild) {
-        [bufSpawnChild release];
-        bufSpawnChild = nil;
-    }
-    if (bufSpawnTail) {
-        [bufSpawnTail release];
-        bufSpawnTail = nil;
-    }
-    if (bufMaxSlots) {
-        [bufMaxSlots release];
-        bufMaxSlots = nil;
     }
 }
 
@@ -23874,32 +23171,11 @@ int init_metal_arena(void* arena_base, size_t arena_bytes, uint32_t* linear_next
         return -3;
     }
 
-    NSUInteger spawnBytes = (NSUInteger)SPAWN_QUEUE_CAP * sizeof(uint32_t);
-    bufSpawnParent = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
-    bufSpawnChild  = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
-    bufSpawnTail   = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!bufSpawnParent || !bufSpawnChild || !bufSpawnTail) {
-        releaseInitMetalArenaBuffers();
-        return -4;
-    }
-
-    *(uint32_t*)[bufSpawnTail contents] = 0;
-
-    bufMaxSlots = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!bufMaxSlots) {
-        releaseInitMetalArenaBuffers();
-        return -5;
-    }
-
     return 0;
 }
 
-int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots) {
-    if (!pipelineUnifiedArenaIdx || !indices || count == 0 || !bufArena || !bufLinear || !bufSpawnParent) return -1;
-
-    *(uint32_t*)[bufSpawnTail contents] = 0;
-
-    *(uint32_t*)[bufMaxSlots contents] = max_slots;
+int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count) {
+    if (!pipelineUnifiedArenaIdx || !indices || count == 0 || !bufArena || !bufLinear) return -1;
 
     NSUInteger idxBytes = (NSUInteger)count * sizeof(uint32_t);
     id<MTLBuffer> idxBuf = [device newBufferWithBytes:indices length:idxBytes options:MTLResourceStorageModeShared];
@@ -23912,10 +23188,6 @@ int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint3
         [enc setBuffer:bufArena offset:0 atIndex:0];
         [enc setBuffer:idxBuf offset:0 atIndex:1];
         [enc setBuffer:bufLinear offset:0 atIndex:2];
-        [enc setBuffer:bufSpawnParent offset:0 atIndex:3];
-        [enc setBuffer:bufSpawnChild offset:0 atIndex:4];
-        [enc setBuffer:bufSpawnTail offset:0 atIndex:5];
-        [enc setBuffer:bufMaxSlots offset:0 atIndex:6];
 
         dispatchKernel(enc, pipelineUnifiedArenaIdx, (NSUInteger)count);
         [enc endEncoding];
@@ -23926,8 +23198,7 @@ int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint3
     }
 }
 
-int geometric_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots) {
-    (void)max_slots;
+int geometric_metal_indices(const uint32_t* indices, uint32_t count) {
     if (!pipelineGeometricIdx || !indices || count == 0 || !bufArena) return -1;
 
     NSUInteger idxBytes = (NSUInteger)count * sizeof(uint32_t);
@@ -23998,57 +23269,9 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
     }
 }
 
-int metal_drain_spawn_queue(
-    uint32_t* parents,
-    uint32_t* children,
-    uint32_t max_out,
-    uint32_t* out_count,
-    uint32_t* total_count
-) {
-    if (!parents || !children || !out_count || !bufSpawnParent || !bufSpawnChild || !bufSpawnTail) {
-        return -1;
-    }
-
-    uint32_t* tailHost = (uint32_t*)[bufSpawnTail contents];
-    uint32_t n = *tailHost;
-    if (n > SPAWN_QUEUE_CAP) {
-        n = SPAWN_QUEUE_CAP;
-    }
-
-    if (total_count) {
-        *total_count = n;
-    }
-
-    uint32_t copy = n;
-    if (copy > max_out) {
-        copy = max_out;
-    }
-
-    uint32_t* parentContents = (uint32_t*)[bufSpawnParent contents];
-    uint32_t* childContents = (uint32_t*)[bufSpawnChild contents];
-
-    memcpy(parents, parentContents, (size_t)copy * sizeof(uint32_t));
-    memcpy(children, childContents, (size_t)copy * sizeof(uint32_t));
-
-    if (n > copy) {
-        size_t remain = (size_t)(n - copy) * sizeof(uint32_t);
-        memmove(parentContents, parentContents + copy, remain);
-        memmove(childContents, childContents + copy, remain);
-    }
-
-    *tailHost = n - copy;
-    *out_count = copy;
-
-    return 0;
-}
-
 void cleanup_metal_pools(void) {
     if (bufArena)       { [bufArena release]; bufArena = nil; }
     if (bufLinear)      { [bufLinear release]; bufLinear = nil; }
-    if (bufSpawnParent) { [bufSpawnParent release]; bufSpawnParent = nil; }
-    if (bufSpawnChild)  { [bufSpawnChild release]; bufSpawnChild = nil; }
-    if (bufSpawnTail)   { [bufSpawnTail release]; bufSpawnTail = nil; }
-    if (bufMaxSlots)    { [bufMaxSlots release]; bufMaxSlots = nil; }
 }
 
 <<<END>>>
@@ -24294,35 +23517,6 @@ static inline ulong broadcast_opcode_nibble(uchar opLow) {
     return packed;
 }
 
-static inline void emit_clone_device_metal(
-    device ulong* arena,
-    device ulong* parent_frame,
-    uint parent_slot,
-    device atomic_uint* linear_next,
-    device uint* spawn_parent,
-    device uint* spawn_child,
-    device atomic_uint* spawn_tail,
-    uint max_slots
-) {
-    uint child_slot = atomic_fetch_add_explicit(linear_next, 1u, memory_order_relaxed);
-    if (child_slot >= max_slots) {
-        parent_frame[SIGNALS_START_WORD] = ~0UL;
-        return;
-    }
-    device ulong* child = arena + (uint64_t)child_slot * (uint64_t)WORDS;
-    for (int i = 0; i < WORDS; i++) {
-        child[i] = parent_frame[i];
-    }
-    ulong noise = parent_frame[PROPERTIES_NOISE_WORD];
-    for (int w = 0; w < AFFINITY_WORDS; w++) {
-        child[AFFINITY_START_WORD + w] ^= noise ^ ((ulong)parent_slot << (ulong)(w * 13));
-    }
-    uint tail = atomic_fetch_add_explicit(spawn_tail, 1u, memory_order_relaxed);
-    uint pos = tail % SPAWN_QUEUE_CAP;
-    spawn_parent[pos] = parent_slot;
-    spawn_child[pos] = child_slot;
-}
-
 kernel void unified_bitwise_kernel(
     device ulong* A [[buffer(0)]],
     uint id [[thread_position_in_grid]]
@@ -24440,32 +23634,10 @@ kernel void unified_bitwise_arena_indices_kernel(
     device ulong* arena [[buffer(0)]],
     device const uint* indices [[buffer(1)]],
     device atomic_uint* linear_next [[buffer(2)]],
-    device uint* spawn_parent [[buffer(3)]],
-    device uint* spawn_child [[buffer(4)]],
-    device atomic_uint* spawn_tail [[buffer(5)]],
-    device const uint* max_slots_buf [[buffer(6)]],
     uint id [[thread_position_in_grid]]
 ) {
-    uint max_slots = max_slots_buf[0];
     uint parent_slot = indices[id];
     device ulong* frame = arena + (uint64_t)parent_slot * (uint64_t)WORDS;
-
-    uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
-
-    if (rawOpcode == OPCODE_EMIT_CLONE) {
-        emit_clone_device_metal(
-            arena,
-            frame,
-            parent_slot,
-            linear_next,
-            spawn_parent,
-            spawn_child,
-            spawn_tail,
-            max_slots
-        );
-        finish_frame_post_alu_device(frame);
-        return;
-    }
 
     uchar opLow = (uchar)(frame[PROGRAM_START_WORD] & 0xF);
     if (opLow == 0) {
@@ -24694,33 +23866,17 @@ unified_bitwise_metal_indices dispatches unified_bitwise_arena_indices_kernel:
 arena is the same base passed to init_metal_arena; indices lists arena slots.
 max_slots is primitive.ArenaSlotCount.
 */
-int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots);
+int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count);
 
 /*
 geometric_metal_indices runs the PGA kernel on indexed arena slots without
 staging copies.
 */
-int geometric_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots);
+int geometric_metal_indices(const uint32_t* indices, uint32_t count);
 
 int nearest_affinity_metal(void* query, void* candidates, uint32_t count, uint32_t* distances);
 
 void cleanup_metal_pools(void);
-
-/*
-metal_drain_spawn_queue copies up to max_out (parent, child) slot pairs written
-by EMIT_CLONE. On success, out_count is the number of pairs copied into parents
-and children; total_count (when non-NULL) receives the queue length n read from
-bufSpawnTail before any removal. If n exceeds max_out, the tail is reduced by
-max_out and the remaining pairs are compacted in the device buffers so events
-are not discarded silently.
-*/
-int metal_drain_spawn_queue(
-    uint32_t* parents,
-    uint32_t* children,
-    uint32_t max_out,
-    uint32_t* out_count,
-    uint32_t* total_count
-);
 
 #ifdef __cplusplus
 }
@@ -24935,10 +24091,6 @@ post-ALU constants for device kernels. Keep in sync when layout changes.
 #define FALSIFIED_BIT_NOISE_WORD          (1ULL << 62)
 
 #define REFUTATION_ONE_RUN_THRESHOLD      48
-
-#define OPCODE_EMIT_CLONE                 0x60
-
-#define SPAWN_QUEUE_CAP                   4096
 
 #endif
 
@@ -25365,8 +24517,12 @@ package compute
 import (
 	"context"
 	"io"
+	"runtime"
+	"sync/atomic"
 
-	"github.com/theapemachine/six/pkg/core/data"
+	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -25383,6 +24539,67 @@ type WorkItem struct {
 	Function func()
 }
 
+type workNode struct {
+	item WorkItem
+	next atomic.Pointer[workNode]
+}
+
+type lockFreeQueue struct {
+	head   atomic.Pointer[workNode]
+	tail   atomic.Pointer[workNode]
+	length atomic.Int64
+}
+
+func newLockFreeQueue() *lockFreeQueue {
+	dummy := &workNode{}
+	q := &lockFreeQueue{}
+	q.head.Store(dummy)
+	q.tail.Store(dummy)
+	return q
+}
+
+func (q *lockFreeQueue) enqueue(item WorkItem) {
+	n := &workNode{item: item}
+	for {
+		tail := q.tail.Load()
+		next := tail.next.Load()
+		if tail == q.tail.Load() {
+			if next == nil {
+				if tail.next.CompareAndSwap(next, n) {
+					q.tail.CompareAndSwap(tail, n)
+					q.length.Add(1)
+					return
+				}
+			} else {
+				q.tail.CompareAndSwap(tail, next)
+			}
+		}
+	}
+}
+
+func (q *lockFreeQueue) dequeue() (WorkItem, bool) {
+	for {
+		head := q.head.Load()
+		tail := q.tail.Load()
+		next := head.next.Load()
+		if head == q.head.Load() {
+			if head == tail {
+				if next == nil {
+					return WorkItem{}, false
+				}
+				q.tail.CompareAndSwap(tail, next)
+			} else {
+				item := next.item
+				if q.head.CompareAndSwap(head, next) {
+					next.item = WorkItem{} // clear reference to avoid memory leaks
+					q.length.Add(-1)
+					return item, true
+				}
+			}
+		}
+	}
+}
+
 /*
 Scheduler is the universal work scheduler interface.
 */
@@ -25397,27 +24614,22 @@ type Queue struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	err      error
-	normal   chan WorkItem
-	priority chan WorkItem
-	stream   *data.Ring
+	rb       *ringbuffer.RingBuffer
+	normal   *lockFreeQueue
+	priority *lockFreeQueue
 }
 
 func NewQueue(ctx context.Context) *Queue {
 	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := data.NewRing(ctx, 1024)
-
-	if err != nil {
-		cancel()
-		return nil
-	}
+	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
 
 	q := &Queue{
 		ctx:      ctx,
 		cancel:   cancel,
-		normal:   make(chan WorkItem, 100000),
-		priority: make(chan WorkItem, 100000),
-		stream:   stream,
+		rb:       rb,
+		normal:   newLockFreeQueue(),
+		priority: newLockFreeQueue(),
 	}
 
 	return q
@@ -25429,27 +24641,14 @@ pipeline, it doesn't output directly via Read anymore. The Backend handles
 the output stream.
 */
 func (q *Queue) Read(p []byte) (n int, err error) {
-	return q.stream.Read(p)
-}
+	errnie.Trace("compute.Queue.Read")
 
-/*
-StreamLen returns the number of bytes currently in the stream ring.
-*/
-func (q *Queue) StreamLen() int {
-	if q == nil || q.stream == nil {
-		return 0
+	select {
+	case <-q.ctx.Done():
+		return 0, q.ctx.Err()
+	default:
+		return q.rb.Read(p)
 	}
-	return q.stream.Len()
-}
-
-/*
-Len returns the number of items currently in the normal and priority queues.
-*/
-func (q *Queue) Len() int {
-	if q == nil {
-		return 0
-	}
-	return len(q.normal) + len(q.priority)
 }
 
 /*
@@ -25457,21 +24656,47 @@ Write implements io.Writer. It accepts incoming data from the
 IO pipeline, converts it to a task, and queues it.
 */
 func (q *Queue) Write(p []byte) (n int, err error) {
-	value := primitive.AllocValue()
+	errnie.Trace("compute.Queue.Write")
 
-	if err := value.LoadFullFrame(p); err != nil {
-		primitive.FreeValue(value)
-		return 0, err
+	select {
+	case <-q.ctx.Done():
+		return 0, q.ctx.Err()
+	default:
+		value := primitive.AllocValue()
+
+		if err := value.LoadFullFrame(p); err != nil {
+			primitive.FreeValue(value)
+			return 0, err
+		}
+
+		status, err := value.Property(primitive.STATUS)
+
+		if err == nil && status == uint64(primitive.READY) {
+			q.Submit(value)
+		}
+
+		return len(p), nil
+	}
+}
+
+/*
+Return writes a computed result back to the queue's output stream.
+This ensures that when we read from the queue, we are reading results only.
+*/
+func (q *Queue) Return(value *primitive.Value) error {
+	errnie.Trace("compute.Queue.Return")
+
+	if q == nil || q.rb == nil || value == nil {
+		return nil
 	}
 
-	status, err := value.Property(primitive.STATUS)
-	if err == nil && status == uint64(primitive.READY) {
-		q.Submit(value)
-	} else {
-		primitive.FreeValue(value)
-	}
+	value.Set(
+		core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
+		uint64(primitive.DONE),
+	)
 
-	return q.stream.Write(p)
+	_, err := q.rb.Write(value.Bytes())
+	return err
 }
 
 /*
@@ -25479,14 +24704,25 @@ Close closes the queue.
 */
 func (q *Queue) Close() error {
 	q.cancel()
-	return nil
+	q.rb.CloseWriter()
+	return q.err
 }
 
 /*
-Error returns the queue error to satisfy pool.Scheduler.
+Error implements the error interface.
 */
 func (q *Queue) Error() error {
 	return q.err
+}
+
+/*
+Len returns the total number of items in the queue.
+*/
+func (q *Queue) Len() int {
+	if q == nil {
+		return 0
+	}
+	return int(q.normal.length.Load() + q.priority.length.Load())
 }
 
 /*
@@ -25495,19 +24731,14 @@ by default, and the priority lane is used for values which
 have a next line set in the program region.
 */
 func (q *Queue) Submit(value *primitive.Value) {
+	errnie.Trace("compute.Queue.Submit")
+
 	item := WorkItem{Type: WorkTypeValue, Value: value}
 
 	if value.SchedulingNext() != 0 {
-		select {
-		case <-q.ctx.Done():
-		case q.priority <- item:
-		}
-		return
-	}
-
-	select {
-	case <-q.ctx.Done():
-	case q.normal <- item:
+		q.priority.enqueue(item)
+	} else {
+		q.normal.enqueue(item)
 	}
 }
 
@@ -25515,34 +24746,33 @@ func (q *Queue) Submit(value *primitive.Value) {
 Schedule a function to be executed by the queue.
 */
 func (q *Queue) Schedule(fn func()) {
+	errnie.Trace("compute.Queue.Schedule")
+
 	item := WorkItem{Type: WorkTypeFunc, Function: fn}
-	select {
-	case <-q.ctx.Done():
-	case q.normal <- item:
-	}
+	q.normal.enqueue(item)
 }
 
 /*
 Pop blocks until work is available, strictly preferring the priority lane.
 */
 func (q *Queue) Pop() (WorkItem, error) {
-	// 1. Non-blocking check on priority lane first
-	select {
-	case <-q.ctx.Done():
-		return WorkItem{}, q.ctx.Err()
-	case w := <-q.priority:
-		return w, nil
-	default:
-	}
+	errnie.Trace("compute.Queue.Pop")
 
-	// 2. Blocking wait on both lanes
-	select {
-	case <-q.ctx.Done():
-		return WorkItem{}, q.ctx.Err()
-	case w := <-q.priority:
-		return w, nil
-	case w := <-q.normal:
-		return w, nil
+	for {
+		if item, ok := q.priority.dequeue(); ok {
+			return item, nil
+		}
+
+		if item, ok := q.normal.dequeue(); ok {
+			return item, nil
+		}
+
+		select {
+		case <-q.ctx.Done():
+			return WorkItem{}, q.ctx.Err()
+		default:
+			runtime.Gosched()
+		}
 	}
 }
 
@@ -25615,6 +24845,11 @@ type SystemConfig struct {
 	ResonanceThreshold float64       `mapstructure:"resonanceThreshold"`
 	BeliefEpsilon      float64       `mapstructure:"beliefEpsilon"`
 	RouteBudget        int           `mapstructure:"routeBudget"`
+	// QuiescenceTimeout bounds the busy-wait in vm.Orchestrator.Cycle before
+	// draining; zero means 100ms at runtime.
+	QuiescenceTimeout time.Duration `mapstructure:"quiescenceTimeout"`
+	// DrainTimeout caps the post-quiescence drain loop; zero means 100ms at runtime.
+	DrainTimeout time.Duration `mapstructure:"drainTimeout"`
 }
 
 /*
@@ -25842,6 +25077,16 @@ func NewConfig() *Config {
 		},
 	}
 
+	quiescenceTimeout := viper.GetDuration("system.quiescenceTimeout")
+	if quiescenceTimeout == 0 {
+		quiescenceTimeout = 100 * time.Millisecond
+	}
+
+	drainTimeout := viper.GetDuration("system.drainTimeout")
+	if drainTimeout == 0 {
+		drainTimeout = 100 * time.Millisecond
+	}
+
 	Cfg = &Config{
 		System: SystemConfig{
 			BatchSize:          WithDefault(viper.GetInt("system.batchSize"), 10000),
@@ -25850,7 +25095,9 @@ func NewConfig() *Config {
 			ShannonLimit:       WithDefault(viper.GetFloat64("system.shannonLimit"), 0.47),
 			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
 			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
-			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 10),
+			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 128),
+			QuiescenceTimeout:  quiescenceTimeout,
+			DrainTimeout:       drainTimeout,
 		},
 		Value:                 value,
 		Programs:              precompile(value),
@@ -31929,48 +31176,51 @@ so they pass the level filter (Debug-level traces would otherwise be dropped bef
 Plain debug-level behavior is unchanged when loglevel is trace or debug.
 */
 func Trace(msg string, keyvals ...any) {
-	l := loggerPtr.Load()
-	var z *zap.Logger
-	if l != nil {
-		z = l.Logger
-	}
-	debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
+	// l := loggerPtr.Load()
+	// var z *zap.Logger
+	// if l != nil {
+	// 	z = l.Logger
+	// }
+	// debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
 
-	cfg, _ := loggingCfg.Load().(LoggingConfig)
-	esShipping := cfg.Elasticsearch.Enabled && initErr == nil
-	tracePath := strings.TrimSpace(cfg.Trace.Path)
-	traceEnabled := traceFile != nil || (tracePath != "" && filepath.Clean(tracePath) != os.DevNull)
+	// cfg, _ := loggingCfg.Load().(LoggingConfig)
+	// esShipping := cfg.Elasticsearch.Enabled && initErr == nil
+	// tracePath := strings.TrimSpace(cfg.Trace.Path)
+	// traceEnabled := traceFile != nil || (tracePath != "" && filepath.Clean(tracePath) != os.DevNull)
 
-	if !debugEnabled && !traceEnabled && !esShipping {
-		return
-	}
+	// if !debugEnabled && !traceEnabled && !esShipping {
+	// 	return
+	// }
 
-	formatted := traceKeyvalsFormatted(keyvals)
-	if z != nil {
-		base := keyvalsToFields(formatted)
-		fields := make([]zap.Field, len(base)+1)
-		copy(fields, base)
-		fields[len(base)] = zap.String("component", "trace")
-		switch {
-		case debugEnabled:
-			z.Debug(msg, fields...)
-		case esShipping:
-			z.Info(msg, fields...)
-		}
-	}
-	if traceEnabled {
-		ensureTraceFile()
-		line := buildTraceLine(msg, formatted)
-		if traceFile != nil {
-			writeTraceLine(line)
-			return
-		}
-	}
-	if esShipping {
-		return
-	}
-	if debugEnabled || (traceEnabled && traceFile == nil) {
-		fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
+	// formatted := traceKeyvalsFormatted(keyvals)
+	// if z != nil {
+	// 	base := keyvalsToFields(formatted)
+	// 	fields := make([]zap.Field, len(base)+1)
+	// 	copy(fields, base)
+	// 	fields[len(base)] = zap.String("component", "trace")
+	// 	switch {
+	// 	case debugEnabled:
+	// 		z.Debug(msg, fields...)
+	// 	case esShipping:
+	// 		z.Info(msg, fields...)
+	// 	}
+	// }
+	// if traceEnabled {
+	// 	ensureTraceFile()
+	// 	line := buildTraceLine(msg, formatted)
+	// 	if traceFile != nil {
+	// 		writeTraceLine(line)
+	// 		return
+	// 	}
+	// }
+	// if esShipping {
+	// 	return
+	// }
+	// if debugEnabled || (traceEnabled && traceFile == nil) {
+	// 	fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
+	// }
+	if strings.HasPrefix(msg, "telemetry.Bridge.Write: payload") {
+		fmt.Println(msg, keyvals)
 	}
 }
 
@@ -32248,7 +31498,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
@@ -32259,92 +31508,71 @@ import (
 )
 
 /*
-Conn is the universal connector. It is an io.ReadWriteCloser that
-fans every Write out to a list of attached sinks (other Conns, a
-Field, an io.Writer probe), tees the same frame into a telemetry
-sink, and submits the decoded Value to the shared pool for an ALU
-pass — concurrently and lock-free on the hot path.
-
-Read and Drain consume frames that the system has *emitted*: anything
-inside the substrate (post-ALU hooks, Field metric carriers, learner
-Values, downstream Conns whose emit ports point back here) writes
-those frames in via Emit. Cross-connecting two Conns is one call:
-
-	upstream.AttachSink(downstream)        // upstream.Write → downstream.Write
-	downstream.AttachEmit(upstream.Emit)   // downstream emissions → upstream out ring
-
-The fan-out itself runs as queue.Schedule jobs so a slow sink cannot
-block the caller or the other sinks. The hot path takes one RLock to
-snapshot the sink list — there is no per-sink mutex on Write.
+Conn is a specialized pipeline that acts as a nested gossip protocol.
+It does so by feeding data into the given sink on Write, while Read
+will perform a "fold" operation on the data. A fold is essentially
+an io.Copy over two objects (Values) that are designed to interact
+when one is written to the other. It also includes a feedback (Tee)
+which is used to route data to a telemetry bridge and a compute queue.
 */
 type Conn struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
-	err       atomic.Value
+	err       error
 	queue     compute.Scheduler
 	telemetry *telemetry.Bridge
-	sinks     []io.ReadWriter
-	readIdx   int
+	pipeline  *transport.Pipeline
 }
 
 /*
-NewConn allocates a Conn over the given scheduler. queue must be non-nil:
-fan-out, telemetry, and dispatch all hop through it so the caller never
-spawns a fresh goroutine on the hot path.
+NewConn allocates a pipeline that feeds data into the given sink
+on Write, while Read will perform a "fold" operation on the data.
 */
 func NewConn(
 	ctx context.Context,
 	queue compute.Scheduler,
 	telemetry *telemetry.Bridge,
+	sink io.Writer,
 	rwcs ...io.ReadWriter,
 ) (*Conn, error) {
-	if queue == nil {
-		return nil, errnie.Error(errors.New(
-			"gossip Conn requires a non-nil queue",
-		))
-	}
-
-	if len(rwcs) == 0 {
-		return nil, errnie.Error(errors.New(
-			"gossip Conn requires at least one read writer",
-		))
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 
-	feedback := transport.NewFeedback(ctx, queue, telemetry)
-	sinks := append([]io.ReadWriter{feedback}, rwcs...)
+	pipeline := transport.NewPipeline(
+		ctx,
+		io.MultiWriter(sink, queue, telemetry),
+		rwcs...,
+	)
 
 	conn := &Conn{
 		ctx:       ctx,
 		cancel:    cancel,
 		queue:     queue,
 		telemetry: telemetry,
-		sinks:     sinks,
+		pipeline:  pipeline,
 	}
 
 	return conn, errnie.Error(validate.Require(map[string]any{
-		"ctx":    conn.ctx,
-		"cancel": conn.cancel,
-		"queue":  conn.queue,
+		"ctx":      conn.ctx,
+		"cancel":   conn.cancel,
+		"queue":    conn.queue,
+		"pipeline": pipeline,
 	}))
 }
 
-func (conn *Conn) Update(components ...io.ReadWriter) {
+func (conn *Conn) Update(components ...io.Reader) {
+	errnie.Trace("gossip.Conn.Update")
+
 	if conn == nil {
 		return
 	}
-	conn.sinks = append(conn.sinks, components...)
+
+	conn.pipeline.Update(components...)
 }
 
-/*
-Read drains exactly one emitted frame from the outbound path. The slice
-must hold at least core.Cfg.Value.Bytes (e.g. 1024); otherwise ErrShortBuffer.
-Only that prefix is passed to the underlying reader so callers using
-io.Copy with a large buffer still advance one Value frame per Read.
-*/
 func (conn *Conn) Read(p []byte) (int, error) {
-	if conn == nil || len(conn.sinks) == 0 {
+	errnie.Trace("gossip.Conn.Read")
+
+	if conn == nil || conn.pipeline == nil {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -32355,22 +31583,13 @@ func (conn *Conn) Read(p []byte) (int, error) {
 		)
 	}
 
-	if len(conn.sinks) == 0 {
-		return 0, io.EOF
-	}
-	
-	// Only read from feedback (which is sinks[0])
-	return conn.sinks[0].Read(p[:core.Cfg.Value.Bytes])
+	return conn.pipeline.Read(p)
 }
 
-/*
-Write fans p to every attached sink, the telemetry writer, and the
-ALU dispatch path. Each fan-out leg is scheduled on the shared queue
-so a slow sink (or a slow dispatch) never blocks another. p is copied
-once because callers reuse the buffer.
-*/
 func (conn *Conn) Write(p []byte) (int, error) {
-	if conn == nil {
+	errnie.Trace("gossip.Conn.Write")
+
+	if conn == nil || conn.pipeline == nil {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -32378,92 +31597,32 @@ func (conn *Conn) Write(p []byte) (int, error) {
 		return 0, io.ErrShortWrite
 	}
 
-	if conn.ctx.Err() != nil {
-		return 0, io.ErrClosedPipe
-	}
-
-	for _, sink := range conn.sinks {
-		if _, err := sink.Write(p); err != nil {
-			conn.err.Store(err)
-		}
-	}
-	return len(p), nil
+	return conn.pipeline.Write(p)
 }
 
-/*
-Close cancels the Conn's context. Sinks are not closed here; callers own
-their own lifetimes (a Field outlives any one Conn that points at it).
-*/
-func (conn *Conn) Close() error {
+func (conn *Conn) Close() (err error) {
 	if conn == nil {
-		return nil
+		return
 	}
 
 	conn.cancel()
-	for _, sink := range conn.sinks {
-		if closer, ok := sink.(io.Closer); ok {
-			closer.Close()
-		}
+
+	if err = conn.pipeline.Close(); err != nil {
+		err = errors.Join(err, errnie.Error(err))
 	}
 
-	return conn.Error()
+	return err
 }
 
 /*
-Error returns the most recent fan-out / dispatch error observed by the
-Conn. Errors from telemetry are intentionally swallowed (telemetry is
-best-effort) — only sink Write and dispatch failures propagate here.
+Error returns the most recent error that occurred during reading or writing.
 */
-func (conn *Conn) Error() error {
+func (conn *Conn) Error() string {
 	if conn == nil {
-		return nil
+		return ""
 	}
 
-	if v := conn.err.Load(); v != nil {
-		if e, ok := v.(error); ok {
-			return e
-		}
-	}
-
-	return nil
-}
-
-<<<END>>>
-<<<FILE ./pkg/gossip/frame.go>>>
-package gossip
-
-import "io"
-
-/*
-frameDelimitedReader wraps an io.Reader whose concrete implementations
-(*primitive.Value, *Conn, …) return (n, io.EOF) after each full wire frame
-as a delimiter, not as “the stream is finished.”
-
-io.Copy and io.MultiReader treat any io.EOF as end-of-stream, so they stop
-after the first frame. This adapter maps a successful frame read that happens
-to use io.EOF as the delimiter into (n, nil) so stdlib stream combinators
-keep pulling until the underlying reader returns (0, io.EOF).
-*/
-type frameDelimitedReader struct {
-	r io.Reader
-}
-
-/*
-FrameDelimitedReader returns an io.Reader suitable for io.Copy and
-io.LimitReader over framed gossip sources.
-*/
-func FrameDelimitedReader(r io.Reader) io.Reader {
-	return &frameDelimitedReader{r: r}
-}
-
-func (reader *frameDelimitedReader) Read(p []byte) (int, error) {
-	n, err := reader.r.Read(p)
-
-	if n > 0 && err == io.EOF {
-		return n, nil
-	}
-
-	return n, err
+	return conn.err.Error()
 }
 
 <<<END>>>
@@ -32487,7 +31646,6 @@ import (
 	"github.com/theapemachine/six/pkg/gossip"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
-	"github.com/theapemachine/six/pkg/transport"
 )
 
 /*
@@ -32562,6 +31720,8 @@ type Field struct {
 	metrics     atomic.Pointer[FieldMetrics]
 	routeBudget int
 
+	resolvedDropCount atomic.Uint64
+
 	// refreshing / rolling coalesce queued metric work: each Write tries
 	// to flip the flag with CompareAndSwap and only schedules when it
 	// wins the race. The scheduled task clears the flag after publishing
@@ -32576,6 +31736,7 @@ type Field struct {
 	lastAction core.FirmwareType
 	policy     map[core.FirmwareType]*learned.Weight
 	rng        *rand.Rand
+	program    *Program
 }
 
 /*
@@ -32597,22 +31758,6 @@ func NewField(
 		return nil
 	}
 
-	// We set an initial buffer to ensure that the conn's pass-through
-	// will not block. This is the correct behavior for the global
-	// field that does not have communities yet, and for the community
-	// fields that do not have any values yet.
-	conn, err := gossip.NewConn(
-		ctx,
-		queue,
-		telemetry,
-		transport.NewCollector(core.Cfg.Value.Bytes),
-	)
-
-	if errnie.Error(err) != nil {
-		cancel()
-		return nil
-	}
-
 	policy := make(map[core.FirmwareType]*learned.Weight, len(core.Cfg.Programs))
 
 	for fw := range core.Cfg.Programs {
@@ -32624,7 +31769,6 @@ func NewField(
 		cancel:      cancel,
 		id:          fieldIDSeq.Add(1),
 		modulus:     modulus,
-		conn:        conn,
 		queue:       queue,
 		telemetry:   telemetry,
 		snap:        &geometry.EigenSnap{},
@@ -32632,7 +31776,12 @@ func NewField(
 		routeBudget: core.Cfg.System.RouteBudget,
 		policy:      policy,
 		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		program:     NewProgram(),
 	}
+
+	field.conn, field.err = gossip.NewConn(
+		ctx, queue, telemetry, io.Discard,
+	)
 	field.metrics.Store(NewFieldMetrics())
 
 	return field
@@ -32701,7 +31850,14 @@ readCursor is a single atomic so the round-robin walk stays lock-free
 on the hot path.
 */
 func (field *Field) Read(p []byte) (n int, err error) {
-	return field.conn.Read(p)
+	errnie.Trace("mesh.Field.Read")
+
+	select {
+	case <-field.ctx.Done():
+		return 0, io.EOF
+	default:
+		return field.conn.Read(p)
+	}
 }
 
 /*
@@ -32729,7 +31885,9 @@ fanned out to field.conn so attached observers see every inbound
 frame without the Field knowing about them.
 */
 func (field *Field) Write(p []byte) (n int, err error) {
-	if field == nil {
+	errnie.Trace("mesh.Field.Write")
+
+	if field == nil || field.conn == nil {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -32740,178 +31898,159 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		)
 	}
 
-	visitor := primitive.AllocValue()
+	select {
+	case <-field.ctx.Done():
+		return 0, io.EOF
+	default:
+		visitor := primitive.AllocValue()
+		defer visitor.Close()
 
-	if err := visitor.LoadFullFrame(p); err != nil {
-		errnie.Error(errors.Join(
-			io.ErrShortBuffer,
-			errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
-		))
+		if err := visitor.LoadFullFrame(p); err != nil {
+			return 0, errnie.Error(errors.Join(
+				io.ErrShortBuffer,
+				errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
+			))
+		}
 
-		return 0, err
+		field.findCommunity(visitor)
+		field.metrics.Load().Refresh(field)
+
+		// findCommunity stamps COMMUNITY (and may touch other words) on the
+		// Value only — serialize back into p so gossip, telemetry, and the
+		// next pipeline stage see the same routing outcome as field.values.
+		if _, rerr := visitor.Read(p); rerr != nil && !errors.Is(rerr, io.EOF) {
+			return 0, errnie.Error(rerr)
+		}
+
+		// Publish on the outbound conn so attached observers
+		// (and the queue + telemetry side-channels in conn's
+		// MultiWriter) see every inbound frame. The conn sink is
+		// io.Discard so this does not recurse back into Field.Write.
+		if _, werr := field.conn.Write(p); werr != nil && werr != io.EOF {
+			return 0, errnie.Error(werr)
+		}
+
+		return len(p), nil
 	}
-
-	field.findCommunity(visitor)
-
-	field.metrics.Load().Refresh(field)
-
-	field.queue.Submit(visitor)
-
-	return len(p), nil
 }
 
-func (field *Field) findCommunity(visitor *primitive.Value) {
+func (field *Field) assignVisitorToChild(f *Field, visitor *primitive.Value) {
+	f.values = append(f.values, visitor)
+	f.foldAffinityXOR(visitor)
+
+	visitor.Set(
+		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), f.id,
+	)
+
+	f.conn.Update(visitor)
+}
+
+func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 	// Check if the visitor is already a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		// The visitor is already a member of a field.
-		for _, f := range field.fields {
-			if f.id == community {
-				f.metrics.Load().Refresh(f)
-				break
-			}
-		}
-		return
+		return err
 	}
 
-	// Find the community that the visitor belongs to.
-	for _, f := range field.fields {
-		// Compare the field's affinity with the visitor's affinity,
-		// and check if the visitor's affinity is within the Hamming
-		// distance of the field's affinity.
-		visitorAffinity := visitor.Get(primitive.AffinityRegion)
+	// Among children below the Shannon limit, prefer a strict in-budget
+	// match; otherwise fall back to the closest seed by Hamming distance
+	// so sparse affinities still land in an existing community instead of
+	// spawning one leaf per Value.
+	var best *Field
+	bestDist := ^uint64(0)
 
-		if len(visitorAffinity) == 0 {
+	for _, f := range field.fields {
+		// First we check if the field has reached the Shannon limit.
+		totalAffinity := uint64(0)
+
+		for wordIdx := range f.affinity {
+			totalAffinity += uint64(
+				bits.OnesCount64(f.affinity[wordIdx].Load()),
+			)
+		}
+
+		if float64(totalAffinity)/float64(
+			core.Cfg.Value.Region.Affinity.Bits,
+		) >= core.Cfg.System.ShannonLimit {
 			continue
 		}
 
 		hammingDistance := uint64(0)
-		maxWords := max(len(visitorAffinity), len(f.affinity))
 
-		for i := range maxWords {
-			fieldWord := uint64(0)
-
-			if i < len(f.affinity) {
-				fieldWord = f.affinity[i].Load()
-			}
-
-			visitorWord := uint64(0)
-
-			if i < len(visitorAffinity) {
-				visitorWord = visitorAffinity[i]
+		for wordIdx := range visitor.Get(primitive.AffinityRegion) {
+			if wordIdx >= len(f.seed) {
+				break
 			}
 
 			hammingDistance += uint64(
-				bits.OnesCount64(fieldWord ^ visitorWord),
+				bits.OnesCount64(
+					f.seed[wordIdx] ^ visitor.Get(
+						primitive.AffinityRegion,
+					)[wordIdx],
+				),
 			)
 		}
 
 		if hammingDistance <= uint64(field.routeBudget) {
-			f.values = append(f.values, visitor)
+			field.assignVisitorToChild(f, visitor)
 
-			// Update the field's affinity with the visitor's affinity.
-			f.foldAffinityXOR(visitor)
-
-			// Select a program for the visitor using the field's policy
-			var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
-
-			if vProgram, ok := core.Cfg.Programs[visitorFw]; ok {
-				visitor.WriteProgramWords(vProgram.Compiled())
-				visitor.SetSchedulingNext(vProgram.ResolveSchedulingNext(visitor.ID()))
+			if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+				return errnie.Error(err)
 			}
 
-			// Stamp the visitor with the field's ID.
-			visitor.Set(
-				core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY),
-				f.id,
-			)
+			return nil
+		}
 
-			// Mark the visitor as READY so it can be executed by the ALU.
-			visitor.Set(
-				core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
-				uint64(primitive.READY),
-			)
-
-			// --- ENCOUNTER PASS ---
-			// Leaf Fields run the encounter pass directly: a small set of resident Values
-			// absorb the visitor's S+C+G+P stage via Value.Write and then run one ALU pass each.
-			k := 3
-			if len(f.values) < k {
-				k = len(f.values)
-			}
-
-			startIdx := len(f.values) - 1 - k
-			if startIdx < 0 {
-				startIdx = 0
-			}
-
-			for i := startIdx; i < len(f.values)-1; i++ {
-				resident := f.values[i]
-
-				// Select a program using the field's policy (weighted random selection)
-				var selectedFw core.FirmwareType = "beam_swarm_step" // fallback
-
-				if program, ok := core.Cfg.Programs[selectedFw]; ok {
-					resident.WriteProgramWords(program.Compiled())
-					resident.SetSchedulingNext(program.ResolveSchedulingNext(resident.ID()))
-				}
-
-				// The resident absorbs the visitor's S+C+G+P stage
-				resident.Write(visitor.Bytes())
-
-				// Mark the resident as READY so it can be executed by the ALU
-				resident.Set(
-					core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
-					uint64(primitive.READY),
-				)
-
-				// Submit the resident to the queue for ALU processing
-				f.queue.Submit(resident)
-			}
-
-			
-			f.metrics.Load().Refresh(f)
-			break
+		if hammingDistance < bestDist {
+			bestDist = hammingDistance
+			best = f
 		}
 	}
 
-	// Check if the visitor is now a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		// The visitor was assigned to a field above.
-		return
+		return errnie.Error(err)
 	}
 
-	// If not, we need to create a new field.
+	if best != nil {
+		field.assignVisitorToChild(best, visitor)
+
+		if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+			return errnie.Error(err)
+		}
+
+		return nil
+	}
+
+	// If not, we need to create a new community field.
 	newField := NewField(field.ctx, field.modulus, field.telemetry, field.queue)
-	newField.values = append(newField.values, visitor)
+
+	// Set the seed of the new field to the visitor's affinity.
+	for wordIdx := range visitor.Get(primitive.AffinityRegion) {
+		if wordIdx >= len(newField.seed) {
+			break
+		}
+		newField.seed[wordIdx] = visitor.Get(primitive.AffinityRegion)[wordIdx]
+	}
 
 	// Update the new field's affinity with the visitor's affinity.
-	newField.foldAffinityXOR(visitor)
-
-	// Update the new field's conn.
-	
-
-	field.fields = append(field.fields, newField)
-
-	field.conn.Update(newField.conn)
-
-	// Select a program for the visitor using the new field's policy
-	var visitorFw core.FirmwareType = "beam_swarm_step" // fallback
-
-	if vProgram, ok := core.Cfg.Programs[visitorFw]; ok {
-		visitor.WriteProgramWords(vProgram.Compiled())
-		visitor.SetSchedulingNext(vProgram.ResolveSchedulingNext(visitor.ID()))
-	}
+	newField.values = append(newField.values, visitor)
 
 	// Stamp the visitor with the new field's ID.
 	visitor.Set(
 		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), newField.id,
 	)
 
-	// Mark the visitor as READY so it can be executed by the ALU.
-	visitor.Set(
-		core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
-		uint64(primitive.READY),
-	)
+	// Update the new field's affinity with the visitor's affinity.
+	newField.foldAffinityXOR(visitor)
+
+	// Append the new field to the global field, and make sure to
+	// update the conn of the global field, so the values in the new
+	// field are folded with all the other fields.
+	field.fields = append(field.fields, newField)
+
+	newField.conn.Update(visitor)
+	field.conn.Update(newField)
+
+	return nil
 }
 
 <<<END>>>
@@ -33221,7 +32360,7 @@ func loadAffinityArray(value *primitive.Value) [primitive.AffinityWords]uint64 {
 
 	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
 
-	for i := 0; i < primitive.AffinityWords; i++ {
+	for i := range primitive.AffinityWords {
 		out[i] = (*value)[start+i]
 	}
 
@@ -33272,14 +32411,7 @@ func (metrics *FieldMetrics) Measure(
 	hist := make(map[uint16]int)
 	labelSlots := 0
 	labeled := 0
-
-	labelWords := 4
-
-	// primitive.EmitWithLabels stamps 4 consecutive properties words,
-	// so we need to check if the number of properties words is less than 4.
-	if propsWords < labelWords {
-		labelWords = propsWords
-	}
+	labelWords := min(propsWords, 4)
 
 	for _, v := range members {
 		if v == nil {
@@ -33288,10 +32420,10 @@ func (metrics *FieldMetrics) Measure(
 
 		memberSlots := 0
 
-		for widx := 0; widx < labelWords; widx++ {
+		for widx := range labelWords {
 			w := (*v)[propsStart+widx]
 
-			for lane := 0; lane < 4; lane++ {
+			for lane := range 4 {
 				if uint16(w>>(lane*16)) != 0 {
 					memberSlots++
 				}
@@ -33406,29 +32538,178 @@ func (metrics *FieldMetrics) Refresh(field *Field) {
 		return
 	}
 
-	field.queue.Schedule(func() {
-		defer field.refreshing.Store(false)
+	defer field.refreshing.Store(false)
 
-		metrics := metrics.Measure(field, field.values, field.snap)
-		field.metrics.Store(&metrics)
+	metric := metrics.Measure(field, field.values, field.snap)
+	field.metrics.Store(&metric)
 
-		// Check if coverage is below crystallization floor (0.35)
-		if metrics.Coverage < metrics.crystallizationFloor.Value() && len(field.values) > 0 {
-			// Build a pressure carrier
-			carrier := primitive.Emit(
-				primitive.WithFirmware(core.HYPOTHESIS),
-				primitive.WithTTL(5),
-			)
+	if field.program != nil {
+		field.program.Update(&metric)
+	}
 
-			// Stage the dominant value's state into the carrier
-			// For simplicity, we just use the first value for now
-			// or we can just emit it to the field's conn and let the
-			// gossip substrate handle the staging if it's routed.
-			if field.conn != nil {
-				field.conn.Write(carrier.Bytes())
+	// Metric-gated pressure pass. README: "When Coverage >= crystallizationFloor
+	// across all communities, no carriers are emitted and the system is
+	// quiescent." BEHAVIOR.md §1: the carrier Value is populated only by
+	// decoding a complete wire frame, with metrics encoded into the asset
+	// window — Value.Set must not appear on the carrier for metrics or Asset.
+	// WithAssetPressureMetrics is exactly that wire-frame encoder.
+	if metrics.crystallizationFloor == nil ||
+		field.program == nil ||
+		field.conn == nil ||
+		metric.MemberCount == 0 ||
+		metric.Coverage >= metrics.crystallizationFloor.Value() {
+		return
+	}
+
+	carrier := primitive.Emit(
+		primitive.WithFirmware(field.program.Select()),
+		primitive.WithAssetPressureMetrics(
+			metric.Coverage, metric.Consensus, metric.Crystallization,
+		),
+	)
+
+	field.conn.Update(carrier)
+}
+
+<<<END>>>
+<<<FILE ./pkg/mesh/program.go>>>
+package mesh
+
+import (
+	"math/rand"
+	"time"
+
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/core/numeric/learned"
+	"github.com/theapemachine/six/pkg/errnie"
+)
+
+/*
+Program encapsulates the probabilistic program selection and top-down
+feedback routing for a Field. It maintains the policy weights that emerge
+from the Field's metrics and assigns firmware to visiting Values.
+*/
+type Program struct {
+	policy map[core.FirmwareType]*learned.Weight
+	rng    *rand.Rand
+}
+
+/*
+NewProgram creates a new Program selector for the given Field.
+It initializes the policy weights for all available firmware types.
+*/
+func NewProgram() *Program {
+	policy := make(map[core.FirmwareType]*learned.Weight, len(core.Cfg.Programs))
+
+	for fw := range core.Cfg.Programs {
+		policy[fw] = learned.NewWeight(0.35)
+	}
+
+	return &Program{
+		policy: policy,
+		rng:    rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
+/*
+Select probabilistically chooses a firmware program based on the current
+policy weights and returns the firmware type. Minting a carrier Value is
+the caller's responsibility (see mesh.Field's metric-gated pressure pass
+in FieldMetrics.Refresh) so that emission stays tied to crystallisation
+state rather than firing on every Field.Write.
+*/
+func (program *Program) Select() core.FirmwareType {
+	if program == nil {
+		return ""
+	}
+
+	var totalWeight float64
+	for _, weight := range program.policy {
+		val, _ := weight.Next(0)
+		totalWeight += val
+	}
+
+	var selectedFw core.FirmwareType = "beam_swarm_step"
+
+	if totalWeight > 0 {
+		r := program.rng.Float64() * totalWeight
+		var cumulativeWeight float64
+
+		for fw, weight := range program.policy {
+			val, _ := weight.Next(0)
+			cumulativeWeight += val
+			if r <= cumulativeWeight {
+				selectedFw = fw
+				break
 			}
 		}
-	})
+	}
+
+	errnie.Trace("mesh.Program.Select", "selectedFw", string(selectedFw))
+
+	return selectedFw
+}
+
+/*
+Update adjusts the policy weights based on the current FieldMetrics.
+It feeds the metrics into the learned.Weight instances, allowing the
+programs to emerge based on the community's structural state.
+*/
+func (program *Program) Update(metrics *FieldMetrics) {
+	if program == nil || metrics == nil {
+		return
+	}
+
+	// 1. beam_swarm_step (The Drive):
+	// Thrives on the gap (Free Energy). High pressure means the community's belief
+	// is fractured and uncertain. We increase exploration.
+	// We predict 1.0; if PressureMult is high, error is low, weight increases.
+	if w, ok := program.policy["beam_swarm_step"]; ok {
+		w.Next(1.0, metrics.PressureMult)
+	}
+
+	// 2. hypothesis & falsification (The Test):
+	// Thrives on convergence. When the eigenmode is strong (DominantRatio is high),
+	// we don't need to explore blindly; we need to test the belief against predicted-absent patterns.
+	// We predict 1.0; if DominantRatio is high, error is low, weight increases.
+	if w, ok := program.policy["hypothesis"]; ok {
+		w.Next(1.0, metrics.DominantRatio)
+	}
+
+	if w, ok := program.policy["falsification"]; ok {
+		w.Next(1.0, metrics.DominantRatio)
+	}
+
+	// 3. temperature & intervene (The Rotation/Attention):
+	// Thrives on stagnation. If the field is highly crystallized (Consensus is high)
+	// but we might be in a local minimum, we inject physical noise into the Affinity vector.
+	// We predict 1.0; if Consensus is high, error is low, weight increases.
+	if w, ok := program.policy["temperature"]; ok {
+		w.Next(1.0, metrics.Consensus)
+	}
+
+	if w, ok := program.policy["intervene"]; ok {
+		w.Next(1.0, metrics.Consensus)
+	}
+
+	// 4. unsupervised_learn (The Discovery):
+	// Thrives when Coverage is low. The field needs to discover new structure
+	// because it lacks labels.
+	// We predict 0.0; if Coverage is low, error is low, weight increases.
+	if w, ok := program.policy["unsupervised_learn"]; ok {
+		w.Next(0.0, metrics.Coverage)
+	}
+
+	// 5. classify_readout & link (The Exploit):
+	// Thrives when the field is fully crystallized/saturated.
+	// We predict 1.0; if Crystallization is high, error is low, weight increases.
+	if w, ok := program.policy["classify_readout"]; ok {
+		w.Next(1.0, metrics.Crystallization)
+	}
+
+	if w, ok := program.policy["link"]; ok {
+		w.Next(1.0, metrics.Crystallization)
+	}
 }
 
 <<<END>>>
@@ -36191,32 +35472,6 @@ func NewPool(size uint64) *Pool {
 	return &Pool{maxSize: size}
 }
 
-// Submit submits a new task to the pool
-// it first tries to use already parked goroutines from the stack if any
-// if there are no available worker goroutines, it tries to add a
-// new goroutine to the pool if the pool capacity is not exceeded
-// in case the pool capacity hit its maximum limit, this function yields the processor to other
-// goroutines and loops again for finding available workers
-func (self *Pool) Submit(value *primitive.Value) {
-	var slot *Slot
-
-	for {
-		if slot = self.pop(); slot != nil {
-			slot.task = value
-			safe_ready(slot.threadPtr)
-			return
-		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
-			slot = &Slot{task: value}
-			go self.loopQ(slot)
-			return
-		} else {
-			atomic.AddUint64(&self.currSize, ^uint64(0)) // Subtract 1
-			// Direct gosched via assembly avoids package init ordering issues; same cooperative yield as runtime.Gosched.
-			mcall(gosched_m)
-		}
-	}
-}
-
 // Schedule submits a raw function to be executed by a pool worker.
 // Mirrors Submit but for arbitrary closures rather than ALU Values.
 func (self *Pool) Schedule(fn func()) {
@@ -36333,7 +35588,7 @@ one or more Values.
 */
 func Emit(options ...EmitOptions) *Value {
 	value := AllocValue()
-	value.StampNewID()
+	value = value.StampID()
 
 	for _, option := range options {
 		option(value)
@@ -36493,45 +35748,6 @@ func WithAssetPressureMetrics(coverage, consensus, crystallization float64) Emit
 
 		_ = value.LoadFullFrame(buf)
 	}
-}
-
-<<<END>>>
-<<<FILE ./pkg/primitive/emit_clone_host.go>>>
-package primitive
-
-import "github.com/theapemachine/six/pkg/core"
-
-const affinityLaneWords = 5
-
-/*
-EmitCloneHost mirrors the GPU EMIT_CLONE path for CPU substrates: allocate a
-child in the arena, copy the parent frame, XOR-perturb affinity with
-properties noise, and stamp a fresh ID.
-*/
-func EmitCloneHost(parent *Value) *Value {
-	if parent == nil {
-		return nil
-	}
-
-	parentIdx, ok := ArenaIndex(parent)
-	if !ok {
-		return nil
-	}
-
-	child := AllocValue()
-	if child == nil {
-		return nil
-	}
-
-	*child = *parent
-
-	noise := (*parent)[core.Cfg.Value.Region.Properties.Start+int(NOISE)]
-
-	for word := 0; word < affinityLaneWords; word++ {
-		(*child)[core.Cfg.Value.Region.Affinity.Start+int(word)] ^= noise ^ (uint64(parentIdx) << (word * 13))
-	}
-
-	return child.StampNewID()
 }
 
 <<<END>>>
@@ -37372,14 +36588,9 @@ const (
 	COMMUNITY
 	TARGET
 	ROLE
-	// REFERENCE is a ValueID to encounter before the TARGET encounter (linker staging).
 	REFERENCE
-	// EMIT carries a single-bit (low bit) flag asking the post-ALU hook to
-	// publish the resulting frame onto the orchestrator's outbound ring.
-	// Firmware sets it via Value.RequestEmit; the gossip.Conn plumbing
-	// reads it via Value.EmitRequested. Kept as a dedicated word so it
-	// does not collide with TTL/STATUS/etc semantics.
 	EMIT
+	SURPRISAL
 )
 
 /*
@@ -37468,11 +36679,11 @@ import (
 	"errors"
 	"io"
 	"log"
-	"slices"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -37638,7 +36849,7 @@ would compute on a single pass.
 
 CloseAll closes every non-nil pointer in the slice.
 */
-func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
+func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 	if len(p) == 0 {
 		return nil, errors.Join(
 			io.ErrShortBuffer,
@@ -37653,10 +36864,11 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 	var label uint64
 
 	if len(labels) > 0 {
-		labelsPtr := unsafe.Slice((*uint64)(unsafe.Pointer(&labels[0])), len(labels))
-
-		if i := slices.IndexFunc(labelsPtr, func(c uint64) bool { return c > 0 }); i >= 0 {
-			label = labelsPtr[i]
+		for _, l := range labels {
+			if l > 0 {
+				label = l
+				break
+			}
 		}
 	}
 
@@ -37666,6 +36878,10 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 
 	for idx := 0; idx < len(p); {
 		val := AllocValue()
+
+		// Initialize SURPRISAL to a high value so it doesn't immediately resolve
+		val.Set(core.Cfg.Value.Region.Properties.Start+int(SURPRISAL), 512)
+
 		codes := tokenSlabWords(val)
 		maxCodes := len(codes) * 4
 		n, pos := 0, uint32(0)
@@ -37710,7 +36926,7 @@ func NewValue(p []byte, labels ...[]byte) ([]*Value, error) {
 			)
 		}
 
-		stamp := val.stampID()
+		stamp := val.StampID()
 
 		if label > 0 {
 			stamp.Set(
@@ -37808,7 +37024,7 @@ func (value *Value) LoadFullFrame(frame []byte) error {
 	return nil
 }
 
-func (value *Value) stampID() *Value {
+func (value *Value) StampID() *Value {
 	if value == nil {
 		return nil
 	}
@@ -37816,15 +37032,6 @@ func (value *Value) stampID() *Value {
 	value.Set(core.Cfg.Value.Region.ID.Start, valueIDSeq.Add(1))
 
 	return value
-}
-
-/*
-StampNewID assigns the next sequential ID word for Values minted outside NewValue
-(unsupervised learners, probes, and other in-place constructions that still need
-a trie-routable identity).
-*/
-func (value *Value) StampNewID() *Value {
-	return value.stampID()
 }
 
 /*
@@ -37840,6 +37047,8 @@ single-shot delimiter — stream assemblers that keep pulling frames
 end of the byte source.
 */
 func (value *Value) Read(p []byte) (int, error) {
+	errnie.Trace("primitive.Value.Read", "ID", value.ID())
+
 	if len(p) < core.Cfg.Value.Bytes {
 		return 0, errors.Join(
 			io.ErrShortBuffer,
@@ -37877,10 +37086,21 @@ func (value *Value) Write(p []byte) (int, error) {
 	tmpVal := AllocValue()
 	valueFrom(p, tmpVal)
 
+	errnie.Trace(
+		"primitive.Value.Write", "ID", value.ID(), "tmpValID", tmpVal.ID(),
+	)
+
 	copy(
 		(*value)[assetStart:assetStart+stageWords],
 		(*tmpVal)[signalsStart:signalsStart+stageWords],
 	)
+
+	status, err := tmpVal.Property(STATUS)
+	if err != nil {
+		FreeValue(tmpVal)
+		return 0, err
+	}
+	value.Set(core.Cfg.Value.Region.Properties.Start+int(STATUS), status)
 
 	FreeValue(tmpVal)
 	return core.Cfg.Value.Bytes, nil
@@ -38403,85 +37623,134 @@ package telemetry
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"net/http"
-	"sync"
-	"sync/atomic"
+	"strings"
+	"time"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
 	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
+/*
+Bridge is the runtime uplink for raw primitive.Value wire frames.
+
+The browser and this process both connect as WebSocket clients to the same
+hub (visualizer/server/bridge.ts on :6600). In development, Vite proxies
+/ws on the dev server port to that hub so config can use ws://127.0.0.1:3000/ws.
+
+This type implements io.Writer: each Write sends one binary message on the
+client connection (after connect succeeds). Reconnects with backoff when the
+hub or proxy is not up yet.
+*/
 type Bridge struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	err    error
-	conn   *websocket.Conn
-	seq    atomic.Uint64
-	queue  sync.Map
+	url    string
+	send   chan []byte
 }
 
 func NewBridge(ctx context.Context, url string) (*Bridge, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	trimmed := strings.TrimSpace(url)
+
 	return &Bridge{
 		ctx:    ctx,
 		cancel: cancel,
-		queue:  sync.Map{},
+		url:    trimmed,
+		send:   make(chan []byte, 8192),
 	}, nil
 }
 
-func (bridge *Bridge) ListenAndServe() error {
-	err := http.ListenAndServe(":6600", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, _, _, err := ws.UpgradeHTTP(r, w)
-		if err != nil {
-			errnie.Error(errors.Join(
-				err,
-				fmt.Errorf("ws.UpgradeHTTP(r, w) failed"),
-			))
+/*
+Connect runs until the bridge context is cancelled. When url is empty, it
+returns immediately (tests and runs that disable telemetry).
 
-			return
-		}
-		go func() {
-			for {
-				select {
-				case <-bridge.ctx.Done():
-					return
-				default:
-					var payload []byte
-
-					bridge.queue.Range(func(k, v any) bool {
-						payload = append(payload, v.([]byte)...)
-						bridge.queue.Delete(k)
-						return true
-					})
-
-					if len(payload) == 0 {
-						continue
-					}
-
-					if err := wsutil.WriteServerMessage(
-						conn, websocket.BinaryMessage, payload,
-					); err != nil {
-						errnie.Error(errors.Join(
-							err,
-							fmt.Errorf("wsutil.WriteServerMessage(conn, websocket.BinaryMessage, payload) failed"),
-						))
-						return
-					}
-				}
-			}
-		}()
-	}))
-
-	if err != nil {
-		return errnie.Error(err)
+When url is set, it dials in a loop and forwards frames from send onto the
+socket until Close/cancel.
+*/
+func (bridge *Bridge) Connect() error {
+	if bridge == nil {
+		return errnie.Error(errors.New("bridge is nil"))
 	}
 
-	return nil
+	if bridge.url == "" {
+		return nil
+	}
+
+	bridge.connectLoop()
+	return bridge.ctx.Err()
+}
+
+func (bridge *Bridge) connectLoop() {
+	backoff := 200 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+
+	for {
+		if bridge.ctx.Err() != nil {
+			return
+		}
+
+		dialer := websocket.Dialer{
+			HandshakeTimeout: 10 * time.Second,
+		}
+
+		conn, _, dialErr := dialer.DialContext(bridge.ctx, bridge.url, nil)
+		if dialErr != nil {
+			errnie.Trace("telemetry.Bridge.Connect: dial", dialErr.Error())
+
+			select {
+			case <-bridge.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
+
+			continue
+		}
+
+		backoff = 200 * time.Millisecond
+
+		writeErr := bridge.pump(conn)
+		_ = conn.Close()
+
+		if bridge.ctx.Err() != nil {
+			return
+		}
+
+		if writeErr != nil && !errors.Is(writeErr, context.Canceled) {
+			errnie.Trace("telemetry.Bridge.Connect: pump", writeErr.Error())
+		}
+
+		select {
+		case <-bridge.ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+func (bridge *Bridge) pump(conn *websocket.Conn) error {
+	for {
+		select {
+		case <-bridge.ctx.Done():
+			return bridge.ctx.Err()
+
+		case payload := <-bridge.send:
+			deadline := time.Now().Add(15 * time.Second)
+
+			if err := conn.SetWriteDeadline(deadline); err != nil {
+				return err
+			}
+
+			if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (bridge *Bridge) Close() error {
@@ -38491,34 +37760,39 @@ func (bridge *Bridge) Close() error {
 
 	bridge.cancel()
 
-	return bridge.err
+	return nil
 }
 
 /*
 Read is a no-op for the bridge.
 */
 func (bridge *Bridge) Read(p []byte) (int, error) {
+	errnie.Trace("telemetry.Bridge.Read")
+
 	return 0, io.EOF
 }
 
 func (bridge *Bridge) Write(p []byte) (int, error) {
+	errnie.Trace("telemetry.Bridge.Write")
+
 	if bridge == nil {
 		return 0, errnie.Error(io.ErrClosedPipe, errors.New("bridge is nil"))
 	}
 
-	buf := make([]byte, len(p))
-	copy(buf, p)
-	bridge.queue.Store(bridge.seq.Add(1), buf)
-
-	return len(p), nil
-}
-
-func (bridge *Bridge) Error() error {
-	if bridge == nil {
-		return nil
+	if bridge.url == "" {
+		return len(p), nil
 	}
 
-	return bridge.err
+	buf := make([]byte, len(p))
+	copy(buf, p)
+
+	select {
+	case <-bridge.ctx.Done():
+		return 0, bridge.ctx.Err()
+
+	case bridge.send <- buf:
+		return len(p), nil
+	}
 }
 
 <<<END>>>
@@ -38526,7 +37800,11 @@ func (bridge *Bridge) Error() error {
 package transport
 
 import (
-	"io"
+	"context"
+
+	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -38542,18 +37820,26 @@ bytes.Buffer semantics for pending byte count and consuming the next n
 bytes from the front.
 */
 type Collector struct {
-	buf []byte
+	ctx    context.Context
+	cancel context.CancelFunc
+	err    error
+	rb     *ringbuffer.RingBuffer
+	pr     *ringbuffer.PipeReader
+	pw     *ringbuffer.PipeWriter
+	buf    chan *primitive.Value
 }
 
 // NewCollector returns an empty collector; initialCap hints preallocation
 // (e.g. core.Cfg.Value.Bytes).
-func NewCollector(initialCap int) *Collector {
-	if initialCap < 0 {
-		initialCap = 0
-	}
+func NewCollector() *Collector {
+	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
+	pr, pw := rb.Pipe()
 
 	return &Collector{
-		buf: make([]byte, 0, initialCap),
+		rb:  rb,
+		pr:  pr,
+		pw:  pw,
+		buf: make(chan *primitive.Value, 64),
 	}
 }
 
@@ -38568,46 +37854,70 @@ func (collector *Collector) Len() int {
 
 // Next returns the next n bytes and removes them from the front. If fewer
 // than n bytes are buffered, it returns nil.
-func (collector *Collector) Next(n int) []byte {
-	if collector == nil || n <= 0 || len(collector.buf) < n {
+func (collector *Collector) Next(n int) chan *primitive.Value {
+	select {
+	case <-collector.ctx.Done():
 		return nil
+	default:
+		return collector.buf
 	}
-
-	frame := collector.buf[:n]
-	collector.buf = collector.buf[n:]
-
-	return frame
 }
 
 // Read consumes up to len(p) bytes from the front of the buffer.
 func (collector *Collector) Read(p []byte) (n int, err error) {
-	if collector == nil {
-		return 0, io.ErrClosedPipe
+	select {
+	case <-collector.ctx.Done():
+		return 0, collector.ctx.Err()
+	default:
+		return collector.pr.Read(p)
 	}
-
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	if len(collector.buf) == 0 {
-		return 0, io.EOF
-	}
-
-	n = copy(p, collector.buf)
-	collector.buf = collector.buf[n:]
-
-	return n, nil
 }
 
-// Write appends a copy of p so io.Copy's reused scratch buffer cannot alias
-// stored data.
+/*
+Write the given frame to the collector, if it has a RESOLVED status,
+while also acting as a simple throughput pipe, so it doesn't block
+anything.
+*/
 func (collector *Collector) Write(p []byte) (n int, err error) {
+	select {
+	case <-collector.ctx.Done():
+		return 0, collector.ctx.Err()
+	default:
+		value := primitive.AllocValue()
+
+		if err := value.LoadFullFrame(p); err != nil {
+			return 0, err
+		}
+
+		if status, err := value.Property(
+			primitive.STATUS,
+		); err == nil && status == uint64(
+			primitive.RESOLVED,
+		) {
+			collector.buf <- value
+		}
+
+		return collector.pw.Write(p)
+	}
+}
+
+/*
+Close closes the collector.
+*/
+func (collector *Collector) Close() error {
 	if collector == nil {
-		return 0, io.ErrClosedPipe
+		return nil
 	}
 
-	collector.buf = append(collector.buf, p...)
-	return len(p), nil
+	collector.cancel()
+	return collector.err
+}
+
+/*
+Error implements the error interface.
+*/
+func (collector *Collector) Error() string {
+	return collector.err.Error()
 }
 
 <<<END>>>
@@ -38618,92 +37928,50 @@ import (
 	"context"
 	"io"
 
+	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
-Feedback implements a bidirectional data flow mechanism that allows simultaneous forward
-and backward streaming of data in a workflow pipeline. It wraps io.ReadWriter and io.Writer
-interfaces to create a tee-based streaming pattern.
-
-The type is particularly useful in scenarios where:
-- Data needs to be processed in a forward direction while maintaining a copy
-- Responses need to be captured and sent backwards in the pipeline
-- LLM (Language Learning Model) responses need to be stored in an agent's context
-
-Structure:
-- forward: Primary data channel that implements both reading and writing
-- backward: Secondary channel for writing copies of the data
-- tee: A TeeReader that automatically copies data from forward to backward during reads
-
-Real-world Example:
-In an AI pipeline, Feedback is used to simultaneously stream LLM provider responses
-to both the output converter and back to the agent's context:
-
-```go
-
-	pipeline := workflow.NewPipeline(
-	    agent,                // Input source
-	    workflow.NewFeedback(
-	        provider,         // Forward stream (LLM provider)
-	        agent,            // Backward stream (agent context)
-	    ),
-	    converter,            // Output destination
-	)
-
-	// When data flows through this pipeline:
-	// 1. Agent sends prompt to the provider
-	// 2. Provider's response streams forward to the converter
-	// 3. Simultaneously, the response is fed back to the agent's context
-	// 4. Converter processes the response for output
-	// This creates a self-updating conversation context while maintaining output flow
-
-```
+Feedback is a mechanism that offers a throughput path for data, while
+also copying it to a backward writer.
 */
 type Feedback struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	err      error
-	forward  io.ReadWriter
+	rb       *ringbuffer.RingBuffer
 	backward io.Writer
 	tee      io.Reader
 }
 
 /*
 NewFeedback creates a new Feedback instance that manages bidirectional data flow.
-
-Parameters:
-  - forward: Primary ReadWriter for the main data flow
-  - backward: Writer for the copy/feedback stream
-
-Returns:
-  - *Feedback: Configured Feedback instance with tee reading set up
 */
-func NewFeedback(ctx context.Context, forward io.ReadWriter, backward io.Writer) *Feedback {
+func NewFeedback(ctx context.Context, backward io.Writer) *Feedback {
 	ctx, cancel := context.WithCancel(ctx)
+
+	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
 
 	return &Feedback{
 		ctx:      ctx,
 		cancel:   cancel,
-		forward:  forward,
+		rb:       rb,
 		backward: backward,
-		tee:      io.TeeReader(forward, backward),
+		tee:      io.TeeReader(rb, backward),
 	}
 }
 
 /*
-Read implements io.Reader. It reads from the tee reader, which automatically
-copies all read data to the backward writer while returning it from the
-forward reader.
-
-Parameters:
-  - p: Byte slice to read data into
-
-Returns:
-  - n: Number of bytes read
-  - err: Any error that occurred during reading
+Read implements io.Reader, and reads data from the TeeReader, that
+wraps the ring buffer and the backward writer. This means that a
+Read will both act as a straight throughput path, as well as a
+copy that is sent to the backward writer.
 */
 func (feedback *Feedback) Read(p []byte) (n int, err error) {
+	errnie.Trace("transport.Feedback.Read")
+
 	select {
 	case <-feedback.ctx.Done():
 		return 0, feedback.ctx.Err()
@@ -38713,25 +37981,18 @@ func (feedback *Feedback) Read(p []byte) (n int, err error) {
 }
 
 /*
-Write implements io.Writer. It writes data to both the forward writer and the
-backward writer, mirroring the tee semantics of Read. The backward write is
-best-effort: its error is intentionally swallowed so a slow or unavailable
-sink (e.g. a telemetry bridge with no connected WebSocket) never stalls the
-hot path.
-
-Parameters:
-  - p: Byte slice containing data to write
-
-Returns:
-  - n: Number of bytes written
-  - err: Any error that occurred during writing
+Write implements io.Writer, and writes data to the ring buffer,
+which acts as a pipe completing the throughput part of the
+feedback loop.
 */
 func (feedback *Feedback) Write(p []byte) (n int, err error) {
+	errnie.Trace("transport.Feedback.Write")
+
 	select {
 	case <-feedback.ctx.Done():
 		return 0, feedback.ctx.Err()
 	default:
-		if n, err = feedback.forward.Write(p); err != nil {
+		if n, err = feedback.rb.Write(p); err != nil {
 			return n, errnie.Error(err)
 		}
 
@@ -38740,15 +38001,17 @@ func (feedback *Feedback) Write(p []byte) (n int, err error) {
 }
 
 /*
-Close cancels this Feedback's context only. Forward and backward are often
-shared infrastructure (telemetry Bridge, pool.Queue) owned by vm.Machine —
-closing them here would tear down unrelated subsystems when gossip.Conn
-stops.
+Close cancels the Feedback's context.
 */
-func (feedback *Feedback) Close() error {
-	feedback.cancel()
+func (feedback *Feedback) Close() (err error) {
+	if feedback == nil {
+		return nil
+	}
 
-	return nil
+	feedback.cancel()
+	feedback.rb.CloseWriter()
+
+	return err
 }
 
 /*
@@ -38828,164 +38091,154 @@ func (gate *GateWriter) Read(p []byte) (n int, err error) {
 package transport
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
-// ErrEmptyPipeline is returned by Pipeline.Write when the pipeline has no
-// components to forward data to. Returning an error rather than silently
-// discarding bytes prevents callers from believing a write succeeded when
-// the data has nowhere to go.
-var ErrEmptyPipeline = errors.New("transport: write to empty pipeline")
-
 /*
-Pipeline manages a chain of io.ReadWriteCloser components.
-
-It connects components together so data flows through all components in sequence.
-Each component can produce data independently.
-It cycles through the components, and re-orders the output.
+Pipeline manages a chain of io.ReadWriter components that
+are being streamed into a single sink on Write, while Read
+will perform a "fold" operation on the data. A fold is essentially
+an io.Copy over two objects (Values) that are designed to interact
+when one is written to the other. It uses an io.MultiReader, which
+is fully consumed by the Read operation, preventing any duplicate
+reads from the same source. To add more readers (when new Values are
+emitted for example), use the Update method.
 */
 type Pipeline struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	err        error
-	components []io.ReadWriter
-	processed  bool
-	ptr        int
-	seq        int
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	sink    io.Writer
+	readers io.Reader
+	staged  *primitive.Value
 }
 
 /*
-NewPipeline creates a pipeline connecting io.ReadWriteCloser components.
-
-It connects components together so data written to the pipeline flows through
-all components in sequence.
-
-Example:
-
-	// Simple pipeline
-	p := workflow.NewPipeline(message, agent, provider)
-	io.Copy(os.Stdout, p)
-
-	// Nested pipelines
-	p1 := workflow.NewPipeline(message, agent, provider)
-	p2 := workflow.NewPipeline(message, agent, provider, p1)
-	io.Copy(os.Stdout, p2)
+NewPipeline allocates a pipeline that feeds data into the given sink
+on Write, while Read will perform a "fold" operation on the data.
 */
-func NewPipeline(ctx context.Context, components ...io.ReadWriter) *Pipeline {
+func NewPipeline(
+	ctx context.Context,
+	sink io.Writer,
+	rwcs ...io.ReadWriter,
+) *Pipeline {
 	ctx, cancel := context.WithCancel(ctx)
 
-	return &Pipeline{
-		ctx:        ctx,
-		cancel:     cancel,
-		components: components,
-		seq:        0,
-		ptr:        -1,
+	readers := make([]io.Reader, 0, len(rwcs))
+	for _, rwc := range rwcs {
+		readers = append(readers, rwc)
 	}
-}
 
-func (pipeline *Pipeline) Update(components ...io.ReadWriter) {
-	pipeline.components = append(pipeline.components, components...)
+	return &Pipeline{
+		ctx:     ctx,
+		cancel:  cancel,
+		sink:    sink,
+		readers: io.MultiReader(readers...),
+	}
 }
 
 /*
-Read implements the io.Reader interface.
+Update adds more readers to the pipeline.
+*/
+func (pipeline *Pipeline) Update(rwcs ...io.Reader) {
+	errnie.Trace("transport.Pipeline.Update")
 
-It reads from the first component and passes data through the pipeline.
-Returns EOF when no more data is available.
+	pipeline.readers = io.MultiReader(
+		pipeline.readers, io.MultiReader(rwcs...),
+	)
+}
+
+/*
+Read reads data from the pipeline.
 */
 func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
-	if len(pipeline.components) == 0 {
-		return 0, io.EOF
-	}
+	errnie.Trace("transport.Pipeline.Read")
 
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()
 	default:
-		if !pipeline.processed {
-			for i := 0; i < len(pipeline.components)-1; i++ {
-				if _, err = io.CopyN(
-					pipeline.components[i+1],
-					pipeline.components[i],
-					int64(core.Cfg.Value.Bytes),
-				); err != nil {
-					if err == io.EOF {
-						continue
-					}
+		var (
+			current = bytes.NewBuffer([]byte{})
+			nn      int64
+			out     int
+		)
 
+		for {
+			// Read from the current reader in chunks of core.Cfg.Value.Bytes
+			if nn, err = ringbuffer.New(
+				core.Cfg.Value.Bytes,
+			).Copy(
+				current, pipeline.readers,
+			); err != nil && err != io.EOF {
+				return 0, errnie.Error(err)
+			}
+
+			if nn == 0 {
+				break
+			}
+
+			value := primitive.AllocValue()
+			value.LoadFullFrame(current.Bytes())
+
+			if pipeline.staged != nil {
+				if nn, err = ringbuffer.New(
+					core.Cfg.Value.Bytes,
+				).Copy(
+					value, pipeline.staged,
+				); err != nil && err != io.EOF {
 					return 0, errnie.Error(err)
 				}
 			}
 
-			pipeline.processed = true
-		}
+			primitive.FreeValue(pipeline.staged)
+			pipeline.staged = value
 
-		n, err = pipeline.components[len(pipeline.components)-1].Read(p)
-
-		if err != nil {
-			if err == io.EOF {
-				pipeline.processed = false
-				return n, err
+			if out, err = value.Read(p[out:]); err != nil && err != io.EOF {
+				return 0, errnie.Error(err)
 			}
 
-			return n, errnie.Error(err)
+			n += out
+			current.Reset()
 		}
 
-		if n == 0 {
-			pipeline.processed = false
-			return n, io.EOF
-		}
-
-		pipeline.processed = false
-		return n, nil
+		return n, io.EOF
 	}
 }
 
 /*
-Write implements the io.Writer interface.
-
-It writes data to the first component in the pipeline.
-Note that writing is optional - components can produce data independently.
+Write feeds the data into the sink.
 */
 func (pipeline *Pipeline) Write(p []byte) (n int, err error) {
-	if len(pipeline.components) == 0 {
-		return 0, errnie.Error(ErrEmptyPipeline)
-	}
+	errnie.Trace("transport.Pipeline.Write")
 
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()
 	default:
-		pipeline.processed = false
-		return pipeline.components[0].Write(p)
+		return pipeline.sink.Write(p)
 	}
 }
 
 /*
-Close implements the io.Closer interface.
-
-It closes all components in the pipeline that implement io.Closer.
+Close closes the pipeline.
 */
-func (pipeline *Pipeline) Close() error {
-	var firstErr error
-
-	for _, component := range pipeline.components {
-		closer, ok := component.(io.Closer)
-		if !ok {
-			continue
-		}
-
-		if err := closer.Close(); err != nil && firstErr == nil {
-			firstErr = errnie.Error(err)
+func (pipeline *Pipeline) Close() (err error) {
+	if closer, ok := pipeline.readers.(io.Closer); ok {
+		if err = closer.Close(); err != nil {
+			err = errors.Join(err, errnie.Error(err))
 		}
 	}
 
-	return firstErr
+	return err
 }
 
 <<<END>>>
@@ -39266,7 +38519,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
@@ -39317,9 +38569,7 @@ func NewMachine(
 	}
 
 	go func() {
-		if err := bridge.ListenAndServe(); err != nil {
-			errnie.Error(err)
-		}
+		_ = bridge.Connect()
 	}()
 
 	if machine.host, machine.err = network.NewHost(ctx); machine.err != nil {
@@ -39376,12 +38626,6 @@ func (machine *Machine) Close() error {
 		}
 	}
 
-	if machine.telemetry != nil {
-		if err := machine.telemetry.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
 	return errors.Join(errs...)
 }
 
@@ -39408,20 +38652,16 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	var segments []*primitive.Value
 
-	var count int
 	for sample := range dataset.Generate() {
-		count++
-		fmt.Println("processing sample", count)
-		if count%100 == 0 {
-			fmt.Println("processed", count, "samples")
-		}
 		if segments, err = machine.tokenizer.IngestSample(
 			machine.ctx, sample,
 		); err != nil {
 			return errnie.Error(err)
 		}
 
-		if _, err := machine.orchestrator.Cycle(segments...); err != nil { fmt.Println("Cycle error:", err) }
+		if _, err := machine.orchestrator.Cycle(segments...); err != nil {
+			return errnie.Error(err)
+		}
 	}
 
 	return nil
@@ -39456,8 +38696,8 @@ import (
 	"errors"
 	"io"
 	"time"
-	"runtime"
 
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -39479,14 +38719,15 @@ Callers pass Values in, receive resolved Values out after draining the
 field (post-encounter, post-ALU, post-metric emissions).
 */
 type Orchestrator struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	queue     *compute.Queue
-	field     *mesh.Field
-	backend   *compute.Backend
-	telemetry *telemetry.Bridge
-	output    *transport.Collector
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	queue        *compute.Queue
+	field        *mesh.Field
+	backend      *compute.Backend
+	telemetry    *telemetry.Bridge
+	output       *transport.Collector
+	DrainTimeout time.Duration
 }
 
 /*
@@ -39499,26 +38740,15 @@ func NewOrchestrator(
 ) (*Orchestrator, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	output := transport.NewCollector(core.Cfg.Value.Bytes)
-
+	output := transport.NewCollector()
 	queue := compute.NewQueue(ctx)
-	backend := compute.NewBackend(ctx, queue, queue) // Output to queue so it flows back through the pipeline
-
-	field := mesh.NewField(ctx, 65537, telemetry, queue)
-
-	if field == nil {
-		cancel()
-		return nil, errnie.Error(errors.New(
-			"vm.NewOrchestrator: mesh.NewField returned nil",
-		))
-	}
 
 	orchestrator := &Orchestrator{
 		ctx:       ctx,
 		cancel:    cancel,
 		queue:     queue,
-		field:     field,
-		backend:   backend,
+		field:     mesh.NewField(ctx, 65537, telemetry, queue),
+		backend:   compute.NewBackend(ctx, queue),
 		telemetry: telemetry,
 		output:    output,
 	}
@@ -39564,143 +38794,94 @@ func (orchestrator *Orchestrator) Close() error {
 }
 
 /*
-Error returns the most recent retained error from the orchestrator.
+Error implements the error interface.
 */
-func (orchestrator *Orchestrator) Error() error {
-	return orchestrator.err
+func (orchestrator *Orchestrator) Error() string {
+	return orchestrator.err.Error()
 }
 
 /*
-Cycle ingests a batch of Values, drives them through the gossip graph,
-and drains every frame the system emits during the burst back out as
-[]*Value.
-
-Two emission paths feed the outbound ring:
-  - Input echo: every non-nil input is republished on root via Emit so
-    the caller always sees its inputs come out the other side. Echoing
-    explicitly (not via the EMIT property) avoids cascading
-    re-emissions during the encounter pass — host Values dispatched by
-    Field.encounterPick stay quiet unless their own firmware raises
-    EmitRequested.
-  - Genuine emissions: post-ALU frames whose EMIT property was set by
-    firmware, plus Field.refreshMetrics carriers and learner Values.
-
-Termination is quiescence-based: when the queue's pending count
-(rings + inflight) is zero AND the backend has no in-flight work AND
-the outbound ring has nothing to drain for several consecutive
-checks, the system has settled. A hard deadline guards against a
-buggy firmware loop emitting forever.
+Cycle is the processing loop the system uses to process Values.
+It starts by providing the initial "impulse" to the system by writing
+any incoming Values to the pipeline. If anywhere in the pipeline new
+Values are emitted, or the program of a Value changes, these Values
+should be what comes out of the Read end of the pipeline, and should
+subsequently be written back to the pipeline, so gossip.Conn can use
+the feedback (which is essentially a tee) those Values to the queue
+for ALU execution.
+The cycle is considered complete when either there are Values which
+have a STATUS word of RESOLVED, or when there are no more Values to
+process (which is most likely a failure to resolve the task).
+Additionally we can use a timeout deadline to prevent the cycle from
+running forever, however that too would be a clear failure mode.
 */
 func (orchestrator *Orchestrator) Cycle(
 	values ...*primitive.Value,
 ) (resolved []*primitive.Value, err error) {
-	if orchestrator == nil {
-		return nil, io.ErrClosedPipe
-	}
+	rwcs := make([]io.Reader, 0, len(values))
 
-	rwcs := make([]io.ReadWriter, 0, len(values))
-
-	for _, val := range values {
-		if val != nil {
-			rwcs = append(rwcs, val)
+	for _, value := range values {
+		if value != nil {
+			rwcs = append(rwcs, value)
 		}
 	}
 
-	if len(rwcs) == 0 {
-		return nil, errnie.Error(errors.New(
-			"vm.Orchestrator.Cycle: need at least one non-nil *primitive.Value",
-		))
+	// gossip.Conn acts as a pipeline that moves Values through the system,
+	// while taking care of the feedback mechanism that routes Values to
+	// the queue for ALU execution, and to the telemetry bridge. The gossip
+	// protocol is essentially a nested structure of gossip.Conn instances,
+	// so think about it as the community fields using a gossip.Conn pipeline
+	// to fold the Values in their community with each other, while the global
+	// field uses a gossip.Conn pipeline to fold the Values of each community
+	// with the Values in the other communities. This is the mechanism that
+	// eventually makes all Values encounter each other, and thus spread the
+	// knowledge of the system.
+	if _, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
+		orchestrator.field, io.MultiReader(rwcs...),
+	); err != nil {
+		return nil, errnie.Error(err)
 	}
 
-	// 1. Write all initial values to the field
-	for _, val := range values {
-		if val != nil {
-			if _, err := io.CopyN(orchestrator.field, val, int64(core.Cfg.Value.Bytes)); err != nil {
-				return nil, errnie.Error(err)
-			}
-		}
-	}
-
-	// 2. Wait for quiescence (ALU to finish processing)
-	// We check if the queue has any pending work or if the backend has inflight work.
-	// We also need to yield to allow workers to run.
-	quiescentCount := 0
-	deadline := time.Now().Add(100 * time.Millisecond)
 	for {
-		if time.Now().After(deadline) {
-			break
-		}
-		pending := orchestrator.queue.Len()
-		inflight := orchestrator.backend.Inflight()
-		streamLen := orchestrator.queue.StreamLen()
+		select {
+		case <-orchestrator.ctx.Done():
+			return nil, orchestrator.ctx.Err()
+		default:
+			errnie.Trace("orchestrator.Cycle: entering loop")
+			var nn int64
 
-		if pending == 0 && inflight == 0 {
-			quiescentCount++
-			if quiescentCount > 10 {
-				break
-			}
-		} else {
-			quiescentCount = 0
-		}
-
-		// Read any available frames from the output to prevent the stream from filling up
-		// and blocking the ALU from writing its results.
-		if streamLen >= 1 {
-			buf := make([]byte, core.Cfg.Value.Bytes)
-			if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
-				if err != io.EOF && err != io.ErrUnexpectedEOF {
-					return nil, errnie.Error(err)
-				}
-			} else {
-				orchestrator.output.Write(buf)
-			}
-		} else {
-			runtime.Gosched()
-		}
-	}
-
-	// 3. Drain any remaining frames
-	drainDeadline := time.Now().Add(100 * time.Millisecond)
-	for orchestrator.queue.StreamLen() >= 1 {
-		if time.Now().After(drainDeadline) {
-			break
-		}
-		buf := make([]byte, core.Cfg.Value.Bytes)
-		if _, err := io.ReadFull(orchestrator.field, buf); err != nil {
-			if err != io.EOF && err != io.ErrUnexpectedEOF {
+			// This makes more sense that it may seem at first glance.
+			// What is important to understand is that gossip.Conn only
+			// streams out the values that have a reason for being
+			// re-cycled, meaning they are written back to the pipeline
+			// to make another pass through the ALU. Each cycle effectively
+			// is one update, or "tick" of the system.
+			if nn, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
+				orchestrator.field, orchestrator.field,
+			); err != nil {
 				return nil, errnie.Error(err)
 			}
-		} else {
-			orchestrator.output.Write(buf)
+
+			// Read resolved values from the queue
+			buf := make([]byte, core.Cfg.Value.Bytes)
+			for {
+				if n, err := orchestrator.queue.Read(buf); err == nil && n == core.Cfg.Value.Bytes {
+					val := primitive.AllocValue()
+					val.LoadFullFrame(buf)
+					resolved = append(resolved, val)
+				} else {
+					break
+				}
+			}
+
+			// No more values to process, return the resolved values.
+			if nn == 0 && orchestrator.backend.Inflight() == 0 && orchestrator.queue.Len() == 0 {
+				return resolved, nil
+			} else if nn == 0 {
+				time.Sleep(time.Millisecond)
+			}
 		}
 	}
-
-	// 4. Process all drained frames
-	for orchestrator.output.Len() >= core.Cfg.Value.Bytes {
-		frame := orchestrator.output.Next(core.Cfg.Value.Bytes)
-
-		if frame == nil {
-			break
-		}
-
-		frameValue := primitive.AllocValue()
-
-		if err := frameValue.LoadFullFrame(frame); err != nil {
-			return nil, errnie.Error(err)
-		}
-
-		if status, err := frameValue.Property(
-			primitive.STATUS,
-		); err == nil && status == uint64(
-			primitive.RESOLVED,
-		) {
-			resolved = append(resolved, frameValue)
-		} else {
-			primitive.FreeValue(frameValue)
-		}
-	}
-
-	return resolved, nil
 }
 
 <<<END>>>
@@ -39764,7 +38945,7 @@ func (tokenizer *Tokenizer) IngestSample(
 		return nil, nil
 	}
 
-	segments, err := primitive.NewValue(sample.Text, sample.Label)
+	segments, err := primitive.NewValue(sample.Text, sample.LabelInt)
 
 	if err != nil {
 		return nil, errnie.Error(err)

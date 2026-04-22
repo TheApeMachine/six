@@ -434,3 +434,4 @@ TEXT ·count64avx2(SB), 0, $0-32
 	SHLQ $3, CX			// count in bytes
 	CALL countavx2<>(SB)
 	RET
+

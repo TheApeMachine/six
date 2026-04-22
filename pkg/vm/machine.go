@@ -53,9 +53,7 @@ func NewMachine(
 	}
 
 	go func() {
-		if err := bridge.ListenAndServe(); err != nil {
-			errnie.Error(err)
-		}
+		_ = bridge.Connect()
 	}()
 
 	if machine.host, machine.err = network.NewHost(ctx); machine.err != nil {
@@ -108,12 +106,6 @@ func (machine *Machine) Close() error {
 
 	if machine.orchestrator != nil {
 		if err := machine.orchestrator.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if machine.telemetry != nil {
-		if err := machine.telemetry.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -178,3 +170,4 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (
 
 	return machine.orchestrator.Cycle(values...)
 }
+

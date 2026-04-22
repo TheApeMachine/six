@@ -41,3 +41,4 @@ func (err *PrimitiveError) Error() string {
 func (err *PrimitiveError) Unwrap() error {
 	return err.Err
 }
+

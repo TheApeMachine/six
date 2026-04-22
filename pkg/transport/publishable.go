@@ -19,3 +19,4 @@ Publish contract everywhere else.
 type LabelingPublishable interface {
 	PublishLabeled(label string, values ...*primitive.Value) ([]*primitive.Value, error)
 }
+

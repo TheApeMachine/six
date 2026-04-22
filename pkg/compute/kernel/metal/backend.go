@@ -10,7 +10,6 @@ package metal
 */
 import "C"
 import (
-	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -32,63 +31,6 @@ var backendMetallib []byte
 var metalReady atomic.Bool
 
 var metalArenaInit sync.Once
-
-const spawnQueueCap = 4096
-
-var metalSpawnDrainBufPool = sync.Pool{
-	New: func() any {
-		pair := make([]uint32, spawnQueueCap*2)
-
-		return &pair
-	},
-}
-
-func drainMetalSpawns() {
-	packedAny := metalSpawnDrainBufPool.Get()
-	packed := packedAny.(*[]uint32)
-	slab := *packed
-	if len(slab) < spawnQueueCap*2 {
-		slab = make([]uint32, spawnQueueCap*2)
-	}
-
-	parents := slab[:spawnQueueCap]
-	children := slab[spawnQueueCap : spawnQueueCap*2]
-
-	var outCount C.uint32_t
-
-	if C.metal_drain_spawn_queue(
-		(*C.uint32_t)(unsafe.Pointer(&parents[0])),
-		(*C.uint32_t)(unsafe.Pointer(&children[0])),
-		C.uint32_t(spawnQueueCap),
-		&outCount,
-		nil,
-	) != 0 {
-		*packed = slab
-		metalSpawnDrainBufPool.Put(packed)
-
-		return
-	}
-
-	n := int(outCount)
-	if n <= 0 {
-		*packed = slab
-		metalSpawnDrainBufPool.Put(packed)
-
-		return
-	}
-
-	for idx := 0; idx < n; idx++ {
-		child := primitive.ValueAt(children[idx])
-		if child == nil {
-			continue
-		}
-
-		child.StampID()
-	}
-
-	*packed = slab
-	metalSpawnDrainBufPool.Put(packed)
-}
 
 func ensureMetalArena() error {
 	var initErr error
@@ -190,7 +132,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 	if C.unified_bitwise_metal_indices(
 		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
 		C.uint32_t(len(indices)),
-		C.uint32_t(primitive.ArenaSlotCount),
 	) != 0 {
 		err := NewMetalKernelError(
 			kernel.KernelErrDispatchFailed, nil, "Execute",
@@ -199,8 +140,6 @@ func (backend *Backend) Execute(indices []uint32) error {
 
 		return err
 	}
-
-	drainMetalSpawns()
 
 	return nil
 }
@@ -297,8 +236,5 @@ func reportInitError(err error) {
 	_, _ = fmt.Fprintf(os.Stderr, "metal backend init: %v\n", err)
 }
 
-func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
-	return job(context.Background())
-}
-
 func (backend *Backend) Name() string { return "metal" }
+

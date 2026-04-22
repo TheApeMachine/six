@@ -97,12 +97,13 @@ type Scheduler interface {
 }
 
 type Queue struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	err      error
-	rb       *ringbuffer.RingBuffer
-	normal   *lockFreeQueue
-	priority *lockFreeQueue
+	ctx         context.Context
+	cancel      context.CancelFunc
+	err         error
+	rb          *ringbuffer.RingBuffer
+	outputBytes atomic.Int64
+	normal      *lockFreeQueue
+	priority    *lockFreeQueue
 }
 
 func NewQueue(ctx context.Context) *Queue {
@@ -133,7 +134,11 @@ func (q *Queue) Read(p []byte) (n int, err error) {
 	case <-q.ctx.Done():
 		return 0, q.ctx.Err()
 	default:
-		return q.rb.Read(p)
+		n, err = q.rb.Read(p)
+		if n > 0 {
+			q.outputBytes.Add(-int64(n))
+		}
+		return n, err
 	}
 }
 
@@ -159,6 +164,8 @@ func (q *Queue) Write(p []byte) (n int, err error) {
 
 		if err == nil && status == uint64(primitive.READY) {
 			q.Submit(value)
+		} else {
+			primitive.FreeValue(value)
 		}
 
 		return len(p), nil
@@ -176,12 +183,12 @@ func (q *Queue) Return(value *primitive.Value) error {
 		return nil
 	}
 
-	value.Set(
-		core.Cfg.Value.Region.Properties.Start+int(primitive.STATUS),
-		uint64(primitive.DONE),
-	)
+	value.SetStatus(primitive.DONE)
 
-	_, err := q.rb.Write(value.Bytes())
+	n, err := q.rb.Write(value.Bytes())
+	if n > 0 {
+		q.outputBytes.Add(int64(n))
+	}
 	return err
 }
 
@@ -211,6 +218,14 @@ func (q *Queue) Len() int {
 	return int(q.normal.length.Load() + q.priority.length.Load())
 }
 
+func (q *Queue) OutputLen() int {
+	if q == nil {
+		return 0
+	}
+
+	return int(q.outputBytes.Load())
+}
+
 /*
 Submit a value to the queue. This will use the normal lane
 by default, and the priority lane is used for values which
@@ -219,6 +234,11 @@ have a next line set in the program region.
 func (q *Queue) Submit(value *primitive.Value) {
 	errnie.Trace("compute.Queue.Submit")
 
+	if value == nil {
+		return
+	}
+
+	value.SetStatus(primitive.BUSY)
 	item := WorkItem{Type: WorkTypeValue, Value: value}
 
 	if value.SchedulingNext() != 0 {

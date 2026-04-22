@@ -544,3 +544,4 @@ const (
 func (e EigenError) Error() string {
 	return string(e)
 }
+

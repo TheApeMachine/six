@@ -43,9 +43,20 @@ func NewConn(
 ) (*Conn, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	writers := make([]io.Writer, 0, 3)
+	if sink != nil {
+		writers = append(writers, sink)
+	}
+	if queue != nil {
+		writers = append(writers, queue)
+	}
+	if telemetry != nil {
+		writers = append(writers, telemetry)
+	}
+
 	pipeline := transport.NewPipeline(
 		ctx,
-		io.MultiWriter(sink, queue, telemetry),
+		io.MultiWriter(writers...),
 		rwcs...,
 	)
 

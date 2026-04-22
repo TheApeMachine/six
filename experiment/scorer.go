@@ -177,3 +177,4 @@ func (ScalingInstrumentScorer) Aggregate(data []ExperimentalData) float64 {
 func (ScalingInstrumentScorer) GateScore(row ExperimentalData) float64 {
 	return row.WeightedTotal
 }
+

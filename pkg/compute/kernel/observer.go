@@ -153,3 +153,4 @@ func (o *AsyncObserver) Close() {
 		<-o.done
 	})
 }
+

@@ -66,6 +66,8 @@ var (
 
 	arenaPinOnce sync.Once
 	arenaPinner  runtime.Pinner
+
+	heapFallbackAllocations atomic.Uint64
 )
 
 func ensureArena() {
@@ -215,8 +217,17 @@ func AllocValue() *Value {
 
 	value := heapValuePool.Get().(*Value)
 	*value = Value{}
+	heapFallbackAllocations.Add(1)
 
 	return value
+}
+
+/*
+HeapFallbackAllocations reports how many times AllocValue had to spill out of
+the contiguous arena and source a Value from the heap pool instead.
+*/
+func HeapFallbackAllocations() uint64 {
+	return heapFallbackAllocations.Load()
 }
 
 /*

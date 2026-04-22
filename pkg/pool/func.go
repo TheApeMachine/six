@@ -138,3 +138,4 @@ func (self *PoolWithFunc[T]) push(value *SlotFunc[T]) {
 		}
 	}
 }
+

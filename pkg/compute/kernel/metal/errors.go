@@ -6,3 +6,4 @@ import "github.com/theapemachine/six/pkg/compute/kernel"
 func NewMetalKernelError(typ kernel.KernelErrorType, err error, op string) *kernel.KernelError {
 	return kernel.NewKernelError("metal", typ, err, op, 0)
 }
+

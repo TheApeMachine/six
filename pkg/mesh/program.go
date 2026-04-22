@@ -1,150 +1,179 @@
 package mesh
 
 import (
+	"math"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/core/numeric/learned"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
-/*
-Program encapsulates the probabilistic program selection and top-down
-feedback routing for a Field. It maintains the policy weights that emerge
-from the Field's metrics and assigns firmware to visiting Values.
-*/
-type Program struct {
-	policy map[core.FirmwareType]*learned.Weight
-	rng    *rand.Rand
+type banditArm struct {
+	Pulls uint64
+	Value float64
 }
 
 /*
-NewProgram creates a new Program selector for the given Field.
-It initializes the policy weights for all available firmware types.
+Program is a contextual bandit over firmware. It keeps the policy inside the
+substrate boundary: FieldMetrics are the context, firmware is the action, and
+the next metric refresh supplies reward through local changes in pressure,
+crystallisation, and dominant eigenmode concentration.
 */
+type Program struct {
+	mu         sync.Mutex
+	arms       map[core.FirmwareType]*banditArm
+	rng        *rand.Rand
+	totalPulls uint64
+	lastAction core.FirmwareType
+	lastMetric FieldMetrics
+	hasLast    bool
+}
+
 func NewProgram() *Program {
-	policy := make(map[core.FirmwareType]*learned.Weight, len(core.Cfg.Programs))
+	arms := make(map[core.FirmwareType]*banditArm, len(core.Cfg.Programs))
 
 	for fw := range core.Cfg.Programs {
-		policy[fw] = learned.NewWeight(0.35)
+		arms[fw] = &banditArm{Value: 0.1}
 	}
 
 	return &Program{
-		policy: policy,
-		rng:    rand.New(rand.NewSource(time.Now().UnixNano())),
+		arms: arms,
+		rng:  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
-/*
-Select probabilistically chooses a firmware program based on the current
-policy weights, and emits a new Value (a probe/carrier) stamped with
-that firmware. It targets the provided visitor ID so the new Value can
-interact with it.
-*/
-func (program *Program) Select(visitorID uint64) *primitive.Value {
+func (program *Program) Select() core.FirmwareType {
+	return program.SelectFor(nil)
+}
+
+func (program *Program) SelectFor(metrics *FieldMetrics) core.FirmwareType {
 	if program == nil {
-		return nil
+		return core.BEAM
 	}
 
-	var totalWeight float64
-	for _, weight := range program.policy {
-		// learned.Weight.Next(0) returns the current value without adjusting it
-		val, _ := weight.Next(0)
-		totalWeight += val
+	program.mu.Lock()
+	defer program.mu.Unlock()
+
+	if len(program.arms) == 0 {
+		return core.BEAM
 	}
 
-	var selectedFw core.FirmwareType = "beam_swarm_step" // Fallback
+	var selected core.FirmwareType
+	bestScore := math.Inf(-1)
+	total := float64(program.totalPulls + 1)
 
-	if totalWeight > 0 {
-		r := program.rng.Float64() * totalWeight
-		var cumulativeWeight float64
+	for fw, arm := range program.arms {
+		prior := firmwarePrior(fw, metrics)
+		explore := math.Sqrt(math.Log(total+1) / float64(arm.Pulls+1))
+		jitter := program.rng.Float64() * 1e-6
+		score := arm.Value + prior + 0.25*explore + jitter
 
-		for fw, weight := range program.policy {
-			val, _ := weight.Next(0)
-			cumulativeWeight += val
-			if r <= cumulativeWeight {
-				selectedFw = fw
-				break
-			}
+		if selected == "" || score > bestScore {
+			selected = fw
+			bestScore = score
 		}
 	}
 
-	// Emit a new Value that runs the selected program, targeting the visitor
-	carrier := primitive.Emit(
-		primitive.WithFirmware(selectedFw),
-		primitive.WithTarget(visitorID),
-		primitive.WithStatus(uint64(primitive.READY)),
-	)
+	if selected == "" {
+		selected = core.UNSUPERVISED_LEARN
+	}
 
-	errnie.Trace(
-		"mesh.Program.Select",
-		"selectedFw", string(selectedFw),
-		"visitorID", visitorID,
-	)
+	arm := program.arms[selected]
+	arm.Pulls++
+	program.totalPulls++
+	program.lastAction = selected
 
-	return carrier
+	if metrics != nil {
+		program.lastMetric = *metrics
+		program.hasLast = true
+	}
+
+	errnie.Trace("mesh.Program.SelectFor", "selectedFw", string(selected))
+	return selected
 }
 
-/*
-Update adjusts the policy weights based on the current FieldMetrics.
-It feeds the metrics into the learned.Weight instances, allowing the
-programs to emerge based on the community's structural state.
-*/
 func (program *Program) Update(metrics *FieldMetrics) {
 	if program == nil || metrics == nil {
 		return
 	}
 
-	// 1. beam_swarm_step (The Drive):
-	// Thrives on the gap (Free Energy). High pressure means the community's belief
-	// is fractured and uncertain. We increase exploration.
-	// We predict 1.0; if PressureMult is high, error is low, weight increases.
-	if w, ok := program.policy["beam_swarm_step"]; ok {
-		w.Next(1.0, metrics.PressureMult)
+	program.mu.Lock()
+	defer program.mu.Unlock()
+
+	if program.hasLast && program.lastAction != "" {
+		if arm := program.arms[program.lastAction]; arm != nil {
+			reward := rewardDelta(program.lastMetric, *metrics)
+			n := float64(max(arm.Pulls, uint64(1)))
+			arm.Value += (reward - arm.Value) / n
+			if arm.Value < -1 {
+				arm.Value = -1
+			}
+			if arm.Value > 1 {
+				arm.Value = 1
+			}
+		}
 	}
 
-	// 2. hypothesis & falsification (The Test):
-	// Thrives on convergence. When the eigenmode is strong (DominantRatio is high),
-	// we don't need to explore blindly; we need to test the belief against predicted-absent patterns.
-	// We predict 1.0; if DominantRatio is high, error is low, weight increases.
-	if w, ok := program.policy["hypothesis"]; ok {
-		w.Next(1.0, metrics.DominantRatio)
+	program.lastMetric = *metrics
+	program.hasLast = true
+}
+
+func rewardDelta(prev, next FieldMetrics) float64 {
+	crystalGain := next.Crystallization - prev.Crystallization
+	modeGain := next.DominantRatio - prev.DominantRatio
+	pressureDrop := prev.PressureMult - next.PressureMult
+	coverageGain := next.Coverage - prev.Coverage
+
+	reward := 0.45*crystalGain + 0.25*modeGain + 0.20*pressureDrop + 0.10*coverageGain
+
+	if next.MemberCount == 0 {
+		reward -= 0.05
 	}
 
-	if w, ok := program.policy["falsification"]; ok {
-		w.Next(1.0, metrics.DominantRatio)
+	if math.IsNaN(reward) || math.IsInf(reward, 0) {
+		return 0
 	}
 
-	// 3. temperature & intervene (The Rotation/Attention):
-	// Thrives on stagnation. If the field is highly crystallized (Consensus is high)
-	// but we might be in a local minimum, we inject physical noise into the Affinity vector.
-	// We predict 1.0; if Consensus is high, error is low, weight increases.
-	if w, ok := program.policy["temperature"]; ok {
-		w.Next(1.0, metrics.Consensus)
+	return reward
+}
+
+func firmwarePrior(fw core.FirmwareType, metrics *FieldMetrics) float64 {
+	if metrics == nil {
+		switch fw {
+		case core.AFFINITY, core.LINK, core.UNSUPERVISED_LEARN:
+			return 0.15
+		default:
+			return 0.02
+		}
 	}
 
-	if w, ok := program.policy["intervene"]; ok {
-		w.Next(1.0, metrics.Consensus)
+	switch fw {
+	case core.UNSUPERVISED_LEARN:
+		return 0.30 * (1 - clamp01(metrics.Coverage))
+	case core.CLASSIFY_READOUT, core.LINK:
+		return 0.25 * clamp01(metrics.Crystallization)
+	case core.HYPOTHESIS, core.FALSIFICATION:
+		return 0.20 * clamp01(metrics.DominantRatio)
+	case core.INTERVENTION, core.CAUSAL_EXPLORE, core.CAUSAL_HUB:
+		return 0.18 * clamp01(metrics.PressureMult)
+	case core.AFFINITY:
+		if metrics.MemberCount < 4 {
+			return 0.20
+		}
+		return 0.04
+	default:
+		return 0.12 * clamp01(metrics.PressureMult)
 	}
+}
 
-	// 4. unsupervised_learn (The Discovery):
-	// Thrives when Coverage is low. The field needs to discover new structure
-	// because it lacks labels.
-	// We predict 0.0; if Coverage is low, error is low, weight increases.
-	if w, ok := program.policy["unsupervised_learn"]; ok {
-		w.Next(0.0, metrics.Coverage)
+func clamp01(x float64) float64 {
+	if x < 0 {
+		return 0
 	}
-
-	// 5. classify_readout & link (The Exploit):
-	// Thrives when the field is fully crystallized/saturated.
-	// We predict 1.0; if Crystallization is high, error is low, weight increases.
-	if w, ok := program.policy["classify_readout"]; ok {
-		w.Next(1.0, metrics.Crystallization)
+	if x > 1 {
+		return 1
 	}
-
-	if w, ok := program.policy["link"]; ok {
-		w.Next(1.0, metrics.Crystallization)
-	}
+	return x
 }

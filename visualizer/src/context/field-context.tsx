@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { telemetryWebSocketURL } from "@/features/telemetry/endpoint";
 import type {
 	VizGraphSnapshot,
 	VizInspectSnapshot,
@@ -41,8 +42,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 	useEffect(() => {
 		let destroyed = false;
 
-		function sync() {
-			const nextState = store.getState();
+		function applyTelemetry(nextState: ReturnType<ValueStore["getState"]>) {
 			setStats(nextState.stats);
 			setSnapshot(nextState.snapshot);
 			setSelection(nextState.selection);
@@ -53,7 +53,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				return;
 			}
 
-			const socket = new WebSocket("ws://localhost:6600/ws");
+			const socket = new WebSocket(telemetryWebSocketURL());
 			socket.binaryType = "arraybuffer";
 			socketRef.current = socket;
 
@@ -63,7 +63,6 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 			};
 
 			socket.onmessage = (message) => {
-				console.log("telemetry bridge message", message);
 				if (!(message.data instanceof ArrayBuffer)) {
 					return;
 				}
@@ -77,11 +76,11 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 				*/
 				const decoded = decodeValueWireMessage(message.data);
 
-				if (decoded.length > 0) {
-					store.applyWireFrames(decoded);
-				}
-
-				sync();
+				const nextState =
+					decoded.length > 0
+						? store.applyWireFrames(decoded)
+						: store.getState();
+				applyTelemetry(nextState);
 			};
 
 			socket.onerror = (e) => {
@@ -102,7 +101,7 @@ export function FieldProvider({ children }: { children: React.ReactNode }) {
 		}
 
 		connect();
-		sync();
+		applyTelemetry(store.getState());
 
 		return () => {
 			destroyed = true;

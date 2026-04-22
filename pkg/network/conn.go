@@ -247,3 +247,4 @@ Error implements the error interface for UniConnError.
 func (connErr UniConnError) Error() string {
 	return string(connErr)
 }
+

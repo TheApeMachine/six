@@ -6,3 +6,4 @@ import "github.com/theapemachine/six/pkg/compute/kernel"
 func NewCPUKernelError(typ kernel.KernelErrorType, err error, op string) *kernel.KernelError {
 	return kernel.NewKernelError("cpu", typ, err, op, 0)
 }
+

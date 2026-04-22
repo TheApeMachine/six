@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT } from "./layoutGenerated";
 import type { FieldMetricsPayload } from "./value-store";
 import { decodeValueFrame, ValueStore } from "./value-store";
-import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT, WORD } from "./valueLayout";
+import { WORD } from "./valueLayout";
 import { decodeValueWireMessage } from "./wire";
 
 /*

@@ -538,3 +538,4 @@ TEXT ·affinityCoupling(SB), NOSPLIT|NOFRAME, $0-24
 	MOVW	R7, (R2)
 	MOVW	R8, 4(R2)
 	RET
+

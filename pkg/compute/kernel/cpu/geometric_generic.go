@@ -111,3 +111,4 @@ func geometricProduct(left, right [8]float64) [8]float64 {
 
 	return out
 }
+

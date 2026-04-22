@@ -194,3 +194,4 @@ func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 }
 
 func (backend *Backend) Name() string { return "cuda" }
+

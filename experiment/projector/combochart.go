@@ -66,3 +66,4 @@ func ComboChartWithOutput(outDir, filename string) comboChartOpts {
 func ComboChartWithYRange(yMin, yMax float64) comboChartOpts {
 	return func(c *ComboChart) { c.yMin = yMin; c.yMax = yMax }
 }
+

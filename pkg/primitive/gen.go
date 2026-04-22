@@ -309,3 +309,4 @@ func die(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "gen primitives: "+format+"\n", args...)
 	os.Exit(1)
 }
+

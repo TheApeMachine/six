@@ -56,3 +56,4 @@ func LineChartWithOutput(outDir, filename string) lineChartOpts {
 func LineChartWithYRange(yMin, yMax float64) lineChartOpts {
 	return func(c *LineChart) { c.yMin = yMin; c.yMax = yMax }
 }
+

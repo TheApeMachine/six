@@ -183,3 +183,4 @@ func (err *RootError) Error() string {
 		"[root] %s: %w", err.Message, err.Err,
 	).Error()
 }
+

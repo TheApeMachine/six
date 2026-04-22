@@ -108,3 +108,4 @@ func (experiment *TextOverlapExperiment) TableData() any { return experiment.tab
 func (experiment *TextOverlapExperiment) Artifacts() []tools.Artifact {
 	return TextOverlapArtifacts(experiment.tableData, experiment.Score())
 }
+

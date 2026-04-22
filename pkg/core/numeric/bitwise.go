@@ -33,3 +33,4 @@ func ROTATELEFT(a uint64, b int) uint64 {
 func ROTATERIGHT(a uint64, b int) uint64 {
 	return bits.RotateLeft64(a, -b)
 }
+

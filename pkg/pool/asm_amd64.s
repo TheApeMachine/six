@@ -9,3 +9,4 @@ TEXT ·GetG(SB),NOSPLIT,$0-8
     MOVQ    g(CX), AX
     MOVQ    AX, gp+0(FP)
     RET
+

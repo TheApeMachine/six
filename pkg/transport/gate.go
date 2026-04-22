@@ -60,3 +60,4 @@ func (gate *GateWriter) Read(p []byte) (n int, err error) {
 
 	return 0, io.EOF
 }
+

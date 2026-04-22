@@ -594,3 +594,4 @@ TEXT ·affinityCoupling(SB), NOSPLIT|NOFRAME, $0-24
 	MOVL	AX, (R8)
 	MOVL	DX, 4(R8)
 	RET
+

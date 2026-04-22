@@ -19,3 +19,4 @@ import "C"
 func cleanupMetalPools() {
 	_ = C.six_cleanup_metal_pools()
 }
+

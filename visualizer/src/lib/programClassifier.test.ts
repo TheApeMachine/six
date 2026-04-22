@@ -20,7 +20,7 @@ function wire(
 
 test("classifyProgramWire picks beam_swarm_step from its tokens→context line", () => {
 	const result = classifyProgramWire(
-		wire(0x06, [0, 8], [40, 8], [32, 8]),
+		wire(0x06, [0, 8], [48, 8], [40, 8]),
 	);
 
 	assert.equal(result.program, "beam_swarm_step");
@@ -29,7 +29,7 @@ test("classifyProgramWire picks beam_swarm_step from its tokens→context line",
 
 test("classifyProgramWire picks classify_readout from its OR line", () => {
 	const result = classifyProgramWire(
-		wire(0x07, [48, 1], [48, 1], [24, 1]),
+		wire(0x07, [56, 1], [56, 1], [32, 1]),
 	);
 
 	assert.equal(result.program, "classify_readout");
@@ -38,7 +38,7 @@ test("classifyProgramWire picks classify_readout from its OR line", () => {
 
 test("classifyProgramWire collapses episodic_replay and unsupervised_learn into peer_gap", () => {
 	const result = classifyProgramWire(
-		wire(0x06, [32, 8], [80, 8], [24, 8]),
+		wire(0x06, [40, 8], [80, 8], [32, 8]),
 	);
 
 	assert.equal(result.category, "peer_gap");
@@ -47,7 +47,7 @@ test("classifyProgramWire collapses episodic_replay and unsupervised_learn into 
 
 test("classifyProgramWire collapses surprisal / causal probes into gap_probe", () => {
 	const result = classifyProgramWire(
-		wire(0x06, [0, 8], [32, 8], [24, 8]),
+		wire(0x06, [0, 8], [40, 8], [32, 8]),
 	);
 
 	assert.equal(result.category, "gap_probe");
@@ -55,7 +55,7 @@ test("classifyProgramWire collapses surprisal / causal probes into gap_probe", (
 
 test("classifyProgramWire distinguishes intervene by asset[16,8] source", () => {
 	const result = classifyProgramWire(
-		wire(0x06, [32, 8], [88, 8], [24, 8]),
+		wire(0x06, [40, 8], [88, 8], [32, 8]),
 	);
 
 	assert.equal(result.program, "intervene");
@@ -64,7 +64,7 @@ test("classifyProgramWire distinguishes intervene by asset[16,8] source", () => 
 
 test("classifyProgramWire identifies measure_field resident", () => {
 	const result = classifyProgramWire(
-		wire(0x07, [72, 8], [72, 8], [31, 1]),
+		wire(0x07, [72, 8], [72, 8], [39, 1]),
 	);
 
 	assert.equal(result.program, "measure_field");

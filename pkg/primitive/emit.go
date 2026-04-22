@@ -117,20 +117,14 @@ func WithProgram(words []uint64) EmitOptions {
 			return
 		}
 
-		value.WriteProgramWords(words)
+		value.InstallProgram(words, 0)
 	}
 }
 
 // WithFirmware lowers named config firmware into the program region (same bits Dispatch executes).
 func WithFirmware(firmware core.FirmwareType) EmitOptions {
 	return func(value *Value) {
-		if value == nil {
-			return
-		}
-
-		entry := core.Cfg.Programs[firmware]
-		value.WriteProgramWords(entry.Compiled())
-		value.SetSchedulingNext(entry.ResolveSchedulingNext(value.ID()))
+		value.InstallFirmware(firmware)
 	}
 }
 

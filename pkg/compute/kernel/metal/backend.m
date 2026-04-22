@@ -22,10 +22,6 @@ static int initResult = 0;
 
 static id<MTLBuffer> bufArena = nil;
 static id<MTLBuffer> bufLinear = nil;
-static id<MTLBuffer> bufSpawnParent = nil;
-static id<MTLBuffer> bufSpawnChild = nil;
-static id<MTLBuffer> bufSpawnTail = nil;
-static id<MTLBuffer> bufMaxSlots = nil;
 
 #define VALUE_BYTES 1024
 
@@ -37,22 +33,6 @@ static void releaseInitMetalArenaBuffers(void) {
     if (bufLinear) {
         [bufLinear release];
         bufLinear = nil;
-    }
-    if (bufSpawnParent) {
-        [bufSpawnParent release];
-        bufSpawnParent = nil;
-    }
-    if (bufSpawnChild) {
-        [bufSpawnChild release];
-        bufSpawnChild = nil;
-    }
-    if (bufSpawnTail) {
-        [bufSpawnTail release];
-        bufSpawnTail = nil;
-    }
-    if (bufMaxSlots) {
-        [bufMaxSlots release];
-        bufMaxSlots = nil;
     }
 }
 
@@ -173,32 +153,11 @@ int init_metal_arena(void* arena_base, size_t arena_bytes, uint32_t* linear_next
         return -3;
     }
 
-    NSUInteger spawnBytes = (NSUInteger)SPAWN_QUEUE_CAP * sizeof(uint32_t);
-    bufSpawnParent = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
-    bufSpawnChild  = [device newBufferWithLength:spawnBytes options:MTLResourceStorageModeShared];
-    bufSpawnTail   = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!bufSpawnParent || !bufSpawnChild || !bufSpawnTail) {
-        releaseInitMetalArenaBuffers();
-        return -4;
-    }
-
-    *(uint32_t*)[bufSpawnTail contents] = 0;
-
-    bufMaxSlots = [device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!bufMaxSlots) {
-        releaseInitMetalArenaBuffers();
-        return -5;
-    }
-
     return 0;
 }
 
-int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots) {
-    if (!pipelineUnifiedArenaIdx || !indices || count == 0 || !bufArena || !bufLinear || !bufSpawnParent) return -1;
-
-    *(uint32_t*)[bufSpawnTail contents] = 0;
-
-    *(uint32_t*)[bufMaxSlots contents] = max_slots;
+int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count) {
+    if (!pipelineUnifiedArenaIdx || !indices || count == 0 || !bufArena || !bufLinear) return -1;
 
     NSUInteger idxBytes = (NSUInteger)count * sizeof(uint32_t);
     id<MTLBuffer> idxBuf = [device newBufferWithBytes:indices length:idxBytes options:MTLResourceStorageModeShared];
@@ -211,10 +170,6 @@ int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint3
         [enc setBuffer:bufArena offset:0 atIndex:0];
         [enc setBuffer:idxBuf offset:0 atIndex:1];
         [enc setBuffer:bufLinear offset:0 atIndex:2];
-        [enc setBuffer:bufSpawnParent offset:0 atIndex:3];
-        [enc setBuffer:bufSpawnChild offset:0 atIndex:4];
-        [enc setBuffer:bufSpawnTail offset:0 atIndex:5];
-        [enc setBuffer:bufMaxSlots offset:0 atIndex:6];
 
         dispatchKernel(enc, pipelineUnifiedArenaIdx, (NSUInteger)count);
         [enc endEncoding];
@@ -225,8 +180,7 @@ int unified_bitwise_metal_indices(const uint32_t* indices, uint32_t count, uint3
     }
 }
 
-int geometric_metal_indices(const uint32_t* indices, uint32_t count, uint32_t max_slots) {
-    (void)max_slots;
+int geometric_metal_indices(const uint32_t* indices, uint32_t count) {
     if (!pipelineGeometricIdx || !indices || count == 0 || !bufArena) return -1;
 
     NSUInteger idxBytes = (NSUInteger)count * sizeof(uint32_t);
@@ -297,55 +251,8 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
     }
 }
 
-int metal_drain_spawn_queue(
-    uint32_t* parents,
-    uint32_t* children,
-    uint32_t max_out,
-    uint32_t* out_count,
-    uint32_t* total_count
-) {
-    if (!parents || !children || !out_count || !bufSpawnParent || !bufSpawnChild || !bufSpawnTail) {
-        return -1;
-    }
-
-    uint32_t* tailHost = (uint32_t*)[bufSpawnTail contents];
-    uint32_t n = *tailHost;
-    if (n > SPAWN_QUEUE_CAP) {
-        n = SPAWN_QUEUE_CAP;
-    }
-
-    if (total_count) {
-        *total_count = n;
-    }
-
-    uint32_t copy = n;
-    if (copy > max_out) {
-        copy = max_out;
-    }
-
-    uint32_t* parentContents = (uint32_t*)[bufSpawnParent contents];
-    uint32_t* childContents = (uint32_t*)[bufSpawnChild contents];
-
-    memcpy(parents, parentContents, (size_t)copy * sizeof(uint32_t));
-    memcpy(children, childContents, (size_t)copy * sizeof(uint32_t));
-
-    if (n > copy) {
-        size_t remain = (size_t)(n - copy) * sizeof(uint32_t);
-        memmove(parentContents, parentContents + copy, remain);
-        memmove(childContents, childContents + copy, remain);
-    }
-
-    *tailHost = n - copy;
-    *out_count = copy;
-
-    return 0;
-}
-
 void cleanup_metal_pools(void) {
     if (bufArena)       { [bufArena release]; bufArena = nil; }
     if (bufLinear)      { [bufLinear release]; bufLinear = nil; }
-    if (bufSpawnParent) { [bufSpawnParent release]; bufSpawnParent = nil; }
-    if (bufSpawnChild)  { [bufSpawnChild release]; bufSpawnChild = nil; }
-    if (bufSpawnTail)   { [bufSpawnTail release]; bufSpawnTail = nil; }
-    if (bufMaxSlots)    { [bufMaxSlots release]; bufMaxSlots = nil; }
 }
+

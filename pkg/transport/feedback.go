@@ -96,3 +96,4 @@ Error returns the most recent error that occurred during reading or writing.
 func (feedback *Feedback) Error() error {
 	return feedback.err
 }
+

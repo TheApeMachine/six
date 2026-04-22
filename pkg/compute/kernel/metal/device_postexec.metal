@@ -71,3 +71,4 @@ static inline void finish_frame_post_alu_device(device ulong* frame) {
 
 #endif
 
+

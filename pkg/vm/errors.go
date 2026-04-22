@@ -48,3 +48,4 @@ func (err *VmError) Unwrap() error {
 
 	return err.Err
 }
+

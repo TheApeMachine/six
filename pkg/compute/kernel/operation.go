@@ -26,3 +26,4 @@ type Substrate interface {
 	Execute(indices []uint32) error
 	Name() string
 }
+

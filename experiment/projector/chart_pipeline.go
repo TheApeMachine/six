@@ -27,3 +27,4 @@ func finalizeEChartsFigure(
 
 	return emitFigure(filename, caption, label, out)
 }
+

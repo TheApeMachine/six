@@ -189,3 +189,4 @@ var (
 	_ io.Writer      = (*Stream)(nil)
 	_ io.WriteCloser = (*Stream)(nil)
 )
+

@@ -1,4 +1,5 @@
-import { readWordU64LE, VALUE_FRAME_BYTE_LENGTH, WORD } from "./valueLayout";
+import { VALUE_FRAME_BYTE_LENGTH } from "./layoutGenerated";
+import { readWordU64LE, WORD } from "./valueLayout";
 
 export interface RawValueFrame {
 	valueId: bigint;

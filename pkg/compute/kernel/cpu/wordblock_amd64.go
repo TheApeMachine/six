@@ -50,3 +50,4 @@ func affinityPopcount(vec *uint64) uint32
 
 //go:noescape
 func affinityCoupling(a *uint64, b *uint64, out *uint32)
+

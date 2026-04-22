@@ -170,3 +170,4 @@ func dominantEnergyRatio(snap *geometry.EigenSnap) float64 {
 
 	return modes[dominantIdx].Energy() / total
 }
+

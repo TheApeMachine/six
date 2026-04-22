@@ -108,3 +108,4 @@ func RequireChainLinkage(value *primitive.Value) error {
 
 	return nil
 }
+

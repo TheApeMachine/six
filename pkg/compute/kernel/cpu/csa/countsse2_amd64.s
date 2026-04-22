@@ -542,3 +542,4 @@ TEXT ·count64sse2(SB), 0, $0-32
 	SHLQ $3, CX			// count in bytes
 	CALL countsse2<>(SB)
 	RET
+

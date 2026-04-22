@@ -30,3 +30,4 @@ func batchAffinityDistances(query *uint64, candidates *uint64, count int, out *u
 
 //go:noescape
 func geometricFrame(value *uint64, opcode uint64) bool
+

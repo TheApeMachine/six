@@ -91,3 +91,4 @@ func SectionWithOutput(out io.Writer) sectionOpts {
 		section.out = out
 	}
 }
+

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT } from "./valueLayout";
+import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT } from "./layoutGenerated";
 import {
 	chainPreview,
 	decodeProgramWire,
@@ -69,8 +69,8 @@ test("decodeValueRegionsFromFrame slices named regions", () => {
 	assert.equal(regions.id.words[0], 0xbeefn);
 	assert.equal(regions.tokens.wordCount, 16);
 	assert.equal(regions.properties.wordCount, 16);
-	assert.equal(regions.asset.wordCount, 56);
-	assert.equal(regions.asset.startWord, 64);
+	assert.equal(regions.asset.wordCount, 48);
+	assert.equal(regions.asset.startWord, 72);
 	assert.equal(regions.all.length, REGION_SPECS.length);
 });
 

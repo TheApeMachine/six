@@ -103,3 +103,4 @@ func (prof *Profiler) Stop() {
 		time.Since(prof.start).Round(time.Millisecond),
 	)
 }
+

@@ -15,6 +15,16 @@ canvas key off category, so the operator sees what kind of work is
 happening even when the specific program is aliased at the wire level.
 */
 
+import {
+	AFFINITY_START_WORD,
+	ASSET_START_WORD,
+	CONTEXT_START_WORD,
+	GRADIENT_START_WORD,
+	PROGRAM_START_WORD,
+	PROPERTIES_START_WORD,
+	SIGNALS_START_WORD,
+	TOKENS_START_WORD,
+} from "./layoutGenerated";
 import type { DecodedProgramWire } from "./valueRegions";
 
 /*
@@ -146,22 +156,17 @@ interface ProgramSignature {
 	opcode: number;
 }
 
-/*
-Region word starts (absolute): tokens=0, program=16, signals=24,
-context=32, gradient=40, properties=48, asset=64, prev=120, next=121,
-id=122, affinity=123. Widths come from the Value region map.
-*/
 const R = {
-	tokens: 0,
-	program: 16,
-	signals: 24,
-	context: 32,
-	gradient: 40,
-	properties: 48,
-	asset: 64,
+	tokens: TOKENS_START_WORD,
+	program: PROGRAM_START_WORD,
+	signals: SIGNALS_START_WORD,
+	context: CONTEXT_START_WORD,
+	gradient: GRADIENT_START_WORD,
+	properties: PROPERTIES_START_WORD,
+	asset: ASSET_START_WORD,
 	prev: 120,
 	next: 121,
-	affinity: 123,
+	affinity: AFFINITY_START_WORD,
 };
 
 /*

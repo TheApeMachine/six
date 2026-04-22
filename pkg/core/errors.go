@@ -36,3 +36,4 @@ Error returns the error message.
 func (e ConfigError) Error() string {
 	return fmt.Sprintf("%s: %s: %s", e.Type, e.Key, e.Msg)
 }
+

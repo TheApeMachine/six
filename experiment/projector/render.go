@@ -93,3 +93,4 @@ func browserAllocatorOptions() []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-setuid-sandbox", true),
 	)
 }
+

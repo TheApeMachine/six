@@ -315,7 +315,7 @@ func NewConfig() *Config {
 			ShannonLimit:       WithDefault(viper.GetFloat64("system.shannonLimit"), 0.47),
 			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
 			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
-			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 10),
+			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 128),
 			QuiescenceTimeout:  quiescenceTimeout,
 			DrainTimeout:       drainTimeout,
 		},

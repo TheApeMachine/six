@@ -281,3 +281,4 @@ TEXT ·geometricProductStore(SB), NOSPLIT|NOFRAME, $0
 	MOVSD	X0, 56(R8)
 
 	RET
+

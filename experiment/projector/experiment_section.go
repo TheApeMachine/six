@@ -26,3 +26,4 @@ const ExperimentSectionTmpl = `\subsection{ {{- .Title -}} }
 Figure~\ref{ {{- .FigureRef -}}} shows the trial outcome map.
 {{- end}}
 `
+

@@ -71,3 +71,4 @@ func (moments *EWMoments) Reset() {
 	moments.mean = 0
 	moments.varianceEWMA = 0
 }
+

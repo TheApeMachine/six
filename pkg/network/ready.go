@@ -7,3 +7,4 @@ import "context"
 type ReadyTransport interface {
 	Ready(ctx context.Context) error
 }
+

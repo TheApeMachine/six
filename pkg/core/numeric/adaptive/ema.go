@@ -125,3 +125,4 @@ func (ema *EMA) Clone() *EMA {
 		count:     ema.count,
 	}
 }
+

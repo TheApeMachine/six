@@ -394,3 +394,4 @@ TEXT ·count64neon(SB), 0, $0-32
 	LSL $3, R3, R3			// count in bytes
 	CALL countneon<>(SB)
 	RET
+

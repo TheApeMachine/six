@@ -275,3 +275,4 @@ func MortonMSB(code uint64) int {
 
 	return 63 - bits.LeadingZeros64(code)
 }
+

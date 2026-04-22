@@ -126,3 +126,4 @@ components are returned as a plain [4]float64: [e123, e032, e013, e021].
 func Point(coordX, coordY, coordZ float64) [4]float64 {
 	return [4]float64{1, coordX, coordY, coordZ}
 }
+

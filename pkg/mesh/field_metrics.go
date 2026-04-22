@@ -68,23 +68,7 @@ fully blank) is treated as maximal coupling — two blank values are
 trivially indistinguishable and should always share a mode.
 */
 func JaccardCouplingAffinity(a, b [primitive.AffinityWords]uint64) float64 {
-	inter := bits.OnesCount64(a[0]&b[0]) +
-		bits.OnesCount64(a[1]&b[1]) +
-		bits.OnesCount64(a[2]&b[2]) +
-		bits.OnesCount64(a[3]&b[3]) +
-		bits.OnesCount64(a[4]&b[4])
-
-	union := bits.OnesCount64(a[0]|b[0]) +
-		bits.OnesCount64(a[1]|b[1]) +
-		bits.OnesCount64(a[2]|b[2]) +
-		bits.OnesCount64(a[3]|b[3]) +
-		bits.OnesCount64(a[4]|b[4])
-
-	if union == 0 {
-		return 1
-	}
-
-	return float64(inter) / float64(union)
+	return primitive.AffinityJaccard(a, b)
 }
 
 /*
@@ -120,19 +104,7 @@ treats as maximal coupling — undefined Values cannot meaningfully
 disagree, so they fold into whatever mode claims them first.
 */
 func loadAffinityArray(value *primitive.Value) [primitive.AffinityWords]uint64 {
-	var out [primitive.AffinityWords]uint64
-
-	if value == nil {
-		return out
-	}
-
-	start, _ := core.Cfg.Value.Region.Affinity.WordExtent()
-
-	for i := range primitive.AffinityWords {
-		out[i] = (*value)[start+i]
-	}
-
-	return out
+	return value.AffinityArray()
 }
 
 /*
@@ -260,7 +232,7 @@ func (metrics *FieldMetrics) Rollup(children []*Field) FieldMetrics {
 
 		metrics := ch.metrics.Load()
 
-		if metrics.MemberCount == 0 {
+		if metrics == nil || metrics.MemberCount == 0 {
 			continue
 		}
 
@@ -308,6 +280,47 @@ func (metrics *FieldMetrics) Refresh(field *Field) {
 
 	defer field.refreshing.Store(false)
 
-	metric := metrics.Measure(field, field.values, field.snap)
+	members := field.values
+	snap := detectEigenmodesFromMembers(members)
+	field.updatePhaseDialFromMembers(members)
+	field.snap = snap
+
+	children := append([]*Field(nil), field.fields...)
+
+	metric := metrics.Measure(field, members, snap)
+	if metric.MemberCount == 0 && len(children) > 0 {
+		metric = metrics.Rollup(children)
+	}
 	field.metrics.Store(&metric)
+
+	if field.program != nil {
+		field.program.Update(&metric)
+	}
+
+	if metric.MemberCount > 1 && metric.Coverage < 0.5 {
+		field.spawnUnsupervisedLearnerConn(members, metric)
+	}
+
+	// Metric-gated pressure pass. The carrier is an in-band Value targeted at
+	// this Field, not an external callback. Program selection is delegated to
+	// the Field's contextual bandit.
+	if metrics.crystallizationFloor == nil ||
+		field.program == nil ||
+		field.conn == nil ||
+		metric.MemberCount == 0 ||
+		metric.Coverage >= metrics.crystallizationFloor.Value() {
+		return
+	}
+
+	carrier := primitive.Emit(
+		primitive.WithFirmware(field.program.SelectFor(&metric)),
+		primitive.WithTarget(field.id),
+		primitive.WithCommunity(field.id),
+		primitive.WithRole(uint64(primitive.ValueRoleLearner)),
+		primitive.WithAssetPressureMetrics(
+			metric.Coverage, metric.Consensus, metric.Crystallization,
+		),
+	)
+
+	field.conn.Update(carrier)
 }

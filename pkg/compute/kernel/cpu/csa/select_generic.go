@@ -5,3 +5,4 @@
 package pospop
 
 var count64funcs = []count64impl{{count64generic, "generic", true}}
+

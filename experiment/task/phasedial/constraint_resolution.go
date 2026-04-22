@@ -450,3 +450,4 @@ Target isolation ratio: %s.`, projector.F3(finalMaid), projector.F3(finalMean), 
 }
 
 func (exp *ConstraintResolutionExperiment) RawOutput() bool { return false }
+

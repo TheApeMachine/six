@@ -241,3 +241,4 @@ func WritePolarConstraint(
 
 	return pc.Generate()
 }
+

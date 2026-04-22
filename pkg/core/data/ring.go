@@ -389,3 +389,4 @@ func (ring *Ring) Error() error {
 }
 
 var _ io.ReadWriteCloser = (*Ring)(nil)
+

@@ -54,3 +54,4 @@ func (ema *AlphaEMA) Reset() {
 	ema.value = 0
 	ema.updates = 0
 }
+

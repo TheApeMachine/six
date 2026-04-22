@@ -19,3 +19,4 @@ func HashString(s string) (uint64, error) {
 
 	return hasher.Sum64(), nil
 }
+

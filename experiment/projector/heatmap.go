@@ -71,3 +71,4 @@ func HeatMapWithMeta(title, caption, label string) heatMapOpts {
 func HeatMapWithOutput(outDir, filename string) heatMapOpts {
 	return func(hm *HeatMap) { hm.outDir = outDir; hm.filename = filename }
 }
+

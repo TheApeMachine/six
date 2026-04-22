@@ -237,3 +237,4 @@ and category words.  Scaling ingestion volume or enriching the corpus with
 category-adjacent vocabulary may improve attractor formation.`
 	}
 }
+

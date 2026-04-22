@@ -150,3 +150,4 @@ func (pipeline *Pipeline) Close() (err error) {
 
 	return err
 }
+

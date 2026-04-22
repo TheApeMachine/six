@@ -1,7 +1,6 @@
 package metal
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -81,20 +80,5 @@ func TestUniversalBitwiseUsesSelfOnly32BitProgram(t *testing.T) {
 		So(frame[1], ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
 		So(frame[reservedProbeWordIndexA], ShouldEqual, uint64(11))
 		So(frame[reservedProbeWordIndexB], ShouldEqual, uint64(42))
-	})
-}
-
-func TestSchedule(t *testing.T) {
-	Convey("Schedule executes the supplied job", t, func() {
-		backend := NewBackend(0)
-		called := false
-
-		err := backend.Schedule(func(ctx context.Context) error {
-			called = true
-			return nil
-		})
-
-		So(err, ShouldBeNil)
-		So(called, ShouldBeTrue)
 	})
 }

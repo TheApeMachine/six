@@ -11,6 +11,19 @@ import (
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
+type affinityDistanceProviderSpy struct {
+	distances []uint32
+	calls     int
+}
+
+func (spy *affinityDistanceProviderSpy) AffinityDistances(
+	_ *[primitive.AffinityWords]uint64,
+	_ [][primitive.AffinityWords]uint64,
+) []uint32 {
+	spy.calls++
+	return append([]uint32(nil), spy.distances...)
+}
+
 func TestNewField(t *testing.T) {
 	Convey("Given a telemetry bridge", t, func() {
 		bridge, err := telemetry.NewBridge(t.Context(), "")
@@ -175,9 +188,9 @@ func TestFieldWrite(t *testing.T) {
 
 		affinityStart, _ := primitive.AffinityRegion.WordExtent()
 
-		// All zeros vs. all ones across every affinity word — Hamming
-		// distance 5*64 = 320, which blows through the 48-bit budget and
-		// must cold-miss into a fresh community.
+		// All zeros vs. all ones — Hamming distance 320, over routeBudget.
+		// With only one eligible child, the second visitor still joins it
+		// via closest-seed fallback instead of spawning a second community.
 		first := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{0, 0, 0, 0, 0})
 		second := writeAffinity(parent, affinityStart, [primitive.AffinityWords]uint64{
 			^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0),
@@ -185,10 +198,10 @@ func TestFieldWrite(t *testing.T) {
 		defer first.Close()
 		defer second.Close()
 
-		Convey("each frame seeds its own community", func() {
-			So(len(parent.fields), ShouldEqual, 2)
-			So(len(parent.fields[0].values), ShouldEqual, 1)
-			So(len(parent.fields[1].values), ShouldEqual, 1)
+		Convey("both frames share the single child community via closest match", func() {
+			So(len(parent.fields), ShouldEqual, 1)
+			So(len(parent.fields[0].values), ShouldEqual, 2)
+			So(len(parent.values), ShouldEqual, 2)
 		})
 	})
 }
@@ -196,9 +209,9 @@ func TestFieldWrite(t *testing.T) {
 /*
 TestFieldFindCommunity locks down the visitor-routing contract of
 findCommunity: a probe that lands within routeBudget joins an existing
-child and gets stamped with that child's id, an out-of-budget probe
-spawns a fresh child, and a visitor that already carries a COMMUNITY
-stamp is left alone.
+child; an out-of-budget probe joins the closest non-saturated child when
+one exists (otherwise spawns fresh); a visitor that already carries a
+COMMUNITY stamp is left alone.
 */
 func TestFieldFindCommunity(t *testing.T) {
 	communityWord := core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY)
@@ -230,7 +243,7 @@ func TestFieldFindCommunity(t *testing.T) {
 			So(len(parent.fields), ShouldEqual, 1)
 		})
 
-		Convey("an out-of-budget probe spawns a fresh community and is stamped with its id", func() {
+		Convey("an out-of-budget probe joins the closest existing child", func() {
 			visitor := primitive.AllocValue()
 			visitor.StampID()
 			defer visitor.Close()
@@ -241,12 +254,10 @@ func TestFieldFindCommunity(t *testing.T) {
 
 			parent.findCommunity(visitor)
 
-			So(len(parent.fields), ShouldEqual, 2)
-			spawned := parent.fields[1]
+			So(len(parent.fields), ShouldEqual, 1)
 			community, err := visitor.Property(primitive.COMMUNITY)
 			So(err, ShouldBeNil)
-			So(community, ShouldEqual, spawned.id)
-			So(community, ShouldNotEqual, child.id)
+			So(community, ShouldEqual, child.id)
 		})
 
 		Convey("a visitor already stamped with COMMUNITY short-circuits without touching the parent", func() {
@@ -261,6 +272,166 @@ func TestFieldFindCommunity(t *testing.T) {
 
 			So(len(parent.fields), ShouldEqual, before)
 			So((*visitor)[communityWord], ShouldEqual, uint64(0xDEADBEEF))
+		})
+	})
+}
+
+func TestFieldFindCommunityMaintainsFieldOrderPolicy(t *testing.T) {
+	communityWord := core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY)
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+	Convey("Given two children both within routeBudget", t, func() {
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(parent.Close(), ShouldBeNil)
+		}()
+
+		parent.routeBudget = 4
+		first := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		second := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		parent.appendChild(first)
+		parent.appendChild(second)
+		first.seed[0] = 0x0
+		second.seed[0] = 0x3
+		So(len(parent.fields), ShouldEqual, 2)
+
+		visitor := primitive.AllocValue()
+		visitor.StampID()
+		defer visitor.Close()
+
+		visitor.Set(communityWord, 0)
+		visitor.Set(affinityStart, 0x2)
+
+		parent.findCommunity(visitor)
+
+		Convey("the first in-budget child still wins even if a later child is closer", func() {
+			community, err := visitor.Property(primitive.COMMUNITY)
+			So(err, ShouldBeNil)
+			So(community, ShouldEqual, first.id)
+		})
+	})
+
+	Convey("Given two fallback candidates at equal Hamming distance", t, func() {
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(parent.Close(), ShouldBeNil)
+		}()
+
+		parent.routeBudget = 0
+		first := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		second := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		parent.appendChild(first)
+		parent.appendChild(second)
+		first.seed[0] = 0x1
+		second.seed[0] = 0x4
+		So(len(parent.fields), ShouldEqual, 2)
+
+		visitor := primitive.AllocValue()
+		visitor.StampID()
+		defer visitor.Close()
+		visitor.Set(affinityStart, 0x0)
+
+		parent.findCommunity(visitor)
+
+		Convey("the first minimum-distance child wins the fallback tie", func() {
+			community, err := visitor.Property(primitive.COMMUNITY)
+			So(err, ShouldBeNil)
+			So(community, ShouldEqual, first.id)
+		})
+	})
+}
+
+func TestFieldFindCommunityUsesAffinityDistanceProvider(t *testing.T) {
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+	Convey("Given a field with an injected distance provider", t, func() {
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(parent.Close(), ShouldBeNil)
+		}()
+
+		first := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		second := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		parent.appendChild(first)
+		parent.appendChild(second)
+		first.seed[0] = 0x0
+		second.seed[0] = 0x8
+		parent.fingers[0] = first.seed
+		parent.fingers[1] = second.seed
+		parent.routeBudget = 0
+
+		spy := &affinityDistanceProviderSpy{distances: []uint32{5, 0}}
+		parent.SetAffinityDistanceProvider(spy)
+
+		visitor := primitive.AllocValue()
+		visitor.StampID()
+		defer visitor.Close()
+		visitor.Set(affinityStart, 0x0)
+
+		parent.findCommunity(visitor)
+
+		Convey("routing should use the provider's distance ordering", func() {
+			community, err := visitor.Property(primitive.COMMUNITY)
+			So(err, ShouldBeNil)
+			So(community, ShouldEqual, second.id)
+			So(spy.calls, ShouldEqual, 1)
+		})
+	})
+}
+
+func TestFieldAffinityDistances(t *testing.T) {
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+	Convey("Given a field with a packed fingers table but no compute router", t, func() {
+		field := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(field.Close(), ShouldBeNil)
+		}()
+
+		field.fingers = append(field.fingers, [primitive.AffinityWords]uint64{0x1, 0, 0, 0, 0})
+
+		visitor := primitive.AllocValue()
+		visitor.StampID()
+		defer visitor.Close()
+		visitor.Set(affinityStart, 0x1)
+
+		Convey("the vector path stays disabled until compute injects a router", func() {
+			So(field.affinityDistances(visitor), ShouldBeNil)
+		})
+	})
+}
+
+func TestFieldFingersMirrorChildSeeds(t *testing.T) {
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+	Convey("Given a parent that spawns child communities", t, func() {
+		parent := NewField(t.Context(), 65537, nil, newTestQueue(t))
+		defer func() {
+			So(parent.Close(), ShouldBeNil)
+		}()
+
+		firstSeed := [primitive.AffinityWords]uint64{0x1, 0, 0, 0, 0}
+		secondSeed := [primitive.AffinityWords]uint64{
+			^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0),
+		}
+
+		first := writeAffinity(parent, affinityStart, firstSeed)
+		defer first.Close()
+
+		So(len(parent.fields), ShouldEqual, 1)
+
+		for wordIdx := range parent.fields[0].affinity {
+			parent.fields[0].affinity[wordIdx].Store(^uint64(0))
+		}
+
+		second := writeAffinity(parent, affinityStart, secondSeed)
+		defer second.Close()
+
+		Convey("fingers should mirror child seed order exactly", func() {
+			So(len(parent.fields), ShouldEqual, 2)
+			So(len(parent.fingers), ShouldEqual, len(parent.fields))
+			So(parent.fingers[0], ShouldResemble, parent.fields[0].seed)
+			So(parent.fingers[1], ShouldResemble, parent.fields[1].seed)
 		})
 	})
 }
@@ -434,6 +605,40 @@ func BenchmarkFieldFindCommunity(b *testing.B) {
 			visitor.Set(affinityStart+offset, target[offset])
 		}
 		parent.findCommunity(visitor)
+	}
+}
+
+func BenchmarkFieldAffinityDistances(b *testing.B) {
+	const communityCount = 256
+
+	field := NewField(b.Context(), 65537, nil, newTestQueue(b))
+	defer field.Close()
+
+	rng := rand.New(rand.NewPCG(0xFEEDFACE, 0x12345678))
+	field.fingers = make([][primitive.AffinityWords]uint64, communityCount)
+	for idx := range field.fingers {
+		for wordIdx := 0; wordIdx < primitive.AffinityWords; wordIdx++ {
+			field.fingers[idx][wordIdx] = rng.Uint64()
+		}
+	}
+
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+	visitor := primitive.AllocValue()
+	visitor.StampID()
+	defer visitor.Close()
+
+	for wordIdx := 0; wordIdx < primitive.AffinityWords; wordIdx++ {
+		visitor.Set(affinityStart+wordIdx, field.fingers[communityCount/2][wordIdx])
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		distances := field.affinityDistances(visitor)
+		if len(distances) != communityCount {
+			b.Fatalf("expected %d distances, got %d", communityCount, len(distances))
+		}
 	}
 }
 

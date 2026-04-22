@@ -239,35 +239,6 @@ static inline ulong broadcast_opcode_nibble(uchar opLow) {
     return packed;
 }
 
-static inline void emit_clone_device_metal(
-    device ulong* arena,
-    device ulong* parent_frame,
-    uint parent_slot,
-    device atomic_uint* linear_next,
-    device uint* spawn_parent,
-    device uint* spawn_child,
-    device atomic_uint* spawn_tail,
-    uint max_slots
-) {
-    uint child_slot = atomic_fetch_add_explicit(linear_next, 1u, memory_order_relaxed);
-    if (child_slot >= max_slots) {
-        parent_frame[SIGNALS_START_WORD] = ~0UL;
-        return;
-    }
-    device ulong* child = arena + (uint64_t)child_slot * (uint64_t)WORDS;
-    for (int i = 0; i < WORDS; i++) {
-        child[i] = parent_frame[i];
-    }
-    ulong noise = parent_frame[PROPERTIES_NOISE_WORD];
-    for (int w = 0; w < AFFINITY_WORDS; w++) {
-        child[AFFINITY_START_WORD + w] ^= noise ^ ((ulong)parent_slot << (ulong)(w * 13));
-    }
-    uint tail = atomic_fetch_add_explicit(spawn_tail, 1u, memory_order_relaxed);
-    uint pos = tail % SPAWN_QUEUE_CAP;
-    spawn_parent[pos] = parent_slot;
-    spawn_child[pos] = child_slot;
-}
-
 kernel void unified_bitwise_kernel(
     device ulong* A [[buffer(0)]],
     uint id [[thread_position_in_grid]]
@@ -385,32 +356,10 @@ kernel void unified_bitwise_arena_indices_kernel(
     device ulong* arena [[buffer(0)]],
     device const uint* indices [[buffer(1)]],
     device atomic_uint* linear_next [[buffer(2)]],
-    device uint* spawn_parent [[buffer(3)]],
-    device uint* spawn_child [[buffer(4)]],
-    device atomic_uint* spawn_tail [[buffer(5)]],
-    device const uint* max_slots_buf [[buffer(6)]],
     uint id [[thread_position_in_grid]]
 ) {
-    uint max_slots = max_slots_buf[0];
     uint parent_slot = indices[id];
     device ulong* frame = arena + (uint64_t)parent_slot * (uint64_t)WORDS;
-
-    uchar rawOpcode = (uchar)(frame[PROGRAM_START_WORD] & 0xFF);
-
-    if (rawOpcode == OPCODE_EMIT_CLONE) {
-        emit_clone_device_metal(
-            arena,
-            frame,
-            parent_slot,
-            linear_next,
-            spawn_parent,
-            spawn_child,
-            spawn_tail,
-            max_slots
-        );
-        finish_frame_post_alu_device(frame);
-        return;
-    }
 
     uchar opLow = (uchar)(frame[PROGRAM_START_WORD] & 0xF);
     if (opLow == 0) {
@@ -428,3 +377,4 @@ kernel void unified_bitwise_arena_indices_kernel(
     universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
     finish_frame_post_alu_device(frame);
 }
+

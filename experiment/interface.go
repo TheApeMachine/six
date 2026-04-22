@@ -309,3 +309,4 @@ func OptionalLabel(label int) *int {
 func Slugify(name string) string {
 	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }
+

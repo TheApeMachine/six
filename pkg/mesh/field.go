@@ -71,6 +71,7 @@ type Field struct {
 
 	fields  []*Field
 	fingers [][primitive.AffinityWords]uint64
+	router  compute.AffinityRouter
 
 	values []*primitive.Value
 
@@ -92,6 +93,9 @@ type Field struct {
 	routeBudget int
 
 	resolvedDropCount atomic.Uint64
+
+	// learnerEmissions bounds unsupervised-learner fan-out per field (see spawnUnsupervisedLearnerConn).
+	learnerEmissions atomic.Uint64
 
 	// refreshing / rolling coalesce queued metric work: each Write tries
 	// to flip the flag with CompareAndSwap and only schedules when it
@@ -150,7 +154,9 @@ func NewField(
 		program:     NewProgram(),
 	}
 
-	field.conn, field.err = gossip.NewConn(ctx, queue, telemetry, field)
+	field.conn, field.err = gossip.NewConn(
+		ctx, queue, telemetry, io.Discard,
+	)
 	field.metrics.Store(NewFieldMetrics())
 
 	return field
@@ -256,7 +262,7 @@ frame without the Field knowing about them.
 func (field *Field) Write(p []byte) (n int, err error) {
 	errnie.Trace("mesh.Field.Write")
 
-	if field == nil {
+	if field == nil || field.conn == nil {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -272,26 +278,87 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		return 0, io.EOF
 	default:
 		visitor := primitive.AllocValue()
+		defer visitor.Close()
 
 		if err := visitor.LoadFullFrame(p); err != nil {
-			errnie.Error(errors.Join(
+			return 0, errnie.Error(errors.Join(
 				io.ErrShortBuffer,
 				errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
 			))
-
-			return 0, err
 		}
 
 		field.findCommunity(visitor)
 		field.metrics.Load().Refresh(field)
 
-		// Update the program policy with the new metrics
-		field.program.Update(field.metrics.Load())
-		emissions := field.program.Select(visitor.ID())
-		field.conn.Update(emissions)
+		// findCommunity stamps COMMUNITY (and may touch other words) on the
+		// Value only — serialize back into p so gossip, telemetry, and the
+		// next pipeline stage see the same routing outcome as field.values.
+		if _, rerr := visitor.Read(p); rerr != nil && !errors.Is(rerr, io.EOF) {
+			return 0, errnie.Error(rerr)
+		}
 
-		return field.conn.Write(p)
+		// Publish on the outbound conn so attached observers
+		// (and the queue + telemetry side-channels in conn's
+		// MultiWriter) see every inbound frame. The conn sink is
+		// io.Discard so this does not recurse back into Field.Write.
+		if _, werr := field.conn.Write(p); werr != nil && werr != io.EOF {
+			return 0, errnie.Error(werr)
+		}
+
+		return len(p), nil
 	}
+}
+
+func (field *Field) assignVisitorToChild(f *Field, visitor *primitive.Value) {
+	f.values = append(f.values, visitor)
+	f.foldAffinityXOR(visitor)
+
+	visitor.Set(
+		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), f.id,
+	)
+
+	f.conn.Update(visitor)
+}
+
+func (field *Field) appendChild(child *Field) {
+	if field == nil || child == nil {
+		return
+	}
+
+	child.SetAffinityDistanceProvider(field.router)
+	field.fields = append(field.fields, child)
+	field.fingers = append(field.fingers, child.seed)
+}
+
+func (field *Field) SetAffinityDistanceProvider(provider compute.AffinityRouter) {
+	if field == nil {
+		return
+	}
+
+	field.router = provider
+	for _, child := range field.fields {
+		child.SetAffinityDistanceProvider(provider)
+	}
+}
+
+func (field *Field) affinityDistances(visitor *primitive.Value) []uint32 {
+	if field == nil || visitor == nil || len(field.fingers) == 0 {
+		return nil
+	}
+
+	visitorAffinity := visitor.Get(primitive.AffinityRegion)
+	if len(visitorAffinity) < primitive.AffinityWords {
+		return nil
+	}
+
+	var query [primitive.AffinityWords]uint64
+	copy(query[:], visitorAffinity[:primitive.AffinityWords])
+
+	if field.router == nil {
+		return nil
+	}
+
+	return field.router.AffinityDistances(&query, field.fingers)
 }
 
 func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
@@ -300,72 +367,78 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 		return err
 	}
 
-	// Find the community that the visitor belongs to.
-	for _, f := range field.fields {
+	// Among children below the Shannon limit, prefer a strict in-budget
+	// match; otherwise fall back to the closest seed by Hamming distance
+	// so sparse affinities still land in an existing community instead of
+	// spawning one leaf per Value.
+	var best *Field
+	bestDist := ^uint64(0)
+	distances := field.affinityDistances(visitor)
+
+	for idx, f := range field.fields {
 		// First we check if the field has reached the Shannon limit.
 		totalAffinity := uint64(0)
 
 		for wordIdx := range f.affinity {
-			totalAffinity += uint64(bits.OnesCount64(f.affinity[wordIdx].Load()))
+			totalAffinity += uint64(
+				bits.OnesCount64(f.affinity[wordIdx].Load()),
+			)
 		}
 
-		if float64(totalAffinity)/float64(core.Cfg.Value.Region.Affinity.Bits) >= core.Cfg.System.ShannonLimit {
+		if float64(totalAffinity)/float64(
+			core.Cfg.Value.Region.Affinity.Bits,
+		) >= core.Cfg.System.ShannonLimit {
 			continue
 		}
 
-		// Then we check if the visitor's affinity is within the Hamming
-		// distance of the field's affinity.
-		hammingDistance := uint64(0)
+		hammingDistance := bestDist
+		if idx < len(distances) {
+			hammingDistance = uint64(distances[idx])
+		} else {
+			hammingDistance = 0
+			for wordIdx := range visitor.Get(primitive.AffinityRegion) {
+				if wordIdx >= len(f.seed) {
+					break
+				}
 
-		// We need to check the Hamming distance between the field's seed
-		// and the visitor's affinity.
-		for wordIdx := range visitor.Get(primitive.AffinityRegion) {
-			if wordIdx >= len(f.seed) {
-				break
+				hammingDistance += uint64(
+					bits.OnesCount64(
+						f.seed[wordIdx] ^ visitor.Get(
+							primitive.AffinityRegion,
+						)[wordIdx],
+					),
+				)
 			}
-			hammingDistance += uint64(
-				bits.OnesCount64(f.seed[wordIdx] ^ visitor.Get(primitive.AffinityRegion)[wordIdx]),
-			)
 		}
 
 		if hammingDistance <= uint64(field.routeBudget) {
-			// We are good to go, so we add the visitor to the field and
-			// update the field's affinity.
-			f.values = append(f.values, visitor)
-			f.foldAffinityXOR(visitor)
+			field.assignVisitorToChild(f, visitor)
 
-			visitor.Set(
-				core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), f.id,
-			)
-
-			// Update the field's conn to include the new visitor, so it
-			// will be folded with all the other values.
-			if f.conn == nil {
-				f.conn, err = gossip.NewConn(
-					f.ctx,
-					f.queue,
-					f.telemetry,
-					f,
-					visitor,
-				)
-
-				if err != nil {
-					return errnie.Error(err)
-				}
-
-				break
+			if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+				return errnie.Error(err)
 			}
 
-			f.conn.Update(visitor)
+			return nil
+		}
 
-			break
+		if hammingDistance < bestDist {
+			bestDist = hammingDistance
+			best = f
 		}
 	}
 
-	// Check if the visitor is now a member of a field.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		// The visitor was assigned to a field above.
 		return errnie.Error(err)
+	}
+
+	if best != nil {
+		field.assignVisitorToChild(best, visitor)
+
+		if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+			return errnie.Error(err)
+		}
+
+		return nil
 	}
 
 	// If not, we need to create a new community field.
@@ -393,19 +466,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 	// Append the new field to the global field, and make sure to
 	// update the conn of the global field, so the values in the new
 	// field are folded with all the other fields.
-	field.fields = append(field.fields, newField)
-
-	if field.conn == nil {
-		field.conn, err = gossip.NewConn(
-			field.ctx,
-			field.queue,
-			field.telemetry,
-			field,
-			newField,
-		)
-
-		return errnie.Error(err)
-	}
+	field.appendChild(newField)
 
 	newField.conn.Update(visitor)
 	field.conn.Update(newField)

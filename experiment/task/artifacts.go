@@ -321,3 +321,4 @@ func projectorImageStripRows(rows []tools.ImageStripRow) []projector.ImageStripR
 	}
 	return out
 }
+

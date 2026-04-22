@@ -209,3 +209,4 @@ func HeatmapPanel(xLabels, yLabels []string, data [][]any, heatMin, heatMax floa
 func ChartPanel(xLabels []string, series []MPSeries, yMin, yMax *float64) MPPanel {
 	return MPPanel{Kind: "chart", XLabels: xLabels, Series: series, YMin: yMin, YMax: yMax, XShow: true}
 }
+

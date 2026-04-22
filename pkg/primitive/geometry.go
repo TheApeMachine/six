@@ -62,3 +62,4 @@ func (g *geometry) SlotCode(rolling uint32, rawByte byte, ordinal uint32) (uint1
 
 	return EncodeInterleaved8x8(mix&0xFF, uint32(rawByte)), nil
 }
+

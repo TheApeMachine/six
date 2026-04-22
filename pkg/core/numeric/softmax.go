@@ -61,3 +61,4 @@ func SoftmaxPercentages(logEvidence map[string]float64, labels []string) map[str
 
 	return out
 }
+

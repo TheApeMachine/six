@@ -133,3 +133,4 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 		pipeline.timing,
 	)
 }
+

@@ -79,3 +79,4 @@ func ImageStripWithMeta(title, caption, label string) imageStripOpts {
 func ImageStripWithOutput(outDir, filename string) imageStripOpts {
 	return func(is *ImageStrip) { is.outDir = outDir; is.filename = filename }
 }
+

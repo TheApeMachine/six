@@ -1,3 +1,16 @@
+import {
+	AFFINITY_START_WORD,
+	ASSET_START_WORD,
+	ID_START_WORD,
+	NEXT_START_WORD,
+	PREV_START_WORD,
+} from "./layoutGenerated";
+
+export {
+	VALUE_FRAME_BYTE_LENGTH,
+	VALUE_WORD_COUNT,
+} from "./layoutGenerated";
+
 /*
 Word indices match the runtime layout the orchestrator and mesh actually use:
 pkg/core/config.go Value.Region defaults (which primitive.*Region.WordExtent()
@@ -15,23 +28,15 @@ export const WORD = {
 	(default start word 72), so the viz has to read from the same words or the
 	chain preview lies about what's staged.
 	*/
-	ASSET_PREV: 72,
-	ASSET_NEXT: 73,
-	PREV: 120,
-	NEXT: 121,
-	ID: 122,
-	AFFINITY_0: 123,
+	ASSET_PREV: ASSET_START_WORD,
+	ASSET_NEXT: ASSET_START_WORD + 1,
+	PREV: PREV_START_WORD,
+	NEXT: NEXT_START_WORD,
+	ID: ID_START_WORD,
+	AFFINITY_0: AFFINITY_START_WORD,
 } as const;
 
-/*
-VALUE_WORD_COUNT matches primitive.Value ([128]uint64). The viz binary always
-ships a full little-endian image when publishing WireFrameValue.
-*/
-export const VALUE_WORD_COUNT = 128;
-
 const WORD_BYTES = 8;
-
-export const VALUE_FRAME_BYTE_LENGTH = VALUE_WORD_COUNT * WORD_BYTES;
 
 export function readWordU64LE(buf: Uint8Array, wordIndex: number): bigint {
 	const offset = wordIndex * WORD_BYTES;

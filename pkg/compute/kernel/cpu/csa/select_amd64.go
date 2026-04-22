@@ -13,3 +13,4 @@ var count64funcs = []count64impl{
 	{count64sse2, "sse2", cpu.X86.HasSSE2},
 	{count64generic, "generic", true},
 }
+

@@ -125,3 +125,4 @@ func UniversalBitwise(value unsafe.Pointer) {
 		}
 	}
 }
+

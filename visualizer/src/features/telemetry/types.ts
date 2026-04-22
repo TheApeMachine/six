@@ -121,6 +121,8 @@ export interface FieldSnapshot {
 
 export interface VizGraphSnapshot {
 	timestamp: number;
+	/** Increments only when graph membership or member payloads change (not selection). */
+	graphSeq: number;
 	fields: FieldSnapshot[];
 	orphanValues: FieldValueSnapshot[];
 	totalValues: number;

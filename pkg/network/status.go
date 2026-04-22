@@ -335,3 +335,4 @@ func (monitor *transportMonitor) RecordFailure(mode TransportFailureMode, err er
 	monitor.status.ConsecutiveFailures = monitor.breaker.ConsecutiveFailures()
 	monitor.status.NextAttemptAt = monitor.breaker.NextAttemptAt()
 }
+

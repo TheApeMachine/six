@@ -16,3 +16,4 @@ purely a //go:noescape stub.
 
 //go:noescape
 func UniversalBitwise(value unsafe.Pointer)
+
