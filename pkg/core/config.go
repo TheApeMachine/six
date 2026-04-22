@@ -65,6 +65,24 @@ type SystemConfig struct {
 	ResonanceThreshold float64       `mapstructure:"resonanceThreshold"`
 	BeliefEpsilon      float64       `mapstructure:"beliefEpsilon"`
 	RouteBudget        int           `mapstructure:"routeBudget"`
+	/*
+		MaxMembersPerField is a hard backstop on how many Values a single
+		leaf Field may absorb. The XOR-saturation gate (ShannonLimit) is
+		mathematically a "fingerprint randomness" check: it trips for
+		uncorrelated populations whose folded affinity approaches 50% set
+		bits, but stays silent forever for highly-correlated populations
+		whose XOR contributions cancel out. Real workloads (e.g. many
+		fragments of the same prompt) are exactly that correlated case,
+		which lets a single Field grow unboundedly even when intuition
+		says the cluster is long past saturated.
+
+		MaxMembersPerField caps that growth at a value the routing layer
+		can defend regardless of fingerprint statistics: once a field is
+		full, findCommunity stops considering it as a routing target,
+		forcing either a sibling (within Hamming budget) or a fresh
+		spawn. Zero disables the backstop.
+	*/
+	MaxMembersPerField int `mapstructure:"maxMembersPerField"`
 	// QuiescenceTimeout bounds the busy-wait in vm.Orchestrator.Cycle before
 	// draining; zero means 100ms at runtime.
 	QuiescenceTimeout time.Duration `mapstructure:"quiescenceTimeout"`
@@ -316,6 +334,7 @@ func NewConfig() *Config {
 			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
 			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
 			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 128),
+			MaxMembersPerField: WithDefault(viper.GetInt("system.maxMembersPerField"), 256),
 			QuiescenceTimeout:  quiescenceTimeout,
 			DrainTimeout:       drainTimeout,
 		},

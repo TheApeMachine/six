@@ -42,6 +42,14 @@ type Dataset struct {
 	textColumns  []string
 	labelColumn  string
 	labelAppend  []string // when set, appends " → <label_name>" to each sample's text
+	// labelOrigin is the integer value that corresponds to the FIRST class
+	// in labelAppend (0 for 0-indexed datasets like dair-ai/emotion, 1 for
+	// 1-indexed datasets like ag_news). Every raw label read from a shard
+	// is normalized via `raw - labelOrigin` before it touches any other
+	// part of the system, so downstream consumers can always treat
+	// dataset.labels[id] as a 0-indexed offset into labelAppend without
+	// having to guess the upstream convention. Defaults to 0.
+	labelOrigin int
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
 	perSamplePos bool
@@ -309,6 +317,13 @@ func (dataset *Dataset) Close() error {
 	return nil
 }
 
+/*
+labelAsText resolves a normalized (0-indexed) label to its display string.
+Raw upstream labels are normalized to 0-indexed in the streaming layer (see
+labelOrigin), so this helper does NOT need to fall back to the
+"label-1" branch the older code carried as a guard against ag_news-style
+1-indexed shards.
+*/
 func (dataset *Dataset) labelAsText(label int, hasLabel bool) string {
 	if !hasLabel {
 		return ""
@@ -316,10 +331,6 @@ func (dataset *Dataset) labelAsText(label int, hasLabel bool) string {
 
 	if len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
 		return dataset.labelAppend[label]
-	}
-
-	if len(dataset.labelAppend) > 0 && label > 0 && label <= len(dataset.labelAppend) {
-		return dataset.labelAppend[label-1]
 	}
 
 	return strconv.Itoa(label)
@@ -665,7 +676,9 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 			text = string(transformed)
 		}
 
-		// Extract label.
+		// Extract label and normalize against labelOrigin so internal
+		// label storage is always 0-indexed regardless of upstream
+		// convention (ag_news is 1-indexed; dair-ai/emotion is 0-indexed).
 		var label int
 		hasLabel := false
 		if labelIdx >= 0 && labelIdx < len(row) {
@@ -673,10 +686,10 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 			if !v.IsNull() {
 				switch v.Kind() {
 				case parquet.Int32:
-					label = int(v.Int32())
+					label = int(v.Int32()) - dataset.labelOrigin
 					hasLabel = true
 				case parquet.Int64:
-					label = int(v.Int64())
+					label = int(v.Int64()) - dataset.labelOrigin
 					hasLabel = true
 				}
 			}
@@ -771,11 +784,11 @@ func (dataset *Dataset) streamJSON(reader io.Reader, fn rowVisitor) error {
 			if v, ok := r[dataset.labelColumn]; ok {
 				switch lv := v.(type) {
 				case float64:
-					label = int(lv)
+					label = int(lv) - dataset.labelOrigin
 					hasLabel = true
 				case string:
 					if n, err := strconv.Atoi(lv); err == nil {
-						label = n
+						label = n - dataset.labelOrigin
 						hasLabel = true
 					}
 				}
@@ -1082,6 +1095,19 @@ labels maps integer label index to string (e.g. []string{"world","sports","busin
 func DatasetWithLabelAppend(labels []string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.labelAppend = labels
+	}
+}
+
+/*
+DatasetWithLabelOrigin declares the integer value used by the upstream shard
+for the FIRST class in DatasetWithLabelAppend. Pass 0 for canonical 0-indexed
+datasets and 1 for 1-indexed datasets like ag_news. Internal storage is
+always normalized to 0-indexed; experiments and reporters never have to
+guess. Defaults to 0 when the option is not used.
+*/
+func DatasetWithLabelOrigin(origin int) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.labelOrigin = origin
 	}
 }
 

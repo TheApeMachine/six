@@ -43,6 +43,10 @@ func (builder *AGNewsDatasetBuilder) Build() data.Provider {
 		huggingface.DatasetWithTextColumns("title", "description"),
 		huggingface.DatasetWithLabelColumn("label"),
 		huggingface.DatasetWithLabelAppend(agNewsLabels),
+		// ag_news labels are 1-indexed (1=World, 2=Sports, 3=Business,
+		// 4=Sci/Tech). Normalizing at the source means downstream
+		// experiments can index agNewsLabels directly.
+		huggingface.DatasetWithLabelOrigin(1),
 	)
 }
 

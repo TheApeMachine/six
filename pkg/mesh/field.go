@@ -278,31 +278,53 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		return 0, io.EOF
 	default:
 		visitor := primitive.AllocValue()
-		defer visitor.Close()
 
 		if err := visitor.LoadFullFrame(p); err != nil {
+			primitive.FreeValue(visitor)
 			return 0, errnie.Error(errors.Join(
 				io.ErrShortBuffer,
 				errors.New("field.Write: visitor.LoadFullFrame(p) failed"),
 			))
 		}
 
-		field.findCommunity(visitor)
+		// findCommunity either adopts the visitor (appends the *Value into
+		// some f.values slice and stamps COMMUNITY) or short-circuits when
+		// the frame already carries a non-zero COMMUNITY. Adoption
+		// transfers ownership: the receiving community keeps the pointer
+		// alive for its lifetime, so we MUST NOT close the visitor in that
+		// case — Value.Close zero-fills the slot and returns it to the
+		// arena, which would silently corrupt the resident population
+		// when the same slot is later handed back from AllocValue. Only
+		// non-adopted (short-circuited) frames are returned to the arena.
+		adopted := field.findCommunity(visitor)
+
 		field.metrics.Load().Refresh(field)
 
-		// findCommunity stamps COMMUNITY (and may touch other words) on the
-		// Value only — serialize back into p so gossip, telemetry, and the
-		// next pipeline stage see the same routing outcome as field.values.
+		// findCommunity stamps COMMUNITY (and may touch other words) on
+		// the visitor — re-serialize back into p so gossip, telemetry,
+		// and the next pipeline stage see the same routing outcome as
+		// the resident population. Read does not mutate the Value, so
+		// it remains safe to call after adoption.
 		if _, rerr := visitor.Read(p); rerr != nil && !errors.Is(rerr, io.EOF) {
+			if !adopted {
+				primitive.FreeValue(visitor)
+			}
 			return 0, errnie.Error(rerr)
 		}
 
-		// Publish on the outbound conn so attached observers
-		// (and the queue + telemetry side-channels in conn's
-		// MultiWriter) see every inbound frame. The conn sink is
-		// io.Discard so this does not recurse back into Field.Write.
+		// Publish on the outbound conn so attached observers (queue +
+		// telemetry via conn's MultiWriter) see every inbound frame. The
+		// conn sink is io.Discard so this does not recurse back into
+		// Field.Write.
 		if _, werr := field.conn.Write(p); werr != nil && werr != io.EOF {
+			if !adopted {
+				primitive.FreeValue(visitor)
+			}
 			return 0, errnie.Error(werr)
+		}
+
+		if !adopted {
+			primitive.FreeValue(visitor)
 		}
 
 		return len(p), nil
@@ -361,10 +383,16 @@ func (field *Field) affinityDistances(visitor *primitive.Value) []uint32 {
 	return field.router.AffinityDistances(&query, field.fingers)
 }
 
-func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
-	// Check if the visitor is already a member of a field.
+// findCommunity routes the visitor into a community and reports whether the
+// visitor pointer was adopted by some f.values slice. When it returns false
+// the caller still owns the *Value and must free it (the visitor's frame
+// already declared a non-zero COMMUNITY, so we treat it as a re-route and
+// drop our local copy). When it returns true ownership of the *Value has
+// transferred to the receiving community and the caller must NOT close it.
+func (field *Field) findCommunity(visitor *primitive.Value) bool {
+	// Visitor frame already declares a community: nothing to adopt here.
 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		return err
+		return false
 	}
 
 	// Among children below the Shannon limit, prefer a strict in-budget
@@ -376,7 +404,20 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 	distances := field.affinityDistances(visitor)
 
 	for idx, f := range field.fields {
-		// First we check if the field has reached the Shannon limit.
+		// Saturation gates: skip any child that's full so the visitor
+		// either lands in a sibling within the Hamming budget or spawns
+		// a fresh community below.
+		//
+		// 1. XOR-fold popcount approaching ShannonLimit. This trips for
+		//    uncorrelated populations whose folded affinity drifts toward
+		//    the random-fingerprint mean (~50% set bits).
+		// 2. Member-count cap. Highly-correlated populations (e.g. many
+		//    fragments of the same prompt) keep the XOR fold near zero
+		//    forever — their contributions cancel — so gate (1) never
+		//    fires. The hard count cap is the backstop that keeps any
+		//    one community from absorbing the entire workload regardless
+		//    of fingerprint statistics. The visualiser surfaced the
+		//    failure mode as a 3000+ member field; the cap stops it.
 		totalAffinity := uint64(0)
 
 		for wordIdx := range f.affinity {
@@ -388,6 +429,11 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 		if float64(totalAffinity)/float64(
 			core.Cfg.Value.Region.Affinity.Bits,
 		) >= core.Cfg.System.ShannonLimit {
+			continue
+		}
+
+		if cap := core.Cfg.System.MaxMembersPerField; cap > 0 &&
+			len(f.values) >= cap {
 			continue
 		}
 
@@ -413,12 +459,7 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 
 		if hammingDistance <= uint64(field.routeBudget) {
 			field.assignVisitorToChild(f, visitor)
-
-			if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-				return errnie.Error(err)
-			}
-
-			return nil
+			return true
 		}
 
 		if hammingDistance < bestDist {
@@ -427,18 +468,9 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 		}
 	}
 
-	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-		return errnie.Error(err)
-	}
-
 	if best != nil {
 		field.assignVisitorToChild(best, visitor)
-
-		if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
-			return errnie.Error(err)
-		}
-
-		return nil
+		return true
 	}
 
 	// If not, we need to create a new community field.
@@ -471,5 +503,5 @@ func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
 	newField.conn.Update(visitor)
 	field.conn.Update(newField)
 
-	return nil
+	return true
 }

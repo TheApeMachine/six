@@ -47,6 +47,11 @@ const (
 /*
 ValueRole is the in-band role carried in the Role property word. Zero means no
 special role; other values extend the substrate without new property slots.
+
+ValueRolePrompt is stamped by Machine.Prompt before injection so downstream
+observers (notably the visualiser) can tell at a glance which Values entered
+the substrate as a user-supplied prompt rather than as a learning sample or
+a kernel-generated emission.
 */
 type ValueRole uint64
 
@@ -56,6 +61,7 @@ const (
 	ValueRoleLearner
 	ValueRoleReadout
 	ValueRoleAssociation
+	ValueRolePrompt
 )
 
 func (value *Value) Property(property PropertyType) (uint64, error) {

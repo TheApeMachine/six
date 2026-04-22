@@ -51,18 +51,22 @@ const STATE_HYP = 1;
 const STATE_FAL = 2;
 const STATE_INTERV = 4;
 const STATE_SELECTED = 8;
+const STATE_PROMPT = 16;
 
 const PARTICLE_BASE_SIZE = 7; // pixel half-size of glyph quad (before halo expansion)
 const QUAD_HALO_FACTOR = 3.2; // expand quad to fit largest halo / flash
 
-const ORBIT_R_MIN = 22;
-const ORBIT_R_MAX = 86;
-/** Normalizes the fixed 22–86 base band against growing anchor.radius (see fieldParticleOffset). */
-const PARTICLE_SPREAD_REF = 120;
 const MIN_FIELD_DISTANCE = 220;
 const FIELD_REPEL_PASSES = 24;
 const ANCHOR_BASE_RADIUS = 32; // world units before per-member growth
-const ANCHOR_PER_MEMBER = 0.6;
+/*
+ANCHOR_PER_MEMBER_SPIRAL is tuned to make the sunflower layout's
+nearest-neighbour distance (~R/√N) exceed roughly 2·PARTICLE_BASE_SIZE,
+so anchors with many members grow large enough that individual particles
+stay clickable. 14 ≈ 2 × particle radius (PARTICLE_BASE_SIZE = 7) with
+a small safety margin for the halo.
+*/
+const ANCHOR_PER_MEMBER_SPIRAL = 14;
 
 const FLASH_DURATION_MS = 450; // flash fully decays in ~0.45s
 const RES_EASE_DURATION_MS = 220; // resonance smoothstep eases over ~0.22s
@@ -98,6 +102,44 @@ function sortByPosX(a: { posX: number }, b: { posX: number }): number {
 	return a.posX - b.posX;
 }
 
+/*
+drawCaptionPill paints a small rounded backdrop behind the next text
+draw call so labels stay legible against bright clusters of particles.
+The caller still owns the textAlign + font + fillStyle for the actual
+text — we just render the pill, then the caller calls fillText on top.
+*/
+function drawCaptionPill(
+	ctx: CanvasRenderingContext2D,
+	x: number,
+	y: number,
+	text: string,
+	align: "left" | "center",
+): void {
+	const metrics = ctx.measureText(text);
+	const padX = 4;
+	const padY = 2;
+	const ascent = metrics.actualBoundingBoxAscent || 8;
+	const descent = metrics.actualBoundingBoxDescent || 2;
+	const w = metrics.width + padX * 2;
+	const h = ascent + descent + padY * 2;
+	const px = align === "center" ? x - w / 2 : x - padX;
+	const py = y - padY;
+	ctx.fillStyle = "rgba(8, 10, 22, 0.62)";
+	ctx.beginPath();
+	const rr = Math.min(4, h / 2);
+	ctx.moveTo(px + rr, py);
+	ctx.lineTo(px + w - rr, py);
+	ctx.quadraticCurveTo(px + w, py, px + w, py + rr);
+	ctx.lineTo(px + w, py + h - rr);
+	ctx.quadraticCurveTo(px + w, py + h, px + w - rr, py + h);
+	ctx.lineTo(px + rr, py + h);
+	ctx.quadraticCurveTo(px, py + h, px, py + h - rr);
+	ctx.lineTo(px, py + rr);
+	ctx.quadraticCurveTo(px, py, px + rr, py);
+	ctx.closePath();
+	ctx.fill();
+}
+
 function fnvHash(input: string, salt = 0): number {
 	let h = 2166136261 ^ salt;
 	for (let i = 0; i < input.length; i++) {
@@ -108,20 +150,39 @@ function fnvHash(input: string, salt = 0): number {
 }
 
 /*
-Offsets for values in a field: same per-id angle and 22–86 “slot” as before, but
-the radial step scales with anchor.radius so large communities use the full halo
-disk instead of a tiny clump in the center.
+Offsets for values in a field. We use a Fibonacci sunflower (golden-angle
+spiral) so N particles in a disk are spaced as evenly as a closed-form
+layout allows: nearest-neighbour distance is approximately R / √N, and
+area density is uniform. A small per-id angular jitter (≤ ¼ of one slot's
+arc) breaks the "perfect rosette" look so it still reads as a population
+rather than a printed pattern, but never enough to recreate overlap.
+
+Singletons sit at the centre. With ≥ 2 members we compute:
+    r_i     = R · √((i + 0.5) / N)
+    theta_i = i · GOLDEN_ANGLE + jitter(id)
+
+R is the anchor's spread cap (anchorRadius · 0.85); the +0.5 offset keeps
+the innermost particle off the exact centre so it's still selectable.
 */
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const PARTICLE_SPREAD_FRACTION = 0.85;
+
 function fieldParticleOffset(
 	id: string,
+	memberIndex: number,
+	memberCount: number,
 	anchorRadius: number,
 ): { ox: number; oy: number } {
-	const baseR =
-		ORBIT_R_MIN + fnvHash(id, 30) * (ORBIT_R_MAX - ORBIT_R_MIN);
-	const a = fnvHash(id, 31) * TAU;
-	const cap = anchorRadius * 0.78;
-	const r = Math.min(cap, (baseR * anchorRadius) / PARTICLE_SPREAD_REF);
-	return { ox: Math.cos(a) * r, oy: Math.sin(a) * r };
+	if (memberCount <= 1) return { ox: 0, oy: 0 };
+	const cap = anchorRadius * PARTICLE_SPREAD_FRACTION;
+	const r = cap * Math.sqrt((memberIndex + 0.5) / memberCount);
+	// Each slot covers ~GOLDEN_ANGLE of arc on average; jitter ≤ ¼ of that
+	// keeps neighbours strictly closer to their own slot than to anyone
+	// else's, so the sunflower's no-overlap guarantee still holds.
+	const slotArc = GOLDEN_ANGLE;
+	const jitter = (fnvHash(id, 31) - 0.5) * slotArc * 0.5;
+	const theta = memberIndex * GOLDEN_ANGLE + jitter;
+	return { ox: Math.cos(theta) * r, oy: Math.sin(theta) * r };
 }
 
 function categoryForMember(member: { program: string }): ProgramCategory {
@@ -330,11 +391,13 @@ void main() {
     vec3 col = vec3(0.0);
     float a = 0.0;
 
-    // Aura (resonance + selection): soft inner glow.
+    // Aura (resonance + selection): soft inner glow with a longer outer
+    // tail so bright Values bleed slightly into their neighbourhood
+    // instead of stopping at a hard edge.
     bool selected = (s & ${STATE_SELECTED}) != 0;
     if (v_resonance > 0.05 || selected) {
         float aurR = 1.5 + v_resonance * 0.7 + (selected ? 0.3 : 0.0);
-        float aura = smoothstep(aurR, 0.5, r) * (v_resonance * 0.32 + (selected ? 0.22 : 0.0));
+        float aura = smoothstep(aurR, 0.25, r) * (v_resonance * 0.36 + (selected ? 0.26 : 0.0));
         col += v_color * aura;
         a += aura;
     }
@@ -357,6 +420,17 @@ void main() {
         float halo = (1.0 - smoothstep(0.05, 0.10, abs(r - 1.85))) * dash;
         col += vec3(1.0, 0.45, 0.85) * halo * 0.75;
         a += halo * 0.55;
+    }
+
+    // Prompt provenance: a thin outer ring at r ≈ 2.35 in cyan-white.
+    // Sits well outside every causal halo (max 1.85 + 0.10 width = 1.95)
+    // and outside the resonance aura's fade-out (capped near 2.2), so it
+    // reads as a "frame" around prompt Values without competing with the
+    // existing visual language. One smoothstep, only when the bit is set.
+    if ((s & ${STATE_PROMPT}) != 0) {
+        float halo = 1.0 - smoothstep(0.04, 0.09, abs(r - 2.35));
+        col += vec3(0.55, 0.95, 1.0) * halo * 0.95;
+        a += halo * 0.75;
     }
 
     // Program-swap flash: expanding ring, opacity = flash, radius grows as flash decays.
@@ -423,12 +497,58 @@ out vec4 outColor;
 
 void main() {
     float r = length(v_uv);
-    // Soft fill that fades outward, plus a thin ring at r ~ 1.0.
-    float fill = smoothstep(1.0, 0.0, r) * 0.10;
-    float ring = 1.0 - smoothstep(0.02, 0.06, abs(r - 1.0));
-    float a = (fill + ring * 0.55) * v_alpha;
+    // Soft inner tint that picks up the dominant category color so each
+    // field reads as a coloured disk rather than a uniform grey ring.
+    float innerGlow = smoothstep(1.0, 0.0, r) * 0.10;
+    // Two concentric rings give a "double stroke" that scans more clearly
+    // than a single 1px-wide ring at any zoom level. Both rings stay thin
+    // so we never become a solid disk that hides the particles inside.
+    float outerRing = 1.0 - smoothstep(0.02, 0.06, abs(r - 1.0));
+    float innerRing = 1.0 - smoothstep(0.02, 0.05, abs(r - 0.92));
+    float a = (innerGlow + outerRing * 0.55 + innerRing * 0.30) * v_alpha;
     if (a <= 0.001) discard;
     outColor = vec4(v_color, a);
+}
+`;
+
+/*
+Background pass: one fullscreen triangle pair drawn before anything else.
+A radial gradient (warm-dark centre → near-black at the edges) plus a
+soft vignette gives the canvas depth the flat clearColor never had. Zero
+per-particle cost — the fragment shader runs once per screen pixel and
+contains a single length() + two smoothsteps.
+*/
+const BG_VS = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec2 a_corner;
+
+out vec2 v_uv;
+
+void main() {
+    gl_Position = vec4(a_corner, 0.0, 1.0);
+    v_uv = a_corner;
+}
+`;
+
+const BG_FS = `#version 300 es
+precision highp float;
+
+in vec2 v_uv;
+
+out vec4 outColor;
+
+uniform float u_aspect; // viewport.x / viewport.y, so the gradient stays circular
+
+void main() {
+    vec2 p = vec2(v_uv.x * u_aspect, v_uv.y);
+    float r = length(p);
+    vec3 centre = vec3(0.045, 0.055, 0.105);
+    vec3 edge   = vec3(0.012, 0.012, 0.030);
+    vec3 col = mix(centre, edge, smoothstep(0.0, 1.4, r));
+    // Subtle vignette so the corners drop another notch without going pure black.
+    col *= 1.0 - smoothstep(0.85, 1.5, r) * 0.35;
+    outColor = vec4(col, 1.0);
 }
 `;
 
@@ -548,6 +668,11 @@ export class FieldRenderer {
 	// Particle pool.
 	private readonly instanceData = new Float32Array(MAX_PARTICLES * STRIDE_F);
 	private readonly fieldId = new Int32Array(MAX_PARTICLES);
+	// memberIndex / memberCount are the particle's slot inside its anchor's
+	// Fibonacci-sunflower layout. Tracking them per-slot lets layoutParticles
+	// recompute positions every snapshot without going back through field.members.
+	private readonly memberIndex = new Int32Array(MAX_PARTICLES);
+	private readonly memberCount = new Int32Array(MAX_PARTICLES);
 	private readonly nextIdx = new Int32Array(MAX_PARTICLES);
 	// Reverse adjacency: prevIdx[i] = j s.t. nextIdx[j] === i, or -1.
 	// Maintained alongside nextIdx so backward chain walks are O(1) per step.
@@ -637,6 +762,11 @@ export class FieldRenderer {
 	private uEdgeZoom!: WebGLUniformLocation;
 	private uEdgeColor!: WebGLUniformLocation;
 
+	private bgProgram!: WebGLProgram;
+	private bgVao!: WebGLVertexArrayObject;
+	private bgVbo!: WebGLBuffer;
+	private uBgAspect!: WebGLUniformLocation;
+
 	// Bound listeners (kept so dispose() can detach).
 	private readonly onMouseDown: (e: MouseEvent) => void;
 	private readonly onMouseMove: (e: MouseEvent) => void;
@@ -698,14 +828,17 @@ export class FieldRenderer {
 		gl.deleteProgram(this.particleProgram);
 		gl.deleteProgram(this.anchorProgram);
 		gl.deleteProgram(this.edgeProgram);
+		gl.deleteProgram(this.bgProgram);
 		gl.deleteVertexArray(this.particleVao);
 		gl.deleteVertexArray(this.anchorVao);
 		gl.deleteVertexArray(this.edgeVao);
+		gl.deleteVertexArray(this.bgVao);
 		gl.deleteBuffer(this.particleQuadVbo);
 		gl.deleteBuffer(this.particleInstanceVbo);
 		gl.deleteBuffer(this.anchorQuadVbo);
 		gl.deleteBuffer(this.anchorInstanceVbo);
 		gl.deleteBuffer(this.edgeVbo);
+		gl.deleteBuffer(this.bgVbo);
 
 		const canvas = gl.canvas as HTMLCanvasElement;
 		canvas.removeEventListener("mousedown", this.onMouseDown);
@@ -944,6 +1077,19 @@ export class FieldRenderer {
 		this.uEdgeViewport = mustGetUniform(gl, ep, "u_viewport");
 		this.uEdgeZoom = mustGetUniform(gl, ep, "u_zoom");
 		this.uEdgeColor = mustGetUniform(gl, ep, "u_color");
+
+		// Background program -------------------------------------------
+		this.bgProgram = linkProgram(gl, BG_VS, BG_FS);
+		this.bgVao = mustCreate(gl.createVertexArray(), "VertexArray");
+		gl.bindVertexArray(this.bgVao);
+		this.bgVbo = mustCreate(gl.createBuffer(), "Buffer");
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.bgVbo);
+		gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+		gl.enableVertexAttribArray(0);
+		gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+		gl.bindVertexArray(null);
+		gl.useProgram(this.bgProgram);
+		this.uBgAspect = mustGetUniform(gl, this.bgProgram, "u_aspect");
 	}
 
 	/* --------------------------------------------------------------------- *
@@ -1030,10 +1176,13 @@ export class FieldRenderer {
 				0.35,
 				Math.min(1, field.concentration + 0.35),
 			);
+			// Sunflower packing wants R ≥ s·√N to give each particle ~s of
+			// nearest-neighbour clearance. We use s = ANCHOR_PER_MEMBER_SPIRAL
+			// so even very full fields stay individually selectable.
 			anchor.radius =
 				ANCHOR_BASE_RADIUS +
-				Math.sqrt(anchor.memberCount) * 4 +
-				anchor.memberCount * ANCHOR_PER_MEMBER;
+				Math.sqrt(Math.max(1, anchor.memberCount)) *
+					ANCHOR_PER_MEMBER_SPIRAL;
 		}
 
 		// Drop dead anchors.
@@ -1051,16 +1200,17 @@ export class FieldRenderer {
 		for (const field of snap.fields) {
 			const anchor = this.anchorById.get(field.id);
 			if (!anchor) continue;
-			for (let mi = 0; mi < field.members.length; mi++) {
+			const total = field.members.length;
+			for (let mi = 0; mi < total; mi++) {
 				const m = field.members[mi];
 				seen.add(m.id);
-				this.upsertParticle(m, field.id, anchor, nowMs);
+				this.upsertParticle(m, field.id, anchor, nowMs, mi, total);
 			}
 		}
 		for (let oi = 0; oi < snap.orphanValues.length; oi++) {
 			const o = snap.orphanValues[oi];
 			seen.add(o.id);
-			this.upsertParticle(o, -1, null, nowMs);
+			this.upsertParticle(o, -1, null, nowMs, 0, 0);
 		}
 
 		// Drop particles no longer present.
@@ -1133,6 +1283,8 @@ export class FieldRenderer {
 		fieldId: number,
 		anchor: AnchorRecord | null,
 		nowMs: number,
+		memberIndex: number,
+		memberCount: number,
 	): void {
 		let idx = this.indexById.get(m.id);
 		const isNew = idx === undefined;
@@ -1164,6 +1316,8 @@ export class FieldRenderer {
 
 		const i = idx as number;
 		this.fieldId[i] = fieldId;
+		this.memberIndex[i] = memberIndex;
+		this.memberCount[i] = memberCount;
 
 		const cat = categoryForMember(m);
 		const style = PROGRAM_CATEGORIES[cat];
@@ -1207,13 +1361,19 @@ export class FieldRenderer {
 		if (m.causal?.hypothesizing) state |= STATE_HYP;
 		if (m.causal?.falsified) state |= STATE_FAL;
 		if (m.causal?.intervening) state |= STATE_INTERV;
+		if (m.role === "prompt") state |= STATE_PROMPT;
 		if (this.selectedId && this.selectedId === m.id) state |= STATE_SELECTED;
 		this.instanceData[off + STATE_OFFSET_F] = state;
 
 		// Initial position for new particles (final pos written in layoutParticles).
 		if (isNew) {
 			if (anchor) {
-				const { ox, oy } = fieldParticleOffset(m.id, anchor.radius);
+				const { ox, oy } = fieldParticleOffset(
+					m.id,
+					memberIndex,
+					memberCount,
+					anchor.radius,
+				);
 				this.instanceData[off + 0] = anchor.posX + ox;
 				this.instanceData[off + 1] = anchor.posY + oy;
 			} else {
@@ -1228,6 +1388,8 @@ export class FieldRenderer {
 		this.idByIndex[idx] = "";
 		this.currentProgram[idx] = "";
 		this.fieldId[idx] = -1;
+		this.memberIndex[idx] = 0;
+		this.memberCount[idx] = 0;
 		this.nextIdx[idx] = -1;
 		this.prevIdx[idx] = -1;
 		// Zero the whole row so it draws nothing if rendered out of range.
@@ -1292,8 +1454,9 @@ export class FieldRenderer {
 	}
 
 	private layoutParticles(): void {
-		// Recompute (cos, sin) from stable per-id hashes so radii track anchor growth
-		// on every snapshot resync without storing two floats per particle.
+		// Recompute positions from the stored sunflower slot every resync so
+		// radii track anchor growth (and member-count changes) without going
+		// back through field.members.
 		for (let idx = 0; idx < this.highWater; idx++) {
 			if (this.idByIndex[idx] === "") continue;
 			const fid = this.fieldId[idx];
@@ -1301,8 +1464,12 @@ export class FieldRenderer {
 			const anchor = this.anchorById.get(fid);
 			if (!anchor) continue;
 			const off = idx * STRIDE_F;
-			const id = this.idByIndex[idx];
-			const { ox, oy } = fieldParticleOffset(id, anchor.radius);
+			const { ox, oy } = fieldParticleOffset(
+				this.idByIndex[idx],
+				this.memberIndex[idx],
+				this.memberCount[idx],
+				anchor.radius,
+			);
 			this.instanceData[off + 0] = anchor.posX + ox;
 			this.instanceData[off + 1] = anchor.posY + oy;
 		}
@@ -1433,9 +1600,6 @@ export class FieldRenderer {
 		const gl = this.gl;
 		gl.clear(gl.COLOR_BUFFER_BIT);
 
-		const liveCount = this.highWater;
-		if (liveCount === 0 && this.anchorRecords.length === 0) return;
-
 		// NOTE: per-frame `bufferSubData` for instance data is gone. Animation
 		// state lives in the vertex shader (driven by u_time) and the CPU only
 		// uploads when the snapshot resyncs (uploadParticles) or selection
@@ -1444,6 +1608,20 @@ export class FieldRenderer {
 		// Bracket access avoids a false-positive React-hook lint that flags
 		// any identifier starting with `use` when called inside a conditional.
 		const bindProgram = gl["useProgram"].bind(gl);
+
+		// Background gradient first — one fullscreen quad. Drawing it
+		// unconditionally (even when there's nothing else on screen) keeps
+		// the canvas from flashing the clearColor between snapshots.
+		bindProgram(this.bgProgram);
+		gl.uniform1f(
+			this.uBgAspect,
+			this.cssHeight > 0 ? this.cssWidth / this.cssHeight : 1,
+		);
+		gl.bindVertexArray(this.bgVao);
+		gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+		const liveCount = this.highWater;
+		if (liveCount === 0 && this.anchorRecords.length === 0) return;
 
 		// Anchors first (under particles).
 		if (this.anchorRecords.length > 0) {
@@ -1511,8 +1689,11 @@ export class FieldRenderer {
 				a.dominantProgram || PROGRAM_CATEGORIES[a.dominantCategory].label;
 			if (!caption) continue;
 			const [cr, cg, cb] = a.color;
-			ctx.fillStyle = `rgba(${cr},${cg},${cb},${a.resonanceLevel * 0.75})`;
-			ctx.fillText(caption, sx, sy + r + 6);
+			const labelX = sx;
+			const labelY = sy + r + 6;
+			drawCaptionPill(ctx, labelX, labelY, caption, "center");
+			ctx.fillStyle = `rgba(${cr},${cg},${cb},${Math.min(1, a.resonanceLevel * 0.85 + 0.15)})`;
+			ctx.fillText(caption, labelX, labelY);
 		}
 
 		// Selected particle label.
@@ -1533,8 +1714,11 @@ export class FieldRenderer {
 					const r = this.instanceData[off + 4] * 255;
 					const g = this.instanceData[off + 5] * 255;
 					const b = this.instanceData[off + 6] * 255;
+					const labelX = sx + 10;
+					const labelY = sy - 6;
+					drawCaptionPill(ctx, labelX, labelY, prog, "left");
 					ctx.fillStyle = `rgba(${r | 0},${g | 0},${b | 0},0.95)`;
-					ctx.fillText(prog, sx + 10, sy - 6);
+					ctx.fillText(prog, labelX, labelY);
 				}
 			}
 		}

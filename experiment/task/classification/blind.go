@@ -42,6 +42,10 @@ func NewBlindClassificationExperiment() *BlindClassificationExperiment {
 			huggingface.DatasetWithSplit("test"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
+			// ag_news raw label range is [1, 4]; declare 1-indexed origin
+			// so dataset.LabelForSample returns a 0-indexed offset that
+			// matches agNewsLabels without any guesswork.
+			huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
@@ -99,9 +103,13 @@ func (experiment *BlindClassificationExperiment) HoldoutForPrompt(idx int) ([]by
 
 func (experiment *BlindClassificationExperiment) AddResult(results tools.ExperimentalData) {
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
+		// LabelForSample is now always 0-indexed (see DatasetWithLabelOrigin
+		// above). The previous normalizeClassificationLabelIndex helper
+		// guessed indexing from the value itself, which silently shifted
+		// every ag_news label by one.
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
-			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
-				results.TrueLabel = tools.OptionalLabel(normalized)
+			if label >= 0 && label < len(experiment.ClassLabels()) {
+				results.TrueLabel = tools.OptionalLabel(label)
 			}
 		}
 	}

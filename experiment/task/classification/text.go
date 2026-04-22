@@ -49,6 +49,11 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
 			huggingface.DatasetWithLabelAppend(agNewsLabels),
+			// ag_news ships labels in [1, 4] (1=World, 2=Sports, 3=Business,
+			// 4=Sci/Tech). Declare the origin so the streaming layer
+			// normalizes to [0, 3] internally and TrueLabel ends up
+			// referring to the same offsets agNewsLabels uses.
+			huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
@@ -109,9 +114,14 @@ func (experiment *TextClassificationExperiment) HoldoutForPrompt(idx int) ([]byt
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
+		// LabelForSample now returns the already-normalized 0-indexed
+		// class id (huggingface.Dataset.streamRows subtracts labelOrigin
+		// at read time). The previous heuristic normalizer guessed the
+		// indexing convention from the value itself which silently
+		// shifted ag_news labels by one for any [1, 3] sample.
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
-			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
-				results.TrueLabel = tools.OptionalLabel(normalized)
+			if label >= 0 && label < len(experiment.ClassLabels()) {
+				results.TrueLabel = tools.OptionalLabel(label)
 			}
 		}
 	}

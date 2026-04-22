@@ -43,7 +43,14 @@ system:
   beliefEpsilon: 0.05
   # Max Hamming distance (total popcount over affinity words) to join an
   # existing child field; higher values merge more visitors per community.
-  routeBudget: 128
+  routeBudget: 64
+  # Hard backstop on members per leaf Field. The shannonLimit gate above is
+  # an XOR-saturation check that stays silent for highly-correlated
+  # populations (their affinity contributions cancel rather than saturate),
+  # which lets a field grow unboundedly even when intuition says it's full.
+  # This cap forces a sibling/spawn once a community absorbs this many Values
+  # regardless of fingerprint statistics. 0 disables.
+  maxMembersPerField: 256
   # Busy-wait bound in vm.Orchestrator.Cycle before draining emitted frames.
   quiescenceTimeout: 100ms
   # Post-quiescence drain loop cap.

@@ -344,10 +344,27 @@ func barChartData(data any) (tools.BarChartData, error) {
 	}
 }
 
-func extractScores(data []tools.ExperimentalData, _ string) []float64 {
+// extractScores pulls one numeric column out of a per-prompt result table.
+// Series names map to the four canonical scoring outputs the harness exposes:
+// Exact / Partial / Fuzzy come from ExperimentalData.Scores; Weighted is the
+// pre-computed WeightedTotal (the sum of the three with DefaultScoreWeights).
+// Any unknown name falls through to Exact so older callers do not start
+// silently emitting zero columns, but the bug we are fixing here is that
+// every series used to return Exact regardless of its name — making the
+// generated bar charts visually identical across the four bars.
+func extractScores(data []tools.ExperimentalData, series string) []float64 {
 	out := make([]float64, len(data))
 	for i, row := range data {
-		out[i] = row.Scores.Exact
+		switch series {
+		case "Partial":
+			out[i] = row.Scores.Partial
+		case "Fuzzy":
+			out[i] = row.Scores.Fuzzy
+		case "Weighted":
+			out[i] = row.WeightedTotal
+		default:
+			out[i] = row.Scores.Exact
+		}
 	}
 	return out
 }

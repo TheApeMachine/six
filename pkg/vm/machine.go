@@ -168,6 +168,17 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (
 		return nil, errnie.Error(err)
 	}
 
+	// Stamp ValueRolePrompt on every input segment so the wire frame
+	// itself carries the provenance forward through the orchestrator.
+	// Downstream telemetry consumers (visualiser, inspector) read the
+	// Role property word and surface prompt Values distinctly without
+	// any out-of-band signalling.
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
+	}
+
 	return machine.orchestrator.Cycle(values...)
 }
-

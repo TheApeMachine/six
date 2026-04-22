@@ -56,6 +56,17 @@ the canonical layout this constant mirrors.
 const PROPERTIES_COMMUNITY_WORD = 64;
 
 /*
+PROPERTIES_ROLE_WORD is PropertiesStartWord (56) + ROLE offset (10) = 66
+— mirroring the PropertyType ordering in pkg/primitive/properties.go. The
+value carried in this word is a ValueRole sentinel; we only care about
+ValueRolePrompt today, but reading the raw word leaves room for the
+inspector to surface other roles (Programmer / Learner / …) later
+without another schema change.
+*/
+const PROPERTIES_ROLE_WORD = 66;
+const VALUE_ROLE_PROMPT_WORD = 5n;
+
+/*
 Mirror of pkg/compute/kernel/layout.go constants the causal residue
 detector relies on. Keeping them local avoids a cross-package import
 in the TS build; if Go ever moves these, the test at
@@ -437,6 +448,22 @@ export class ValueStore {
 		// so the value arrives on-wire already tagged.
 		const communityWord = decoded.words[PROPERTIES_COMMUNITY_WORD] ?? 0n;
 		value.communityId = communityWord !== 0n ? Number(communityWord) : -1;
+
+		// Provenance: Machine.Prompt stamps ValueRolePrompt on prompt
+		// inputs before injection, so the role word arrives on-wire and
+		// stays attached to the segment Values for as long as the kernel
+		// keeps the property region intact. Non-prompt roles get written
+		// elsewhere (WithRole emit option, etc.); we only promote prompts
+		// here because that's the one the canvas paints distinctly. Other
+		// roles fall back to the program-derived bucket.
+		const roleWord = decoded.words[PROPERTIES_ROLE_WORD] ?? 0n;
+		if (roleWord === VALUE_ROLE_PROMPT_WORD) {
+			value.role = "prompt";
+		} else if (value.role === "prompt") {
+			// The role word was cleared (e.g., the kernel reset properties on
+			// emit). Drop the override so we don't keep painting a stale ring.
+			value.role = undefined;
+		}
 
 		/*
 		Program identity is recovered from the program region's compiled

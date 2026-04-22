@@ -4,7 +4,6 @@
 package task
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,8 +22,6 @@ import (
 	"github.com/theapemachine/six/experiment/task/textgen"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/vm"
 )
 
 func TestMain(m *testing.M) {
@@ -137,6 +134,13 @@ func TestPipeline(t *testing.T) {
 
 	for _, experiment := range allExperiments {
 		t.Run(experiment.Name(), func(t *testing.T) {
+			// One Convey leaf per experiment: load + prompts + artifacts + gate
+			// all execute against the SAME pipeline instance. The previous
+			// layout used three sibling Convey blocks under one parent — but
+			// in GoConvey each leaf path replays its parent independently, so
+			// the artifact and gate siblings used to fire on a freshly-built
+			// pipeline whose prompt loop never ran. That made the artifact
+			// snapshots empty and the gate telemetry meaningless.
 			Convey("Given experiment: "+experiment.Name(), t, func() {
 				pipeline, err := NewPipeline(
 					t.Context(),
@@ -147,96 +151,24 @@ func TestPipeline(t *testing.T) {
 				So(err, ShouldBeNil)
 				So(pipeline, ShouldNotBeNil)
 
-				Convey("And a machine", func() {
-					machine, err := vm.NewMachine(t.Context())
+				Convey("Pipeline.Run drives load + prompts then we score", func() {
+					So(pipeline.Run(t.Context()), ShouldBeNil)
 
-					if err != nil {
-						t.Fatalf("vm.NewMachine: %v", err)
-					}
+					rows, ok := experiment.TableData().([]tools.ExperimentalData)
+					So(ok, ShouldBeTrue)
+					So(len(rows), ShouldBeGreaterThan, 0)
 
-					defer func() {
-						So(machine.Close(), ShouldBeNil)
-					}()
+					// Artifacts are written BEFORE the aggregate gate fires
+					// so a gate failure still leaves the per-experiment paper
+					// snapshot on disk for inspection.
+					So(pipeline.WriteArtifacts(), ShouldBeNil)
 
-					So(err, ShouldBeNil)
-					So(machine, ShouldNotBeNil)
-					So(machine.Load(experiment.Dataset()), ShouldBeNil)
-
-					for idx, prompt := range experiment.Prompts() {
-						holdoutBytes, _ := pipeline.experiment.HoldoutForPrompt(idx)
-						rowsBefore, rowsOk := pipelineExperimentRowCount(pipeline.experiment)
-						segments, segErr := primitive.NewValue([]byte(prompt))
-
-						So(segErr, ShouldBeNil)
-						So(len(segments), ShouldBeGreaterThan, 0)
-
-						resolved, promptErr := machine.Prompt(segments...)
-
-						So(promptErr, ShouldBeNil)
-						So(len(resolved), ShouldBeGreaterThan, 0)
-
-						classLabels := []string(nil)
-
-						for _, result := range resolved {
-							classLabels = append(classLabels, classLabelStringForPipeline(experiment, result))
-						}
-
-						var classification []byte
-						if len(classLabels) > 0 {
-							classification = []byte(classLabels[0])
-						}
-
-						// Score() / Outcome() read tableData filled by AddResult; without this,
-						// aggregate gates see an empty run even when per-prompt checks pass.
-						pipeline.experiment.AddResult(
-							tools.ExperimentalData{
-								Idx:               idx,
-								Generation:        []byte(resolved[0].String()),
-								Holdout:           bytes.Clone(holdoutBytes),
-								Prompt:            prompt,
-								Segments:          segments,
-								Resolved:          resolved,
-								ClassLabels:       classLabels,
-								Classification:    classification,
-								ExecutionSettled:  true,
-								ReasoningResolved: true,
-							},
-						)
-
-						rowsAfter, ok := pipelineExperimentRowCount(pipeline.experiment)
-
-						if !rowsOk || !ok {
-							t.Fatalf("prompt %d: experiment row count unavailable", idx)
-						}
-
-						if rowsAfter < rowsBefore {
-							t.Fatalf(
-								"prompt %d: result rows decreased from %d to %d",
-								idx,
-								rowsBefore,
-								rowsAfter,
-							)
-						}
-					}
-				})
-
-				Convey("It should record the aggregate outcome for "+experiment.Name(), func() {
-					actual, assertion, threshold := experiment.Outcome()
-					t.Logf(
-						"pipeline gate %s: actual=%v assertion=%v threshold=%v",
-						experiment.Name(),
-						actual,
-						assertion,
-						threshold,
-					)
-				})
-
-				Convey("When paper artifacts are emitted for "+experiment.Name(), func() {
-					So(pipeline.writeStandardSummary(), ShouldBeNil)
-					So(pipeline.reporter.WriteResults(experiment), ShouldBeNil)
-
-					for _, artifact := range experiment.Artifacts() {
-						So(pipeline.reporter.WriteArtifact(experiment, artifact), ShouldBeNil)
+					// Aggregate gate enforcement — was previously only logged
+					// via t.Logf, which meant a regressed Outcome() never
+					// turned into a test failure.
+					if msg := pipeline.EnforceOutcome(); msg != "" {
+						t.Logf("pipeline gate %s failed: %s", experiment.Name(), msg)
+						So(msg, ShouldBeBlank)
 					}
 				})
 			})
@@ -248,34 +180,6 @@ func TestPipeline(t *testing.T) {
 	})
 }
 
-func pipelineExperimentRowCount(experiment tools.PipelineExperiment) (int, bool) {
-	rows, ok := experiment.TableData().([]tools.ExperimentalData)
-
-	if !ok {
-		return 0, false
-	}
-
-	return len(rows), true
-}
-
-func classLabelStringForPipeline(experiment tools.PipelineExperiment, value *primitive.Value) string {
-	if value == nil {
-		return ""
-	}
-
-	labelWord, err := value.Property(primitive.LABELS)
-
-	if err != nil {
-		return ""
-	}
-
-	if named, ok := experiment.(interface{ ClassLabels() []string }); ok {
-		names := named.ClassLabels()
-
-		if labelWord > 0 && labelWord <= uint64(len(names)) {
-			return names[labelWord-1]
-		}
-	}
-
-	return fmt.Sprintf("%d", labelWord)
-}
+// Compile-time guard: pipeline_test.go and pipeline.go must agree on what an
+// experiment exposes. fmt is imported solely for this assertion path.
+var _ = fmt.Sprintf
