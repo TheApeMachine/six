@@ -1,21 +1,16 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
-	"fmt"
 	"io"
 	"math"
 	"os"
 )
 
-//go:embed confusionmatrix_script.tmpl
-var confusionMatrixScriptTmpl string
-
-// ConfusionMatrix renders an ECharts confusion-matrix heatmap to PDF
-// and emits a LaTeX figure stub.  The visual style matches the publication
-// convention: row-normalised blue colour scale, cell counts with percentages,
-// and an accuracy / macro-F1 badge.
+/*
+ConfusionMatrix renders a row-normalised confusion matrix PDF (with raw
+counts, percentages, and an accuracy / F1 / resonance badge) and emits
+a LaTeX figure stub.
+*/
 type ConfusionMatrix struct {
 	out       io.Writer
 	title     string
@@ -41,57 +36,38 @@ func NewConfusionMatrix(opts ...confusionMatrixOpts) *ConfusionMatrix {
 func (cm *ConfusionMatrix) SetOutput(out io.Writer) { cm.out = out }
 
 func (cm *ConfusionMatrix) Generate() error {
-	acc, f1, err := cm.metrics()
-	if err != nil {
+	acc, f1 := cm.metrics()
+
+	spec := struct {
+		Title     string   `json:"title"`
+		Labels    []string `json:"labels"`
+		Matrix    [][]int  `json:"matrix"`
+		Accuracy  float64  `json:"accuracy"`
+		MacroF1   float64  `json:"macro_f1"`
+		Resonance float64  `json:"resonance"`
+	}{cm.title, cm.labels, cm.matrix, acc, f1, cm.meanScore}
+
+	if err := runPython("confusion", spec, cm.outDir, cm.filename); err != nil {
 		return err
 	}
-	labelsJSON, err := json.Marshal(cm.labels)
-	if err != nil {
-		return fmt.Errorf("confusion matrix labels json: %w", err)
-	}
-	matrixJSON, err := json.Marshal(cm.matrix)
-	if err != nil {
-		return fmt.Errorf("confusion matrix matrix json: %w", err)
-	}
-
-	script := execTemplate(confusionMatrixScriptTmpl, struct {
-		LabelsJSON string
-		MatrixJSON string
-		Accuracy   string
-		MacroF1    string
-		Resonance  string
-	}{
-		LabelsJSON: string(labelsJSON),
-		MatrixJSON: string(matrixJSON),
-		Accuracy:   fmt.Sprintf("%.6f", acc),
-		MacroF1:    fmt.Sprintf("%.6f", f1),
-		Resonance:  fmt.Sprintf("%.6f", cm.meanScore),
-	})
-
-	return finalizeEChartsFigure(
-		cm.title, chartW, chartH, script,
-		cm.outDir, cm.filename, cm.caption, cm.label, cm.out,
-	)
+	return emitFigure(cm.filename, cm.caption, cm.label, cm.out)
 }
 
 // metrics computes accuracy and macro-averaged F1 from the confusion matrix.
-func (cm *ConfusionMatrix) metrics() (accuracy, macroF1 float64, err error) {
+// Mismatched dimensions silently degrade to zeros — Python renderer paints
+// a placeholder if the matrix is empty.
+func (cm *ConfusionMatrix) metrics() (accuracy, macroF1 float64) {
 	n := len(cm.labels)
-	if n == 0 {
-		return 0, 0, nil
+	if n == 0 || len(cm.matrix) != n {
+		return 0, 0
 	}
-
-	if len(cm.matrix) != n {
-		return 0, 0, fmt.Errorf("confusion matrix metrics: labels=%d rows=%d", n, len(cm.matrix))
-	}
-	for rowIdx, row := range cm.matrix {
+	for _, row := range cm.matrix {
 		if len(row) != n {
-			return 0, 0, fmt.Errorf("confusion matrix metrics: row %d has %d columns, want %d", rowIdx, len(row), n)
+			return 0, 0
 		}
 	}
 
-	total := 0
-	correct := 0
+	total, correct := 0, 0
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			total += cm.matrix[i][j]
@@ -100,45 +76,40 @@ func (cm *ConfusionMatrix) metrics() (accuracy, macroF1 float64, err error) {
 			}
 		}
 	}
-
 	if total > 0 {
 		accuracy = float64(correct) / float64(total)
 	}
 
-	// Per-class precision, recall, F1
-	f1Sum := 0.0
-	validClasses := 0
+	f1Sum, valid := 0.0, 0
 	for c := 0; c < n; c++ {
 		tp := cm.matrix[c][c]
-		fp := 0
-		fn := 0
+		fp, fn := 0, 0
 		for i := 0; i < n; i++ {
 			if i != c {
-				fp += cm.matrix[i][c] // others predicted as c
-				fn += cm.matrix[c][i] // c predicted as others
+				fp += cm.matrix[i][c]
+				fn += cm.matrix[c][i]
 			}
 		}
-		prec := 0.0
+		var prec, rec float64
 		if tp+fp > 0 {
 			prec = float64(tp) / float64(tp+fp)
 		}
-		rec := 0.0
 		if tp+fn > 0 {
 			rec = float64(tp) / float64(tp+fn)
 		}
-		f := 0.0
+		var f float64
 		if prec+rec > 0 {
 			f = 2 * prec * rec / (prec + rec)
 		}
 		if !math.IsNaN(f) {
 			f1Sum += f
-			validClasses++
+			valid++
 		}
 	}
-	if validClasses > 0 {
-		macroF1 = f1Sum / float64(validClasses)
+	if valid > 0 {
+		macroF1 = f1Sum / float64(valid)
 	}
-	return accuracy, macroF1, nil
+	return accuracy, macroF1
 }
 
 // --- Functional options ---
@@ -172,4 +143,3 @@ func ConfusionMatrixWithMeanScore(score float64) confusionMatrixOpts {
 		cm.meanScore = score
 	}
 }
-

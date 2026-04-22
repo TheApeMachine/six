@@ -11,7 +11,7 @@ type BarSeries struct {
 	Data []float64 `json:"data"`
 }
 
-// BarChart renders an ECharts bar chart to PDF and emits a LaTeX figure stub.
+// BarChart renders a grouped bar PDF and emits a LaTeX figure stub.
 type BarChart struct {
 	out       io.Writer
 	title     string
@@ -35,15 +35,8 @@ func NewBarChart(opts ...barChartOpts) *BarChart {
 
 func (chart *BarChart) SetOutput(out io.Writer) { chart.out = out }
 
-func (chart *BarChart) RenderHTML(w io.Writer) error {
-	return chart.asMultiPanel().RenderHTML(w)
-}
-
-func (chart *BarChart) RenderLaTeX(w io.Writer) error {
-	return emitFigure(chart.filename, chart.caption, chart.label, w)
-}
-
-func (chart *BarChart) GenerateToDisk() error {
+// Generate writes the PDF and the LaTeX figure stub.
+func (chart *BarChart) Generate() error {
 	return chart.asMultiPanel().Generate()
 }
 
@@ -58,4 +51,3 @@ func BarChartWithMeta(title, caption, label string) barChartOpts {
 func BarChartWithOutput(outDir, filename string) barChartOpts {
 	return func(c *BarChart) { c.outDir = outDir; c.filename = filename }
 }
-

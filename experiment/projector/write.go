@@ -39,7 +39,6 @@ func WriteBarChart(
 	filename string,
 	out *os.File,
 ) error {
-	
 
 	c := NewBarChart(
 		BarChartWithAxes(xAxis, series),
@@ -51,7 +50,7 @@ func WriteBarChart(
 		c.SetOutput(out)
 	}
 
-	return c.GenerateToDisk()
+	return c.Generate()
 }
 
 func WriteLineChart(
@@ -66,7 +65,6 @@ func WriteLineChart(
 	yMax float64,
 	out *os.File,
 ) error {
-	
 
 	c := NewLineChart(
 		LineChartWithAxes(xAxis, series),
@@ -96,7 +94,6 @@ func WriteComboChart(
 	filename string,
 	out *os.File,
 ) error {
-	
 
 	c := NewComboChart(
 		ComboChartWithAxes(xAxis, series),
@@ -126,7 +123,6 @@ func WriteHeatMap(
 	filename string,
 	out *os.File,
 ) error {
-	
 
 	hm := NewHeatMap(
 		HeatMapWithData(xAxis, yAxis, data, minV, maxV),
@@ -152,7 +148,6 @@ func WriteConfusionMatrix(
 	filename string,
 	out *os.File,
 ) error {
-	
 
 	cm := NewConfusionMatrix(
 		ConfusionMatrixWithData(labels, matrix),
@@ -179,7 +174,6 @@ func WriteMultiPanel(
 	filename string,
 	out *os.File,
 ) error {
-	
 
 	mp := NewMultiPanel(
 		MultiPanelWithPanels(panels...),
@@ -201,7 +195,6 @@ func WriteProse(
 	outDir,
 	outFile string,
 ) error {
-	
 
 	p := NewProse(
 		ProseWithTemplate(tmplSrc),
@@ -223,7 +216,6 @@ func WriteImageStrip(
 	filename string,
 	out *os.File,
 ) error {
-	
 
 	is := NewImageStrip(
 		ImageStripWithData(rows),
@@ -237,4 +229,3 @@ func WriteImageStrip(
 
 	return is.Generate()
 }
-

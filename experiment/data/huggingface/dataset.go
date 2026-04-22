@@ -33,15 +33,15 @@ and emits one data.Sample per logical row via Generate(). Supports label
 extraction, multi-column join, and optional transform (e.g. DecodeImageBytes).
 */
 type Dataset struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	repo         string
-	subset       string
-	split        string
-	textColumn   string
-	textColumns  []string
-	labelColumn  string
-	labelAppend  []string // when set, appends " → <label_name>" to each sample's text
+	ctx         context.Context
+	cancel      context.CancelFunc
+	repo        string
+	subset      string
+	split       string
+	textColumn  string
+	textColumns []string
+	labelColumn string
+	labelAppend []string // when set, appends " → <label_name>" to each sample's text
 	// labelOrigin is the integer value that corresponds to the FIRST class
 	// in labelAppend (0 for 0-indexed datasets like dair-ai/emotion, 1 for
 	// 1-indexed datasets like ag_news). Every raw label read from a shard
@@ -49,7 +49,7 @@ type Dataset struct {
 	// part of the system, so downstream consumers can always treat
 	// dataset.labels[id] as a 0-indexed offset into labelAppend without
 	// having to guess the upstream convention. Defaults to 0.
-	labelOrigin int
+	labelOrigin  int
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
 	perSamplePos bool
@@ -679,6 +679,10 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 		// Extract label and normalize against labelOrigin so internal
 		// label storage is always 0-indexed regardless of upstream
 		// convention (ag_news is 1-indexed; dair-ai/emotion is 0-indexed).
+		// Negative results (raw < labelOrigin) signal a malformed shard
+		// or a misdeclared origin — treat the row as unlabeled rather
+		// than letting a negative slip into labelBatch where downstream
+		// `label >= 0` guards would silently drop it without any signal.
 		var label int
 		hasLabel := false
 		if labelIdx >= 0 && labelIdx < len(row) {
@@ -693,6 +697,11 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 					hasLabel = true
 				}
 			}
+		}
+
+		if hasLabel && label < 0 {
+			hasLabel = false
+			label = 0
 		}
 
 		if !fn(rowSample{
@@ -793,6 +802,15 @@ func (dataset *Dataset) streamJSON(reader io.Reader, fn rowVisitor) error {
 					}
 				}
 			}
+		}
+
+		// Mirror the parquet path: a negative normalized label means
+		// the upstream value was below labelOrigin, which is either a
+		// malformed shard or a misdeclared origin. Treat it as missing
+		// instead of caching a negative class id in labelBatch.
+		if hasLabel && label < 0 {
+			hasLabel = false
+			label = 0
 		}
 
 		if !fn(rowSample{
@@ -1175,4 +1193,3 @@ const (
 	ErrDatasetNotFound     DatasetError = "dataset not found"
 	ErrLabelColumnNotFound DatasetError = "label column not found"
 )
-

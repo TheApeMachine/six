@@ -1,16 +1,11 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
 	"io"
 	"os"
 )
 
-//go:embed heatmap_script.tmpl
-var heatmapScriptTmpl string
-
-// HeatMap renders an ECharts heatmap to PDF and emits a LaTeX figure stub.
+// HeatMap renders a heatmap PDF and emits a LaTeX figure stub.
 type HeatMap struct {
 	out       io.Writer
 	title     string
@@ -19,6 +14,7 @@ type HeatMap struct {
 	data      [][]any
 	min       float64
 	max       float64
+	cmap      string
 	caption   string
 	label     string
 	filename  string
@@ -28,7 +24,7 @@ type HeatMap struct {
 type heatMapOpts func(*HeatMap)
 
 func NewHeatMap(opts ...heatMapOpts) *HeatMap {
-	hm := &HeatMap{out: os.Stdout, filename: "heatmap", outDir: ".", max: 1}
+	hm := &HeatMap{out: os.Stdout, filename: "heatmap", outDir: ".", max: 1, cmap: "viridis"}
 	for _, opt := range opts {
 		opt(hm)
 	}
@@ -38,20 +34,20 @@ func NewHeatMap(opts ...heatMapOpts) *HeatMap {
 func (hm *HeatMap) SetOutput(out io.Writer) { hm.out = out }
 
 func (hm *HeatMap) Generate() error {
-	xData, _ := json.Marshal(hm.xAxisData)
-	yData, _ := json.Marshal(hm.yAxisData)
-	hData, _ := json.Marshal(hm.data)
-	script := execTemplate(heatmapScriptTmpl, struct {
-		XAxisDataJSON string
-		YAxisDataJSON string
-		DataJSON      string
-		Min           float64
-		Max           float64
-	}{string(xData), string(yData), string(hData), hm.min, hm.max})
-	return finalizeEChartsFigure(
-		hm.title, chartW, chartH, script,
-		hm.outDir, hm.filename, hm.caption, hm.label, hm.out,
-	)
+	spec := struct {
+		Title string   `json:"title"`
+		XAxis []string `json:"x_axis"`
+		YAxis []string `json:"y_axis"`
+		Data  [][]any  `json:"data"`
+		VMin  float64  `json:"v_min"`
+		VMax  float64  `json:"v_max"`
+		CMap  string   `json:"cmap"`
+	}{hm.title, hm.xAxisData, hm.yAxisData, hm.data, hm.min, hm.max, hm.cmap}
+
+	if err := runPython("heatmap", spec, hm.outDir, hm.filename); err != nil {
+		return err
+	}
+	return emitFigure(hm.filename, hm.caption, hm.label, hm.out)
 }
 
 func HeatMapWithData(xAxis, yAxis []string, data [][]any, min, max float64) heatMapOpts {
@@ -72,3 +68,6 @@ func HeatMapWithOutput(outDir, filename string) heatMapOpts {
 	return func(hm *HeatMap) { hm.outDir = outDir; hm.filename = filename }
 }
 
+func HeatMapWithColorScheme(cmap string) heatMapOpts {
+	return func(hm *HeatMap) { hm.cmap = cmap }
+}

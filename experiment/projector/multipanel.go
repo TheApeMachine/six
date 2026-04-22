@@ -1,21 +1,16 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
 	"io"
 	"os"
 )
-
-//go:embed multipanel_script.tmpl
-var multipanelScriptTmpl string
 
 // MPSeries is one data series in a chart (non-heatmap) panel.
 type MPSeries struct {
 	Name     string    `json:"name"`
 	Kind     string    `json:"kind"`     // "line" | "bar" | "dashed" | "dotted"
 	Symbol   string    `json:"symbol"`   // "none" | "circle" | "diamond" | "triangle"
-	BarWidth string    `json:"barWidth"` // e.g. "20%"
+	BarWidth string    `json:"barWidth"` // legacy; ignored by matplotlib renderer
 	Area     bool      `json:"area"`     // fill area under a line series
 	Data     []float64 `json:"data"`
 	Color    string    `json:"color"` // optional fixed hex color
@@ -27,46 +22,51 @@ type MPPanel struct {
 
 	Title string `json:"title"` // panel title shown above the grid
 
-	// ECharts grid position — percent strings e.g. "5%"
-	GridLeft   string `json:"gridLeft"`
-	GridRight  string `json:"gridRight"`
-	GridTop    string `json:"gridTop"`
-	GridBottom string `json:"gridBottom"`
+	// Legacy ECharts grid hints — kept on the struct so callers don't break,
+	// but the matplotlib backend lays panels out on its own.
+	GridLeft   string `json:"gridLeft,omitempty"`
+	GridRight  string `json:"gridRight,omitempty"`
+	GridTop    string `json:"gridTop,omitempty"`
+	GridBottom string `json:"gridBottom,omitempty"`
 
 	// Shared axes
-	XLabels   []string `json:"xLabels"`
-	XAxisName string   `json:"xAxisName"`
-	XInterval int      `json:"xInterval"` // 0 = auto
-	XShow     bool     `json:"xShow"`
+	XLabels   []string `json:"x_labels"`
+	XAxisName string   `json:"x_axis_name"`
+	XInterval int      `json:"x_interval,omitempty"`
+	XShow     bool     `json:"x_show"`
 
 	// Heatmap-specific
-	YLabels     []string `json:"yLabels"`
-	YAxisName   string   `json:"yAxisName"`
-	YInterval   int      `json:"yInterval"`
-	HeatData    [][]any  `json:"heatData"` // [[xi, yi, value], …]
-	HeatMin     float64  `json:"heatMin"`
-	HeatMax     float64  `json:"heatMax"`
-	ColorScheme string   `json:"colorScheme"` // "viridis" | "magma" | "plasma"
-	ShowVM      bool     `json:"showVM"`      // show the visual-map legend bar
-	VMRight     string   `json:"vmRight"`     // anchor e.g. "44%"
+	YLabels     []string `json:"y_labels,omitempty"`
+	YAxisName   string   `json:"y_axis_name,omitempty"`
+	YInterval   int      `json:"y_interval,omitempty"`
+	HeatData    [][]any  `json:"heat_data,omitempty"`
+	HeatMin     float64  `json:"heat_min,omitempty"`
+	HeatMax     float64  `json:"heat_max,omitempty"`
+	ColorScheme string   `json:"cmap,omitempty"`
+	ShowVM      bool     `json:"show_vm,omitempty"` // legacy ECharts visual-map flag
+	VMRight     string   `json:"vm_right,omitempty"`
 
 	// Chart-specific
-	Series []MPSeries `json:"series"`
-	YMin   *float64   `json:"yMin"` // nil → ECharts auto
-	YMax   *float64   `json:"yMax"`
+	Series []MPSeries `json:"series,omitempty"`
+	YMin   *float64   `json:"y_min,omitempty"`
+	YMax   *float64   `json:"y_max,omitempty"`
 }
 
-// MultiPanel renders N panels (heatmap / line / bar / combo) into one ECharts figure.
+// MultiPanel renders N panels (heatmap / line / bar / combo) into one PDF.
 type MultiPanel struct {
-	out                 io.Writer
-	title               string
-	panels              []MPPanel
-	caption             string
-	label               string
-	filename            string
-	outDir              string
-	width               int
-	height              int
+	out      io.Writer
+	title    string
+	panels   []MPPanel
+	caption  string
+	label    string
+	filename string
+	outDir   string
+	width    int
+	height   int
+
+	// Legacy ECharts knobs retained on the struct so the existing
+	// adapters (and any external callers) compile unchanged. The
+	// matplotlib backend ignores them.
 	tooltipTrigger      string
 	tooltipPosition     string
 	tooltipPositionSet  bool
@@ -96,62 +96,28 @@ func NewMultiPanel(opts ...multiPanelOpts) *MultiPanel {
 
 func (mp *MultiPanel) SetOutput(out io.Writer) { mp.out = out }
 
-func (mp *MultiPanel) RenderHTML(w io.Writer) error {
-	html, err := mp.renderHTML()
-	if err != nil {
-		return err
-	}
-
-	_, err = w.Write([]byte(html))
-
-	return err
-}
-
+/*
+Generate emits the figure PDF (via the matplotlib renderer) and the
+LaTeX figure stub. The PDF is named filename.pdf inside outDir.
+*/
 func (mp *MultiPanel) Generate() error {
-	script, err := mp.renderScript()
-	if err != nil {
+	spec := struct {
+		Title  string    `json:"title"`
+		Width  int       `json:"width"`
+		Height int       `json:"height"`
+		Panels []MPPanel `json:"panels"`
+	}{
+		Title:  mp.title,
+		Width:  mp.width,
+		Height: mp.height,
+		Panels: mp.panels,
+	}
+
+	if err := runPython("multipanel", spec, mp.outDir, mp.filename); err != nil {
 		return err
 	}
 
-	return finalizeEChartsFigure(
-		mp.title, mp.width, mp.height, script,
-		mp.outDir, mp.filename, mp.caption, mp.label, mp.out,
-	)
-}
-
-func (mp *MultiPanel) renderHTML() (string, error) {
-	script, err := mp.renderScript()
-	if err != nil {
-		return "", err
-	}
-
-	return renderChartHTML(mp.title, mp.width, mp.height, script)
-}
-
-func (mp *MultiPanel) renderScript() (string, error) {
-	specJSON, err := json.Marshal(mp.scriptSpec())
-	if err != nil {
-		return "", err
-	}
-
-	return execTemplate(multipanelScriptTmpl, struct{ SpecJSON string }{string(specJSON)}), nil
-}
-
-func (mp *MultiPanel) scriptSpec() multiPanelScriptSpec {
-	return multiPanelScriptSpec{
-		Panels: mp.panels,
-		Tooltip: multiPanelTooltipSpec{
-			Trigger:     mp.tooltipTrigger,
-			Position:    mp.tooltipPosition,
-			PositionSet: mp.tooltipPositionSet,
-		},
-		Legend: multiPanelLegendSpec{
-			Top:           mp.legendTop,
-			Right:         mp.legendRight,
-			RightExplicit: mp.legendRightExplicit,
-			SelectedMode:  mp.legendSelectedMode,
-		},
-	}
+	return emitFigure(mp.filename, mp.caption, mp.label, mp.out)
 }
 
 // ─── Option functions ───────────────────────────────────────────────────────
@@ -174,27 +140,8 @@ func MultiPanelWithSize(width, height int) multiPanelOpts {
 
 // ─── Convenience constructors ───────────────────────────────────────────────
 
-// F64 wraps a float64 as a pointer for MPPanel.YMin / YMax (nil = ECharts auto).
+// F64 wraps a float64 as a pointer for MPPanel.YMin / YMax (nil = auto).
 func F64(v float64) *float64 { return &v }
-
-type multiPanelScriptSpec struct {
-	Panels  []MPPanel             `json:"panels"`
-	Tooltip multiPanelTooltipSpec `json:"tooltip"`
-	Legend  multiPanelLegendSpec  `json:"legend"`
-}
-
-type multiPanelTooltipSpec struct {
-	Trigger     string `json:"trigger"`
-	Position    string `json:"position"`
-	PositionSet bool   `json:"positionSet"`
-}
-
-type multiPanelLegendSpec struct {
-	Top           string `json:"top"`
-	Right         string `json:"right"`
-	RightExplicit bool   `json:"rightExplicit"`
-	SelectedMode  *bool  `json:"selectedMode"`
-}
 
 // HeatmapPanel returns an MPPanel pre-configured as a heatmap.
 func HeatmapPanel(xLabels, yLabels []string, data [][]any, heatMin, heatMax float64, cs string) MPPanel {
@@ -209,4 +156,3 @@ func HeatmapPanel(xLabels, yLabels []string, data [][]any, heatMin, heatMax floa
 func ChartPanel(xLabels []string, series []MPSeries, yMin, yMax *float64) MPPanel {
 	return MPPanel{Kind: "chart", XLabels: xLabels, Series: series, YMin: yMin, YMax: yMax, XShow: true}
 }
-

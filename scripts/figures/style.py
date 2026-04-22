@@ -130,6 +130,4 @@ def save(fig, out_path: str) -> None:
     pdf settings stay consistent.
     """
     fig.savefig(out_path, format="pdf")
-    import matplotlib.pyplot as _plt
-
-    _plt.close(fig)
+    plt.close(fig)

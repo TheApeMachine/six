@@ -10,31 +10,38 @@
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
 531 &  & 0.0000 & 0.0898 & 0.0898 & 0.0408 \\
-60 &  & 0.0000 & 0.0690 & 0.0690 & 0.0313 \\
-375 &  & 0.0000 & 0.0634 & 0.0634 & 0.0288 \\
+89 &  & 0.0000 & 0.0760 & 0.0760 & 0.0346 \\
+447 &  & 0.0000 & 0.0656 & 0.0656 & 0.0298 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-78 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-813 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-134 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+684 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+794 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+728 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
 \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{looked at the rock.··The mighty rock sti\ldots}} & \multicolumn{2}{l}{\texttt{Once upon a time, there was a mighty roc\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{went home. ··When Jack got home he opene\ldots}} & \multicolumn{2}{l}{\texttt{ve any. He walked up to a store and aske\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hey ran around the yard, chasing the bug\ldots}} & \multicolumn{2}{l}{\texttt{as clumsy and the other wasn't. ··The cl\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{·Timmy's mom was very sad. She wished Ti\ldots}} & \multicolumn{2}{l}{\texttt{Once upon a time, there was a boy named \ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{ght.··The frame was no longer disturbed.\ldots}} & \multicolumn{2}{l}{\texttt{Once upon a time there was a coat frame.\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{py that he could help the firemen and ma\ldots}} & \multicolumn{2}{l}{\texttt{Once upon a time, there was a little boy\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{la sighed. She did not like waiting. She\ldots}} & \multicolumn{2}{l}{\texttt{Lila and her mom were in the car. They w\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 1000} & \multicolumn{3}{l}{Holdout: } \\
 \multicolumn{3}{l}{Mean score: 0.0087} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0408} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{641.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{170.0 ms} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{170µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{812.0 ms}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

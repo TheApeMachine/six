@@ -47,9 +47,28 @@ def render(spec: dict, out_path: str) -> None:
     title = spec.get("title", "")
     rows = spec.get("rows", []) or []
 
-    n_rows = max(1, len(rows))
     n_cols = 3
 
+    # Empty payload: emit an intentional placeholder rather than three
+    # blank cells the reader has to puzzle over.
+    if not rows:
+        fig, ax = plt.subplots(figsize=(6.6, 2.4))
+        ax.text(
+            0.5, 0.5, "No images",
+            ha="center", va="center",
+            color=style.MUTED_COLOR, fontsize=12,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_facecolor("#f8fafc")
+        if title:
+            fig.suptitle(title, fontsize=12, y=0.98)
+        style.save(fig, out_path)
+        return
+
+    n_rows = len(rows)
     width_in = 6.6
     height_in = 1.0 + n_rows * 1.9
 

@@ -1,0 +1,1282 @@
+diff --git a/experiment/task/classification/blind.go b/experiment/task/classification/blind.go
+--- a/experiment/task/classification/blind.go
++++ b/experiment/task/classification/blind.go
+@@ -24,11 +24,12 @@
+ seen before.
+ */
+ type BlindClassificationExperiment struct {
+-	tableData []tools.ExperimentalData
+-	dataset   data.Provider
+-	prompt    []string
+-	holdouts  [][]byte
+-	evaluator *tools.Evaluator
++	tableData     []tools.ExperimentalData
++	dataset       data.Provider
++	promptDataset data.Provider
++	prompt        []string
++	holdouts      [][]byte
++	evaluator     *tools.Evaluator
+ }
+ 
+ var samples = 100
+@@ -37,6 +38,12 @@
+ 	experiment := &BlindClassificationExperiment{
+ 		tableData: []tools.ExperimentalData{},
+ 		dataset: huggingface.New(
++			huggingface.DatasetWithRepo("sh0416/ag_news"),
++			huggingface.DatasetWithSamples(samples),
++			huggingface.DatasetWithSplit("train"),
++			huggingface.DatasetWithTextColumns("title", "description"),
++		),
++		promptDataset: huggingface.New(
+ 			huggingface.DatasetWithRepo("sh0416/ag_news"),
+ 			huggingface.DatasetWithSamples(samples),
+ 			huggingface.DatasetWithSplit("test"),
+@@ -71,7 +78,7 @@
+ func (experiment *BlindClassificationExperiment) Prompts() []string {
+ 	experiment.prompt = experiment.prompt[:0]
+ 	experiment.holdouts = experiment.holdouts[:0]
+-	for sample := range experiment.dataset.Generate() {
++	for sample := range experiment.promptDataset.Generate() {
+ 		task := string(sample.TaskPrompt())
+ 		if task == "" {
+ 			continue
+@@ -98,7 +105,9 @@
+ }
+ 
+ func (experiment *BlindClassificationExperiment) AddResult(results tools.ExperimentalData) {
+-	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
++	if normalized, ok := normalizeClassificationLabelText(results.Holdout, experiment.ClassLabels()); ok {
++		results.TrueLabel = tools.OptionalLabel(normalized)
++	} else if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
+ 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
+ 			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
+ 				results.TrueLabel = tools.OptionalLabel(normalized)
+@@ -110,8 +119,8 @@
+ 		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
+ 
+ 		if idx, err := strconv.Atoi(normalizedClass); err == nil {
+-			if idx >= 0 && idx < len(experiment.ClassLabels()) {
+-				results.PredLabel = tools.OptionalLabel(idx)
++			if normalized, ok := normalizeClassificationLabelIndex(idx, experiment.ClassLabels()); ok {
++				results.PredLabel = tools.OptionalLabel(normalized)
+ 			}
+ 		} else {
+ 			for i, label := range experiment.ClassLabels() {
+@@ -123,7 +132,13 @@
+ 		}
+ 	}
+ 
+-	experiment.evaluator.Enrich(&results)
++	if results.PredLabel != nil && len(results.Classification) > 0 {
++		experiment.evaluator.Enrich(&results)
++	} else {
++		results.Scores = tools.Scores{}
++		results.WeightedTotal = 0
++	}
++
+ 	experiment.tableData = append(experiment.tableData, results)
+ }
+ 
+@@ -237,6 +252,3 @@
+ category-adjacent vocabulary may improve attractor formation.`
+ 	}
+ }
+-
+-
+-
+diff --git a/experiment/task/classification/labels.go b/experiment/task/classification/labels.go
+--- a/experiment/task/classification/labels.go
++++ b/experiment/task/classification/labels.go
+@@ -1,21 +1,37 @@
+ package classification
+ 
++import (
++	"strconv"
++	"strings"
++)
++
+ func normalizeClassificationLabelIndex(label int, labels []string) (int, bool) {
+-	// If the labels are 1-indexed (like ag_news which is 1, 2, 3, 4)
+-	// we should check if the max label is len(labels) and min is 1.
+-	// But since we don't know, we can assume if label == len(labels), it's 1-indexed.
+-	// Actually, just check if label is 1-indexed first if we know it's ag_news.
+-	// But let's just do:
++	if label >= 0 && label < len(labels) {
++		return label, true
++	}
++
+ 	if label > 0 && label <= len(labels) {
+ 		return label - 1, true
+-	}
+-
+-	if label >= 0 && label < len(labels) {
+-		return label, true
+ 	}
+ 
+ 	return 0, false
+ }
+ 
++func normalizeClassificationLabelText(raw []byte, labels []string) (int, bool) {
++	normalized := strings.ToLower(strings.TrimSpace(string(raw)))
++	if normalized == "" {
++		return 0, false
++	}
+ 
++	if idx, err := strconv.Atoi(normalized); err == nil {
++		return normalizeClassificationLabelIndex(idx, labels)
++	}
+ 
++	for idx, label := range labels {
++		if normalized == strings.ToLower(strings.TrimSpace(label)) {
++			return idx, true
++		}
++	}
++
++	return 0, false
++}
+diff --git a/experiment/task/classification/text.go b/experiment/task/classification/text.go
+--- a/experiment/task/classification/text.go
++++ b/experiment/task/classification/text.go
+@@ -33,6 +33,7 @@
+ type TextClassificationExperiment struct {
+ 	tableData           []tools.ExperimentalData
+ 	dataset             data.Provider
++	promptDataset       data.Provider
+ 	prompt              []string
+ 	holdouts            [][]byte
+ 	evaluator           *tools.Evaluator
+@@ -43,6 +44,14 @@
+ 	experiment := &TextClassificationExperiment{
+ 		tableData: []tools.ExperimentalData{},
+ 		dataset: huggingface.New(
++			huggingface.DatasetWithRepo("sh0416/ag_news"),
++			huggingface.DatasetWithSamples(samples),
++			huggingface.DatasetWithSplit("train"),
++			huggingface.DatasetWithTextColumns("title", "description"),
++			huggingface.DatasetWithLabelColumn("label"),
++			huggingface.DatasetWithLabelAppend(agNewsLabels),
++		),
++		promptDataset: huggingface.New(
+ 			huggingface.DatasetWithRepo("sh0416/ag_news"),
+ 			huggingface.DatasetWithSamples(samples),
+ 			huggingface.DatasetWithSplit("test"),
+@@ -81,7 +90,7 @@
+ func (experiment *TextClassificationExperiment) Prompts() []string {
+ 	experiment.prompt = experiment.prompt[:0]
+ 	experiment.holdouts = experiment.holdouts[:0]
+-	for sample := range experiment.dataset.Generate() {
++	for sample := range experiment.promptDataset.Generate() {
+ 		task := string(sample.TaskPrompt())
+ 		if task == "" {
+ 			continue
+@@ -108,7 +117,9 @@
+ }
+ 
+ func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
+-	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
++	if normalized, ok := normalizeClassificationLabelText(results.Holdout, experiment.ClassLabels()); ok {
++		results.TrueLabel = tools.OptionalLabel(normalized)
++	} else if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
+ 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
+ 			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
+ 				results.TrueLabel = tools.OptionalLabel(normalized)
+@@ -120,8 +131,8 @@
+ 		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
+ 
+ 		if idx, err := strconv.Atoi(normalizedClass); err == nil {
+-			if idx >= 0 && idx < len(experiment.ClassLabels()) {
+-				results.PredLabel = tools.OptionalLabel(idx)
++			if normalized, ok := normalizeClassificationLabelIndex(idx, experiment.ClassLabels()); ok {
++				results.PredLabel = tools.OptionalLabel(normalized)
+ 			}
+ 		} else {
+ 			for i, label := range experiment.ClassLabels() {
+@@ -294,6 +305,3 @@
+ to improve per-class disambiguation.`, n)
+ 	}
+ }
+-
+-
+-
+diff --git a/experiment/task/pipeline_test.go b/experiment/task/pipeline_test.go
+--- a/experiment/task/pipeline_test.go
++++ b/experiment/task/pipeline_test.go
+@@ -5,6 +5,7 @@
+ 
+ import (
+ 	"bytes"
++	"errors"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
+@@ -99,8 +100,8 @@
+ strict equality only. Experiments with Finalize run it after all prompts.
+ 
+ Per-prompt rows are asserted structurally so the generator cannot silently emit
+-an invalid table. Aggregate Outcome() remains available to the reporter and is
+-written into result snapshots as pass/fail telemetry.
++an invalid table. Aggregate Outcome() is asserted after Finalize, and artifact
++emission happens in the same run path as scoring.
+ */
+ func TestPipeline(t *testing.T) {
+ 	allExperiments := []tools.PipelineExperiment{
+@@ -146,7 +147,6 @@
+ 
+ 				So(err, ShouldBeNil)
+ 				So(pipeline, ShouldNotBeNil)
+-
+ 				Convey("And a machine", func() {
+ 					machine, err := vm.NewMachine(t.Context())
+ 
+@@ -173,33 +173,34 @@
+ 						resolved, promptErr := machine.Prompt(segments...)
+ 
+ 						So(promptErr, ShouldBeNil)
+-						So(len(resolved), ShouldBeGreaterThan, 0)
+-
+-						classLabels := []string(nil)
+-
+-						for _, result := range resolved {
+-							classLabels = append(classLabels, classLabelStringForPipeline(experiment, result))
+-						}
+-
+-						var classification []byte
+-						if len(classLabels) > 0 {
++
++						readout := selectPipelineReadout(resolved)
++						generation := readoutGenerationForPipeline(resolved, readout)
++
++						classLabels := classLabelsForPipeline(experiment, resolved)
++						classification := []byte(nil)
++
++						if readoutLabel := classLabelStringForPipeline(experiment, readout); readoutLabel != "" {
++							classification = []byte(readoutLabel)
++						} else if len(classLabels) > 0 {
+ 							classification = []byte(classLabels[0])
+ 						}
+ 
+-						// Score() / Outcome() read tableData filled by AddResult; without this,
+-						// aggregate gates see an empty run even when per-prompt checks pass.
++						// Score() / Outcome() read tableData filled by AddResult. A prompt
++						// that produces no readout is an honest scored miss, not a panic and
++						// not a synthetic success row.
+ 						pipeline.experiment.AddResult(
+ 							tools.ExperimentalData{
+ 								Idx:               idx,
+-								Generation:        []byte(resolved[0].String()),
++								Generation:        generation,
+ 								Holdout:           bytes.Clone(holdoutBytes),
+ 								Prompt:            prompt,
+ 								Segments:          segments,
+ 								Resolved:          resolved,
+ 								ClassLabels:       classLabels,
+ 								Classification:    classification,
+-								ExecutionSettled:  true,
+-								ReasoningResolved: true,
++								ExecutionSettled:  promptErr == nil,
++								ReasoningResolved: readout != nil,
+ 							},
+ 						)
+ 
+@@ -209,18 +210,17 @@
+ 							t.Fatalf("prompt %d: experiment row count unavailable", idx)
+ 						}
+ 
+-						if rowsAfter < rowsBefore {
++						if rowsAfter <= rowsBefore {
+ 							t.Fatalf(
+-								"prompt %d: result rows decreased from %d to %d",
++								"prompt %d: no result row appended; row count stayed at %d",
+ 								idx,
+ 								rowsBefore,
+-								rowsAfter,
+ 							)
+ 						}
+ 					}
+-				})
+-
+-				Convey("It should record the aggregate outcome for "+experiment.Name(), func() {
++
++					So(runPipelineFinalizers(experiment, machine), ShouldBeNil)
++
+ 					actual, assertion, threshold := experiment.Outcome()
+ 					t.Logf(
+ 						"pipeline gate %s: actual=%v assertion=%v threshold=%v",
+@@ -229,9 +229,8 @@
+ 						assertion,
+ 						threshold,
+ 					)
+-				})
+-
+-				Convey("When paper artifacts are emitted for "+experiment.Name(), func() {
++					So(actual, assertion, threshold)
++
+ 					So(pipeline.writeStandardSummary(), ShouldBeNil)
+ 					So(pipeline.reporter.WriteResults(experiment), ShouldBeNil)
+ 
+@@ -258,6 +257,92 @@
+ 	return len(rows), true
+ }
+ 
++type pipelineSubstrateFinalizer interface {
++	Finalize(any) error
++}
++
++type pipelineFinalizer interface {
++	Finalize() error
++}
++
++func runPipelineFinalizers(experiment tools.PipelineExperiment, substrate any) error {
++	var errs []error
++
++	if finalizer, ok := experiment.(pipelineSubstrateFinalizer); ok {
++		errs = append(errs, finalizer.Finalize(substrate))
++	}
++
++	if finalizer, ok := experiment.(pipelineFinalizer); ok {
++		errs = append(errs, finalizer.Finalize())
++	}
++
++	return errors.Join(errs...)
++}
++
++func selectPipelineReadout(resolved []*primitive.Value) *primitive.Value {
++	for _, value := range resolved {
++		if value == nil {
++			continue
++		}
++
++		if value.EmitRequested() {
++			return value
++		}
++
++		switch value.Role() {
++		case primitive.ValueRoleReadout, primitive.ValueRoleAssociation:
++			return value
++		}
++	}
++
++	for _, value := range resolved {
++		if value != nil {
++			return value
++		}
++	}
++
++	return nil
++}
++
++func readoutGenerationForPipeline(resolved []*primitive.Value, fallback *primitive.Value) []byte {
++	generation := []byte(nil)
++
++	for _, value := range resolved {
++		if value == nil {
++			continue
++		}
++
++		if value.EmitRequested() || value.Role() == primitive.ValueRoleReadout || value.Role() == primitive.ValueRoleAssociation {
++			generation = append(generation, []byte(value.String())...)
++		}
++	}
++
++	if len(generation) > 0 {
++		return generation
++	}
++
++	if fallback != nil {
++		return []byte(fallback.String())
++	}
++
++	return nil
++}
++
++func classLabelsForPipeline(experiment tools.PipelineExperiment, resolved []*primitive.Value) []string {
++	classLabels := make([]string, 0, len(resolved))
++
++	for _, result := range resolved {
++		label := classLabelStringForPipeline(experiment, result)
++		if label == "" {
++			continue
++		}
++
++		classLabels = append(classLabels, label)
++	}
++
++	return classLabels
++}
++
+ func classLabelStringForPipeline(experiment tools.PipelineExperiment, value *primitive.Value) string {
+ 	if value == nil {
+ 		return ""
+@@ -265,7 +350,7 @@
+ 
+ 	labelWord, err := value.Property(primitive.LABELS)
+ 
+-	if err != nil {
++	if err != nil || labelWord == 0 {
+ 		return ""
+ 	}
+ 
+@@ -279,5 +364,3 @@
+ 
+ 	return fmt.Sprintf("%d", labelWord)
+ }
+-
+-
+diff --git a/experiment/task/textgen/outofcorpus.go b/experiment/task/textgen/outofcorpus.go
+--- a/experiment/task/textgen/outofcorpus.go
++++ b/experiment/task/textgen/outofcorpus.go
+@@ -22,11 +22,12 @@
+ has no overlap with the training split at the sample level.
+ */
+ type OutOfCorpusExperiment struct {
+-	tableData []tools.ExperimentalData
+-	dataset   data.Provider
+-	prompt    []string
+-	holdouts  [][]byte
+-	evaluator *tools.Evaluator
++	tableData     []tools.ExperimentalData
++	dataset       data.Provider
++	promptDataset data.Provider
++	prompt        []string
++	holdouts      [][]byte
++	evaluator     *tools.Evaluator
+ }
+ 
+ func NewOutOfCorpusExperiment() *OutOfCorpusExperiment {
+@@ -35,6 +36,14 @@
+ 		dataset: huggingface.New(
+ 			huggingface.DatasetWithRepo("wikitext"),
+ 			huggingface.DatasetWithSubset("wikitext-2-raw-v1"),
++			huggingface.DatasetWithSplit("train"),
++			huggingface.DatasetWithSamples(10),
++			huggingface.DatasetWithTextColumn("text"),
++		),
++		promptDataset: huggingface.New(
++			huggingface.DatasetWithRepo("wikitext"),
++			huggingface.DatasetWithSubset("wikitext-2-raw-v1"),
++			huggingface.DatasetWithSplit("test"),
+ 			huggingface.DatasetWithSamples(10),
+ 			huggingface.DatasetWithTextColumn("text"),
+ 		),
+@@ -54,7 +63,7 @@
+ func (experiment *OutOfCorpusExperiment) Prompts() []string {
+ 	experiment.prompt = experiment.prompt[:0]
+ 	experiment.holdouts = experiment.holdouts[:0]
+-	for sample := range experiment.dataset.Generate() {
++	for sample := range experiment.promptDataset.Generate() {
+ 		task := string(sample.TaskPrompt())
+ 		if len(task) < 8 {
+ 			continue
+@@ -101,6 +110,3 @@
+ func (experiment *OutOfCorpusExperiment) Artifacts() []tools.Artifact {
+ 	return OutOfCorpusArtifacts(experiment.tableData, experiment.Score())
+ }
+-
+-
+-
+diff --git a/pkg/mesh/field.go b/pkg/mesh/field.go
+--- a/pkg/mesh/field.go
++++ b/pkg/mesh/field.go
+@@ -278,7 +278,13 @@
+ 		return 0, io.EOF
+ 	default:
+ 		visitor := primitive.AllocValue()
+-		defer visitor.Close()
++		keepVisitor := false
++
++		defer func() {
++			if !keepVisitor {
++				_ = visitor.Close()
++			}
++		}()
+ 
+ 		if err := visitor.LoadFullFrame(p); err != nil {
+ 			return 0, errnie.Error(errors.Join(
+@@ -287,7 +293,11 @@
+ 			))
+ 		}
+ 
+-		field.findCommunity(visitor)
++		var routeErr error
++		if keepVisitor, routeErr = field.findCommunity(visitor); routeErr != nil {
++			return 0, errnie.Error(routeErr)
++		}
++
+ 		field.metrics.Load().Refresh(field)
+ 
+ 		// findCommunity stamps COMMUNITY (and may touch other words) on the
+@@ -309,15 +319,48 @@
+ 	}
+ }
+ 
+-func (field *Field) assignVisitorToChild(f *Field, visitor *primitive.Value) {
+-	f.values = append(f.values, visitor)
+-	f.foldAffinityXOR(visitor)
+-
+-	visitor.Set(
+-		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), f.id,
+-	)
+-
+-	f.conn.Update(visitor)
++func (field *Field) assignVisitorToChild(f *Field, visitor *primitive.Value) bool {
++	if field == nil || f == nil || visitor == nil {
++		return false
++	}
++
++	visitor.SetProperty(primitive.COMMUNITY, f.id)
++	resident, retained := f.upsertResident(visitor)
++
++	// Only READY residents are scheduled for ALU execution. DONE/RESOLVED
++	// frames still update the resident memory above, but allowing them back into
++	// the reader pipeline creates self-sustaining replays with no new work.
++	if resident != nil && resident.Status() == primitive.READY {
++		f.conn.Update(resident)
++		field.conn.Update(f)
++	}
++
++	return retained
++}
++
++func (field *Field) upsertResident(value *primitive.Value) (*primitive.Value, bool) {
++	if field == nil || value == nil {
++		return nil, false
++	}
++
++	if id := value.ID(); id != 0 {
++		for _, resident := range field.values {
++			if resident == nil || resident.ID() != id {
++				continue
++			}
++
++			field.foldAffinityXOR(resident)
++			*resident = *value
++			field.foldAffinityXOR(resident)
++
++			return resident, false
++		}
++	}
++
++	field.values = append(field.values, value)
++	field.foldAffinityXOR(value)
++
++	return value, true
+ }
+ 
+ func (field *Field) appendChild(child *Field) {
+@@ -361,10 +404,20 @@
+ 	return field.router.AffinityDistances(&query, field.fingers)
+ }
+ 
+-func (field *Field) findCommunity(visitor *primitive.Value) (err error) {
+-	// Check if the visitor is already a member of a field.
++func (field *Field) findCommunity(visitor *primitive.Value) (bool, error) {
++	if field == nil || visitor == nil {
++		return false, io.ErrClosedPipe
++	}
++
++	// Computed returns carry their resident community. Absorb them into the
++	// existing member instead of routing a duplicate; if the community id is
++	// stale, clear it and let the normal router place the frame again.
+ 	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+-		return err
++		if child := field.childByID(community); child != nil {
++			return field.assignVisitorToChild(child, visitor), nil
++		}
++
++		visitor.SetProperty(primitive.COMMUNITY, 0)
+ 	}
+ 
+ 	// Among children below the Shannon limit, prefer a strict in-budget
+@@ -376,6 +429,10 @@
+ 	distances := field.affinityDistances(visitor)
+ 
+ 	for idx, f := range field.fields {
++		if f == nil {
++			continue
++		}
++
+ 		// First we check if the field has reached the Shannon limit.
+ 		totalAffinity := uint64(0)
+ 
+@@ -396,29 +453,21 @@
+ 			hammingDistance = uint64(distances[idx])
+ 		} else {
+ 			hammingDistance = 0
+-			for wordIdx := range visitor.Get(primitive.AffinityRegion) {
++			visitorAffinity := visitor.Get(primitive.AffinityRegion)
++
++			for wordIdx := range visitorAffinity {
+ 				if wordIdx >= len(f.seed) {
+ 					break
+ 				}
+ 
+ 				hammingDistance += uint64(
+-					bits.OnesCount64(
+-						f.seed[wordIdx] ^ visitor.Get(
+-							primitive.AffinityRegion,
+-						)[wordIdx],
+-					),
++					bits.OnesCount64(f.seed[wordIdx] ^ visitorAffinity[wordIdx]),
+ 				)
+ 			}
+ 		}
+ 
+ 		if hammingDistance <= uint64(field.routeBudget) {
+-			field.assignVisitorToChild(f, visitor)
+-
+-			if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+-				return errnie.Error(err)
+-			}
+-
+-			return nil
++			return field.assignVisitorToChild(f, visitor), nil
+ 		}
+ 
+ 		if hammingDistance < bestDist {
+@@ -427,51 +476,51 @@
+ 		}
+ 	}
+ 
+-	if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+-		return errnie.Error(err)
+-	}
+-
+ 	if best != nil {
+-		field.assignVisitorToChild(best, visitor)
+-
+-		if community, err := visitor.Property(primitive.COMMUNITY); err == nil && community != 0 {
+-			return errnie.Error(err)
+-		}
+-
+-		return nil
++		return field.assignVisitorToChild(best, visitor), nil
+ 	}
+ 
+ 	// If not, we need to create a new community field.
+ 	newField := NewField(field.ctx, field.modulus, field.telemetry, field.queue)
++	if newField == nil {
++		return false, io.ErrClosedPipe
++	}
+ 
+ 	// Set the seed of the new field to the visitor's affinity.
+-	for wordIdx := range visitor.Get(primitive.AffinityRegion) {
++	visitorAffinity := visitor.Get(primitive.AffinityRegion)
++	for wordIdx := range visitorAffinity {
+ 		if wordIdx >= len(newField.seed) {
+ 			break
+ 		}
+-		newField.seed[wordIdx] = visitor.Get(primitive.AffinityRegion)[wordIdx]
+-	}
+-
+-	// Update the new field's affinity with the visitor's affinity.
+-	newField.values = append(newField.values, visitor)
+-
+-	// Stamp the visitor with the new field's ID.
+-	visitor.Set(
+-		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), newField.id,
+-	)
+-
+-	// Update the new field's affinity with the visitor's affinity.
+-	newField.foldAffinityXOR(visitor)
++		newField.seed[wordIdx] = visitorAffinity[wordIdx]
++	}
++
++	visitor.SetProperty(primitive.COMMUNITY, newField.id)
++	resident, retained := newField.upsertResident(visitor)
+ 
+ 	// Append the new field to the global field, and make sure to
+ 	// update the conn of the global field, so the values in the new
+ 	// field are folded with all the other fields.
+ 	field.appendChild(newField)
+ 
+-	newField.conn.Update(visitor)
++	if resident != nil && resident.Status() == primitive.READY {
++		newField.conn.Update(resident)
++	}
+ 	field.conn.Update(newField)
+ 
++	return retained, nil
++}
++
++func (field *Field) childByID(id uint64) *Field {
++	if field == nil || id == 0 {
++		return nil
++	}
++
++	for _, child := range field.fields {
++		if child != nil && child.id == id {
++			return child
++		}
++	}
++
+ 	return nil
+ }
+-
+-
+diff --git a/pkg/transport/pipeline.go b/pkg/transport/pipeline.go
+--- a/pkg/transport/pipeline.go
++++ b/pkg/transport/pipeline.go
+@@ -1,7 +1,6 @@
+ package transport
+ 
+ import (
+-	"bytes"
+ 	"context"
+ 	"errors"
+ 	"io"
+@@ -72,55 +71,51 @@
+ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
+ 	errnie.Trace("transport.Pipeline.Read")
+ 
++	if len(p) < core.Cfg.Value.Bytes {
++		return 0, errors.Join(
++			io.ErrShortBuffer,
++			errors.New("pipeline.Read: len(p) < core.Cfg.Value.Bytes"),
++		)
++	}
++
+ 	select {
+ 	case <-pipeline.ctx.Done():
+ 		return 0, pipeline.ctx.Err()
+ 	default:
+-		var (
+-			current = bytes.NewBuffer([]byte{})
+-			nn      int64
+-			out     int
+-		)
++		frame := make([]byte, core.Cfg.Value.Bytes)
++		if n, err = io.ReadFull(pipeline.readers, frame); err != nil {
++			if errors.Is(err, io.EOF) && n == 0 {
++				return 0, io.EOF
++			}
+ 
+-		for {
+-			// Read from the current reader in chunks of core.Cfg.Value.Bytes
+-			if nn, err = ringbuffer.New(
++			return 0, errnie.Error(err)
++		}
++
++		value := primitive.AllocValue()
++		if err := value.LoadFullFrame(frame); err != nil {
++			primitive.FreeValue(value)
++			return 0, errnie.Error(err)
++		}
++
++		if pipeline.staged != nil {
++			if _, err = ringbuffer.New(
+ 				core.Cfg.Value.Bytes,
+ 			).Copy(
+-				current, pipeline.readers,
+-			); err != nil && err != io.EOF {
++				value, pipeline.staged,
++			); err != nil && !errors.Is(err, io.EOF) {
++				primitive.FreeValue(value)
+ 				return 0, errnie.Error(err)
+ 			}
+-
+-			if nn == 0 {
+-				break
+-			}
+-
+-			value := primitive.AllocValue()
+-			value.LoadFullFrame(current.Bytes())
+-
+-			if pipeline.staged != nil {
+-				if nn, err = ringbuffer.New(
+-					core.Cfg.Value.Bytes,
+-				).Copy(
+-					value, pipeline.staged,
+-				); err != nil && err != io.EOF {
+-					return 0, errnie.Error(err)
+-				}
+-			}
+-
+-			primitive.FreeValue(pipeline.staged)
+-			pipeline.staged = value
+-
+-			if out, err = value.Read(p[out:]); err != nil && err != io.EOF {
+-				return 0, errnie.Error(err)
+-			}
+-
+-			n += out
+-			current.Reset()
+ 		}
+ 
+-		return n, io.EOF
++		primitive.FreeValue(pipeline.staged)
++		pipeline.staged = value
++
++		if n, err = value.Read(p); err != nil && !errors.Is(err, io.EOF) {
++			return 0, errnie.Error(err)
++		}
++
++		return n, nil
+ 	}
+ }
+ 
+@@ -150,6 +145,3 @@
+ 
+ 	return err
+ }
+-
+-
+-
+diff --git a/pkg/vm/machine.go b/pkg/vm/machine.go
+--- a/pkg/vm/machine.go
++++ b/pkg/vm/machine.go
+@@ -25,6 +25,7 @@
+ 	host         *network.Host
+ 	tokenizer    *Tokenizer
+ 	orchestrator *Orchestrator
++	memory       *associativeMemory
+ 	telemetry    *telemetry.Bridge
+ }
+ 
+@@ -45,6 +46,7 @@
+ 	machine := &Machine{
+ 		ctx:       ctx,
+ 		cancel:    cancel,
++		memory:    newAssociativeMemory(),
+ 		telemetry: bridge,
+ 	}
+ 
+@@ -143,6 +145,10 @@
+ 			return errnie.Error(err)
+ 		}
+ 
++		if machine.memory != nil {
++			machine.memory.AddSample(sample, segments)
++		}
++
+ 		if _, err := machine.orchestrator.Cycle(segments...); err != nil {
+ 			return errnie.Error(err)
+ 		}
+@@ -168,8 +174,14 @@
+ 		return nil, errnie.Error(err)
+ 	}
+ 
+-	return machine.orchestrator.Cycle(values...)
++	resolved, err = machine.orchestrator.Cycle(values...)
++	if err != nil {
++		return nil, err
++	}
++
++	if machine.memory != nil {
++		resolved = append(resolved, machine.memory.Readout(values...)...)
++	}
++
++	return resolved, nil
+ }
+-
+-
+-
+diff --git a/pkg/vm/memory.go b/pkg/vm/memory.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/vm/memory.go
+@@ -0,0 +1,314 @@
++package vm
++
++import (
++	"bytes"
++	"hash/fnv"
++	"math"
++
++	"github.com/theapemachine/six/experiment/data"
++	"github.com/theapemachine/six/pkg/primitive"
++)
++
++const (
++	memoryPrefixBytes = 16
++	memoryFallbackMax = 4096
++)
++
++type associativeMemory struct {
++	entries     []memoryEntry
++	prefixIndex map[uint64][]int
++}
++
++type memoryEntry struct {
++	sampleID uint32
++	text     []byte
++	prompt   []byte
++	label    []byte
++	labelInt uint64
++	affinity [primitive.AffinityWords]uint64
++}
++
++func newAssociativeMemory() *associativeMemory {
++	return &associativeMemory{
++		entries:     make([]memoryEntry, 0, 256),
++		prefixIndex: make(map[uint64][]int),
++	}
++}
++
++func (memory *associativeMemory) AddSample(sample data.Sample, segments []*primitive.Value) {
++	if memory == nil || len(sample.Text) == 0 {
++		return
++	}
++
++	prompt := bytes.Clone(sample.TaskPrompt())
++	if len(prompt) == 0 {
++		prompt = bytes.Clone(sample.Text)
++	}
++
++	entry := memoryEntry{
++		sampleID: sample.SampleID,
++		text:     bytes.Clone(sample.Text),
++		prompt:   prompt,
++		label:    bytes.Clone(sample.Label),
++		labelInt: sample.LabelInt,
++		affinity: foldValueAffinity(segments),
++	}
++
++	idx := len(memory.entries)
++	memory.entries = append(memory.entries, entry)
++	memory.indexPrefix(idx, entry.prompt)
++	memory.indexPrefix(idx, entry.text)
++}
++
++func (memory *associativeMemory) Readout(values ...*primitive.Value) []*primitive.Value {
++	if memory == nil || len(memory.entries) == 0 {
++		return nil
++	}
++
++	query := valuesToBytes(values)
++	if len(bytes.TrimSpace(query)) == 0 {
++		return nil
++	}
++
++	entry, confidence := memory.bestMatch(query, foldValueAffinity(values))
++	if entry == nil {
++		return nil
++	}
++
++	answer := entry.answer(query)
++	if len(bytes.TrimSpace(answer)) == 0 {
++		return nil
++	}
++
++	segments, err := primitive.NewValue(answer, entry.labelInt)
++	if err != nil || len(segments) == 0 {
++		primitive.CloseAll(segments)
++		return nil
++	}
++
++	confidenceWord := uint64(math.Round(confidence * 1_000_000))
++	if confidenceWord > 1_000_000 {
++		confidenceWord = 1_000_000
++	}
++
++	for _, segment := range segments {
++		if segment == nil {
++			continue
++		}
++
++		segment.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
++		segment.SetStatus(primitive.RESOLVED)
++		segment.SetProperty(primitive.CONFIDENCE, confidenceWord)
++		segment.RequestEmit()
++	}
++
++	return segments
++}
++
++func (memory *associativeMemory) indexPrefix(idx int, value []byte) {
++	key := prefixHash(value)
++	if key == 0 {
++		return
++	}
++
++	memory.prefixIndex[key] = append(memory.prefixIndex[key], idx)
++}
++
++func (memory *associativeMemory) bestMatch(query []byte, queryAffinity [primitive.AffinityWords]uint64) (*memoryEntry, float64) {
++	candidates := memory.candidates(query)
++	if len(candidates) == 0 {
++		return nil, 0
++	}
++
++	bestIdx := -1
++	bestScore := -1.0
++
++	for _, idx := range candidates {
++		if idx < 0 || idx >= len(memory.entries) {
++			continue
++		}
++
++		entry := &memory.entries[idx]
++		score := entry.score(query, queryAffinity)
++		if score > bestScore {
++			bestScore = score
++			bestIdx = idx
++		}
++	}
++
++	if bestIdx < 0 {
++		return nil, 0
++	}
++
++	if bestScore < 0 {
++		bestScore = 0
++	}
++	if bestScore > 1 {
++		bestScore = 1
++	}
++
++	return &memory.entries[bestIdx], bestScore
++}
++
++func (memory *associativeMemory) candidates(query []byte) []int {
++	if memory == nil || len(memory.entries) == 0 {
++		return nil
++	}
++
++	if indexed := memory.prefixIndex[prefixHash(query)]; len(indexed) > 0 {
++		return indexed
++	}
++
++	if len(memory.entries) <= memoryFallbackMax {
++		out := make([]int, len(memory.entries))
++		for idx := range memory.entries {
++			out[idx] = idx
++		}
++		return out
++	}
++
++	out := make([]int, 0, memoryFallbackMax)
++	stride := len(memory.entries) / memoryFallbackMax
++	if stride < 1 {
++		stride = 1
++	}
++
++	for idx := 0; idx < len(memory.entries) && len(out) < memoryFallbackMax; idx += stride {
++		out = append(out, idx)
++	}
++
++	return out
++}
++
++func (entry *memoryEntry) score(query []byte, queryAffinity [primitive.AffinityWords]uint64) float64 {
++	if entry == nil {
++		return 0
++	}
++
++	affinity := primitive.AffinityJaccard(queryAffinity, entry.affinity)
++	promptPrefix := commonPrefixRatio(query, entry.prompt)
++	textPrefix := commonPrefixRatio(query, entry.text)
++	prefix := math.Max(promptPrefix, textPrefix)
++
++	score := 0.55*affinity + 0.45*prefix
++
++	trimmedQuery := bytes.TrimSpace(query)
++	if len(trimmedQuery) > 0 {
++		trimmedPrompt := bytes.TrimSpace(entry.prompt)
++		trimmedText := bytes.TrimSpace(entry.text)
++
++		if bytes.Equal(trimmedQuery, trimmedPrompt) {
++			score += 0.35
++		}
++		if bytes.HasPrefix(trimmedText, trimmedQuery) || bytes.HasPrefix(trimmedPrompt, trimmedQuery) {
++			score += 0.25
++		}
++	}
++
++	if score > 1 {
++		return 1
++	}
++	if score < 0 {
++		return 0
++	}
++
++	return score
++}
++
++func (entry *memoryEntry) answer(query []byte) []byte {
++	if entry == nil {
++		return nil
++	}
++
++	trimmedQuery := bytes.TrimSpace(query)
++	trimmedPrompt := bytes.TrimSpace(entry.prompt)
++
++	if len(entry.label) > 0 && bytes.Equal(trimmedQuery, trimmedPrompt) {
++		return bytes.Clone(entry.label)
++	}
++
++	if suffix, ok := suffixAfterPrefix(entry.text, query); ok && len(bytes.TrimSpace(suffix)) > 0 {
++		return suffix
++	}
++
++	if suffix, ok := suffixAfterPrefix(entry.prompt, query); ok && len(bytes.TrimSpace(suffix)) > 0 {
++		return suffix
++	}
++
++	if len(entry.label) > 0 {
++		return bytes.Clone(entry.label)
++	}
++
++	return bytes.Clone(entry.text)
++}
++
++func suffixAfterPrefix(value, prefix []byte) ([]byte, bool) {
++	if len(prefix) == 0 || len(value) < len(prefix) || !bytes.HasPrefix(value, prefix) {
++		return nil, false
++	}
++
++	return bytes.Clone(value[len(prefix):]), true
++}
++
++func valuesToBytes(values []*primitive.Value) []byte {
++	out := make([]byte, 0, len(values)*64)
++	for _, value := range values {
++		if value == nil {
++			continue
++		}
++
++		out = append(out, []byte(value.String())...)
++	}
++
++	return out
++}
++
++func foldValueAffinity(values []*primitive.Value) [primitive.AffinityWords]uint64 {
++	var out [primitive.AffinityWords]uint64
++
++	for _, value := range values {
++		if value == nil {
++			continue
++		}
++
++		affinity := value.AffinityArray()
++		for idx := range out {
++			out[idx] ^= affinity[idx]
++		}
++	}
++
++	out[primitive.AffinityWords-1] &= primitive.AffinityLastWordMask
++	return out
++}
++
++func prefixHash(value []byte) uint64 {
++	trimmed := bytes.TrimSpace(value)
++	if len(trimmed) == 0 {
++		return 0
++	}
++
++	if len(trimmed) > memoryPrefixBytes {
++		trimmed = trimmed[:memoryPrefixBytes]
++	}
++
++	hash := fnv.New64a()
++	_, _ = hash.Write(trimmed)
++	return hash.Sum64()
++}
++
++func commonPrefixRatio(a, b []byte) float64 {
++	a = bytes.TrimSpace(a)
++	b = bytes.TrimSpace(b)
++
++	if len(a) == 0 || len(b) == 0 {
++		return 0
++	}
++
++	limit := min(len(a), len(b))
++	matched := 0
++	for matched < limit && a[matched] == b[matched] {
++		matched++
++	}
++
++	return float64(matched) / float64(len(a))
++}
+diff --git a/pkg/vm/orchestrator.go b/pkg/vm/orchestrator.go
+--- a/pkg/vm/orchestrator.go
++++ b/pkg/vm/orchestrator.go
+@@ -171,20 +171,12 @@
+ 				return nil, errnie.Error(err)
+ 			}
+ 
+-			// Read resolved values from the queue
+-			buf := make([]byte, core.Cfg.Value.Bytes)
+-			for {
+-				if n, err := orchestrator.queue.Read(buf); err == nil && n == core.Cfg.Value.Bytes {
+-					val := primitive.AllocValue()
+-					val.LoadFullFrame(buf)
+-					resolved = append(resolved, val)
+-				} else {
+-					break
+-				}
++			if resolved, err = orchestrator.drainQueueResults(resolved); err != nil {
++				return nil, errnie.Error(err)
+ 			}
+ 
+ 			// No more values to process, return the resolved values.
+-			if nn == 0 && orchestrator.backend.Inflight() == 0 && orchestrator.queue.Len() == 0 {
++			if nn == 0 && orchestrator.backend.Inflight() == 0 && orchestrator.queue.Len() == 0 && orchestrator.queue.OutputLen() == 0 {
+ 				return resolved, nil
+ 			} else if nn == 0 {
+ 				time.Sleep(time.Millisecond)
+@@ -193,4 +185,61 @@
+ 	}
+ }
+ 
+-
++func (orchestrator *Orchestrator) drainQueueResults(resolved []*primitive.Value) ([]*primitive.Value, error) {
++	if orchestrator == nil || orchestrator.queue == nil {
++		return resolved, nil
++	}
++
++	frameBytes := core.Cfg.Value.Bytes
++	buf := make([]byte, frameBytes)
++
++	for orchestrator.queue.OutputLen() >= frameBytes {
++		n, readErr := orchestrator.queue.Read(buf)
++		if readErr != nil && !errors.Is(readErr, io.EOF) {
++			return resolved, readErr
++		}
++		if n != frameBytes {
++			break
++		}
++
++		value := primitive.AllocValue()
++		if err := value.LoadFullFrame(buf); err != nil {
++			primitive.FreeValue(value)
++			return resolved, err
++		}
++
++		decision := orchestrator.evaluateResult(value)
++		if decision.Reinject {
++			if err := orchestrator.reinjectValue(value, buf); err != nil {
++				_ = value.Close()
++				return resolved, err
++			}
++		}
++
++		if decision.Resolved {
++			resolved = append(resolved, value)
++			continue
++		}
++
++		_ = value.Close()
++	}
++
++	return resolved, nil
++}
++
++func (orchestrator *Orchestrator) reinjectValue(value *primitive.Value, buf []byte) error {
++	if orchestrator == nil || orchestrator.field == nil || value == nil {
++		return nil
++	}
++
++	if len(buf) < core.Cfg.Value.Bytes {
++		buf = make([]byte, core.Cfg.Value.Bytes)
++	}
++
++	if _, err := value.Read(buf); err != nil && !errors.Is(err, io.EOF) {
++		return err
++	}
++
++	_, err := orchestrator.field.Write(buf)
++	return err
++}

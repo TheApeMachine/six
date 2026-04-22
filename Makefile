@@ -1,4 +1,4 @@
-.PHONY: build run test bench coverage metal cuda bridge paper pprof pprof-mem dump capnp
+.PHONY: build run test bench coverage metal cuda bridge paper pprof pprof-mem dump capnp figure-deps
 
 # The pool package (pkg/pool/lib_runtime_linkage.go) uses go:linkname to
 # reach runtime scheduling symbols (e.g. runtime.dropg, runtime.casgstatus).
@@ -79,11 +79,22 @@ cuda:
 bridge:
 	go run ${LDFLAGS} main.go bridge
 
+# Install the Python dependencies the figure renderer needs (matplotlib + numpy).
+# The pipeline shells out to `python3 scripts/figures/render.py` to produce
+# every chart PDF. Run this once per environment; subsequent paper builds will
+# pick up the cached install. Override PYTHON=/path/to/python3 to target a
+# specific interpreter (e.g. a venv).
+PYTHON ?= python3
+figure-deps:
+	$(PYTHON) -m pip install --upgrade -r scripts/figures/requirements.txt
+
 # For the live 3D viz: open http://127.0.0.1:6600 before this finishes — the
 # pipeline starts the viz server on the first experiment and replays history
 # to late-connecting browsers (see experiment/task/pipeline.go).
 # Languages pulls HuggingFace parquet shards: first resolve+download per subset
 # can sit silently for minutes until logs show shard cached; cache is under $TMPDIR/six_hf_*.
+# Figure rendering is delegated to matplotlib via scripts/figures/render.py;
+# run `make figure-deps` once before `make paper` to install matplotlib + numpy.
 paper:
 	go test $(LDFLAGS) -tags=exp_pipeline -v ./experiment/task/
 	go run main.go paper

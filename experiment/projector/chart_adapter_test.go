@@ -185,17 +185,15 @@ func BenchmarkComboChartAsMultiPanel(b *testing.B) {
 	}
 }
 
-func TestMultiPanelScriptSpec(t *testing.T) {
+func TestMultiPanelLegendDefault(t *testing.T) {
 	Convey("Given a multipanel figure using the public constructor", t, func() {
 		multiPanel := NewMultiPanel(
 			MultiPanelWithPanels(ChartPanel([]string{"alpha"}, []MPSeries{{Name: "bars", Kind: "bar", Data: []float64{1}}}, nil, nil)),
 		)
 
-		spec := multiPanel.scriptSpec()
-
 		Convey("It should preserve the historical non-interactive legend default", func() {
-			So(spec.Legend.SelectedMode, ShouldNotBeNil)
-			So(*spec.Legend.SelectedMode, ShouldBeFalse)
+			So(multiPanel.legendSelectedMode, ShouldNotBeNil)
+			So(*multiPanel.legendSelectedMode, ShouldBeFalse)
 		})
 	})
 }

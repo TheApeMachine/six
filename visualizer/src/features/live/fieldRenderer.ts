@@ -107,6 +107,13 @@ drawCaptionPill paints a small rounded backdrop behind the next text
 draw call so labels stay legible against bright clusters of particles.
 The caller still owns the textAlign + font + fillStyle for the actual
 text — we just render the pill, then the caller calls fillText on top.
+
+baselineIsTop matches the canvas2d textBaseline the caller will use for
+the subsequent fillText: "top" leaves the text origin at the top edge
+of the glyphs, so the pill starts padY above (y - padY); other baselines
+(alphabetic / bottom / middle) anchor the origin lower in the glyph box,
+so we shift the pill up by the measured ascent first to keep the pill
+wrapped around the actual rendered text rather than offset below it.
 */
 function drawCaptionPill(
 	ctx: CanvasRenderingContext2D,
@@ -114,6 +121,7 @@ function drawCaptionPill(
 	y: number,
 	text: string,
 	align: "left" | "center",
+	baselineIsTop = true,
 ): void {
 	const metrics = ctx.measureText(text);
 	const padX = 4;
@@ -123,7 +131,7 @@ function drawCaptionPill(
 	const w = metrics.width + padX * 2;
 	const h = ascent + descent + padY * 2;
 	const px = align === "center" ? x - w / 2 : x - padX;
-	const py = y - padY;
+	const py = baselineIsTop ? y - padY : y - ascent - padY;
 	ctx.fillStyle = "rgba(8, 10, 22, 0.62)";
 	ctx.beginPath();
 	const rr = Math.min(4, h / 2);

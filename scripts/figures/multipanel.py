@@ -175,7 +175,18 @@ def _render_chart_panel(ax, panel: dict) -> None:
     y_min = panel.get("y_min")
     y_max = panel.get("y_max")
 
-    n_groups = max(1, len(x_labels))
+    # When x_labels is provided it dictates the group count (the visible
+    # category axis), but unlabeled chart panels — common for trace /
+    # timeseries data where the x axis is just sample index — must size
+    # to the longest series instead. Falling back to max(1, len(x_labels))
+    # there would collapse every series to a single point.
+    if x_labels:
+        n_groups = len(x_labels)
+    else:
+        n_groups = max(
+            1,
+            max((len(s.get("data", []) or []) for s in series), default=1),
+        )
     x = np.arange(n_groups, dtype=float)
 
     bar_series = [s for s in series if (s.get("kind") or "line") == "bar"]

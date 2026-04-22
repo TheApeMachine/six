@@ -9,9 +9,9 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-7 &  & 0.0000 & 0.0134 & 0.0134 & 0.0061 \\
 9 &  & 0.0000 & 0.0126 & 0.0126 & 0.0057 \\
 3 &  & 0.0000 & 0.0116 & 0.0116 & 0.0053 \\
+1 &  & 0.0000 & 0.0114 & 0.0114 & 0.0052 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
@@ -25,16 +25,23 @@
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{atly affect the stats gained while in a \ldots}} & \multicolumn{2}{l}{\texttt{Troops are divided into five classes : S\ldots}} \\
 \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{re nevertheless up to the task , exempli\ldots}} & \multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{anga and an original video animation ser\ldots}} & \multicolumn{2}{l}{\texttt{It met with positive sales in Japan , an\ldots}} \\
 \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{= = P}} \\
 \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{meplay = = ·}} & \multicolumn{2}{l}{\texttt{= = Ga}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: } \\
-\multicolumn{3}{l}{Mean score: 0.0032} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0061} \\
+\multicolumn{3}{l}{Mean score: 0.0030} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0057} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{57.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{394µs} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{39µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{57.0 ms}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

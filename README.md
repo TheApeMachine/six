@@ -598,6 +598,19 @@ make pprof EXP=Text_Classification
 
 **Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the highly optimize SIMD CPU backend is always available.
 
+Paper figure generation shells out to a small `matplotlib` pipeline under
+`scripts/figures/`. Install its dependencies once per environment before the
+first `make paper`:
+
+```bash
+make figure-deps          # python3 -m pip install -r scripts/figures/requirements.txt
+# or: PYTHON=/path/to/venv/bin/python make figure-deps
+```
+
+`SIX_FIGURE_PYTHON` overrides which interpreter the projector launches at
+runtime, and `SIX_STRICT_PDF=1` makes a missing/broken renderer a hard
+failure instead of a warning.
+
 ---
 
 ## Usage

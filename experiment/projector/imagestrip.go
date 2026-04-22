@@ -1,19 +1,8 @@
 package projector
 
 import (
-	_ "embed"
-	"encoding/json"
 	"io"
 	"os"
-)
-
-//go:embed imagestrip_script.tmpl
-var imageStripScriptTmpl string
-
-const (
-	imageStripWidth      = 800
-	imageStripRowHeight  = 180
-	imageStripBaseHeight = 100
 )
 
 type ImageStripRow struct {
@@ -45,25 +34,16 @@ func NewImageStrip(opts ...imageStripOpts) *ImageStrip {
 
 func (is *ImageStrip) SetOutput(out io.Writer) { is.out = out }
 
-func imageStripDimensions(rows int) (width, height int) {
-	return imageStripWidth, rows*imageStripRowHeight + imageStripBaseHeight
-}
-
 func (is *ImageStrip) Generate() error {
-	dataJSON, err := json.Marshal(is.rows)
-	if err != nil {
+	spec := struct {
+		Title string          `json:"title"`
+		Rows  []ImageStripRow `json:"rows"`
+	}{is.title, is.rows}
+
+	if err := runPython("imagestrip", spec, is.outDir, is.filename); err != nil {
 		return err
 	}
-	script := execTemplate(imageStripScriptTmpl, struct {
-		DataJSON string
-	}{string(dataJSON)})
-
-	width, height := imageStripDimensions(len(is.rows))
-
-	return finalizeEChartsFigure(
-		is.title, width, height, script,
-		is.outDir, is.filename, is.caption, is.label, is.out,
-	)
+	return emitFigure(is.filename, is.caption, is.label, is.out)
 }
 
 func ImageStripWithData(rows []ImageStripRow) imageStripOpts {
@@ -79,4 +59,3 @@ func ImageStripWithMeta(title, caption, label string) imageStripOpts {
 func ImageStripWithOutput(outDir, filename string) imageStripOpts {
 	return func(is *ImageStrip) { is.outDir = outDir; is.filename = filename }
 }
-

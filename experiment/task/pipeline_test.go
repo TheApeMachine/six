@@ -156,6 +156,16 @@ func TestPipeline(t *testing.T) {
 
 					rows, ok := experiment.TableData().([]tools.ExperimentalData)
 					So(ok, ShouldBeTrue)
+
+					// Exact-count assertion: every prompt Run iterated must
+					// produce exactly one ExperimentalData row. A weaker
+					// `> 0` check would let a truncated or dropped prompt
+					// loop pass silently — which is exactly the failure
+					// mode the consolidation into Run was meant to surface.
+					// pipeline.timing.n is the count Run measured at
+					// dispatch time, so it is the authoritative expected
+					// row count for this leaf.
+					So(len(rows), ShouldEqual, pipeline.timing.n)
 					So(len(rows), ShouldBeGreaterThan, 0)
 
 					// Artifacts are written BEFORE the aggregate gate fires

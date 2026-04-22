@@ -9,32 +9,39 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-150 & JavaScript & 0.0000 & 1.0000 & 0.7869 & 0.4158 \\
-236 & Java & 0.0000 & 0.4200 & 0.4118 & 0.1894 \\
-282 & Java & 0.0000 & 0.3600 & 0.2812 & 0.1493 \\
+231 & Java & 0.0000 & 0.4000 & 0.3125 & 0.1659 \\
+222 & Java & 0.0000 & 0.3400 & 0.2656 & 0.1410 \\
+598 & Rust & 0.0000 & 0.3000 & 0.3000 & 0.1364 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-474 & C++ & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-318 & Go & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-167 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+460 & C++ & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+597 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{t(0)) \% 26) + "a".charCodeAt(0)·  )).joi\ldots}} & \multicolumn{2}{l}{\texttt{"a".charCodeAt(0)) \% 26) + "a".charCodeA\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·        return result;·    \}\ldots}} & \multicolumn{2}{l}{\texttt{+= 1;·                    \}·            \ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{if (num1>num2) return lst2;·    return l\ldots}} & \multicolumn{2}{l}{\texttt{;i++)·        num2+=lst2[i].length();·}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{ubstring \{····times += 1···\}··\}··return \ldots}} & \multicolumn{2}{l}{\texttt{ing) + 1); i++ \{···if str[i:i+len(substr\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·         return true;·    \}·\ldots}} & \multicolumn{2}{l}{\texttt{if (n < 2) \{·            return false;· \ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\}·        \}·        return result;·    \}\ldots}} & \multicolumn{2}{l}{\texttt{tanceof Integer) \{·                resul\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{ce, collections::\{HashSet, HashMap\}, ops\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{td;·int sum\_to\_n(int n)\{·     return n*(\ldots}} & \multicolumn{2}{l}{\texttt{\_to\_n(30)·465·>>> sum\_to\_n(100)·5050·>>>\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 600} & \multicolumn{3}{l}{Holdout: 50-byte suffix (expected completion tail)} \\
-\multicolumn{3}{l}{Mean score: 0.0339} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.4158} \\
+\multicolumn{3}{l}{Mean score: 0.0317} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.1659} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{671.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{645.0 ms} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{1.0 ms} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.32 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
