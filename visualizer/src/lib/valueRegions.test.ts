@@ -3,11 +3,11 @@ import test from "node:test";
 import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT } from "./layoutGenerated";
 import {
 	chainPreview,
+	decodeInstructionWord,
 	decodeProgramWire,
 	decodeValueRegionsFromFrame,
 	formatWordHexAt,
 	REGION_SPECS,
-	unpackRegionRef,
 	wordsFromFrame,
 } from "./valueRegions";
 
@@ -28,36 +28,98 @@ test("REGION_SPECS covers 128 words contiguously", () => {
 	assert.equal(expected, VALUE_WORD_COUNT);
 });
 
-test("unpackRegionRef matches kernel PackRegionRef layout", () => {
-	const word = 0x0000_0005n | (0x0000_0003n << 32n);
-	const u = unpackRegionRef(word);
+/*
+encodeInstruction mirrors pkg/compute/program/compiler.go's
+EncodeInstruction. We re-derive the bit packing here in the test so any
+drift between the compiler and the decoder trips an assertion instead
+of silently misclassifying programs in the visualiser.
+*/
+function encodeInstruction(opts: {
+	aStart: number;
+	aSpan: number;
+	bStart: number;
+	bSpan: number;
+	dstStart: number;
+	dstSpan: number;
+	opcode: number;
+	mode: number;
+}): bigint {
+	const f = (v: number) => BigInt(v) & 0x7fn;
+	const op = BigInt(opts.opcode) & 0xfn;
+	const mode = BigInt(opts.mode) & 0x1n;
+	return (
+		f(opts.dstSpan - 1) |
+		(f(opts.dstStart) << 7n) |
+		(f(opts.bSpan - 1) << 14n) |
+		(f(opts.bStart) << 21n) |
+		(f(opts.aSpan - 1) << 28n) |
+		(f(opts.aStart) << 35n) |
+		(op << 42n) |
+		(mode << 46n)
+	);
+}
 
-	assert.equal(u.start, 5);
-	assert.equal(u.span, 3);
+test("decodeInstructionWord round-trips the packed compiler format", () => {
+	const word = encodeInstruction({
+		aStart: 16,
+		aSpan: 4,
+		bStart: 48,
+		bSpan: 8,
+		dstStart: 32,
+		dstSpan: 1,
+		opcode: 0x6,
+		mode: 1,
+	});
+
+	const decoded = decodeInstructionWord(word);
+
+	assert.deepEqual(decoded, {
+		aStart: 16,
+		aSpan: 4,
+		bStart: 48,
+		bSpan: 8,
+		dstStart: 32,
+		dstSpan: 1,
+		opcode: 0x6,
+		mode: 1,
+	});
 });
 
-test("decodeProgramWire reads opcode and region refs", () => {
+test("decodeProgramWire stops at the first zero word", () => {
+	const first = encodeInstruction({
+		aStart: 0,
+		aSpan: 8,
+		bStart: 8,
+		bSpan: 8,
+		dstStart: 32,
+		dstSpan: 4,
+		opcode: 0x6,
+		mode: 0,
+	});
+	const second = encodeInstruction({
+		aStart: 0,
+		aSpan: 8,
+		bStart: 8,
+		bSpan: 8,
+		dstStart: 36,
+		dstSpan: 4,
+		opcode: 0x1,
+		mode: 0,
+	});
+
 	const program = {
 		name: "program" as const,
 		startWord: 16,
 		wordCount: 8,
-		words: [
-			0x06n,
-			0n,
-			0n,
-			0x0000_0010n | (0x0000_0004n << 32n),
-			0n,
-			0n,
-			0n,
-			0n,
-		],
+		words: [first, second, 0n, 0n, 0n, 0n, 0n, 0n],
 	};
 
 	const decoded = decodeProgramWire(program);
 
-	assert.equal(decoded.opcodeLow, 0x06);
-	assert.equal(decoded.srcA.start, 16);
-	assert.equal(decoded.srcA.span, 4);
+	assert.equal(decoded.length, 2);
+	assert.equal(decoded[0].opcode, 0x6);
+	assert.equal(decoded[0].dstSpan, 4);
+	assert.equal(decoded[1].opcode, 0x1);
 });
 
 test("decodeValueRegionsFromFrame slices named regions", () => {

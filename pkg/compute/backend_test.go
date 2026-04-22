@@ -34,6 +34,14 @@ type pointerExecutorSpy struct {
 	calls [][]unsafe.Pointer
 }
 
+func (spy *pointerExecutorSpy) Execute(_ []uint32) error {
+	return nil
+}
+
+func (spy *pointerExecutorSpy) Name() string {
+	return "cpu"
+}
+
 func (spy *pointerExecutorSpy) ExecutePointers(frames []unsafe.Pointer) error {
 	copied := append([]unsafe.Pointer(nil), frames...)
 	spy.calls = append(spy.calls, copied)
@@ -76,7 +84,9 @@ func TestBackendExecutionStatsForValue(t *testing.T) {
 		}
 
 		Convey("Heap-backed Values should route straight to CPU", func() {
-			So(backend.findLowestPressureSubstrate(), ShouldEqual, cpu)
+			value := new(primitive.Value)
+
+			So(backend.selectSubstrate(value), ShouldEqual, cpu)
 		})
 
 		Convey("Arena-backed Values should keep the lowest-pressure substrate", func() {
@@ -85,7 +95,7 @@ func TestBackendExecutionStatsForValue(t *testing.T) {
 
 			defer primitive.FreeValue(value)
 
-			So(backend.findLowestPressureSubstrate(), ShouldEqual, gpu)
+			So(backend.selectSubstrate(value), ShouldEqual, gpu)
 		})
 	})
 }
@@ -96,21 +106,28 @@ func TestBackendExecuteValue(t *testing.T) {
 	Convey("Given a backend with explicit GPU and CPU executors", t, func() {
 		gpuExec := &substrateSpy{name: "gpu"}
 		cpuExec := &pointerExecutorSpy{}
-		cpuStats := &SubstrateStats{Substrate: &substrateSpy{name: "cpu"}}
+		cpuStats := &SubstrateStats{Substrate: cpuExec}
 		gpuStats := &SubstrateStats{Substrate: gpuExec}
 		backend := &Backend{
 			ctx:      context.Background(),
 			cpuStats: cpuStats,
+			substrates: []*SubstrateStats{
+				gpuStats,
+				cpuStats,
+			},
 		}
 
 		Convey("Heap-backed Values should execute through the CPU pointer path", func() {
 			value := new(primitive.Value)
 
+			stats, err := backend.executeValue(value)
+
+			So(err, ShouldBeNil)
+			So(stats, ShouldEqual, cpuStats)
 			So(len(cpuExec.calls), ShouldEqual, 1)
 			So(len(cpuExec.calls[0]), ShouldEqual, 1)
 			So(cpuExec.calls[0][0], ShouldEqual, unsafe.Pointer(value))
 			So(len(gpuExec.indices), ShouldEqual, 0)
-			So(backend.findLowestPressureSubstrate(), ShouldEqual, cpuStats)
 		})
 
 		Convey("Arena-backed Values should execute on the selected substrate by slot index", func() {
@@ -122,8 +139,10 @@ func TestBackendExecuteValue(t *testing.T) {
 			slot, ok := primitive.ArenaIndex(value)
 			So(ok, ShouldBeTrue)
 
+			stats, err := backend.executeValue(value)
 
-			So(backend.findLowestPressureSubstrate(), ShouldEqual, gpuStats)
+			So(err, ShouldBeNil)
+			So(stats, ShouldEqual, gpuStats)
 			So(len(gpuExec.indices), ShouldEqual, 1)
 			So(gpuExec.indices[0], ShouldResemble, []uint32{slot})
 			So(len(cpuExec.calls), ShouldEqual, 0)

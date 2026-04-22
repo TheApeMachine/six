@@ -1,41 +1,75 @@
 /*
-Region layout mirrors the authoritative runtime config in cmd/cfg/config.yml
-(loaded via pkg/core/config.go → viper) and the kernel word addresses in
-pkg/compute/kernel/layout.go:
-
-  tokens     w0..w15    (1024 bits)
-  program    w16..w31   (1024 bits)
-  signals    w32..w39   (512 bits)
-  context    w40..w47   (512 bits)
-  gradient   w48..w55   (512 bits)
-  properties w56..w71   (1024 bits — community id at w64, firmware status at w65,
-                         TTL at w59, etc.)
-  asset      w72..w119  (3072 bits — chain staging + peer S/C/G/P + scratch)
-  prev       w120
-  next       w121
-  id         w122
-  affinity   w123..w127 (257 bits rounded up to 5 words)
-
-pkg/core/config.go NewConfig() defaults match cmd/cfg/config.yml (properties 1024b,
-asset 3072b). Keep REGION_SPECS aligned with that yaml — that is what flows on the
-wire the visualizer consumes.
+valueRegions decodes a raw 1024-byte Value wire frame into named slices
+that the inspector and classifier consume. Region boundaries come from
+layoutGenerated.ts (REGION_SPECS), which the Go-side gen.go writes from
+cmd/cfg/config.yml — so the slicing here always agrees with the kernel
+addresses the substrate executes against. The instruction-stream
+decoder consumes constants from programsGenerated.ts for the same
+reason: the bit positions of the packed-uint64 instruction format are
+defined once in pkg/compute/program/compiler.go and re-emitted by the
+generator, so we never carry a parallel copy.
 */
 
 import {
+	AFFINITY_START_WORD,
+	ASSET_START_WORD,
 	REGION_SPECS as GENERATED_REGION_SPECS,
 	type RegionSpec as GeneratedRegionSpec,
+	ID_START_WORD,
+	NEXT_START_WORD,
+	PREV_START_WORD,
 	VALUE_FRAME_BYTE_LENGTH,
 	VALUE_WORD_COUNT,
 	type ValueRegionName,
 } from "./layoutGenerated";
 import {
-	chainIdFromWord,
-	formatWordHex64,
-	readWordU64LE,
-	WORD,
-} from "./valueLayout";
+	type DecodedInstruction,
+	INSTR_A_SPAN_SHIFT,
+	INSTR_A_START_SHIFT,
+	INSTR_B_SPAN_SHIFT,
+	INSTR_B_START_SHIFT,
+	INSTR_DST_SPAN_SHIFT,
+	INSTR_DST_START_SHIFT,
+	INSTR_FIELD_MASK,
+	INSTR_MODE_MASK,
+	INSTR_MODE_SHIFT,
+	INSTR_OPCODE_MASK,
+	INSTR_OPCODE_SHIFT,
+} from "./programsGenerated";
 
 export type { ValueRegionName } from "./layoutGenerated";
+export type { DecodedInstruction } from "./programsGenerated";
+
+const WORD_BYTES = 8;
+
+export function readWordU64LE(buf: Uint8Array, wordIndex: number): bigint {
+	const offset = wordIndex * WORD_BYTES;
+
+	if (offset + WORD_BYTES > buf.length) {
+		return 0n;
+	}
+
+	const dv = new DataView(buf.buffer, buf.byteOffset + offset, WORD_BYTES);
+
+	return dv.getBigUint64(0, true);
+}
+
+export function formatWordHex64(word: bigint): string {
+	return word.toString(16).padStart(16, "0").toLowerCase();
+}
+
+/*
+chainIdFromWord turns a non-zero link word into a 16-nibble id; zero
+words are intentionally rendered as the empty string so the inspector
+can distinguish "no link" from "id of zero".
+*/
+export function chainIdFromWord(word: bigint): string {
+	if (word === 0n) {
+		return "";
+	}
+
+	return formatWordHex64(word);
+}
 
 export interface ValueRegionSlice {
 	name: ValueRegionName;
@@ -62,68 +96,63 @@ export interface DecodedValueRegions {
 }
 
 /*
-REGION_SPECS is generated from cmd/cfg/config.yml. The visualizer must consume
-that table directly so the wire decoder, program classifier, and inspector stay
-aligned with the same layout the kernels execute.
+REGION_SPECS is generated from cmd/cfg/config.yml. The visualizer must
+consume that table directly so the wire decoder, program classifier, and
+inspector stay aligned with the same layout the kernels execute.
 */
 export const REGION_SPECS: ReadonlyArray<
 	Pick<GeneratedRegionSpec, "name" | "startWord" | "wordCount">
 > = GENERATED_REGION_SPECS;
 
-/** Program sub-indices relative to program region base (word 16). */
-export const PROGRAM = {
-	OPCODE: 0,
-	ROT_TAB: 1,
-	MODE: 2,
-	SRC_A: 3,
-	SRC_B: 4,
-	DST: 5,
-} as const;
-
-export interface UnpackedRegionRef {
-	start: number;
-	span: number;
-}
-
 /*
-UnpackRegionRef mirrors kernel.UnpackRegionRef — low 32 bits start, high 32 span.
+decodeInstructionWord unpacks one 64-bit DSL instruction. Layout matches
+pkg/compute/program/compiler.go EncodeInstruction; see programsGenerated.ts
+for the bit shifts (the generator re-exports them so this file and the
+runtime never disagree). Span fields are stored as `span - 1` so a fully
+zero word means "halt"; we restore the +1 here.
 */
-export function unpackRegionRef(word: bigint): UnpackedRegionRef {
+export function decodeInstructionWord(word: bigint): DecodedInstruction {
 	return {
-		start: Number(word & 0xffff_ffffn),
-		span: Number((word >> 32n) & 0xffff_ffffn),
+		dstSpan:
+			Number((word >> BigInt(INSTR_DST_SPAN_SHIFT)) & INSTR_FIELD_MASK) + 1,
+		dstStart: Number(
+			(word >> BigInt(INSTR_DST_START_SHIFT)) & INSTR_FIELD_MASK,
+		),
+		bSpan: Number((word >> BigInt(INSTR_B_SPAN_SHIFT)) & INSTR_FIELD_MASK) + 1,
+		bStart: Number((word >> BigInt(INSTR_B_START_SHIFT)) & INSTR_FIELD_MASK),
+		aSpan: Number((word >> BigInt(INSTR_A_SPAN_SHIFT)) & INSTR_FIELD_MASK) + 1,
+		aStart: Number((word >> BigInt(INSTR_A_START_SHIFT)) & INSTR_FIELD_MASK),
+		opcode: Number((word >> BigInt(INSTR_OPCODE_SHIFT)) & INSTR_OPCODE_MASK),
+		mode: Number((word >> BigInt(INSTR_MODE_SHIFT)) & INSTR_MODE_MASK),
 	};
 }
 
-export interface DecodedProgramWire {
-	/** Low 8 bits of program opcode word (boolean / routing lane). */
-	opcodeLow: number;
-	/** Full first program word (opcode byte + geometric gate bits). */
-	opcodeWord: bigint;
-	modeWord: bigint;
-	srcA: UnpackedRegionRef;
-	srcB: UnpackedRegionRef;
-	dst: UnpackedRegionRef;
-}
-
 /*
-DecodeProgramWire interprets the eight-word program region per kernel layout.
+decodeProgramWire walks the program region one packed uint64 word at a
+time. The first all-zero word terminates execution per the compiler's
+contract, so we stop there; trailing zero words (e.g. an unused tail of
+the 16-word program region) never produce phantom instructions.
+
+This used to assume the old "one word per operand" layout and read
+opcode / srcA / srcB / dst from separate words; that was wrong as soon
+as the runtime moved to the packed format and made every program look
+like "ALU WIRE op=0x10" in the inspector. The packed walker keeps the
+visualiser consistent with whatever the substrate actually executes.
 */
 export function decodeProgramWire(
 	program: ValueRegionSlice,
-): DecodedProgramWire {
-	const w = program.words;
-	const opcodeWord = w[PROGRAM.OPCODE] ?? 0n;
-	const low = Number(opcodeWord & 0xffn);
+): DecodedInstruction[] {
+	const out: DecodedInstruction[] = [];
 
-	return {
-		opcodeLow: low,
-		opcodeWord,
-		modeWord: w[PROGRAM.MODE] ?? 0n,
-		srcA: unpackRegionRef(w[PROGRAM.SRC_A] ?? 0n),
-		srcB: unpackRegionRef(w[PROGRAM.SRC_B] ?? 0n),
-		dst: unpackRegionRef(w[PROGRAM.DST] ?? 0n),
-	};
+	for (const word of program.words) {
+		if (word === 0n) {
+			break;
+		}
+
+		out.push(decodeInstructionWord(word));
+	}
+
+	return out;
 }
 
 function sliceWords(words: bigint[], start: number, count: number): bigint[] {
@@ -139,8 +168,8 @@ function sliceWords(words: bigint[], start: number, count: number): bigint[] {
 }
 
 /*
-DecodeValueRegions maps a full 128-word image into named slices. Pass
-Value.Bytes–length buffers via wordsFromFrame first.
+decodeValueRegions maps a full 128-word image into named slices. Pass
+Value.Bytes-length buffers via wordsFromFrame first.
 */
 export function decodeValueRegions(words: bigint[]): DecodedValueRegions {
 	const slices: ValueRegionSlice[] = [];
@@ -185,7 +214,9 @@ export function decodeValueRegions(words: bigint[]): DecodedValueRegions {
 }
 
 /*
-WordsFromFrame builds the 128-word bigint lane from a raw LE wire frame.
+wordsFromFrame builds the 128-word bigint lane from a raw LE wire
+frame. Short buffers zero-fill so callers can render partial frames
+(e.g. during reconnect) without throwing.
 */
 export function wordsFromFrame(frame: Uint8Array): bigint[] {
 	if (frame.byteLength < VALUE_FRAME_BYTE_LENGTH) {
@@ -197,9 +228,6 @@ export function wordsFromFrame(frame: Uint8Array): bigint[] {
 	);
 }
 
-/*
-DecodeValueRegionsFromFrame is the ergonomic single entry for raw bytes.
-*/
 export function decodeValueRegionsFromFrame(
 	frame: Uint8Array,
 ): DecodedValueRegions {
@@ -207,8 +235,9 @@ export function decodeValueRegionsFromFrame(
 }
 
 /*
-FormatWordHexAt resolves one absolute word index to display hex, preferring
-pre-sliced regions when present so UI code does not duplicate readWordU64LE.
+formatWordHexAt resolves one absolute word index to display hex,
+preferring pre-sliced regions when present so UI code does not duplicate
+readWordU64LE.
 */
 export function formatWordHexAt(
 	regions: DecodedValueRegions | null,
@@ -234,10 +263,29 @@ export function formatWordHexAt(
 }
 
 /*
-AffinityHexFromRegions matches valueLayout.affinityHexWords without re-reading bytes.
+affinityHexFromRegions concatenates the five 64-bit affinity words into
+the same 80-nibble string the Go-side telemetry exporter produces — that
+way the inspector's affinity panel matches the field's affinityHex byte
+for byte.
 */
 export function affinityHexFromRegions(regions: DecodedValueRegions): string {
 	return regions.affinity.words.map((word) => formatWordHex64(word)).join("");
+}
+
+/*
+affinityHexWords reads the affinity words straight off a frame buffer
+(without going through a region decode). Useful when callers already
+have the raw frame in hand and want the same display string the
+inspector shows.
+*/
+export function affinityHexWords(frame: Uint8Array): string {
+	let out = "";
+
+	for (let w = 0; w < 5; w++) {
+		out += formatWordHex64(readWordU64LE(frame, AFFINITY_START_WORD + w));
+	}
+
+	return out;
 }
 
 export interface ChainPreview {
@@ -248,35 +296,33 @@ export interface ChainPreview {
 	idHex: string;
 }
 
-/*
-ChainPreviewFromRegions mirrors ValueInspector chain logic using region slices.
-*/
 function chainPreviewFromRegions(regions: DecodedValueRegions): ChainPreview {
 	return {
 		prevCommitted: chainIdFromWord(regions.prev.words[0]),
 		nextCommitted: chainIdFromWord(regions.next.words[0]),
+		/*
+		The orchestrator stages predecessor/successor IDs into the first
+		two Asset words before the link firmware copies them into Prev /
+		Next. We expose both so the inspector can show "staged but not
+		yet committed" — useful when chasing a chain that hasn't run the
+		link program yet.
+		*/
 		prevStaged: chainIdFromWord(regions.asset.words[0]),
 		nextStaged: chainIdFromWord(regions.asset.words[1]),
 		idHex: formatWordHex64(regions.id.words[0]),
 	};
 }
 
-/*
-ChainPreviewFromFrame is the frame-only path when wireRegions is unavailable.
-*/
 function chainPreviewFromFrame(frame: Uint8Array): ChainPreview {
 	return {
-		prevCommitted: chainIdFromWord(readWordU64LE(frame, WORD.PREV)),
-		nextCommitted: chainIdFromWord(readWordU64LE(frame, WORD.NEXT)),
-		prevStaged: chainIdFromWord(readWordU64LE(frame, WORD.ASSET_PREV)),
-		nextStaged: chainIdFromWord(readWordU64LE(frame, WORD.ASSET_NEXT)),
-		idHex: formatWordHex64(readWordU64LE(frame, WORD.ID)),
+		prevCommitted: chainIdFromWord(readWordU64LE(frame, PREV_START_WORD)),
+		nextCommitted: chainIdFromWord(readWordU64LE(frame, NEXT_START_WORD)),
+		prevStaged: chainIdFromWord(readWordU64LE(frame, ASSET_START_WORD)),
+		nextStaged: chainIdFromWord(readWordU64LE(frame, ASSET_START_WORD + 1)),
+		idHex: formatWordHex64(readWordU64LE(frame, ID_START_WORD)),
 	};
 }
 
-/*
-ChainPreview resolves chain + id display fields from regions or raw frame.
-*/
 export function chainPreview(
 	regions: DecodedValueRegions | null,
 	frame: Uint8Array | null,

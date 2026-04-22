@@ -1,31 +1,26 @@
 /*
-programClassifier identifies which in-band program a Value is currently
-carrying by matching its compiled program region against the signatures
-produced by cmd/cfg/config.yml. Each DSL line lowers to a
-(srcA, srcB, dst, opcode) tuple with absolute word starts and spans, and
-because those tuples come out of the compiler deterministically we can
-match them back to the program name cheaply in the visualizer without
-asking the Go side to stamp a name tag.
+programClassifier identifies which named DSL program a Value is currently
+carrying by matching its program region against PROGRAM_SIGNATURES — a
+table that gen.go writes out from cmd/cfg/config.yml's `programs:` block,
+lowered through the same compiler the runtime uses. There is no
+hand-maintained signature table here; if a program appears in the YAML
+it is matchable in the visualiser, and if it does not appear it falls
+through to "unknown" rather than being mis-named.
 
-When multiple programs share the same first line (episodic_replay and
-unsupervised_learn are genuinely identical; causal_explore / causal_hub
-/ surprisal / falsification all share their tokens-vs-context opening
-line) we surface the primitive's CATEGORY. The shape and colour in the
-canvas key off category, so the operator sees what kind of work is
-happening even when the specific program is aliased at the wire level.
+Each match is exact: same opcode, same operand tuples, same order. A
+shorter prefix match is rejected so two programs that share their first
+line (e.g. `affinity` and `fold_substrate`) keep their distinct identity.
+
+Categorisation is a small table mapping program names to glyph
+families. It still lives here because the category is a UI concept (what
+shape and colour to draw), not a substrate concept; the substrate only
+knows program names.
 */
 
 import {
-	AFFINITY_START_WORD,
-	ASSET_START_WORD,
-	CONTEXT_START_WORD,
-	GRADIENT_START_WORD,
-	PROGRAM_START_WORD,
-	PROPERTIES_START_WORD,
-	SIGNALS_START_WORD,
-	TOKENS_START_WORD,
-} from "./layoutGenerated";
-import type { DecodedProgramWire } from "./valueRegions";
+	type DecodedInstruction,
+	PROGRAM_SIGNATURES,
+} from "./programsGenerated";
 
 /*
 ProgramCategory groups programs with the same visual glyph. Shape and
@@ -34,6 +29,7 @@ an ALU primitive remain readable in the canvas.
 */
 export type ProgramCategory =
 	| "plumbing" // link, affinity — bootstrap rules
+	| "structural" // fold_substrate — README "Signals" cancel/merge sweep
 	| "beam" // beam_swarm_step — directional explore
 	| "inference" // active_inference — multi-future simulation
 	| "classify" // classify_readout — label broadcast
@@ -72,6 +68,22 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			color: [120, 120, 150],
 			shape: "circle",
 			description: "link / affinity bootstrap",
+		},
+		/*
+		structural is the README "Signals" algorithm: an XOR-cancel sweep
+		into signals[0,4] and an AND-merge sweep into signals[4,4] over
+		the two halves of the token region. The post-ALU hook scans
+		those for long zero/one runs and emits Association Values, so
+		this category marks the Values that drive that emission.
+		Triangle-down is reserved for it because the algorithm is
+		downward in the lifecycle (token data → structural fingerprint).
+		*/
+		structural: {
+			category: "structural",
+			label: "structural",
+			color: [255, 220, 80],
+			shape: "triangle_down",
+			description: "fold_substrate — cancel / merge sweep",
 		},
 		beam: {
 			category: "beam",
@@ -139,151 +151,41 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 	};
 
 /*
-Opcodes come from pkg/compute/kernel/layout.go. Only the low four bits
-are used here — high-nibble opcodes (geometric, copy-mask-merge, emit
-clone) are not produced by the DSL programs we try to classify.
+PROGRAM_CATEGORY_BY_NAME is the single hand-maintained table in this
+module. New programs in cmd/cfg/config.yml that lack an entry here
+classify as "unknown" — the renderer keeps drawing them as plain data
+squares while the operator is asked to assign a category. This is a
+deliberate failure mode: the substrate runs the program either way; the
+visualiser just doesn't paint a special glyph for it.
 */
-const OP_AND = 0x01;
-const OP_XOR = 0x06;
-const OP_OR = 0x07;
-
-interface ProgramSignature {
-	program: string;
-	category: ProgramCategory;
-	srcA: { start: number; span: number };
-	srcB: { start: number; span: number };
-	dst: { start: number; span: number };
-	opcode: number;
-}
-
-const R = {
-	tokens: TOKENS_START_WORD,
-	program: PROGRAM_START_WORD,
-	signals: SIGNALS_START_WORD,
-	context: CONTEXT_START_WORD,
-	gradient: GRADIENT_START_WORD,
-	properties: PROPERTIES_START_WORD,
-	asset: ASSET_START_WORD,
-	prev: 120,
-	next: 121,
-	affinity: AFFINITY_START_WORD,
+const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
+	link: "plumbing",
+	affinity: "plumbing",
+	fold_substrate: "structural",
+	beam_swarm_step: "beam",
+	active_inference: "inference",
+	classify_readout: "classify",
+	unsupervised_learn: "peer_gap",
+	episodic_replay: "peer_gap",
+	intervene: "intervene",
+	surprisal: "gap_probe",
+	causal_explore: "gap_probe",
+	causal_hub: "gap_probe",
+	falsification: "gap_probe",
+	hypothesis: "gap_probe",
+	measure_field: "resident",
+	popcount: "util",
+	coupling: "util",
+	temperature: "util",
 };
 
-/*
-PROGRAM_SIGNATURES lists the first DSL line of every named program we
-render distinctly. Shared first lines intentionally map several program
-names to the same entry by sharing the same category — the signature is
-for the primitive, the description stays fuzzy when aliased.
+export function categoryForProgram(program: string): ProgramCategory {
+	if (!program) {
+		return "unknown";
+	}
 
-If the Go-side config changes these lines, the visualizer falls back to
-"unknown" rather than guessing, so the canvas degrades gracefully.
-*/
-const PROGRAM_SIGNATURES: ProgramSignature[] = [
-	{
-		program: "link",
-		category: "plumbing",
-		srcA: { start: R.asset, span: 1 },
-		srcB: { start: R.asset, span: 1 },
-		dst: { start: R.prev, span: 1 },
-		opcode: OP_OR,
-	},
-	{
-		program: "link", // second line
-		category: "plumbing",
-		srcA: { start: R.asset + 1, span: 1 },
-		srcB: { start: R.asset + 1, span: 1 },
-		dst: { start: R.next, span: 1 },
-		opcode: OP_OR,
-	},
-	{
-		program: "affinity",
-		category: "plumbing",
-		srcA: { start: R.tokens, span: 16 },
-		srcB: { start: R.tokens, span: 16 },
-		dst: { start: R.affinity, span: 5 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "beam_swarm_step",
-		category: "beam",
-		srcA: { start: R.tokens, span: 8 },
-		srcB: { start: R.gradient, span: 8 },
-		dst: { start: R.context, span: 8 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "active_inference",
-		category: "inference",
-		srcA: { start: R.tokens, span: 8 },
-		srcB: { start: R.gradient, span: 8 },
-		dst: { start: R.asset, span: 8 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "classify_readout",
-		category: "classify",
-		srcA: { start: R.properties, span: 1 },
-		srcB: { start: R.properties, span: 1 },
-		dst: { start: R.signals, span: 1 },
-		opcode: OP_OR,
-	},
-	{
-		program: "peer_gap", // unsupervised_learn & episodic_replay share this
-		category: "peer_gap",
-		srcA: { start: R.context, span: 8 },
-		srcB: { start: R.asset + 8, span: 8 },
-		dst: { start: R.signals, span: 8 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "intervene",
-		category: "intervene",
-		srcA: { start: R.context, span: 8 },
-		srcB: { start: R.asset + 16, span: 8 },
-		dst: { start: R.signals, span: 8 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "gap_probe", // surprisal / causal_explore / causal_hub / falsification
-		category: "gap_probe",
-		srcA: { start: R.tokens, span: 8 },
-		srcB: { start: R.context, span: 8 },
-		dst: { start: R.signals, span: 8 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "measure_field",
-		category: "resident",
-		srcA: { start: R.asset, span: 8 },
-		srcB: { start: R.asset, span: 8 },
-		dst: { start: R.signals + 7, span: 1 },
-		opcode: OP_OR,
-	},
-	{
-		program: "popcount",
-		category: "util",
-		srcA: { start: R.affinity, span: 5 },
-		srcB: { start: R.affinity, span: 5 },
-		dst: { start: R.affinity + 4, span: 1 },
-		opcode: OP_XOR,
-	},
-	{
-		program: "coupling",
-		category: "util",
-		srcA: { start: R.tokens, span: 16 },
-		srcB: { start: R.affinity, span: 5 },
-		dst: { start: R.signals, span: 1 },
-		opcode: OP_AND,
-	},
-	{
-		program: "temperature",
-		category: "util",
-		srcA: { start: R.properties + 4, span: 1 },
-		srcB: { start: R.affinity, span: 5 },
-		dst: { start: R.affinity, span: 5 },
-		opcode: OP_XOR,
-	},
-];
+	return PROGRAM_CATEGORY_BY_NAME[program] ?? "unknown";
+}
 
 export interface ClassifiedProgram {
 	program: string;
@@ -291,64 +193,70 @@ export interface ClassifiedProgram {
 	style: ProgramCategoryStyle;
 }
 
-/*
-classifyProgramWire returns the identified program plus the category
-style used by the canvas. A nil or all-zero program region maps to
-"unknown" so fresh Values that have not yet hit the ALU render as
-plain data squares instead of being mislabeled.
-*/
-export function classifyProgramWire(
-	wire: DecodedProgramWire | null,
-): ClassifiedProgram {
-	if (!wire) {
-		return unknownProgram();
-	}
-
-	const op = wire.opcodeLow & 0x0f;
-	const a = wire.srcA;
-	const b = wire.srcB;
-	const d = wire.dst;
-
-	if (
-		op === 0 &&
-		a.start === 0 &&
-		a.span === 0 &&
-		b.start === 0 &&
-		b.span === 0 &&
-		d.start === 0 &&
-		d.span === 0
-	) {
-		return unknownProgram();
-	}
-
-	for (const sig of PROGRAM_SIGNATURES) {
-		if (
-			sig.opcode === op &&
-			sig.srcA.start === a.start &&
-			sig.srcA.span === a.span &&
-			sig.srcB.start === b.start &&
-			sig.srcB.span === b.span &&
-			sig.dst.start === d.start &&
-			sig.dst.span === d.span
-		) {
-			return {
-				program: sig.program,
-				category: sig.category,
-				style: PROGRAM_CATEGORIES[sig.category],
-			};
-		}
-	}
-
+function unknownProgram(): ClassifiedProgram {
 	return {
-		program: `op=0x${op.toString(16).padStart(2, "0")}`,
+		program: "",
 		category: "unknown",
 		style: PROGRAM_CATEGORIES.unknown,
 	};
 }
 
-function unknownProgram(): ClassifiedProgram {
+function instructionsEqual(
+	a: DecodedInstruction,
+	b: DecodedInstruction,
+): boolean {
+	return (
+		a.opcode === b.opcode &&
+		a.mode === b.mode &&
+		a.aStart === b.aStart &&
+		a.aSpan === b.aSpan &&
+		a.bStart === b.bStart &&
+		a.bSpan === b.bSpan &&
+		a.dstStart === b.dstStart &&
+		a.dstSpan === b.dstSpan
+	);
+}
+
+/*
+classifyInstructionStream matches a Value's full decoded program
+against PROGRAM_SIGNATURES. A program counts as installed when every
+non-zero leading instruction matches the signature in order. Trailing
+zero words (the kernel halts on the first zero) are ignored; this lets
+the visualiser see a program before the substrate writes the trailing
+scheduler word.
+*/
+export function classifyInstructionStream(
+	instructions: ReadonlyArray<DecodedInstruction>,
+): ClassifiedProgram {
+	if (!instructions.length) {
+		return unknownProgram();
+	}
+
+	for (const sig of PROGRAM_SIGNATURES) {
+		if (sig.instructions.length !== instructions.length) {
+			continue;
+		}
+
+		let matched = true;
+		for (let index = 0; index < sig.instructions.length; index++) {
+			if (!instructionsEqual(sig.instructions[index], instructions[index])) {
+				matched = false;
+				break;
+			}
+		}
+
+		if (matched) {
+			const category = categoryForProgram(sig.name);
+			return {
+				program: sig.name,
+				category,
+				style: PROGRAM_CATEGORIES[category],
+			};
+		}
+	}
+
 	return {
-		program: "",
+		program: `op=0x${instructions[0].opcode.toString(16).padStart(2, "0")}`,
 		category: "unknown",
 		style: PROGRAM_CATEGORIES.unknown,
 	};
@@ -366,6 +274,7 @@ export const ROLE_BY_CATEGORY: Record<
 	"data" | "action" | "reaction" | "prompt"
 > = {
 	plumbing: "data",
+	structural: "action",
 	beam: "action",
 	inference: "action",
 	classify: "reaction",

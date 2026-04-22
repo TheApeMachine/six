@@ -56,6 +56,26 @@ type Backend struct {
 	pool       *pool.Pool
 	queue      *Queue
 	popped     atomic.Int64
+	// emitter is the post-ALU outbound publisher. The orchestrator wires
+	// this to its mesh.Field so structural Associations minted by the
+	// post-exec hook (see postexec.go) flow back into the routing layer
+	// as honest residents instead of getting orphaned. Nil emitter means
+	// the post-hook is a no-op — a useful default for unit tests that
+	// only exercise kernel dispatch.
+	emitter Emitter
+}
+
+// SetEmitter installs (or replaces) the outbound publisher used by the
+// post-ALU hook to push freshly-minted Association Values back into the
+// substrate. Safe to call once before traffic starts; the field pointer
+// inside the orchestrator is stable for the lifetime of a Cycle, so a
+// single SetEmitter call after NewBackend covers the whole Machine.
+func (b *Backend) SetEmitter(emitter Emitter) {
+	if b == nil {
+		return
+	}
+
+	b.emitter = emitter
 }
 
 func NewBackend(ctx context.Context, q *Queue) *Backend {
@@ -152,8 +172,13 @@ func (b *Backend) Run() {
 
 			if work.Type == WorkTypeValue {
 				errnie.Trace("backend.Run: scheduling value")
-				// Values can run anywhere. Find the lowest pressure substrate!
-				best := b.findLowestPressureSubstrate()
+				best := b.selectSubstrate(work.Value)
+				if best == nil {
+					b.popped.Add(-1)
+					primitive.FreeValue(work.Value)
+					break
+				}
+
 				best.Inflight.Add(1)
 				b.popped.Add(-1)
 
@@ -162,22 +187,14 @@ func (b *Backend) Run() {
 					defer primitive.FreeValue(work.Value)
 					start := time.Now()
 
-					// Execute on the chosen kernel
-					frames := []unsafe.Pointer{unsafe.Pointer(work.Value)}
-					indices, err := primitive.IndicesFromPointers(frames)
-
-					if err = best.Substrate.Execute(indices); err != nil {
+					if err := b.executeOnSubstrate(best, work.Value); err != nil {
 						errnie.Error(err)
 						return
 					}
 
-					// Record how long it took to update the EMA budget
 					best.RecordExecution(time.Since(start))
-
-					// Update kernels if needed
 					b.updateKernels(work.Value)
 
-					// Return the computed result to the queue's output stream
 					if err := b.queue.Return(work.Value); err != nil {
 						errnie.Error(err)
 					}
@@ -201,10 +218,58 @@ func (b *Backend) findLowestPressureSubstrate() *SubstrateStats {
 	return best
 }
 
+func (b *Backend) selectSubstrate(value *primitive.Value) *SubstrateStats {
+	if b == nil {
+		return nil
+	}
+
+	if value != nil {
+		if _, ok := primitive.ArenaIndex(value); !ok && b.cpuStats != nil {
+			return b.cpuStats
+		}
+	}
+
+	if best := b.findLowestPressureSubstrate(); best != nil {
+		return best
+	}
+
+	return b.cpuStats
+}
+
+func (b *Backend) executeOnSubstrate(stats *SubstrateStats, value *primitive.Value) error {
+	if stats == nil || stats.Substrate == nil || value == nil {
+		return nil
+	}
+
+	if idx, ok := primitive.ArenaIndex(value); ok {
+		return stats.Substrate.Execute([]uint32{idx})
+	}
+
+	ptrExec, ok := stats.Substrate.(pointerExecutingSubstrate)
+	if !ok {
+		return primitive.ErrNotArenaValue
+	}
+
+	return ptrExec.ExecutePointers([]unsafe.Pointer{unsafe.Pointer(value)})
+}
+
+func (b *Backend) executeValue(value *primitive.Value) (*SubstrateStats, error) {
+	stats := b.selectSubstrate(value)
+	if err := b.executeOnSubstrate(stats, value); err != nil {
+		return stats, err
+	}
+
+	return stats, nil
+}
+
 // nearestAffinitySubstrate is implemented by CUDA/Metal backends (and test spies) for
 // packed batch Hamming distance; the generic kernel.Substrate contract stays minimal.
 type nearestAffinitySubstrate interface {
 	NearestAffinity(query unsafe.Pointer, candidates unsafe.Pointer, count int) ([]uint32, error)
+}
+
+type pointerExecutingSubstrate interface {
+	ExecutePointers(frames []unsafe.Pointer) error
 }
 
 // affinityBatchRowWords is the packed row width for query/candidate buffers shared by
@@ -249,6 +314,21 @@ func (b *Backend) AffinityDistances(
 	return cpu.AffinityDistances(query, candidates)
 }
 
+// updateKernels is the post-ALU hook the backend invokes after every
+// successful kernel dispatch. The substrate-side scoring of the result
+// region happens here, and any new Values that fall out of that scoring
+// (Associations from the README "Signals" algorithm) are pushed back
+// onto the orchestrator's mesh.Field through the configured emitter.
+//
+// Keeping this on Backend (rather than the queue or the orchestrator)
+// keeps the lookup off the hot Pop path: the post-hook runs on the same
+// pool goroutine that just executed the kernel, so the work-item is
+// already cache-warm and the sweep over signals[] is touching freshly
+// written words.
 func (b *Backend) updateKernels(result *primitive.Value) {
-	// Implement any kernel updates here based on the result
+	if b == nil {
+		return
+	}
+
+	runStructuralPostExec(result, b.emitter)
 }

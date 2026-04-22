@@ -9,24 +9,24 @@ import type {
 import {
 	ASSET_START_WORD,
 	CONTEXT_START_WORD,
-	PROPERTIES_START_WORD,
+	ID_START_WORD,
+	NEXT_START_WORD,
+	PREV_START_WORD,
 	VALUE_WORD_COUNT,
 } from "./layoutGenerated";
 import {
 	type ClassifiedProgram,
-	classifyProgramWire,
+	classifyInstructionStream,
 	ROLE_BY_CATEGORY,
 } from "./programClassifier";
-import {
-	chainIdFromWord,
-	readWordU64LE,
-	WORD,
-} from "./valueLayout";
+import { PROPERTY_WORD, VALUE_ROLE } from "./propertiesGenerated";
 import type { DecodedValueRegions } from "./valueRegions";
 import {
 	affinityHexFromRegions,
+	chainIdFromWord,
 	decodeProgramWire,
 	decodeValueRegions,
+	readWordU64LE,
 } from "./valueRegions";
 import type { RawValueFrame } from "./wire";
 
@@ -46,37 +46,30 @@ export interface FieldMetricsPayload {
 }
 
 /*
-PROPERTIES_COMMUNITY_WORD is the absolute word index where mesh.Field
-stamps the community id directly onto the visitor's wire frame before
-forwarding it through the post-routing telemetry pulse. Computed on
-the Go side as PropertiesStartWord (56) + COMMUNITY offset (8) = 64.
-See pkg/compute/kernel/layout.go and pkg/primitive/properties.go for
-the canonical layout this constant mirrors.
+Property word indices come from propertiesGenerated.ts, which gen.go
+writes from pkg/primitive/properties.go's PropertyType iota plus
+cmd/cfg/config.yml's PROPERTIES_START_WORD. Reading them through
+PROPERTY_WORD() means a re-ordering on the Go side instantly propagates
+to the visualiser without a parallel constant table here.
+
+Refutation target lives in PROPERTY_WORD("TARGET"). The previous code
+mistakenly read CONFIDENCE (the slot at offset 1) as the refutation
+target, which made every value the lifecycle stamped CONFIDENCE on
+(every RESOLVED frame, including freshly-emitted Associations) light
+up the yellow "hypothesis" halo even though no Popperian probe had
+been armed.
 */
-const PROPERTIES_COMMUNITY_WORD = 64;
+const PROPERTIES_COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
+const PROPERTIES_ROLE_WORD = PROPERTY_WORD("ROLE");
+const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTY_WORD("TARGET");
+const PROPERTIES_NOISE_WORD = PROPERTY_WORD("NOISE");
+const VALUE_ROLE_PROMPT_WORD = BigInt(VALUE_ROLE.Prompt);
 
 /*
-PROPERTIES_ROLE_WORD is PropertiesStartWord (56) + ROLE offset (10) = 66
-— mirroring the PropertyType ordering in pkg/primitive/properties.go. The
-value carried in this word is a ValueRole sentinel; we only care about
-ValueRolePrompt today, but reading the raw word leaves room for the
-inspector to surface other roles (Programmer / Learner / …) later
-without another schema change.
+FalsifiedBit and the asset/context spans come from
+pkg/compute/kernel/layout.go. They aren't yet covered by a generator,
+so the matching test in value-store.test.ts still tracks them.
 */
-const PROPERTIES_ROLE_WORD = 66;
-const VALUE_ROLE_PROMPT_WORD = 5n;
-
-/*
-Mirror of pkg/compute/kernel/layout.go constants the causal residue
-detector relies on. Keeping them local avoids a cross-package import
-in the TS build; if Go ever moves these, the test at
-value-store.test.ts will catch the drift.
-
-Layout is PropertiesStartWord = 56, AssetStartWord = 72,
-ContextStartWord = 40 — see pkg/compute/kernel/layout.go.
-*/
-const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTIES_START_WORD + 1;
-const PROPERTIES_NOISE_WORD = PROPERTIES_START_WORD + 4;
 const FALSIFIED_BIT = 1n << 62n;
 const ASSET_GRADIENT_WORD = ASSET_START_WORD + 16;
 const ASSET_GRADIENT_SPAN = 8;
@@ -152,7 +145,7 @@ function readCausalState(words: bigint[]): CausalState {
 		contextAcc |= words[CONTEXT_START_WORD + offset] ?? 0n;
 	}
 
-	const prev = words[WORD.PREV] ?? 0n;
+	const prev = words[PREV_START_WORD] ?? 0n;
 
 	const intervening =
 		gradientAcc !== 0n && contextAcc !== 0n && prev === 0n;
@@ -318,15 +311,15 @@ export function decodeValueFrame(frame: Uint8Array): DecodedValueFrame {
 		readWordU64LE(wire, wordIndex),
 	);
 
-	const prevCommitted = chainIdFromWord(words[WORD.PREV]);
-	const nextCommitted = chainIdFromWord(words[WORD.NEXT]);
-	const prevStaged = chainIdFromWord(words[WORD.ASSET_PREV]);
-	const nextStaged = chainIdFromWord(words[WORD.ASSET_NEXT]);
+	const prevCommitted = chainIdFromWord(words[PREV_START_WORD]);
+	const nextCommitted = chainIdFromWord(words[NEXT_START_WORD]);
+	const prevStaged = chainIdFromWord(words[ASSET_START_WORD]);
+	const nextStaged = chainIdFromWord(words[ASSET_START_WORD + 1]);
 
 	const regions = decodeValueRegions(words);
 
 	return {
-		id: formatValueId(words[WORD.ID]),
+		id: formatValueId(words[ID_START_WORD]),
 		prevId: prevCommitted || prevStaged,
 		nextId: nextCommitted || nextStaged,
 		content: decodeValueContent(wire),
@@ -389,7 +382,7 @@ export class ValueStore {
 				receivedAtMs: 0,
 				communityId: -1,
 				affinityHex: "",
-				classification: classifyProgramWire(null),
+				classification: classifyInstructionStream([]),
 				signalEnergy: 0,
 				causal: blankCausalState(),
 			};
@@ -473,7 +466,7 @@ export class ValueStore {
 		instead of being tagged with whichever program happens to be
 		first in the list.
 		*/
-		value.classification = classifyProgramWire(
+		value.classification = classifyInstructionStream(
 			decodeProgramWire(decoded.regions.program),
 		);
 

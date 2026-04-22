@@ -41,15 +41,23 @@ func NewConn(
 	sink io.Writer,
 	rwcs ...io.ReadWriter,
 ) (*Conn, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := validate.Require(map[string]any{
+		"queue": queue,
+	}); err != nil {
+		return nil, errnie.Error(err)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	writers := make([]io.Writer, 0, 3)
 	if sink != nil {
 		writers = append(writers, sink)
 	}
-	if queue != nil {
-		writers = append(writers, queue)
-	}
+	writers = append(writers, queue)
 	if telemetry != nil {
 		writers = append(writers, telemetry)
 	}
@@ -60,20 +68,13 @@ func NewConn(
 		rwcs...,
 	)
 
-	conn := &Conn{
+	return &Conn{
 		ctx:       ctx,
 		cancel:    cancel,
 		queue:     queue,
 		telemetry: telemetry,
 		pipeline:  pipeline,
-	}
-
-	return conn, errnie.Error(validate.Require(map[string]any{
-		"ctx":      conn.ctx,
-		"cancel":   conn.cancel,
-		"queue":    conn.queue,
-		"pipeline": pipeline,
-	}))
+	}, nil
 }
 
 func (conn *Conn) Update(components ...io.Reader) {
@@ -94,10 +95,7 @@ func (conn *Conn) Read(p []byte) (int, error) {
 	}
 
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("conn.Read: len(p) < core.Cfg.Value.Bytes"),
-		)
+		return 0, io.ErrShortBuffer
 	}
 
 	return conn.pipeline.Read(p)
@@ -134,10 +132,10 @@ func (conn *Conn) Close() (err error) {
 /*
 Error returns the most recent error that occurred during reading or writing.
 */
-func (conn *Conn) Error() string {
+func (conn *Conn) Error() error {
 	if conn == nil {
-		return ""
+		return nil
 	}
 
-	return conn.err.Error()
+	return conn.err
 }

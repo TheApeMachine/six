@@ -169,23 +169,23 @@ Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its
 
 ### Signals
 
-When two Values are paired, their token regions are compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.
+When a Value's token region is split in two equal parts, and compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.
 
 Two operations produce two kinds of signal:
 
 **Cancel (XOR → longest zero-run)**
 
-XOR produces zeros wherever two Values encode the same information. The longest contiguous zero-run reveals the largest shared component.
+XOR produces zeros wherever two spans encode the same information. The longest contiguous zero-run reveals the largest shared component.
 
-Given three sentences encoded as Values:
+Given three sentences encoded as Value tokens:
 
 ```
-Value A:  [Sandra] [is in the] [Garden]
-Value B:  [Roy]    [is in the] [Kitchen]
-Value C:  [Harold] [is in the] [Kitchen]
+Span A:  [Sandra] [is in the] [Garden]
+Span B:  [Roy]    [is in the] [Kitchen]
+Span C:  [Harold] [is in the] [Kitchen]
 ```
 
-When Value A is paired with Value B, the XOR of their token regions produces zeros across the bit-span where `is in the` is encoded, because that substring is identical in both. Shorter zero-runs also appear for any incidentally shared bits, but the **longest run wins** and becomes the decisive signal.
+When span A is paired with span B, the XOR of their token regions produces zeros across the bit-span where `is in the` is encoded, because that substring is identical in both. Shorter zero-runs also appear for any incidentally shared bits, but the **longest run wins** and becomes the decisive signal.
 
 The cancel signal emits three new Values:
 
@@ -206,9 +206,9 @@ This structure can now answer queries through the same mechanism. The prompt `"W
 
 **Merge (AND → longest one-run)**
 
-AND produces ones only where both Values agree. The longest contiguous one-run reveals a convergence point, where two Values share dense overlapping structure. Merge emits Values that consolidate the shared region, linking the sources through it.
+AND produces ones only where both spans agree. The longest contiguous one-run reveals a convergence point, where two spans share dense overlapping structure. Merge emits Values that consolidate the shared region, linking the sources through it.
 
-In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both Values agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
+In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both spans agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
 
 **The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `geometry.ScanZeroRun` and `geometry.ScanOneRun` detect the longest zero-run and one-run respectively over the 8 signal words; `geometry.RunLabel` maps the winning run's start position to a deterministic 16-bit label hash. Shorter runs are available for inter-cluster exchange.
 

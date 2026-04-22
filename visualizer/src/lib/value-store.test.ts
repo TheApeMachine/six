@@ -1,29 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { VALUE_FRAME_BYTE_LENGTH, VALUE_WORD_COUNT } from "./layoutGenerated";
+import {
+	ID_START_WORD,
+	NEXT_START_WORD,
+	PREV_START_WORD,
+	VALUE_FRAME_BYTE_LENGTH,
+	VALUE_WORD_COUNT,
+} from "./layoutGenerated";
+import { PROPERTY_WORD } from "./propertiesGenerated";
 import type { FieldMetricsPayload } from "./value-store";
 import { decodeValueFrame, ValueStore } from "./value-store";
-import { WORD } from "./valueLayout";
 import { decodeValueWireMessage } from "./wire";
 
 /*
-PROPERTIES_COMMUNITY_WORD is absolute word 64, computed on the Go side as
-PropertiesStartWord (56) + COMMUNITY offset (8). mesh.Field.Write stamps
-the leaf field's ID here directly onto the visitor's wire frame before
-forwarding it through the post-routing telemetry pulse — the visualizer
-just reads the same byte off the wire to recover the assignment.
+Property word indices mirror what value-store.ts reads from
+propertiesGenerated.ts. We re-derive them through PROPERTY_WORD here so
+the tests stay anchored to pkg/primitive/properties.go via the generator —
+any drift in the iota or the PROPERTIES_START_WORD anchor trips this
+table instead of silently passing.
 */
-const PROPERTIES_COMMUNITY_WORD = 64;
-
-/*
-Causal residue word indices mirror value-store.ts — keeping them here keeps
-the tests decoupled from the module under test so a silent drift in either
-place trips an assertion rather than passing silently. See pkg/compute/kernel
-for the Go-side source of truth (PropertiesStartWord = 56, AssetStartWord =
-72, ContextStartWord = 40).
-*/
-const PROPERTIES_REFUTATION_TARGET_WORD = 57;
-const PROPERTIES_NOISE_WORD = 60;
+const PROPERTIES_COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
+const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTY_WORD("TARGET");
+const PROPERTIES_NOISE_WORD = PROPERTY_WORD("NOISE");
 const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
 const CONTEXT_START_WORD = 40;
 const FALSIFIED_BIT = 1n << 62n;
@@ -84,15 +82,15 @@ function makeValueFrame(init?: {
 	const frame = new Uint8Array(VALUE_FRAME_BYTE_LENGTH);
 
 	if (init?.id !== undefined) {
-		writeWord(frame, WORD.ID, init.id);
+		writeWord(frame, ID_START_WORD, init.id);
 	}
 
 	if (init?.prev !== undefined) {
-		writeWord(frame, WORD.PREV, init.prev);
+		writeWord(frame, PREV_START_WORD, init.prev);
 	}
 
 	if (init?.next !== undefined) {
-		writeWord(frame, WORD.NEXT, init.next);
+		writeWord(frame, NEXT_START_WORD, init.next);
 	}
 
 	if (init?.content) {

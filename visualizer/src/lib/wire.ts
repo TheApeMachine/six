@@ -1,5 +1,5 @@
-import { VALUE_FRAME_BYTE_LENGTH } from "./layoutGenerated";
-import { readWordU64LE, WORD } from "./valueLayout";
+import { ID_START_WORD, VALUE_FRAME_BYTE_LENGTH } from "./layoutGenerated";
+import { readWordU64LE } from "./valueRegions";
 
 export interface RawValueFrame {
 	valueId: bigint;
@@ -29,7 +29,7 @@ export const decodeValueWireMessage = (
 
 	for (let off = 0; off < n; off += wlen) {
 		const bytes = u8.subarray(off, off + wlen);
-		const valueId = readWordU64LE(bytes, WORD.ID);
+		const valueId = readWordU64LE(bytes, ID_START_WORD);
 
 		frames.push({ valueId, bytes: new Uint8Array(bytes) });
 	}

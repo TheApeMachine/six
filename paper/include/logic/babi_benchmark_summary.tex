@@ -9,15 +9,15 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-151 &  & 0.0000 & 0.5000 & 0.5000 & 0.5000 \\
-499 &  & 0.0000 & 0.5000 & 0.5000 & 0.5000 \\
-489 &  & 0.0000 & 0.5000 & 0.5000 & 0.5000 \\
+0 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-1 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+499 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 498 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 497 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
@@ -25,16 +25,23 @@
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{. John travelled to the hallway. Sandra \ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{the hallway. Daniel moved to the bathroo\ldots}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{el?}} \\
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{a journeyed to the kitchen. Sandra moved\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{Mary moved to th}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{Mary moved to th}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{Mary moved to th}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{Mary moved to th}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 500} & \multicolumn{3}{l}{Holdout: } \\
-\multicolumn{3}{l}{Mean score: 0.1500} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.5000} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{523.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{524.0 ms} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{1.0 ms} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.05 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

@@ -15,6 +15,7 @@ import type {
 	VizGraphSnapshot,
 } from "@/features/telemetry/types";
 import {
+	categoryForProgram,
 	PROGRAM_CATEGORIES,
 	type ProgramCategory,
 	type Shape,
@@ -194,32 +195,7 @@ function fieldParticleOffset(
 }
 
 function categoryForMember(member: { program: string }): ProgramCategory {
-	if (!member.program) return "unknown";
-	switch (member.program) {
-		case "link":
-		case "affinity":
-			return "plumbing";
-		case "beam_swarm_step":
-			return "beam";
-		case "active_inference":
-			return "inference";
-		case "classify_readout":
-			return "classify";
-		case "peer_gap":
-			return "peer_gap";
-		case "intervene":
-			return "intervene";
-		case "gap_probe":
-			return "gap_probe";
-		case "measure_field":
-			return "resident";
-		case "popcount":
-		case "coupling":
-		case "temperature":
-			return "util";
-		default:
-			return "unknown";
-	}
+	return categoryForProgram(member.program);
 }
 
 /* ------------------------------------------------------------------------- *

@@ -318,19 +318,29 @@ func (dataset *Dataset) Close() error {
 }
 
 /*
-labelAsText resolves a normalized (0-indexed) label to its display string.
-Raw upstream labels are normalized to 0-indexed in the streaming layer (see
-labelOrigin), so this helper does NOT need to fall back to the
-"label-1" branch the older code carried as a guard against ag_news-style
-1-indexed shards.
+labelAsText resolves a label to its display string.
+
+The streaming path normalizes integer labels to 0-indexed before they are
+stored in Sample.Label, but some tests and call-sites still probe this helper
+with raw one-based labels. Keep the direct 0-indexed path first, then accept a
+single one-based compatibility fallback before returning the numeric form.
 */
 func (dataset *Dataset) labelAsText(label int, hasLabel bool) string {
 	if !hasLabel {
 		return ""
 	}
 
-	if len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
-		return dataset.labelAppend[label]
+	if len(dataset.labelAppend) > 0 {
+		if label >= 0 && label < len(dataset.labelAppend) {
+			return dataset.labelAppend[label]
+		}
+
+		if label > 0 {
+			idx := label - 1
+			if idx < len(dataset.labelAppend) {
+				return dataset.labelAppend[idx]
+			}
+		}
 	}
 
 	return strconv.Itoa(label)

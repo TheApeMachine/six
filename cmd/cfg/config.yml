@@ -147,6 +147,36 @@ programs:
   affinity: |
     tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
 
+  # fold_substrate: the README "Signals" algorithm in three lines.
+  #
+  #   line 1  affinity fold       — same as `affinity` above; gives the
+  #                                 visitor a routable fingerprint so the
+  #                                 first Conn.Write places it in a
+  #                                 sensible community.
+  #   line 2  cancel sweep (XOR)  — split tokens in half, rotate B by
+  #                                 8 bits per step (num_rotations: 16),
+  #                                 XOR-accumulate the signature into
+  #                                 signals[0,4]. A long zero-run in
+  #                                 those 256 bits is the cancel signal:
+  #                                 the bit-region where the two halves
+  #                                 carried the same payload across
+  #                                 some byte alignment.
+  #   line 3  merge sweep (AND)   — same operands, AND opcode, signature
+  #                                 lands in signals[4,4]. A long
+  #                                 one-run is the merge signal: bits
+  #                                 both halves agreed on densely.
+  #
+  # Backend.updateKernels (the post-ALU hook) reads signals[0..8],
+  # ScanZeroRun's signals[0,4] and ScanOneRun's signals[4,4], and on a
+  # decisive run emits an Association Value whose token region carries
+  # the surviving bit-pattern and whose Prev/Next link the source.
+  # No Go code interprets the tokens themselves; the substrate decides
+  # what is structural by where the runs are long.
+  fold_substrate: |
+    tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
+    tokens[0,8]  tokens[8,8]  signals[0,4]  xor accumulate
+    tokens[0,8]  tokens[8,8]  signals[4,4]  and accumulate
+
   # Popcount of the whole Affinity region into its Fermat tail word. This
   # is the saturation witness: when the XOR fold leaves affinity near 47%
   # set bits, the tail word's value crosses the Shannon limit and routing
@@ -353,3 +383,30 @@ programs:
     context[0,8] asset[16,8]  signals[0,8]    xor accumulate
     signals[0,8] signals[0,8] properties[13,1] or  reduce
     asset[16,8]  gradient[0,8] gradient[0,8]  xor accumulate
+
+  # Swarm voting: every gossip encounter stages the visiting peer's
+  # signals (peer's fold_substrate cancel+merge sweep — the peer's
+  # structural fingerprint) into asset[0,8]. OR-accumulate that
+  # fingerprint into the host's context[0,8] so context becomes a
+  # 512-bit histogram of "structural patterns I have co-encountered."
+  # Host's own signals[0,8] is left untouched (preserves the host's
+  # own structural identity from its first-pass fold_substrate). Loops
+  # via `next self` so the histogram keeps absorbing peers as routing
+  # delivers them. The kernel post-exec hook swaps this program for
+  # adopt_community_label once the host has cycled enough epochs to
+  # have absorbed a representative neighborhood.
+  vote_swarm: |
+    asset[0,8] context[0,8] context[0,8] or accumulate
+    next self
+
+  # Adopt the community label: the field stamps each member's
+  # COMMUNITY slot (properties[8] = absolute word 64) with the
+  # community id when the value is admitted. OR-accumulate that
+  # community id into properties[0] (LABELS = absolute word 56).
+  # Since LABELS starts at zero, OR-with-zero copies COMMUNITY
+  # straight into LABELS. The post-exec hook then stamps ROLE =
+  # Readout and STATUS = RESOLVED so the orchestrator surfaces this
+  # value to the pipeline scorer as the substrate's unsupervised
+  # answer for this sample. Single-shot — no `next self`.
+  adopt_community_label: |
+    properties[8,1] properties[8,1] properties[0,1] or accumulate

@@ -165,9 +165,11 @@ expected count instead of sleeping a fixed amount.
 func TestConnFanOutToSinks(t *testing.T) {
 	Convey("Given a Conn with two attached sinks", t, func() {
 		queue := newRealQueue(t)
+		alpha := &recordingSink{}
+		beta := &recordingSink{}
 
 		conn, err := NewConn(
-			t.Context(), queue, nil, nil,
+			t.Context(), queue, nil, io.MultiWriter(alpha, beta),
 		)
 
 		So(err, ShouldBeNil)
@@ -176,9 +178,6 @@ func TestConnFanOutToSinks(t *testing.T) {
 			So(conn.Close(), ShouldBeNil)
 			So(queue.Close(), ShouldBeNil)
 		}()
-
-		alpha := &recordingSink{}
-		beta := &recordingSink{}
 
 		Convey("Each Write fans one frame to every sink", func() {
 			frame := bytes.Repeat([]byte{0xAB}, core.Cfg.Value.Bytes)

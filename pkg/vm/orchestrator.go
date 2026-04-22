@@ -62,14 +62,20 @@ func NewOrchestrator(
 		output:    output,
 	}
 
+	// Wire the post-ALU outbound publisher: any Association Values minted
+	// by the kernel post-hook (see pkg/compute/postexec.go) flow back into
+	// our root field as honest residents. Without this the hook's emissions
+	// would be orphaned and the structural graph from the README "Signals"
+	// algorithm would never accumulate.
+	orchestrator.backend.SetEmitter(orchestrator)
+
 	if err := validate.Require(map[string]any{
-		"ctx":       orchestrator.ctx,
-		"cancel":    orchestrator.cancel,
-		"queue":     orchestrator.queue,
-		"field":     orchestrator.field,
-		"backend":   orchestrator.backend,
-		"output":    orchestrator.output,
-		"telemetry": orchestrator.telemetry,
+		"ctx":     orchestrator.ctx,
+		"cancel":  orchestrator.cancel,
+		"queue":   orchestrator.queue,
+		"field":   orchestrator.field,
+		"backend": orchestrator.backend,
+		"output":  orchestrator.output,
 	}); err != nil {
 		cancel()
 		return nil, errnie.Error(err)
@@ -103,10 +109,45 @@ func (orchestrator *Orchestrator) Close() error {
 }
 
 /*
-Error implements the error interface.
+Error returns the most recent orchestrator error.
 */
-func (orchestrator *Orchestrator) Error() string {
-	return orchestrator.err.Error()
+func (orchestrator *Orchestrator) Error() error {
+	if orchestrator == nil {
+		return nil
+	}
+
+	return orchestrator.err
+}
+
+/*
+Emit publishes a freshly-minted Value into the orchestrator's root field
+so it gets routed by affinity into the matching community. Used by the
+kernel post-ALU hook (Backend.updateKernels → runStructuralPostExec) to
+land structural Association Values in the substrate without any out-of-
+band wiring.
+
+The Value is consumed: Field.Write copies the wire frame into a
+freshly-allocated resident, so we free the caller's copy immediately to
+keep the arena healthy. Errors during routing are returned so the hook
+can fall back to freeing without retry storms.
+*/
+func (orchestrator *Orchestrator) Emit(value *primitive.Value) error {
+	if orchestrator == nil || value == nil || orchestrator.field == nil {
+		if value != nil {
+			primitive.FreeValue(value)
+		}
+
+		return nil
+	}
+
+	_, err := orchestrator.field.Write(value.Bytes())
+	primitive.FreeValue(value)
+
+	if err != nil {
+		return errnie.Error(err)
+	}
+
+	return nil
 }
 
 /*
@@ -171,13 +212,47 @@ func (orchestrator *Orchestrator) Cycle(
 				return nil, errnie.Error(err)
 			}
 
-			// Read resolved values from the queue
+			// Drain anything the queue published as a "computed result" and
+			// run the lifecycle finalizer on each frame. evaluateResult is
+			// the ONLY producer of STATUS=RESOLVED and the only place that
+			// stamps confidence — leaving it unwired (as it was for weeks)
+			// meant the cycle never knew when to exit and Readout/Association
+			// frames were silently dropped. Decisions:
+			//
+			//   Resolved && Reinject : reinject the updated frame back into
+			//                          the field (so the resident copy gets
+			//                          the new context/gradient), AND keep
+			//                          a copy in `resolved` for the caller.
+			//   Reinject only        : write back into the field; no
+			//                          caller-visible result.
+			//   neither              : free the frame; the resident copy
+			//                          already absorbed whatever it needed
+			//                          before the kernel ran.
 			buf := make([]byte, core.Cfg.Value.Bytes)
 			for {
 				if n, err := orchestrator.queue.Read(buf); err == nil && n == core.Cfg.Value.Bytes {
 					val := primitive.AllocValue()
-					val.LoadFullFrame(buf)
-					resolved = append(resolved, val)
+					if err := val.LoadFullFrame(buf); err != nil {
+						primitive.FreeValue(val)
+
+						continue
+					}
+
+					decision := orchestrator.evaluateResult(val)
+
+					if decision.Reinject && orchestrator.field != nil {
+						if _, werr := orchestrator.field.Write(val.Bytes()); werr != nil {
+							errnie.Error(werr)
+						}
+					}
+
+					if decision.Resolved {
+						resolved = append(resolved, val)
+
+						continue
+					}
+
+					primitive.FreeValue(val)
 				} else {
 					break
 				}

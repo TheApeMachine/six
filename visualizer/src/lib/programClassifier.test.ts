@@ -1,97 +1,96 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyProgramWire } from "./programClassifier";
+import {
+	categoryForProgram,
+	classifyInstructionStream,
+} from "./programClassifier";
+import {
+	type DecodedInstruction,
+	PROGRAM_SIGNATURES,
+} from "./programsGenerated";
 
-function wire(
-	opcode: number,
-	a: [number, number],
-	b: [number, number],
-	d: [number, number],
-) {
-	return {
-		opcodeLow: opcode,
-		opcodeWord: BigInt(opcode),
-		modeWord: 0n,
-		srcA: { start: a[0], span: a[1] },
-		srcB: { start: b[0], span: b[1] },
-		dst: { start: d[0], span: d[1] },
-	};
+function signatureFor(name: string): readonly DecodedInstruction[] {
+	const sig = PROGRAM_SIGNATURES.find((s) => s.name === name);
+	if (!sig) {
+		throw new Error(`missing generated signature for ${name}`);
+	}
+	return sig.instructions;
 }
 
-test("classifyProgramWire picks beam_swarm_step from its tokens→context line", () => {
-	const result = classifyProgramWire(
-		wire(0x06, [0, 8], [48, 8], [40, 8]),
-	);
+test("every generated program matches a signature with the same instruction stream", () => {
+	for (const sig of PROGRAM_SIGNATURES) {
+		const result = classifyInstructionStream(sig.instructions);
 
-	assert.equal(result.program, "beam_swarm_step");
-	assert.equal(result.category, "beam");
+		// Two YAML programs may compile to the same packed instruction
+		// stream (e.g. unsupervised_learn / episodic_replay are textbook
+		// aliases). The classifier picks the first match in
+		// PROGRAM_SIGNATURES order, so we accept any name whose
+		// signature matches this one.
+		const aliases = PROGRAM_SIGNATURES.filter(
+			(other) =>
+				other.instructions.length === sig.instructions.length &&
+				other.instructions.every((instr, i) => {
+					const o = sig.instructions[i];
+					return (
+						instr.opcode === o.opcode &&
+						instr.mode === o.mode &&
+						instr.aStart === o.aStart &&
+						instr.aSpan === o.aSpan &&
+						instr.bStart === o.bStart &&
+						instr.bSpan === o.bSpan &&
+						instr.dstStart === o.dstStart &&
+						instr.dstSpan === o.dstSpan
+					);
+				}),
+		).map((s) => s.name);
+
+		assert.ok(
+			aliases.includes(result.program),
+			`expected ${sig.name} to classify as one of [${aliases.join(", ")}], got ${result.program}`,
+		);
+		assert.equal(result.category, categoryForProgram(result.program));
+	}
 });
 
-test("classifyProgramWire picks classify_readout from its OR line", () => {
-	const result = classifyProgramWire(
-		wire(0x07, [56, 1], [56, 1], [32, 1]),
-	);
-
-	assert.equal(result.program, "classify_readout");
-	assert.equal(result.category, "classify");
+test("classifyInstructionStream identifies fold_substrate as structural", () => {
+	const result = classifyInstructionStream(signatureFor("fold_substrate"));
+	assert.equal(result.program, "fold_substrate");
+	assert.equal(result.category, "structural");
+	assert.equal(result.style.shape, "triangle_down");
 });
 
-test("classifyProgramWire collapses episodic_replay and unsupervised_learn into peer_gap", () => {
-	const result = classifyProgramWire(
-		wire(0x06, [40, 8], [80, 8], [32, 8]),
-	);
-
-	assert.equal(result.category, "peer_gap");
-	assert.equal(result.program, "peer_gap");
-});
-
-test("classifyProgramWire collapses surprisal / causal probes into gap_probe", () => {
-	const result = classifyProgramWire(
-		wire(0x06, [0, 8], [40, 8], [32, 8]),
-	);
-
-	assert.equal(result.category, "gap_probe");
-});
-
-test("classifyProgramWire distinguishes intervene by asset[16,8] source", () => {
-	const result = classifyProgramWire(
-		wire(0x06, [40, 8], [88, 8], [32, 8]),
-	);
-
-	assert.equal(result.program, "intervene");
-	assert.equal(result.category, "intervene");
-});
-
-test("classifyProgramWire identifies measure_field resident", () => {
-	const result = classifyProgramWire(
-		wire(0x07, [72, 8], [72, 8], [39, 1]),
-	);
-
-	assert.equal(result.program, "measure_field");
-	assert.equal(result.category, "resident");
-});
-
-test("classifyProgramWire identifies affinity bootstrap", () => {
-	const result = classifyProgramWire(
-		wire(0x06, [0, 16], [0, 16], [123, 5]),
-	);
-
-	assert.equal(result.program, "affinity");
-	assert.equal(result.category, "plumbing");
-});
-
-test("classifyProgramWire returns unknown on a zero descriptor", () => {
-	const result = classifyProgramWire(wire(0, [0, 0], [0, 0], [0, 0]));
-
+test("classifyInstructionStream returns unknown for an empty stream", () => {
+	const result = classifyInstructionStream([]);
 	assert.equal(result.program, "");
 	assert.equal(result.category, "unknown");
 });
 
-test("classifyProgramWire falls through to unknown for an unrecognised tuple", () => {
-	const result = classifyProgramWire(
-		wire(0x06, [24, 8], [24, 8], [24, 8]),
-	);
+test("classifyInstructionStream falls through to unknown for an unrecognised tuple", () => {
+	const result = classifyInstructionStream([
+		{
+			aStart: 24,
+			aSpan: 8,
+			bStart: 24,
+			bSpan: 8,
+			dstStart: 24,
+			dstSpan: 8,
+			opcode: 0x6,
+			mode: 0,
+		},
+	]);
 
 	assert.equal(result.category, "unknown");
 	assert.ok(result.program.startsWith("op="));
+});
+
+test("classifyInstructionStream rejects shorter prefix matches", () => {
+	const fold = signatureFor("fold_substrate");
+	assert.ok(fold.length > 1, "fold_substrate must be multi-instruction");
+
+	const result = classifyInstructionStream(fold.slice(0, 1));
+	assert.notEqual(
+		result.program,
+		"fold_substrate",
+		"a one-instruction prefix must not be classified as fold_substrate",
+	);
 });

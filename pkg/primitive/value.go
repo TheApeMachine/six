@@ -2,7 +2,6 @@
 package primitive
 
 import (
-	"errors"
 	"io"
 	"log"
 	"sync/atomic"
@@ -177,10 +176,7 @@ CloseAll closes every non-nil pointer in the slice.
 */
 func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 	if len(p) == 0 {
-		return nil, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("newValue: len(p) == 0"),
-		)
+		return nil, io.ErrShortBuffer
 	}
 
 	tokenWords := int(core.Cfg.Value.Region.Tokens.Bits / 64)
@@ -246,10 +242,7 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 				FreeValue(x)
 			}
 
-			return nil, errors.Join(
-				io.ErrShortBuffer,
-				errors.New("newValue: n == 0"),
-			)
+			return nil, io.ErrShortBuffer
 		}
 
 		stamp := val.StampID()
@@ -278,10 +271,17 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 			stamp.NormalizeAffinity()
 		}
 
-		// A freshly minted Value should be executable when it first enters a
-		// gossip.Conn. The affinity firmware is a safe bootstrap: it strengthens
-		// routing signal without making a task-specific cognitive commitment.
-		stamp.InstallFirmware(core.AFFINITY)
+		// Default install for a freshly minted Value is fold_substrate
+		// (see config.yml): one program region carrying affinity fold +
+		// cancel sweep (XOR → signals[0,4]) + merge sweep (AND →
+		// signals[4,4]). The kernel post-hook (Backend.updateKernels)
+		// scans those signal halves for long zero / one runs and emits
+		// Association Values per the README "Signals" algorithm — that
+		// is what populates the substrate with structural labels and
+		// the Prev/Next graph the recall path walks. AFFINITY alone
+		// would route the visitor without ever surfacing a structural
+		// signal, which is exactly the regression we were stuck at.
+		stamp.InstallFirmware(core.FOLD_SUBSTRATE)
 
 		// Stamp prev/next links across adjacent segments. The previous
 		// segment learns this segment's ID as its Next; this segment
@@ -322,10 +322,7 @@ The caller owns the returned pointer until Close returns it to the arena.
 */
 func ValueFromWireFrame(frame []byte) (*Value, error) {
 	if len(frame) < core.Cfg.Value.Bytes {
-		return nil, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("valueFromWireFrame: len(frame) < core.Cfg.Value.Bytes"),
-		)
+		return nil, io.ErrShortBuffer
 	}
 
 	value := AllocValue()
@@ -345,10 +342,7 @@ func (value *Value) LoadFullFrame(frame []byte) error {
 	}
 
 	if len(frame) < core.Cfg.Value.Bytes {
-		return errors.Join(
-			io.ErrShortBuffer,
-			errors.New("value.LoadFullFrame: len(frame) < core.Cfg.Value.Bytes"),
-		)
+		return io.ErrShortBuffer
 	}
 
 	valueFrom(frame, value)
@@ -382,10 +376,7 @@ func (value *Value) Read(p []byte) (int, error) {
 	errnie.Trace("primitive.Value.Read", "ID", value.ID())
 
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("value.Write: len(p) < core.Cfg.Value.Bytes"),
-		)
+		return 0, io.ErrShortBuffer
 	}
 
 	valueTo(value, p)
@@ -393,26 +384,34 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
-Write receives an incoming Value as bytes and stages the visiting frame into
-the host's Asset region.
+Write stages an incoming peer Value's working state into this host
+Value's asset region.
 
-Staging is uniform: the inbound Signals + Context + Gradient + Properties
-block lands at asset[0..stageWords). That is the only behaviour Write has —
-there is no special Go-side path that copies a peer's program region across
-based on the visitor's role. Programmer Values express install in-band by
-carrying their compiled bytecode in their Tokens region (the substrate's
-"tape") and emitting it through their own program (the bytecode is moved
-into the visitor's Signals before encounter, so it lands in the host's
-asset[0..8). A resident bootstrap program on the host then OR-accumulates
-that staging slot back into program[0..8), overwriting the bootstrap with
-the new firmware on the next ALU pass.
+This is the gossip mechanic: gossip.Conn moves Values between hosts by
+calling host.Write(peer.Bytes()) — io.Copy(host, peer) at the
+io.ReadWriter level. The peer's contiguous Signals + Context + Gradient
++ Properties block (40 words) lands at host's asset[0..stageWords). The
+host's own S/C/G/P regions are left intact so the resident program
+keeps its thread of computation; the peer arrives as a separate
+addressable block the program can read from asset[...] alongside its
+own state.
+
+A swarm gossip cycle is this Write being repeated as values are routed
+through their community's gossip.Conn and the global field's
+gossip.Conn. Every encounter rewrites asset[0..stageWords); the
+host's program runs on (own S/C/G/P, peer S/C/G/P) and decides what to
+fold into its own state, what to leave untouched, and what (if
+anything) to emit as new Association Values through the kernel
+post-exec hook.
+
+Status is propagated separately because it lives at properties[STATUS]
+inside the staged block — copying it onto the host's STATUS slot is
+how the orchestrator's lifecycle knows the peer's STATUS without the
+host's program having to reach into asset[].
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
-		return 0, errors.Join(
-			io.ErrShortBuffer,
-			errors.New("value.Write: len(p) < core.Cfg.Value.Bytes"),
-		)
+		return 0, io.ErrShortBuffer
 	}
 
 	tmpVal := AllocValue()
@@ -489,8 +488,19 @@ func (value *Value) WriteProgramWords(words []uint64) {
 		return
 	}
 
+	written := 0
+
 	for i := 0; i < n && i < len(words); i++ {
 		value.Set(start+i, words[i])
+		written++
+	}
+
+	// Zero the tail so a shorter follow-up program doesn't keep executing
+	// instructions left over from a longer predecessor. The kernel halts
+	// on the first zero word, so leftover instructions are a latent
+	// re-execution bug for any program swap.
+	for i := written; i < n; i++ {
+		value.Set(start+i, 0)
 	}
 }
 

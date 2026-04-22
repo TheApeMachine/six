@@ -309,13 +309,41 @@ func pipelineRowCount(experiment tools.PipelineExperiment) (int, bool) {
 	return len(rows), true
 }
 
+// classLabelStringForExperiment is the substrate-honest scorer gate.
+//
+// A Value only counts as a classification answer when it is a Readout
+// produced by the substrate's recall path (kernel post-hook stamps
+// ROLE = ValueRoleReadout once the structural graph walk arrives at a
+// terminal node). Three rejection cases keep the score honest:
+//
+//  1. nil Value                      → empty string, no label scored.
+//  2. ROLE != ValueRoleReadout       → the substrate never claimed this
+//     frame as an answer; e.g. a raw resident,
+//     a structural Association whose LABELS slot
+//     holds a RunLabel hash (16-bit hash of the
+//     bit-region the cancel sweep surfaced — not
+//     a class index), or a half-cooked Learner.
+//     Counting any of those would inflate the
+//     score with random hashes.
+//  3. labelWord == 0                 → an unset LABELS slot. Returning
+//     "0" here would silently match
+//     zero-indexed datasets and produce
+//     false positives.
+//
+// Anything that survives the gate is mapped through ClassLabels() (when
+// the experiment exposes them) so the rendered artifact carries human-
+// readable class names instead of raw indices.
 func classLabelStringForExperiment(experiment tools.PipelineExperiment, value *primitive.Value) string {
 	if value == nil {
 		return ""
 	}
 
+	if value.Role() != primitive.ValueRoleReadout {
+		return ""
+	}
+
 	labelWord, err := value.Property(primitive.LABELS)
-	if err != nil {
+	if err != nil || labelWord == 0 {
 		return ""
 	}
 
@@ -349,4 +377,3 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 		pipeline.timing,
 	)
 }
-

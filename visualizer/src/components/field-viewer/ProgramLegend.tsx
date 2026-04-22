@@ -9,7 +9,11 @@ the canvas itself.
 
 import { useMemo } from "react";
 import type { VizGraphSnapshot } from "@/features/telemetry/types";
-import { PROGRAM_CATEGORIES, type ProgramCategory } from "@/lib/programClassifier";
+import {
+	categoryForProgram,
+	PROGRAM_CATEGORIES,
+	type ProgramCategory,
+} from "@/lib/programClassifier";
 import { cn } from "@/lib/utils";
 
 interface ProgramLegendProps {
@@ -24,6 +28,7 @@ resident) → util. Putting the active categories first keeps the eye on
 the behaviour that actually drives the system.
 */
 const CATEGORY_ORDER: ProgramCategory[] = [
+	"structural",
 	"beam",
 	"classify",
 	"peer_gap",
@@ -35,34 +40,6 @@ const CATEGORY_ORDER: ProgramCategory[] = [
 	"util",
 	"unknown",
 ];
-
-function categoryFromProgram(program: string): ProgramCategory {
-	switch (program) {
-		case "link":
-		case "affinity":
-			return "plumbing";
-		case "beam_swarm_step":
-			return "beam";
-		case "active_inference":
-			return "inference";
-		case "classify_readout":
-			return "classify";
-		case "peer_gap":
-			return "peer_gap";
-		case "intervene":
-			return "intervene";
-		case "gap_probe":
-			return "gap_probe";
-		case "measure_field":
-			return "resident";
-		case "popcount":
-		case "coupling":
-		case "temperature":
-			return "util";
-		default:
-			return "unknown";
-	}
-}
 
 /*
 Glyph renders the canvas shapes as inline SVG so the legend and the p5
@@ -138,9 +115,7 @@ function Glyph({
 			const pts: string[] = [];
 			for (let i = 0; i < 5; i++) {
 				const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
-				pts.push(
-					`${half + Math.cos(a) * 6},${half + Math.sin(a) * 6}`,
-				);
+				pts.push(`${half + Math.cos(a) * 6},${half + Math.sin(a) * 6}`);
 			}
 			return (
 				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
@@ -250,7 +225,7 @@ export function ProgramLegend({ snapshot, className }: ProgramLegendProps) {
 		if (!snapshot) return map;
 
 		const bump = (program: string) => {
-			const cat = categoryFromProgram(program);
+			const cat = categoryForProgram(program);
 			map.set(cat, (map.get(cat) ?? 0) + 1);
 		};
 

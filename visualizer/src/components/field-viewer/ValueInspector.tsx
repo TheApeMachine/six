@@ -10,10 +10,40 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { VizInspectSnapshot } from "@/features/telemetry/types";
+import {
+	AFFINITY_BITS,
+	AFFINITY_START_WORD,
+	AFFINITY_WORDS,
+	ASSET_BITS,
+	ASSET_START_WORD,
+	ASSET_WORDS,
+	CONTEXT_BITS,
+	CONTEXT_START_WORD,
+	CONTEXT_WORDS,
+	GRADIENT_BITS,
+	GRADIENT_START_WORD,
+	GRADIENT_WORDS,
+	ID_START_WORD,
+	NEXT_START_WORD,
+	PREV_START_WORD,
+	PROGRAM_BITS,
+	PROGRAM_START_WORD,
+	PROGRAM_WORDS,
+	PROPERTIES_BITS,
+	PROPERTIES_START_WORD,
+	PROPERTIES_WORDS,
+	SIGNALS_BITS,
+	SIGNALS_START_WORD,
+	SIGNALS_WORDS,
+	TOKENS_BITS,
+	TOKENS_START_WORD,
+	TOKENS_WORDS,
+	VALUE_FRAME_BYTE_LENGTH,
+} from "@/lib/layoutGenerated";
 import { cn } from "@/lib/utils";
-import { affinityHexWords, VALUE_FRAME_BYTE_LENGTH } from "@/lib/valueLayout";
 import {
 	affinityHexFromRegions,
+	affinityHexWords,
 	chainPreview,
 	decodeProgramWire,
 	decodeValueRegionsFromFrame,
@@ -65,6 +95,11 @@ means an operator can see at a glance that the frame has been refuted without
 decoding bytes mentally.
 */
 const FALSIFIED_BIT = 1n << 62n;
+
+function regionWords(start: number, words: number, bits: number): string {
+	if (words <= 1) return `w${start} · ${bits}b`;
+	return `${start}–${start + words - 1} · ${bits}b`;
+}
 
 /*
 formatValueWordId pads hex value ids to one 64-bit word for display parity
@@ -476,7 +511,7 @@ export function ValueInspector({
 			)) ||
 		!!(snap.content || tokenizerLabel);
 
-	const programWire = regions ? decodeProgramWire(regions.program) : null;
+	const programInstructions = regions ? decodeProgramWire(regions.program) : [];
 
 	return (
 		<div
@@ -662,17 +697,21 @@ export function ValueInspector({
 				key={frameRevisionKey}
 				className="flex rounded-lg overflow-hidden border border-border/40 bg-card"
 			>
-				{/* TOKENS w0–w15 */}
+				{/* TOKENS */}
 				<Region
 					label="TOKENS"
-					words="0–15 · 1024b"
+					words={regionWords(TOKENS_START_WORD, TOKENS_WORDS, TOKENS_BITS)}
 					fill={tokenBandFilled ? 1 : 0.05}
 					headerClass="bg-sky-500/10"
 					barClass="bg-sky-400"
 					textClass="text-sky-200/80"
 				>
 					{frameOk ? (
-						<WordHexRows from={0} to={15} wordAt={wordAt} />
+						<WordHexRows
+							from={TOKENS_START_WORD}
+							to={TOKENS_START_WORD + TOKENS_WORDS - 1}
+							wordAt={wordAt}
+						/>
 					) : (
 						<Dim>no frame</Dim>
 					)}
@@ -681,10 +720,10 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* PROGRAM 16–23 · 512 bits */}
+				{/* PROGRAM */}
 				<Region
 					label="PROGRAM"
-					words="16–23 · 512b"
+					words={regionWords(PROGRAM_START_WORD, PROGRAM_WORDS, PROGRAM_BITS)}
 					fill={programShown ? 1 : 0.05}
 					headerClass="bg-purple-500/10"
 					barClass="bg-purple-400"
@@ -705,45 +744,49 @@ export function ValueInspector({
 					) : (
 						<Dim>unscheduled</Dim>
 					)}
-					{programWire && (
+					{programInstructions.length > 0 && (
 						<div className="mt-1.5 space-y-0.5 border-t border-purple-500/25 pt-1.5">
 							<p className="text-[7px] font-mono uppercase tracking-wide text-muted-foreground/40">
-								alu wire
+								alu stream · {programInstructions.length}{" "}
+								{programInstructions.length === 1 ? "instr" : "instrs"}
 							</p>
-							<div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[8px] font-mono leading-tight">
-								<KV
-									k="op"
-									v={`0x${programWire.opcodeLow.toString(16).padStart(2, "0")}`}
-									vClass="text-cyan-300"
-								/>
-								<KV
-									k="srcA"
-									v={`${programWire.srcA.start}+${programWire.srcA.span}`}
-								/>
-								<KV
-									k="srcB"
-									v={`${programWire.srcB.start}+${programWire.srcB.span}`}
-								/>
-								<KV
-									k="dst"
-									v={`${programWire.dst.start}+${programWire.dst.span}`}
-								/>
+							<div className="space-y-0.5 text-[8px] font-mono leading-tight">
+								{programInstructions.map((instr, idx) => (
+									<div
+										// biome-ignore lint/suspicious/noArrayIndexKey: stream order is the identity
+										key={idx}
+										className="flex flex-wrap gap-x-3 gap-y-0.5"
+									>
+										<KV
+											k={`op${idx}`}
+											v={`0x${instr.opcode.toString(16).padStart(2, "0")}${instr.mode ? "·red" : ""}`}
+											vClass="text-cyan-300"
+										/>
+										<KV k="A" v={`${instr.aStart}+${instr.aSpan}`} />
+										<KV k="B" v={`${instr.bStart}+${instr.bSpan}`} />
+										<KV k="dst" v={`${instr.dstStart}+${instr.dstSpan}`} />
+									</div>
+								))}
 							</div>
 						</div>
 					)}
 				</Region>
 
-				{/* SIGNALS w24–w31 */}
+				{/* SIGNALS */}
 				<Region
 					label="SIGNALS"
-					words="24–31 · 512b"
+					words={regionWords(SIGNALS_START_WORD, SIGNALS_WORDS, SIGNALS_BITS)}
 					fill={snap.actionResonance > 0 ? snap.actionResonance : 0.05}
 					headerClass="bg-emerald-500/10"
 					barClass="bg-emerald-400"
 					textClass="text-emerald-200/80"
 				>
 					{frameOk ? (
-						<WordHexRows from={24} to={31} wordAt={wordAt} />
+						<WordHexRows
+							from={SIGNALS_START_WORD}
+							to={SIGNALS_START_WORD + SIGNALS_WORDS - 1}
+							wordAt={wordAt}
+						/>
 					) : (
 						<Dim>no frame</Dim>
 					)}
@@ -752,17 +795,21 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* CONTEXT w32–w39 */}
+				{/* CONTEXT */}
 				<Region
 					label="CONTEXT"
-					words="32–39 · 512b"
+					words={regionWords(CONTEXT_START_WORD, CONTEXT_WORDS, CONTEXT_BITS)}
 					fill={snap.telemetry?.src ? 0.6 : 0.05}
 					headerClass="bg-cyan-500/10"
 					barClass="bg-cyan-400"
 					textClass="text-cyan-200/80"
 				>
 					{frameOk ? (
-						<WordHexRows from={32} to={39} wordAt={wordAt} />
+						<WordHexRows
+							from={CONTEXT_START_WORD}
+							to={CONTEXT_START_WORD + CONTEXT_WORDS - 1}
+							wordAt={wordAt}
+						/>
 					) : (
 						<Dim>no frame</Dim>
 					)}
@@ -774,17 +821,25 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* GRADIENT w40–w47 */}
+				{/* GRADIENT */}
 				<Region
 					label="GRADIENT"
-					words="40–47 · 512b"
+					words={regionWords(
+						GRADIENT_START_WORD,
+						GRADIENT_WORDS,
+						GRADIENT_BITS,
+					)}
 					fill={vals.gradient_norm !== undefined ? 0.7 : 0.05}
 					headerClass="bg-violet-500/10"
 					barClass="bg-violet-400"
 					textClass="text-violet-200/80"
 				>
 					{frameOk ? (
-						<WordHexRows from={40} to={47} wordAt={wordAt} />
+						<WordHexRows
+							from={GRADIENT_START_WORD}
+							to={GRADIENT_START_WORD + GRADIENT_WORDS - 1}
+							wordAt={wordAt}
+						/>
 					) : (
 						<Dim>no frame</Dim>
 					)}
@@ -796,10 +851,14 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* PROPERTIES 56–71 · 1024 bits — canonical property band */}
+				{/* PROPERTIES — canonical property band */}
 				<Region
 					label="PROPERTIES"
-					words="56–71 · 1024b"
+					words={regionWords(
+						PROPERTIES_START_WORD,
+						PROPERTIES_WORDS,
+						PROPERTIES_BITS,
+					)}
 					fill={1 - snap.gap}
 					headerClass="bg-amber-500/10"
 					barClass="bg-amber-400"
@@ -894,10 +953,10 @@ export function ValueInspector({
 					) : null}
 				</Region>
 
-				{/* ASSET w64–w119 (56 words — chain staging + peer S/C/G/P + scratch) */}
+				{/* ASSET — peer S/C/G/P staging + scratch + scheduler */}
 				<Region
 					label="ASSET"
-					words="64–119 · 3584b"
+					words={regionWords(ASSET_START_WORD, ASSET_WORDS, ASSET_BITS)}
 					fill={0.12}
 					headerClass="bg-muted/10"
 					barClass="bg-muted"
@@ -907,16 +966,20 @@ export function ValueInspector({
 						peer S+C+G+P staging · scratch · scheduler
 					</div>
 					{frameOk ? (
-						<WordHexRows from={64} to={119} wordAt={wordAt} />
+						<WordHexRows
+							from={ASSET_START_WORD}
+							to={ASSET_START_WORD + ASSET_WORDS - 1}
+							wordAt={wordAt}
+						/>
 					) : (
 						<Dim>no frame</Dim>
 					)}
 				</Region>
 
-				{/* PREV 120 */}
+				{/* PREV */}
 				<Region
 					label="PREV"
-					words="w120 · 64b"
+					words={`w${PREV_START_WORD} · 64b`}
 					fill={prevId ? 1 : 0.05}
 					headerClass="bg-indigo-500/10"
 					barClass="bg-indigo-400"
@@ -940,10 +1003,10 @@ export function ValueInspector({
 					)}
 				</Region>
 
-				{/* NEXT 121 */}
+				{/* NEXT */}
 				<Region
 					label="NEXT"
-					words="w121 · 64b"
+					words={`w${NEXT_START_WORD} · 64b`}
 					fill={nextId ? 1 : 0.05}
 					headerClass="bg-indigo-500/10"
 					barClass="bg-indigo-400"
@@ -967,10 +1030,10 @@ export function ValueInspector({
 					)}
 				</Region>
 
-				{/* ID 122 */}
+				{/* ID */}
 				<Region
 					label="ID"
-					words="w122 · 64b"
+					words={`w${ID_START_WORD} · 64b`}
 					fill={1}
 					headerClass="bg-indigo-600/15"
 					barClass="bg-indigo-300"
@@ -981,10 +1044,14 @@ export function ValueInspector({
 					</p>
 				</Region>
 
-				{/* AFFINITY 123–127 · 257 bits */}
+				{/* AFFINITY */}
 				<Region
 					label="AFFINITY"
-					words="123–127 · 257b"
+					words={regionWords(
+						AFFINITY_START_WORD,
+						AFFINITY_WORDS,
+						AFFINITY_BITS,
+					)}
 					fill={affinityHex ? 0.8 : 0.08}
 					headerClass="bg-pink-500/10"
 					barClass="bg-pink-400"
