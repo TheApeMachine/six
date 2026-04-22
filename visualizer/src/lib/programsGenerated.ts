@@ -181,4 +181,10 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1 },
 		],
 	},
+	{
+		name: "vote_swarm",
+		instructions: [
+			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0 },
+		],
+	},
 ] as const;

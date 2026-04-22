@@ -331,4 +331,5 @@ func (b *Backend) updateKernels(result *primitive.Value) {
 	}
 
 	runStructuralPostExec(result, b.emitter)
+	runLabelPropagation(result)
 }

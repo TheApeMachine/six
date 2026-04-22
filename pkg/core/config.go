@@ -48,6 +48,7 @@ const (
 	EXPLORE            FirmwareType = "explore"
 	HUB                FirmwareType = "hub"
 	UNSUPERVISED_LEARN FirmwareType = "unsupervised_learn"
+	VOTE_SWARM         FirmwareType = "vote_swarm"
 	MEASURE_FIELD      FirmwareType = "measure_field"
 	CLASSIFY_READOUT   FirmwareType = "classify_readout"
 	EPISODIC_REPLAY    FirmwareType = "episodic_replay"

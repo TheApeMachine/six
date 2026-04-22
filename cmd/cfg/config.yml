@@ -207,12 +207,12 @@ programs:
   # context oscillate. Loops via `next self` so the scheduler keeps
   # spreading the cascade one ALU pass at a time.
   beam_swarm_step: |
-    tokens[0,8]     gradient[0,8]   context[0,8]    xor accumulate
-    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    signals[0,8]    signals[0,8]    properties[13,1] xor reduce
+    tokens[0,8]      gradient[0,8]   context[0,8]     xor accumulate
+    tokens[0,8]      context[0,8]    signals[0,8]     xor accumulate
+    signals[0,8]     signals[0,8]    properties[13,1] xor reduce
     properties[13,1] properties[1,1] properties[13,1] or  accumulate
-    properties[13,1] affinity[0,5]   affinity[0,5]   xor accumulate
-    signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate
+    properties[13,1] affinity[0,5]   affinity[0,5]    xor accumulate
+    signals[0,8]     gradient[0,8]   gradient[0,8]    xor accumulate
     next self
 
   # Free Energy / Prediction Error: the surprisal primitive computes the
@@ -224,9 +224,9 @@ programs:
   # keep this program resident until gradient/asset witnesses steer
   # the chain elsewhere.
   surprisal: |
-    tokens[0,8]  context[0,8] signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[13,1] xor reduce
-    signals[0,8] gradient[0,8] gradient[0,8]  xor accumulate
+    tokens[0,8]  context[0,8]  signals[0,8]     xor accumulate
+    signals[0,8] signals[0,8]  properties[13,1] xor reduce
+    signals[0,8] gradient[0,8] gradient[0,8]    xor accumulate
     next self
 
   # Hypothesis: arms the in-kernel Popperian probe (ApplyRefutationProbe)
@@ -244,9 +244,9 @@ programs:
   # fires `falsification`, whose signals rewrite feeds the kernel probe
   # that decides whether the claim survives.
   hypothesis: |
-    context[0,8]    gradient[0,8]   signals[0,8]    xor accumulate
-    signals[0,8]    signals[0,8]    properties[1,1] or  reduce
-    id[0,1]         id[0,1]         properties[1,1] or  accumulate
+    context[0,8] gradient[0,8] signals[0,8]    xor accumulate
+    signals[0,8] signals[0,8]  properties[1,1] or  reduce
+    id[0,1]      id[0,1]       properties[1,1] or  accumulate
 
   # Popperian Test: XORs tokens against a predicted-absent pattern in
   # context. A high popcount in properties[1] means the claim held (they
@@ -277,26 +277,26 @@ programs:
   # `next self` so once the `integrate_belief` rule fires this program
   # keeps refining the plan against each freshly scored error frame.
   active_inference: |
-    tokens[0,8]     gradient[0,8]   asset[0,8]      xor accumulate
-    tokens[0,4]     properties[4,2] asset[8,4]      and accumulate
-    tokens[4,4]     properties[6,2] asset[12,4]     and accumulate
-    tokens[0,8]     context[0,8]    asset[16,8]     xor accumulate
-    asset[0,8]      context[0,8]    signals[0,8]    xor accumulate
-    asset[8,8]      context[0,8]    asset[24,8]     xor accumulate
-    asset[16,8]     context[0,8]    asset[32,8]     xor accumulate
-    signals[0,8]    signals[0,8]    signals[0,1]    xor reduce
-    asset[24,8]     asset[24,8]     signals[1,1]    xor reduce
-    asset[32,8]     asset[32,8]     signals[2,1]    xor reduce
-    asset[16,8]     asset[0,8]      gradient[0,8]   xor accumulate
-    asset[0,8]      asset[16,8]     properties[2,1] xor reduce
+    tokens[0,8]  gradient[0,8]   asset[0,8]      xor accumulate
+    tokens[0,4]  properties[4,2] asset[8,4]      and accumulate
+    tokens[4,4]  properties[6,2] asset[12,4]     and accumulate
+    tokens[0,8]  context[0,8]    asset[16,8]     xor accumulate
+    asset[0,8]   context[0,8]    signals[0,8]    xor accumulate
+    asset[8,8]   context[0,8]    asset[24,8]     xor accumulate
+    asset[16,8]  context[0,8]    asset[32,8]     xor accumulate
+    signals[0,8] signals[0,8]    signals[0,1]    xor reduce
+    asset[24,8]  asset[24,8]     signals[1,1]    xor reduce
+    asset[32,8]  asset[32,8]     signals[2,1]    xor reduce
+    asset[16,8]  asset[0,8]      gradient[0,8]   xor accumulate
+    asset[0,8]   asset[16,8]     properties[2,1] xor reduce
     next self
 
   # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
   # Used by phase probes; the field drives parallel population, not one tight loop.
   causal_explore: |
-    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
-    signals[0,8]    signals[0,8]    properties[13,2] xor reduce
+    tokens[0,8]      context[0,8]    signals[0,8]     xor accumulate
+    gradient[0,8]    context[0,8]    asset[40,8]      xor accumulate
+    signals[0,8]     signals[0,8]    properties[13,2] xor reduce
     properties[13,2] properties[2,2] properties[13,2] or  accumulate
 
   # Causal Hub: iterative causal-gap exploration. Loops via `next self`
@@ -310,11 +310,11 @@ programs:
   # asset[40,8] residuals, which is what the visualiser needs to see to
   # confirm the causal loop is actually driving the substrate.
   causal_hub: |
-    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    gradient[0,8]   context[0,8]    asset[40,8]     xor accumulate
-    signals[0,8]    signals[0,8]    properties[13,2] xor reduce
+    tokens[0,8]      context[0,8]    signals[0,8]     xor accumulate
+    gradient[0,8]    context[0,8]    asset[40,8]      xor accumulate
+    signals[0,8]     signals[0,8]    properties[13,2] xor reduce
     properties[13,2] properties[2,2] properties[13,2] or  accumulate
-    asset[40,8]     gradient[0,8]   gradient[0,8]   xor accumulate
+    asset[40,8]      gradient[0,8]   gradient[0,8]    xor accumulate
     next self
 
   # Unsupervised learning: the peer whose similarity we're measuring has
@@ -380,33 +380,32 @@ programs:
   # `next self`; TTL-decay in the lifecycle finalizer terminates the
   # cascade.
   intervene: |
-    context[0,8] asset[16,8]  signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[13,1] or  reduce
-    asset[16,8]  gradient[0,8] gradient[0,8]  xor accumulate
+    context[0,8] asset[16,8]   signals[0,8]     xor accumulate
+    signals[0,8] signals[0,8]  properties[13,1] or  reduce
+    asset[16,8]  gradient[0,8] gradient[0,8]    xor accumulate
 
-  # Swarm voting: every gossip encounter stages the visiting peer's
-  # signals (peer's fold_substrate cancel+merge sweep — the peer's
-  # structural fingerprint) into asset[0,8]. OR-accumulate that
-  # fingerprint into the host's context[0,8] so context becomes a
-  # 512-bit histogram of "structural patterns I have co-encountered."
-  # Host's own signals[0,8] is left untouched (preserves the host's
-  # own structural identity from its first-pass fold_substrate). Loops
-  # via `next self` so the histogram keeps absorbing peers as routing
-  # delivers them. The kernel post-exec hook swaps this program for
-  # adopt_community_label once the host has cycled enough epochs to
-  # have absorbed a representative neighborhood.
+  # Swarm voting: keeps a value resident in the kernel dispatch loop
+  # (via `next self`) so gossip has repeated opportunities to stage
+  # labeled peers into the asset region. Each dispatch:
+  #
+  #   asset[0,8] holds the most recently encountered peer's signals
+  #     half (their fold_substrate cancel+merge sweep, i.e. their
+  #     structural fingerprint), placed there by Value.Write during
+  #     the gossip pass.
+  #   context[0,8] is the host's running co-encounter histogram. We
+  #     use the kernel's XOR-accumulate semantics (the only writeback
+  #     mode the universal-bitwise sweep offers) so bits that flip
+  #     between visits encode "this peer is structurally novel" while
+  #     bits that recur cancel out to "this peer is structurally
+  #     redundant".
+  #
+  # Host's own signals[0,8] is untouched: the host keeps its own
+  # structural identity from the first-pass fold_substrate so the
+  # post-exec label-propagation hook can compare host.signals against
+  # asset[0,8] when deciding whether the visiting peer is close enough
+  # to copy LABELS from. The hook is what terminates this loop by
+  # stamping ROLE=Readout + STATUS=RESOLVED once a label has been
+  # adopted; until then `next self` keeps the value circulating.
   vote_swarm: |
-    asset[0,8] context[0,8] context[0,8] or accumulate
+    asset[0,8] context[0,8] context[0,8] xor accumulate
     next self
-
-  # Adopt the community label: the field stamps each member's
-  # COMMUNITY slot (properties[8] = absolute word 64) with the
-  # community id when the value is admitted. OR-accumulate that
-  # community id into properties[0] (LABELS = absolute word 56).
-  # Since LABELS starts at zero, OR-with-zero copies COMMUNITY
-  # straight into LABELS. The post-exec hook then stamps ROLE =
-  # Readout and STATUS = RESOLVED so the orchestrator surfaces this
-  # value to the pipeline scorer as the substrate's unsupervised
-  # answer for this sample. Single-shot — no `next self`.
-  adopt_community_label: |
-    properties[8,1] properties[8,1] properties[0,1] or accumulate

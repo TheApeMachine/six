@@ -7,7 +7,8 @@ import (
 )
 
 /*
-Post-ALU hook for the README "Signals" algorithm.
+Post-ALU hooks for the README "Signals" algorithm and unsupervised
+label propagation.
 
 Every Value executes fold_substrate on its first ALU pass (see config.yml
 and pkg/primitive/value.go's default install). That program fills two
@@ -23,11 +24,33 @@ is structural purely by where the runs land and how long they are; no
 Go-side magnitude gate.
 
 After the hook emits the cancel and merge Associations, the source's
-program is swapped from fold_substrate to unsupervised_learn so the
-value transitions from "structural extraction" into ongoing learning.
-The post-exec hook itself is single-shot per source: re-entry is
-already gated by Epoch != 0 (lifecycle.evaluateResult bumps epoch
-before the next dispatch), and Associations skip the hook by role.
+program is swapped from fold_substrate to vote_swarm so the value
+keeps cycling through the dispatch loop (`next self`) while gossip
+stages new peers into its asset region on every pass. The post-exec
+structural hook itself is single-shot per source: re-entry is gated
+by Epoch != 0 (lifecycle.evaluateResult bumps epoch before the next
+dispatch), and Associations skip the hook by role.
+
+While vote_swarm is resident, runLabelPropagation runs after every
+dispatch. It is the in-band lifecycle hook that decides "the gossip
+substrate has placed a labeled peer next to this value; commit the
+peer's class label and surface this value to the prompt resolver."
+The decision is structurally simple — peer is labeled, host is not —
+because affinity routing has already done the unsupervised clustering
+work upstream: a peer only ends up in the host's asset region because
+the field's routing layer placed them in adjacent communities. No
+similarity computation here would add information the routing layer
+did not already encode.
+
+The two hooks split responsibilities cleanly:
+
+  - runStructuralPostExec is a one-shot emission hook: turns folded
+    signal halves into Association Values and rewires the source's
+    program for the ongoing-learning phase.
+  - runLabelPropagation is a per-dispatch state-transition hook: copies
+    LABELS across gossip-staged neighbors and stamps ROLE=Readout +
+    STATUS=RESOLVED so the orchestrator surfaces resolved Prompts to
+    the pipeline scorer.
 */
 
 // Emitter publishes a freshly-minted Value back into the substrate's
@@ -224,11 +247,97 @@ func runStructuralPostExec(value *primitive.Value, emitter Emitter) bool {
 	}
 
 	// Structural extraction is single-shot per source: swap the program
-	// from fold_substrate to unsupervised_learn so the next dispatch
-	// does ongoing learning instead of re-running the same cancel/merge
-	// sweep. WriteProgramWords zeroes the tail so the new (shorter)
-	// instruction stream halts cleanly without leftover sweeps firing.
-	value.InstallFirmware(core.UNSUPERVISED_LEARN)
+	// from fold_substrate to vote_swarm so the next dispatch keeps the
+	// value resident in the kernel loop (`next self`) while gossip
+	// stages new peers into asset[] on each pass. The label-propagation
+	// hook is what eventually terminates this loop by stamping
+	// ROLE=Readout + STATUS=RESOLVED once a labeled peer arrives.
+	// WriteProgramWords zeroes the tail so the new (shorter) instruction
+	// stream halts cleanly without leftover sweeps firing.
+	value.InstallFirmware(core.VOTE_SWARM)
 
 	return emitted
+}
+
+// runLabelPropagation is the per-dispatch lifecycle hook that copies
+// a class label from a gossip-staged peer into the host Value's LABELS
+// slot and, when the host is a Prompt, marks it as a Readout the
+// orchestrator should return to the pipeline scorer.
+//
+// Layout note: Value.Write stages the visiting peer's
+// signals+context+gradient+properties block (40 words starting at the
+// peer's signalsStart) into the host's asset region (also 40 words,
+// starting at the host's assetStart). The peer's properties begin
+// (propertiesStart - signalsStart) words into that staged block, so
+// peer.LABELS lives at host word
+//
+//	assetStart + (propertiesStart - signalsStart) + LABELS_index
+//
+// Reading from there is just the kernel-side primitive of "look at the
+// freshly staged peer state without disturbing the host's own working
+// state" — exactly the asset-region contract Value.Write was built
+// around.
+//
+// Decisions:
+//
+//   - peer.LABELS == 0 OR host.LABELS != 0 → no-op. The peer either
+//     has no class label to share, or the host already committed one
+//     and we must not overwrite it (would corrupt scoring on values
+//     that already converged).
+//   - host.LABELS becomes peer.LABELS otherwise. The label space is
+//     1-indexed (huggingface dataset stamps LabelInt+1, see
+//     experiment/data/huggingface/dataset.go), which matches the
+//     scorer in experiment/task/pipeline.go that interprets
+//     LABELS-1 as the class names index.
+//   - When the host carries ROLE=Prompt and now has a non-zero label,
+//     stamp ROLE=Readout + STATUS=RESOLVED + RequestEmit. That is the
+//     only path in the system that promotes a Prompt to a Readout;
+//     without it Prompts cycle until shouldContinue's epoch cap and
+//     never appear in evaluateResult's resolved set.
+//   - Associations are skipped: their LABELS slot is propagated by
+//     emitAssociation as part of the structural cascade, and they have
+//     their own role-based in-band-return path through the lifecycle.
+func runLabelPropagation(value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	if value.Role() == primitive.ValueRoleAssociation {
+		return
+	}
+
+	signalsStart := core.Cfg.Value.Region.Signals.Start
+	propertiesStart := core.Cfg.Value.Region.Properties.Start
+	assetStart := core.Cfg.Value.Region.Asset.Start
+
+	peerLabelWord := assetStart + (propertiesStart - signalsStart) + int(primitive.LABELS)
+
+	frame := (*[128]uint64)(value)[:]
+	if peerLabelWord < 0 || peerLabelWord >= len(frame) {
+		return
+	}
+
+	peerLabel := frame[peerLabelWord]
+	hostLabel, _ := value.Property(primitive.LABELS)
+
+	if hostLabel == 0 && peerLabel != 0 {
+		value.SetProperty(primitive.LABELS, peerLabel)
+		hostLabel = peerLabel
+	}
+
+	if hostLabel != 0 && value.Role() == primitive.ValueRolePrompt {
+		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
+		value.SetStatus(primitive.RESOLVED)
+		value.RequestEmit()
+		// vote_swarm uses `next self` to keep the value resident in the
+		// priority queue while it waits for a labeled neighbor to land
+		// in asset[]. Now that we have a label, kill the continuation
+		// so the priority queue stops re-receiving this frame; the
+		// lifecycle.evaluateResult clear is a belt-and-braces mirror
+		// for any path that bypasses this hook (gap closure, manual
+		// emit) but doing it here too keeps the synchronous post-ALU
+		// frame consistent — the dispatched copy that lands in the
+		// orchestrator queue already has SchedulingNext=0.
+		value.SetSchedulingNext(0)
+	}
 }

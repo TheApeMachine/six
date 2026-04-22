@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/transport"
 )
@@ -87,6 +88,21 @@ func (conn *Conn) Update(components ...io.Reader) {
 	conn.pipeline.Update(components...)
 }
 
+/*
+Fold implements the true gossip protocol mechanic: it arbitrarily connects
+things together that need to interact/communicate. By writing one value
+to another via io.Copy(value1, value2), the signals, context, gradient,
+and properties regions of one value are written to another, allowing it
+to react to the other's state.
+*/
+func (conn *Conn) Fold(value1, value2 io.ReadWriter) error {
+	if conn == nil {
+		return io.ErrClosedPipe
+	}
+	_, err := io.Copy(value1, value2)
+	return err
+}
+
 func (conn *Conn) Read(p []byte) (int, error) {
 	errnie.Trace("gossip.Conn.Read")
 
@@ -127,6 +143,34 @@ func (conn *Conn) Close() (err error) {
 	}
 
 	return err
+}
+
+/*
+Swarm creates an ephemeral communication substrate for a given set of values.
+This is important for when we have a swarm of unsupervised learning programmed
+values, because each value in that swarm will have to collect the structural
+components of other values, write it into their context field, and communicate
+to figure out what are the N most common structures.
+*/
+func Swarm(ctx context.Context, queue compute.Scheduler, values []*primitive.Value) error {
+	if len(values) < 2 {
+		return nil
+	}
+
+	conn, err := NewConn(ctx, queue, nil, io.Discard)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	for _, v1 := range values {
+		for _, v2 := range values {
+			if v1 != v2 {
+				_ = conn.Fold(v1, v2)
+			}
+		}
+	}
+	return nil
 }
 
 /*

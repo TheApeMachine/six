@@ -34,6 +34,7 @@ export type ProgramCategory =
 	| "inference" // active_inference — multi-future simulation
 	| "classify" // classify_readout — label broadcast
 	| "peer_gap" // unsupervised_learn / episodic_replay — peer comparison
+	| "consensus" // vote_swarm — XOR-accumulate peer.signals into context
 	| "intervene" // Pearl L2 do-operation
 	| "gap_probe" // surprisal / causal_explore / causal_hub / falsification
 	| "resident" // measure_field — field-level resident
@@ -49,6 +50,7 @@ export type Shape =
 	| "hourglass"
 	| "asterisk"
 	| "ring"
+	| "concentric"
 	| "bar"
 	| "circle";
 
@@ -113,6 +115,24 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			shape: "hourglass",
 			description: "unsupervised_learn / episodic_replay",
 		},
+		/*
+		consensus is the in-band swarm-learning continuation: vote_swarm
+		stays resident via `next self` and XOR-accumulates each peer's
+		signals (staged in asset[]) into its own context region, so the
+		Value builds a co-encounter histogram of structural fingerprints.
+		The Go-side label-propagation hook terminates the loop by
+		stamping ROLE=Readout once a labelled neighbour lands. Three
+		concentric rings read as "many encounters folding into one
+		place" — visually distinct from peer_gap's single-pass hourglass
+		and from intervene's perturbation asterisk.
+		*/
+		consensus: {
+			category: "consensus",
+			label: "consensus",
+			color: [200, 120, 255],
+			shape: "concentric",
+			description: "vote_swarm — XOR-accumulate peer signals",
+		},
 		intervene: {
 			category: "intervene",
 			label: "intervene",
@@ -167,6 +187,7 @@ const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	classify_readout: "classify",
 	unsupervised_learn: "peer_gap",
 	episodic_replay: "peer_gap",
+	vote_swarm: "consensus",
 	intervene: "intervene",
 	surprisal: "gap_probe",
 	causal_explore: "gap_probe",
@@ -279,6 +300,7 @@ export const ROLE_BY_CATEGORY: Record<
 	inference: "action",
 	classify: "reaction",
 	peer_gap: "reaction",
+	consensus: "action",
 	intervene: "action",
 	gap_probe: "action",
 	resident: "action",

@@ -32,6 +32,7 @@ const CATEGORY_ORDER: ProgramCategory[] = [
 	"beam",
 	"classify",
 	"peer_gap",
+	"consensus",
 	"gap_probe",
 	"intervene",
 	"inference",
@@ -177,6 +178,36 @@ function Glyph({
 						cx={half}
 						cy={half}
 						r={3}
+						fill="none"
+						stroke={stroke}
+						strokeWidth={1.2}
+					/>
+				</svg>
+			);
+		case "concentric":
+			return (
+				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>concentric</title>
+					<circle
+						cx={half}
+						cy={half}
+						r={7}
+						fill="none"
+						stroke={stroke}
+						strokeWidth={1.2}
+					/>
+					<circle
+						cx={half}
+						cy={half}
+						r={4.5}
+						fill="none"
+						stroke={stroke}
+						strokeWidth={1.2}
+					/>
+					<circle
+						cx={half}
+						cy={half}
+						r={2}
 						fill="none"
 						stroke={stroke}
 						strokeWidth={1.2}

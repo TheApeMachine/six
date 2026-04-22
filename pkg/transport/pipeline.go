@@ -1,12 +1,10 @@
 package transport
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 
-	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -67,60 +65,85 @@ func (pipeline *Pipeline) Update(rwcs ...io.Reader) {
 }
 
 /*
-Read reads data from the pipeline.
+Read produces one folded Value frame per call. The fold semantics are:
+
+  - Pull exactly one wire frame (core.Cfg.Value.Bytes) off the upstream
+    multi-reader. Anything less is a partial frame and surfaces as an
+    error rather than a silent half-Value.
+  - If a previously read Value is staged, copy that staged Value into
+    the freshly read one. Value.Write places the staged Value's
+    Signals/Context/Gradient/Properties block into the new Value's
+    asset region — that is the actual fold. The staged Value is then
+    freed and replaced by the new one so the next Read folds the new
+    one into whatever Value comes next.
+  - Emit the (possibly folded) frame into the caller's buffer p. p
+    must be large enough for one full frame; smaller buffers cannot
+    hold a Value and surface as ErrShortBuffer up front rather than
+    failing partway through the fold.
+
+The previous implementation looped over every available reader inside
+a single Read call and tried to write multiple frames into the same
+caller buffer with a position cursor that was never reset, which made
+the second iteration always trip on `value.Read(p[out:])` returning
+ErrShortBuffer. One frame per call is the contract gossip.Conn and
+the orchestrator already expect; honoring it removes the buffer-
+overflow path entirely.
 */
 func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 	errnie.Trace("transport.Pipeline.Read")
+
+	if len(p) < core.Cfg.Value.Bytes {
+		return 0, errors.Join(
+			io.ErrShortBuffer,
+			errors.New("transport.Pipeline.Read: len(p) < core.Cfg.Value.Bytes"),
+		)
+	}
 
 	select {
 	case <-pipeline.ctx.Done():
 		return 0, pipeline.ctx.Err()
 	default:
-		var (
-			current = bytes.NewBuffer([]byte{})
-			nn      int64
-			out     int
-		)
+		frame := make([]byte, core.Cfg.Value.Bytes)
 
-		for {
-			// Read from the current reader in chunks of core.Cfg.Value.Bytes
-			if nn, err = ringbuffer.New(
-				core.Cfg.Value.Bytes,
-			).Copy(
-				current, pipeline.readers,
-			); err != nil && err != io.EOF {
-				return 0, errnie.Error(err)
+		if n, err = io.ReadFull(pipeline.readers, frame); err != nil {
+			if errors.Is(err, io.EOF) && n == 0 {
+				return 0, io.EOF
 			}
 
-			if nn == 0 {
-				break
+			if errors.Is(err, io.ErrUnexpectedEOF) {
+				return 0, io.EOF
 			}
 
-			value := primitive.AllocValue()
-			value.LoadFullFrame(current.Bytes())
-
-			if pipeline.staged != nil {
-				if nn, err = ringbuffer.New(
-					core.Cfg.Value.Bytes,
-				).Copy(
-					value, pipeline.staged,
-				); err != nil && err != io.EOF {
-					return 0, errnie.Error(err)
-				}
-			}
-
-			primitive.FreeValue(pipeline.staged)
-			pipeline.staged = value
-
-			if out, err = value.Read(p[out:]); err != nil && err != io.EOF {
-				return 0, errnie.Error(err)
-			}
-
-			n += out
-			current.Reset()
+			return 0, errnie.Error(err)
 		}
 
-		return n, io.EOF
+		value := primitive.AllocValue()
+
+		if err = value.LoadFullFrame(frame); err != nil {
+			primitive.FreeValue(value)
+			return 0, errnie.Error(err)
+		}
+
+		if pipeline.staged != nil {
+			// 2. Community fields should leverage their gossip.Conn to make the values
+			// within that community "fold" through each other, which means you write
+			// one value to another (io.Copy(value1, value2)), which write the signals,
+			// context, gradient, and properties regions of one value to another, which
+			// allows a value to react to another value's state.
+			if _, err = io.Copy(value, pipeline.staged); err != nil && !errors.Is(err, io.EOF) {
+				primitive.FreeValue(value)
+				return 0, errnie.Error(err)
+			}
+		}
+
+		primitive.FreeValue(pipeline.staged)
+		pipeline.staged = value
+
+		if n, err = value.Read(p); err != nil && !errors.Is(err, io.EOF) {
+			return 0, errnie.Error(err)
+		}
+
+		return n, nil
 	}
 }
 
@@ -150,4 +173,3 @@ func (pipeline *Pipeline) Close() (err error) {
 
 	return err
 }
-

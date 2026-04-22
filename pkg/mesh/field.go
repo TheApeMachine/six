@@ -339,6 +339,29 @@ func (field *Field) assignVisitorToChild(f *Field, visitor *primitive.Value) {
 		core.Cfg.Value.Region.Properties.Start+int(primitive.COMMUNITY), f.id,
 	)
 
+	// 2. Community fields should leverage their gossip.Conn to make the values
+	// within that community "fold" through each other, which means you write
+	// one value to another (io.Copy(value1, value2)).
+	for _, resident := range f.values {
+		if resident != visitor {
+			_ = f.conn.Fold(resident, visitor)
+			_ = f.conn.Fold(visitor, resident)
+		}
+	}
+
+	// 3. The global field in turn, uses this same mechanic to fold all the values
+	// of a community field, with all the values of the other community fields.
+	if field != f {
+		for _, sibling := range field.fields {
+			if sibling != f {
+				for _, sResident := range sibling.values {
+					_ = field.conn.Fold(sResident, visitor)
+					_ = field.conn.Fold(visitor, sResident)
+				}
+			}
+		}
+	}
+
 	f.conn.Update(visitor)
 }
 

@@ -27,6 +27,13 @@ func (orchestrator *Orchestrator) evaluateResult(value *primitive.Value) lifecyc
 		value.SetStatus(primitive.RESOLVED)
 		value.RequestEmit()
 		stampConfidence(value, 1)
+		// A Readout/Association/explicit-emit Value is the substrate's
+		// answer for this lifecycle. Clearing SchedulingNext is what
+		// stops `next self` programs (vote_swarm in particular) from
+		// re-arming the priority queue after the value has already been
+		// surfaced. Without this clear, the Cycle loop never quiesces
+		// because the queue keeps re-receiving the same resolved frame.
+		value.SetSchedulingNext(0)
 		return lifecycleDecision{Resolved: true, Reinject: true, Keep: true}
 	}
 
@@ -36,6 +43,7 @@ func (orchestrator *Orchestrator) evaluateResult(value *primitive.Value) lifecyc
 	if gap <= core.Cfg.System.BeliefEpsilon {
 		value.SetStatus(primitive.RESOLVED)
 		value.RequestEmit()
+		value.SetSchedulingNext(0)
 		return lifecycleDecision{Resolved: true, Reinject: true, Keep: true}
 	}
 
@@ -47,8 +55,12 @@ func (orchestrator *Orchestrator) evaluateResult(value *primitive.Value) lifecyc
 	// Non-continuing DONE Values still matter: their freshly computed affinity,
 	// context, gradient, and properties must be folded back into the resident
 	// field member. They are not returned to the caller unless they explicitly
-	// emitted or targeted something.
+	// emitted or targeted something. We also clear SchedulingNext so the value
+	// stops re-arming itself; otherwise a `next self` program (vote_swarm,
+	// learner loops, etc.) keeps the priority queue saturated even though the
+	// epoch cap says we are done iterating.
 	value.SetStatus(primitive.DONE)
+	value.SetSchedulingNext(0)
 	return lifecycleDecision{Reinject: true}
 }
 

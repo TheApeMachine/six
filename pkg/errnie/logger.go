@@ -405,9 +405,7 @@ func Trace(msg string, keyvals ...any) {
 	// if debugEnabled || (traceEnabled && traceFile == nil) {
 	// 	fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
 	// }
-	if strings.HasPrefix(msg, "telemetry.Bridge.Write: payload") {
-		fmt.Println(msg, keyvals)
-	}
+	fmt.Println(msg, keyvals)
 }
 
 func Error(err error, keyvals ...any) error {
@@ -562,4 +560,3 @@ func appendLineToFile(f *os.File, parts []any) {
 		return
 	}
 }
-

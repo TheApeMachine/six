@@ -97,6 +97,7 @@ const SHAPE_INDEX: Record<Shape, number> = {
 	hourglass: 7,
 	asterisk: 8,
 	bar: 9,
+	concentric: 10,
 };
 
 function sortByPosX(a: { posX: number }, b: { posX: number }): number {
@@ -362,6 +363,11 @@ float glyphSdf(int shape, vec2 p) {
         return minD - 0.05;
     } else if (shape == 9) { // bar
         return sdBox(p, vec2(0.75, 0.16));
+    } else if (shape == 10) { // concentric: three nested rings (vote_swarm)
+        float d = sdRing(p, 0.62, 0.045);
+        d = min(d, sdRing(p, 0.40, 0.045));
+        d = min(d, sdRing(p, 0.18, 0.045));
+        return d;
     }
     return sdCircle(p, 0.6);
 }
