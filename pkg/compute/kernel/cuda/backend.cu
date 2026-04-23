@@ -233,20 +233,23 @@ __global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
 __global__ void nearest_affinity_kernel(
     const uint64_t* candidates,
     const uint64_t* query,
-    uint32_t*       distances,
+    uint64_t*       best_packed_result,
     uint32_t        count
 ) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= count) return;
 
     uint32_t base = id * AFFINITY_WORDS;
-    uint32_t dist = 0;
+    uint32_t dist_sq = 0;
 
     for (int w = 0; w < AFFINITY_WORDS; w++) {
-        dist += __popcll(candidates[base + w] ^ query[w]);
+        dist_sq += __popcll(candidates[base + w] ^ query[w]);
     }
 
-    distances[id] = dist;
+    uint32_t inverted_dist = 131072 - dist_sq;
+    uint64_t packed_result = ((uint64_t)inverted_dist << 32) | (uint64_t)id;
+
+    atomicMax((unsigned long long*)best_packed_result, (unsigned long long)packed_result);
 }
 
 __global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
@@ -349,28 +352,31 @@ extern "C" {
         void* query_host,
         void* candidates_host,
         uint32_t count,
-        uint32_t* distances_host
+        uint64_t* best_packed_result_host
     ) {
-        if (!query_host || !candidates_host || !distances_host || count == 0) return -1;
+        if (!query_host || !candidates_host || !best_packed_result_host || count == 0) return -1;
         if (cudaSetDevice(device_id) != cudaSuccess) return -1;
         if (ensure_aff_pool(count) != 0) return -1;
 
         size_t q_bytes    = AFFINITY_WORDS * sizeof(uint64_t);
         size_t cand_bytes = (size_t)count * AFFINITY_WORDS * sizeof(uint64_t);
-        size_t dist_bytes = (size_t)count * sizeof(uint32_t);
+        size_t res_bytes  = sizeof(uint64_t);
 
         if (cudaMemcpy(d_aff_query,      query_host,      q_bytes,    cudaMemcpyHostToDevice) != cudaSuccess) return -2;
         if (cudaMemcpy(d_aff_candidates,  candidates_host, cand_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+
+        // Initialize best_packed_result to 0
+        if (cudaMemset(d_aff_distances, 0, res_bytes) != cudaSuccess) return -2;
 
         const int tpb = 256;
         int blocks = (int)((count + tpb - 1) / tpb);
         if (blocks < 1) blocks = 1;
 
-        nearest_affinity_kernel<<<blocks, tpb>>>(d_aff_candidates, d_aff_query, d_aff_distances, count);
+        nearest_affinity_kernel<<<blocks, tpb>>>(d_aff_candidates, d_aff_query, (uint64_t*)d_aff_distances, count);
 
         if (cudaGetLastError()        != cudaSuccess) return -3;
         if (cudaDeviceSynchronize()   != cudaSuccess) return -4;
-        if (cudaMemcpy(distances_host, d_aff_distances, dist_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(best_packed_result_host, d_aff_distances, res_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
 
         return 0;
     }

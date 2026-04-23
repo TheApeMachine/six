@@ -266,17 +266,33 @@ kernel void unified_bitwise_kernel(
 kernel void nearest_affinity_kernel(
     device const ulong* candidates [[buffer(0)]],
     device const ulong* query      [[buffer(1)]],
-    device uint*        distances  [[buffer(2)]],
+    device atomic_ulong* best_packed_result [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
     uint base = id * AFFINITY_WORDS;
-    uint dist = 0;
+    uint dist_sq = 0;
 
     for (int w = 0; w < AFFINITY_WORDS; w++) {
-        dist += popcount(candidates[base + w] ^ query[w]);
+        dist_sq += popcount(candidates[base + w] ^ query[w]);
     }
 
-    distances[id] = dist;
+    // We want to find the MINIMUM distance.
+    // atomic_max requires us to pack score such that MAX value is best.
+    // So we invert the distance. Max dist_sq is 131072.
+    // Let's pack: (131072 - dist_sq) in the upper 32 bits, and global_id in the lower 32.
+    
+    uint32_t dist_u32 = (uint32_t)dist_sq;
+    uint32_t inverted_dist = 131072 - dist_u32; 
+
+    uint global_id = id;
+
+    uint64_t packed_result = ((uint64_t)inverted_dist << 32) | (uint64_t)global_id;
+
+    atomic_max_explicit(
+        best_packed_result,
+        (ulong)packed_result,
+        memory_order_relaxed
+    );
 }
 
 kernel void geometric_kernel(

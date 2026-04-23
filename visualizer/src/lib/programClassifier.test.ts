@@ -76,6 +76,7 @@ test("classifyInstructionStream falls through to unknown for an unrecognised tup
 			dstSpan: 8,
 			opcode: 0x6,
 			mode: 0,
+			imm: 0,
 		},
 	]);
 

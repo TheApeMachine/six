@@ -29,7 +29,7 @@ staging copies.
 */
 int geometric_metal_indices(const uint32_t* indices, uint32_t count);
 
-int nearest_affinity_metal(void* query, void* candidates, uint32_t count, uint32_t* distances);
+int nearest_affinity_metal(void* query, void* candidates, uint32_t count, uint64_t* best_packed_result);
 
 void cleanup_metal_pools(void);
 

@@ -8,6 +8,9 @@
 - Treat the user as the designer of this system; do not push competing architectures or override their stated direction with your own opinion.
 - Never edit generated artifacts under `paper/include/**` — they are produced by the experiment harness, not authored.
 - In TypeScript, do not use `any`; use proper types.
+- Do not add `Execute` or `ExecutePointers` methods to the compute backend; the optimizer sweeps the frame.
+- Do not import the `compute` package into `pkg/mesh/field.go` or bring the backend into the field.
+- `UniversalBitwise` must remain a universal bitwise method and not be hardcoded to a specific algorithm.
 
 ## Learned Workspace Facts
 
@@ -23,3 +26,4 @@
 - Execution model is branchless and loop-less: `UniversalBitwise` (CPU/CUDA/Metal) takes a single Value and operates only on that Value's own data, never on pairs, with no thread divergence.
 - `gossip.Conn` is the "cycle": Values enter via Write, exit via Read, are mutated in transit (e.g. `pkg/primitive/value.go` Write), and only Values with STATUS=READY are submitted to the queue/backend.
 - `errnie` logs to Elasticsearch (index `six-logs`) when enabled and produces large `*.Read []` traces during `make paper` runs.
+- The token region is 1024 bits, split into two 512-bit halves (A and B). For certain algorithms, keep the A side steady and pre-rotate the B side by 8 bits per step, storing 6 bits per rotation (left offset, right offset).

@@ -55,15 +55,19 @@ const (
 	InstrAStartShift   = 35
 	InstrOpcodeShift   = 42
 	InstrModeShift     = 46
+	InstrImmShift      = 48
 
 	InstrFieldMask  uint64 = 0x7F
 	InstrOpcodeMask uint64 = 0xF
-	InstrModeMask   uint64 = 0x1
+	InstrModeMask   uint64 = 0x3
+	InstrImmMask    uint64 = 0xFFFF
 )
 
 const (
 	ModeAccumulate uint64 = 0
 	ModeReduce     uint64 = 1
+	ModeCmov       uint64 = 2
+	ModeImm        uint64 = 3
 )
 
 // SelfSentinel marks a `next self` continuation in Compiled.SchedulingNext
@@ -191,14 +195,38 @@ func parseOpLine(fields []string, lay Layout) (uint64, error) {
 		return 0, fmt.Errorf("op line wants `srcA srcB dst op mode`, got %d fields", len(fields))
 	}
 
+	var mode uint64
+	switch strings.ToLower(fields[4]) {
+	case "accumulate":
+		mode = ModeAccumulate
+	case "reduce":
+		mode = ModeReduce
+	case "cmov":
+		mode = ModeCmov
+	case "imm":
+		mode = ModeImm
+	default:
+		return 0, fmt.Errorf("unknown mode %q (want `accumulate`, `reduce`, `cmov`, or `imm`)", fields[4])
+	}
+
 	aStart, aSpan, err := parseRegionRef(fields[0], lay)
 	if err != nil {
 		return 0, fmt.Errorf("srcA: %w", err)
 	}
 
-	bStart, bSpan, err := parseRegionRef(fields[1], lay)
-	if err != nil {
-		return 0, fmt.Errorf("srcB: %w", err)
+	var bStart, bSpan int
+	var imm uint64
+	if mode == ModeImm {
+		immVal, err := strconv.ParseUint(fields[1], 10, 16)
+		if err != nil {
+			return 0, fmt.Errorf("srcB (imm): %w", err)
+		}
+		imm = immVal
+	} else {
+		bStart, bSpan, err = parseRegionRef(fields[1], lay)
+		if err != nil {
+			return 0, fmt.Errorf("srcB: %w", err)
+		}
 	}
 
 	dstStart, dstSpan, err := parseRegionRef(fields[2], lay)
@@ -211,18 +239,7 @@ func parseOpLine(fields []string, lay Layout) (uint64, error) {
 		return 0, fmt.Errorf("unknown opcode %q (known: %s)", fields[3], knownOpcodes(lay))
 	}
 
-	var mode uint64
-
-	switch strings.ToLower(fields[4]) {
-	case "accumulate":
-		mode = ModeAccumulate
-	case "reduce":
-		mode = ModeReduce
-	default:
-		return 0, fmt.Errorf("unknown mode %q (want `accumulate` or `reduce`)", fields[4])
-	}
-
-	return EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan, op, mode), nil
+	return EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan, op, mode, imm), nil
 }
 
 func parseRegionRef(token string, lay Layout) (start, span int, err error) {
@@ -280,7 +297,7 @@ func parseRegionRef(token string, lay Layout) (start, span int, err error) {
 // EncodeInstruction packs the seven operand fields into a 64-bit instruction
 // word. Out-of-range values are clamped to the field width; zero would mean
 // "halt" so spans of zero are silently coerced to one.
-func EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opcode, mode uint64) uint64 {
+func EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opcode, mode, imm uint64) uint64 {
 	if aSpan <= 0 {
 		aSpan = 1
 	}
@@ -300,12 +317,13 @@ func EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opco
 		((uint64(aSpan-1) & InstrFieldMask) << InstrASpanShift) |
 		((uint64(aStart) & InstrFieldMask) << InstrAStartShift) |
 		((opcode & InstrOpcodeMask) << InstrOpcodeShift) |
-		((mode & InstrModeMask) << InstrModeShift)
+		((mode & InstrModeMask) << InstrModeShift) |
+		((imm & InstrImmMask) << InstrImmShift)
 }
 
 // DecodeInstruction is the inverse of EncodeInstruction. The kernel's hot
 // path inlines the bit math, but tests and tooling go through this helper.
-func DecodeInstruction(instr uint64) (aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opcode, mode uint64) {
+func DecodeInstruction(instr uint64) (aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opcode, mode, imm uint64) {
 	dstSpan = int((instr>>InstrDstSpanShift)&InstrFieldMask) + 1
 	dstStart = int((instr >> InstrDstStartShift) & InstrFieldMask)
 	bSpan = int((instr>>InstrBSpanShift)&InstrFieldMask) + 1
@@ -314,8 +332,9 @@ func DecodeInstruction(instr uint64) (aStart, aSpan, bStart, bSpan, dstStart, ds
 	aStart = int((instr >> InstrAStartShift) & InstrFieldMask)
 	opcode = (instr >> InstrOpcodeShift) & InstrOpcodeMask
 	mode = (instr >> InstrModeShift) & InstrModeMask
+	imm = (instr >> InstrImmShift) & InstrImmMask
 
-	return aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode
+	return aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, imm
 }
 
 func knownOpcodes(lay Layout) string {
@@ -339,4 +358,3 @@ func knownRegions(lay Layout) string {
 
 	return strings.Join(names, ", ")
 }
-

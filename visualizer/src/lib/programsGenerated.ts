@@ -10,9 +10,11 @@ export const INSTR_A_SPAN_SHIFT    = 28;
 export const INSTR_A_START_SHIFT   = 35;
 export const INSTR_OPCODE_SHIFT    = 42;
 export const INSTR_MODE_SHIFT      = 46;
+export const INSTR_IMM_SHIFT       = 48;
 export const INSTR_FIELD_MASK   = 0x7fn;
 export const INSTR_OPCODE_MASK  = 0xfn;
-export const INSTR_MODE_MASK    = 0x1n;
+export const INSTR_MODE_MASK    = 0x3n;
+export const INSTR_IMM_MASK     = 0xffffn;
 
 export interface DecodedInstruction {
 	aStart: number;
@@ -23,6 +25,7 @@ export interface DecodedInstruction {
 	dstSpan: number;
 	opcode: number;
 	mode: number;
+	imm: number;
 }
 
 export interface ProgramSignature {
@@ -38,153 +41,166 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 	{
 		name: "active_inference",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 72, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 0, aSpan: 4, bStart: 60, bSpan: 2, dstStart: 80, dstSpan: 4, opcode: 0x1, mode: 0 },
-			{ aStart: 4, aSpan: 4, bStart: 62, bSpan: 2, dstStart: 84, dstSpan: 4, opcode: 0x1, mode: 0 },
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 88, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 80, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 96, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 88, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 104, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 32, dstSpan: 1, opcode: 0x6, mode: 1 },
-			{ aStart: 96, aSpan: 8, bStart: 96, bSpan: 8, dstStart: 33, dstSpan: 1, opcode: 0x6, mode: 1 },
-			{ aStart: 104, aSpan: 8, bStart: 104, bSpan: 8, dstStart: 34, dstSpan: 1, opcode: 0x6, mode: 1 },
-			{ aStart: 88, aSpan: 8, bStart: 72, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 72, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 58, dstSpan: 1, opcode: 0x6, mode: 1 },
+			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 72, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 0, aSpan: 4, bStart: 60, bSpan: 2, dstStart: 80, dstSpan: 4, opcode: 0x1, mode: 0, imm: 0 },
+			{ aStart: 4, aSpan: 4, bStart: 62, bSpan: 2, dstStart: 84, dstSpan: 4, opcode: 0x1, mode: 0, imm: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 88, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 80, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 96, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 88, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 104, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 32, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 96, aSpan: 8, bStart: 96, bSpan: 8, dstStart: 33, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 104, aSpan: 8, bStart: 104, bSpan: 8, dstStart: 34, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 88, aSpan: 8, bStart: 72, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 72, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 58, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
 		],
 	},
 	{
 		name: "affinity",
 		instructions: [
-			{ aStart: 0, aSpan: 16, bStart: 0, bSpan: 16, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 0, bSpan: 16, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "beam_swarm_step",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x6, mode: 1 },
-			{ aStart: 69, aSpan: 1, bStart: 57, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0 },
-			{ aStart: 69, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 69, aSpan: 1, bStart: 57, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0, imm: 0 },
+			{ aStart: 69, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "causal_explore",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 112, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 2, opcode: 0x6, mode: 1 },
-			{ aStart: 69, aSpan: 2, bStart: 58, bSpan: 2, dstStart: 69, dstSpan: 2, opcode: 0x7, mode: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 112, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 2, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 69, aSpan: 2, bStart: 58, bSpan: 2, dstStart: 69, dstSpan: 2, opcode: 0x7, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "causal_hub",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 112, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 2, opcode: 0x6, mode: 1 },
-			{ aStart: 69, aSpan: 2, bStart: 58, bSpan: 2, dstStart: 69, dstSpan: 2, opcode: 0x7, mode: 0 },
-			{ aStart: 112, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 112, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 2, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 69, aSpan: 2, bStart: 58, bSpan: 2, dstStart: 69, dstSpan: 2, opcode: 0x7, mode: 0, imm: 0 },
+			{ aStart: 112, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "classify_readout",
 		instructions: [
-			{ aStart: 56, aSpan: 1, bStart: 56, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x7, mode: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 56, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x7, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "coupling",
 		instructions: [
-			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 32, dstSpan: 1, opcode: 0x1, mode: 1 },
-			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 33, dstSpan: 1, opcode: 0x7, mode: 1 },
+			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 32, dstSpan: 1, opcode: 0x1, mode: 1, imm: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 33, dstSpan: 1, opcode: 0x7, mode: 1, imm: 0 },
 		],
 	},
 	{
 		name: "episodic_replay",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1 },
+			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1, imm: 0 },
 		],
 	},
 	{
 		name: "falsification",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x6, mode: 1 },
-			{ aStart: 57, aSpan: 1, bStart: 59, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x1, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 57, aSpan: 1, bStart: 59, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x1, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "fold_substrate",
 		instructions: [
-			{ aStart: 0, aSpan: 16, bStart: 0, bSpan: 16, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0 },
-			{ aStart: 0, aSpan: 8, bStart: 8, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0 },
-			{ aStart: 0, aSpan: 8, bStart: 8, bSpan: 8, dstStart: 36, dstSpan: 4, opcode: 0x1, mode: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 0, bSpan: 16, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 8, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 8, bSpan: 8, dstStart: 36, dstSpan: 4, opcode: 0x1, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "hypothesis",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1 },
-			{ aStart: 122, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1, imm: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "intervene",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 1 },
-			{ aStart: 88, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 1, imm: 0 },
+			{ aStart: 88, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "link",
 		instructions: [
-			{ aStart: 72, aSpan: 1, bStart: 72, bSpan: 1, dstStart: 120, dstSpan: 1, opcode: 0x7, mode: 0 },
-			{ aStart: 73, aSpan: 1, bStart: 73, bSpan: 1, dstStart: 121, dstSpan: 1, opcode: 0x7, mode: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 72, bSpan: 1, dstStart: 120, dstSpan: 1, opcode: 0x7, mode: 0, imm: 0 },
+			{ aStart: 73, aSpan: 1, bStart: 73, bSpan: 1, dstStart: 121, dstSpan: 1, opcode: 0x7, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "measure_field",
 		instructions: [
-			{ aStart: 72, aSpan: 8, bStart: 72, bSpan: 8, dstStart: 39, dstSpan: 1, opcode: 0x7, mode: 1 },
+			{ aStart: 72, aSpan: 8, bStart: 72, bSpan: 8, dstStart: 39, dstSpan: 1, opcode: 0x7, mode: 1, imm: 0 },
 		],
 	},
 	{
 		name: "popcount",
 		instructions: [
-			{ aStart: 123, aSpan: 5, bStart: 123, bSpan: 5, dstStart: 127, dstSpan: 1, opcode: 0x6, mode: 1 },
+			{ aStart: 123, aSpan: 5, bStart: 123, bSpan: 5, dstStart: 127, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
 		],
 	},
 	{
 		name: "surprisal",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x6, mode: 1 },
-			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x6, mode: 1, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "temperature",
 		instructions: [
-			{ aStart: 60, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0 },
+			{ aStart: 60, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, imm: 0 },
 		],
 	},
 	{
 		name: "unsupervised_learn",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1 },
+			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 1, imm: 0 },
 		],
 	},
 	{
 		name: "vote_swarm",
 		instructions: [
-			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0 },
+			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, imm: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x0, mode: 3, imm: 0 },
+			{ aStart: 32, aSpan: 1, bStart: 56, bSpan: 1, dstStart: 96, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
+			{ aStart: 96, aSpan: 1, bStart: 96, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x3, mode: 3, imm: 0 },
+			{ aStart: 66, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 34, dstSpan: 1, opcode: 0x6, mode: 3, imm: 1 },
+			{ aStart: 32, aSpan: 1, bStart: 34, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 35, dstSpan: 1, opcode: 0x5, mode: 3, imm: 5 },
+			{ aStart: 35, aSpan: 1, bStart: 33, bSpan: 1, dstStart: 66, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 35, dstSpan: 1, opcode: 0x5, mode: 3, imm: 3 },
+			{ aStart: 35, aSpan: 1, bStart: 33, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 35, dstSpan: 1, opcode: 0x5, mode: 3, imm: 1 },
+			{ aStart: 35, aSpan: 1, bStart: 33, bSpan: 1, dstStart: 68, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
+			{ aStart: 32, aSpan: 1, bStart: 33, bSpan: 1, dstStart: 117, dstSpan: 1, opcode: 0x0, mode: 2, imm: 0 },
 		],
 	},
 ] as const;

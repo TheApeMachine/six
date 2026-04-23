@@ -106,11 +106,22 @@ ub_pc_loop:
 
 	MOVQ	AX, BX
 	SHRQ	$46, BX
-	ANDQ	$0x1, BX
+	ANDQ	$0x3, BX
 	MOVQ	BX, 104(SP)             // mode
+
+	MOVQ	AX, BX
+	SHRQ	$48, BX
+	ANDQ	$0xFFFF, BX
+	MOVQ	BX, 120(SP)             // imm (stored at 120(SP), we can reuse this slot later for j)
 
 	SHRQ	$42, AX
 	ANDQ	$0xF, AX                // AX = opcode
+
+	MOVQ	104(SP), BX
+	CMPQ	BX, $2
+	JE	do_cmov
+	CMPQ	BX, $3
+	JE	do_imm
 
 	// ---- build masks: m_i = -((opcode >> i) & 1) ----
 	MOVQ	AX, BX
@@ -306,6 +317,98 @@ wb_pop_store:
 ub_advance_pc:
 	ADDQ	$8, 112(SP)             // PC += 8
 	JMP	ub_pc_loop
+
+do_cmov:
+	// mode 2: cmov
+	// if v[bStart] != 0: copy dstSpan words from v[aStart...] to v[dstStart...]
+	MOVQ	R12, AX                 // bStart
+	MOVQ	(DI)(AX*8), DX          // DX = v[bStart]
+	TESTQ	DX, DX
+	JZ	ub_advance_pc
+
+	MOVQ	96(SP), BX              // BX = dstSpan
+	XORQ	CX, CX                  // CX = idx = 0
+	
+	// Re-decode aSpan and aStart
+	MOVQ	112(SP), SI
+	MOVQ	(DI)(SI*1), AX
+	MOVQ	AX, R10
+	SHRQ	$28, R10
+	ANDQ	$0x7F, R10
+	INCQ	R10                     // R10 = aSpan
+	
+	MOVQ	AX, R11
+	SHRQ	$35, R11
+	ANDQ	$0x7F, R11              // R11 = aStart
+
+cmov_loop:
+	CMPQ	CX, BX
+	JAE	ub_advance_pc
+
+	// srcIdx = aStart + (idx % aSpan)
+	MOVQ	CX, AX
+	XORQ	DX, DX
+	DIVQ	R10                     // DX = idx % aSpan
+	
+	MOVQ	DX, AX
+	ADDQ	R11, AX                 // AX = aStart + (idx % aSpan)
+	
+	MOVQ	(DI)(AX*8), DX          // DX = v[srcIdx]
+	
+	MOVQ	R15, AX                 // dstStart
+	ADDQ	CX, AX                  // dstStart + idx
+	MOVQ	DX, (DI)(AX*8)          // v[dstStart+idx] = DX
+	
+	INCQ	CX
+	JMP	cmov_loop
+
+do_imm:
+	// mode 3: imm
+	// a = v[aStart], b = imm
+	// result = (a & b & m0) | (a & ~b & m1) | (~a & b & m2) | (~a & ~b & m3)
+	// v[dstStart] = result
+	
+	// Re-decode aStart
+	MOVQ	112(SP), SI
+	MOVQ	(DI)(SI*1), AX
+	SHRQ	$35, AX
+	ANDQ	$0x7F, AX
+	MOVQ	(DI)(AX*8), R8          // R8 = a
+	
+	MOVQ	120(SP), R9             // R9 = b (imm)
+	
+	MOVQ	R8, AX
+	NOTQ	AX                      // AX = ~a
+	MOVQ	R9, DX
+	NOTQ	DX                      // DX = ~b
+	
+	// (a & b) & m0
+	MOVQ	R8, BX
+	ANDQ	R9, BX
+	ANDQ	64(SP), BX              // BX = (a & b) & m0
+	
+	// (a & ~b) & m1
+	MOVQ	R8, CX
+	ANDQ	DX, CX
+	ANDQ	72(SP), CX              // CX = (a & ~b) & m1
+	ORQ	CX, BX
+	
+	// (~a & b) & m2
+	MOVQ	AX, CX
+	ANDQ	R9, CX
+	ANDQ	80(SP), CX              // CX = (~a & b) & m2
+	ORQ	CX, BX
+	
+	// (~a & ~b) & m3
+	MOVQ	AX, CX
+	ANDQ	DX, CX
+	ANDQ	88(SP), CX              // CX = (~a & ~b) & m3
+	ORQ	CX, BX                  // BX = result
+	
+	MOVQ	R15, AX                 // dstStart
+	MOVQ	BX, (DI)(AX*8)          // v[dstStart] = result
+	
+	JMP	ub_advance_pc
 
 ub_done:
 	RET

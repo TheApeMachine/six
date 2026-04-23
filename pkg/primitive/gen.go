@@ -537,9 +537,11 @@ func writeProgramsTS(programs []compiledProgram) error {
 	fmt.Fprintf(&b, "export const INSTR_A_START_SHIFT   = %d;\n", program.InstrAStartShift)
 	fmt.Fprintf(&b, "export const INSTR_OPCODE_SHIFT    = %d;\n", program.InstrOpcodeShift)
 	fmt.Fprintf(&b, "export const INSTR_MODE_SHIFT      = %d;\n", program.InstrModeShift)
+	fmt.Fprintf(&b, "export const INSTR_IMM_SHIFT       = %d;\n", program.InstrImmShift)
 	fmt.Fprintf(&b, "export const INSTR_FIELD_MASK   = 0x%xn;\n", program.InstrFieldMask)
 	fmt.Fprintf(&b, "export const INSTR_OPCODE_MASK  = 0x%xn;\n", program.InstrOpcodeMask)
-	fmt.Fprintf(&b, "export const INSTR_MODE_MASK    = 0x%xn;\n\n", program.InstrModeMask)
+	fmt.Fprintf(&b, "export const INSTR_MODE_MASK    = 0x%xn;\n", program.InstrModeMask)
+	fmt.Fprintf(&b, "export const INSTR_IMM_MASK     = 0x%xn;\n\n", program.InstrImmMask)
 
 	b.WriteString("export interface DecodedInstruction {\n")
 	b.WriteString("\taStart: number;\n")
@@ -550,6 +552,7 @@ func writeProgramsTS(programs []compiledProgram) error {
 	b.WriteString("\tdstSpan: number;\n")
 	b.WriteString("\topcode: number;\n")
 	b.WriteString("\tmode: number;\n")
+	b.WriteString("\timm: number;\n")
 	b.WriteString("}\n\n")
 
 	b.WriteString("export interface ProgramSignature {\n")
@@ -565,10 +568,10 @@ func writeProgramsTS(programs []compiledProgram) error {
 	for _, p := range programs {
 		fmt.Fprintf(&b, "\t{\n\t\tname: %q,\n\t\tinstructions: [\n", p.name)
 		for _, w := range p.words {
-			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode := program.DecodeInstruction(w)
+			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, imm := program.DecodeInstruction(w)
 			fmt.Fprintf(&b,
-				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d },\n",
-				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode,
+				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, imm: %d },\n",
+				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, imm,
 			)
 		}
 		b.WriteString("\t\t],\n\t},\n")

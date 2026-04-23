@@ -61,8 +61,7 @@ func ensureMetalArena() error {
 Backend runs the unified bitwise Value kernel on Apple Silicon (shared memory).
 */
 type Backend struct {
-	idx      int
-	observer kernel.Observer
+	idx int
 }
 
 type backendOption func(*Backend)
@@ -72,31 +71,17 @@ NewBackend returns a Metal kernel Backend.
 */
 func NewBackend(idx int, opts ...backendOption) *Backend {
 	backend := &Backend{
-		idx:      idx,
-		observer: kernel.NoopObserver{},
+		idx: idx,
 	}
+
 	for _, opt := range opts {
 		opt(backend)
 	}
-	backend.observer = kernel.NormalizeObserver(backend.observer)
 
 	return backend
 }
 
-// BackendWithObserver injects a kernel observer used for optional trace/error
-// reporting. Pass nil to disable.
-func BackendWithObserver(observer kernel.Observer) backendOption {
-	return func(backend *Backend) {
-		backend.observer = kernel.NormalizeObserver(observer)
-	}
-}
-
-// SetObserver updates the backend observer at runtime.
-func (backend *Backend) SetObserver(observer kernel.Observer) {
-	backend.observer = kernel.NormalizeObserver(observer)
-}
-
-func (backend *Backend) Shutdown() {
+func (backend *Backend) Close() {
 	cleanupMetalPools()
 }
 
@@ -109,84 +94,13 @@ func Available() int {
 }
 
 /*
-Execute dispatches arena slot indices: the GPU runs the unified bitwise kernel
+UniversalBitwise dispatches arena slot indices: the GPU runs the unified bitwise kernel
 on each Value frame in-place.
 */
-func (backend *Backend) Execute(indices []uint32) error {
+func (backend *Backend) UniversalBitwise(optimizer *kernel.Optimizer) {
 	if !metalReady.Load() {
-		return NewMetalKernelError(
-			kernel.KernelErrUnavailable,
-			errors.New("metal backend not initialized"),
-			"Execute",
-		)
+		return
 	}
-
-	if len(indices) == 0 {
-		return nil
-	}
-
-	if err := ensureMetalArena(); err != nil {
-		return NewMetalKernelError(kernel.KernelErrInitFailed, err, "Execute")
-	}
-
-	if C.unified_bitwise_metal_indices(
-		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
-		C.uint32_t(len(indices)),
-	) != 0 {
-		err := NewMetalKernelError(
-			kernel.KernelErrDispatchFailed, nil, "Execute",
-		)
-		backend.observer.Error("metal.Backend.Execute", err)
-
-		return err
-	}
-
-	return nil
-}
-
-/*
-ExecutePointers resolves host pointers to arena indices when the storage
-backs the contiguous slab; stack-allocated test frames must use AllocValue
-and Execute([]uint32) instead.
-*/
-func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
-	indices, err := primitive.IndicesFromPointers(frames)
-	if err != nil {
-		return err
-	}
-
-	return backend.Execute(indices)
-}
-
-/*
-NearestAffinity computes Hamming distances from query to all candidates
-on the GPU and returns per-candidate distances. The caller reduces argmin.
-*/
-func (backend *Backend) NearestAffinity(
-	query unsafe.Pointer, candidates unsafe.Pointer, count int,
-) ([]uint32, error) {
-	if !metalReady.Load() {
-		return nil, NewMetalKernelError(
-			kernel.KernelErrUnavailable,
-			errors.New("metal backend not initialized"),
-			"NearestAffinity",
-		)
-	}
-
-	distances := make([]uint32, count)
-
-	if C.nearest_affinity_metal(
-		query,
-		candidates,
-		C.uint32_t(count),
-		(*C.uint32_t)(unsafe.Pointer(&distances[0])),
-	) != 0 {
-		return nil, NewMetalKernelError(
-			kernel.KernelErrDispatchFailed, nil, "NearestAffinity",
-		)
-	}
-
-	return distances, nil
 }
 
 func init() {
@@ -221,7 +135,7 @@ func init() {
 	defer C.free(unsafe.Pointer(cPath))
 
 	if res := C.init_metal(cPath); res != 0 {
-		reportInitError(NewMetalKernelError(kernel.KernelErrInitFailed, nil, "init_metal"))
+		reportInitError(errors.New("metal: init_metal failed"))
 
 		return
 	}
@@ -237,4 +151,3 @@ func reportInitError(err error) {
 }
 
 func (backend *Backend) Name() string { return "metal" }
-

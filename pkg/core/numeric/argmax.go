@@ -23,4 +23,3 @@ func ArgmaxStringFloat64(values map[string]float64) (bestKey string, bestValue f
 
 	return bestKey, bestValue
 }
-

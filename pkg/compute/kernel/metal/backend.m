@@ -203,13 +203,13 @@ int geometric_metal_indices(const uint32_t* indices, uint32_t count) {
     }
 }
 
-int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t count, uint32_t* distances_host) {
-    if (!pipelineNearestAffinity || !query_host || !candidates_host || !distances_host || count == 0) return -1;
+int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t count, uint64_t* best_packed_result) {
+    if (!pipelineNearestAffinity || !query_host || !candidates_host || !best_packed_result || count == 0) return -1;
 
     @autoreleasepool {
         NSUInteger qBytes    = AFFINITY_WORDS * sizeof(uint64_t);
         NSUInteger candBytes = (NSUInteger)count * qBytes;
-        NSUInteger distBytes = (NSUInteger)count * sizeof(uint32_t);
+        NSUInteger resBytes  = sizeof(uint64_t);
 
         id<MTLBuffer> bufQuery = [device newBufferWithBytes:query_host
                                                      length:qBytes
@@ -217,22 +217,25 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
         id<MTLBuffer> bufCand  = [device newBufferWithBytes:candidates_host
                                                      length:candBytes
                                                     options:MTLResourceStorageModeShared];
-        id<MTLBuffer> bufDist  = [device newBufferWithLength:distBytes
+        id<MTLBuffer> bufRes   = [device newBufferWithLength:resBytes
                                                      options:MTLResourceStorageModeShared];
 
-        if (!bufQuery || !bufCand || !bufDist) {
+        if (!bufQuery || !bufCand || !bufRes) {
             if (bufQuery) [bufQuery release];
             if (bufCand)  [bufCand release];
-            if (bufDist)  [bufDist release];
+            if (bufRes)   [bufRes release];
             return -2;
         }
+
+        // Initialize best_packed_result to 0
+        memset([bufRes contents], 0, resBytes);
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
         [enc setBuffer:bufCand  offset:0 atIndex:0];
         [enc setBuffer:bufQuery offset:0 atIndex:1];
-        [enc setBuffer:bufDist  offset:0 atIndex:2];
+        [enc setBuffer:bufRes   offset:0 atIndex:2];
 
         dispatchKernel(enc, pipelineNearestAffinity, count);
         [enc endEncoding];
@@ -240,12 +243,12 @@ int nearest_affinity_metal(void* query_host, void* candidates_host, uint32_t cou
         int r = commitAndWait(cb);
 
         if (r == 0) {
-            memcpy(distances_host, [bufDist contents], distBytes);
+            memcpy(best_packed_result, [bufRes contents], resBytes);
         }
 
         [bufQuery release];
         [bufCand release];
-        [bufDist release];
+        [bufRes release];
 
         return r;
     }

@@ -52,7 +52,41 @@ func UniversalBitwise(value unsafe.Pointer) {
 		aSpan := int((instr>>28)&0x7F) + 1
 		aStart := int((instr >> 35) & 0x7F)
 		op := (instr >> 42) & 0xF
-		mode := (instr >> 46) & 0x1
+		mode := (instr >> 46) & 0x3
+		imm := (instr >> 48) & 0xFFFF
+
+		if mode == 2 { // cmov
+			if v[bStart] != 0 {
+				for idx := 0; idx < dstSpan; idx++ {
+					srcIdx := aStart + (idx % aSpan)
+					v[dstStart+idx] = v[srcIdx]
+				}
+			}
+			continue
+		}
+
+		if mode == 3 { // imm
+			a := v[aStart]
+			b := imm
+			notA, notB := ^a, ^b
+
+			m0, m1, m2, m3 := uint64(0), uint64(0), uint64(0), uint64(0)
+			if op&0x1 != 0 {
+				m0 = ^uint64(0)
+			}
+			if op&0x2 != 0 {
+				m1 = ^uint64(0)
+			}
+			if op&0x4 != 0 {
+				m2 = ^uint64(0)
+			}
+			if op&0x8 != 0 {
+				m3 = ^uint64(0)
+			}
+
+			v[dstStart] = (a & b & m0) | (a & notB & m1) | (notA & b & m2) | (notA & notB & m3)
+			continue
+		}
 
 		// Broadcast the 4-bit opcode across 16 rotations (64 bits)
 		var opcodeTable uint64
@@ -125,4 +159,3 @@ func UniversalBitwise(value unsafe.Pointer) {
 		}
 	}
 }
-

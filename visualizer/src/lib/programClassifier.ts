@@ -229,6 +229,7 @@ function instructionsEqual(
 	return (
 		a.opcode === b.opcode &&
 		a.mode === b.mode &&
+		a.imm === b.imm &&
 		a.aStart === b.aStart &&
 		a.aSpan === b.aSpan &&
 		a.bStart === b.bStart &&

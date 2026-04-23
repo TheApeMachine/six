@@ -2,19 +2,13 @@
 
 package metal
 
-import (
-	"context"
-	"unsafe"
-
-	"github.com/theapemachine/six/pkg/compute/kernel"
-)
+import "github.com/theapemachine/six/pkg/compute/kernel"
 
 /*
 Backend is the stub for non-darwin builds.
 */
 type Backend struct {
-	idx      int
-	observer kernel.Observer
+	idx int
 }
 
 type backendOption func(*Backend)
@@ -24,27 +18,12 @@ NewBackend returns a stub Backend on non-darwin.
 */
 func NewBackend(idx int, opts ...backendOption) *Backend {
 	backend := &Backend{
-		idx:      idx,
-		observer: kernel.NoopObserver{},
+		idx: idx,
 	}
 	for _, opt := range opts {
 		opt(backend)
 	}
-	backend.observer = kernel.NormalizeObserver(backend.observer)
 	return backend
-}
-
-// BackendWithObserver injects a kernel observer used for optional trace/error
-// reporting. Pass nil to disable.
-func BackendWithObserver(observer kernel.Observer) backendOption {
-	return func(backend *Backend) {
-		backend.observer = kernel.NormalizeObserver(observer)
-	}
-}
-
-// SetObserver updates the backend observer at runtime.
-func (backend *Backend) SetObserver(observer kernel.Observer) {
-	backend.observer = kernel.NormalizeObserver(observer)
 }
 
 /*
@@ -54,19 +33,6 @@ func Available() int {
 	return 0
 }
 
-func (backend *Backend) Execute(indices []uint32) error {
-	return NewMetalKernelError(kernel.KernelErrUnavailable, nil, "Execute")
-}
-
-func (backend *Backend) NearestAffinity(
-	query unsafe.Pointer, candidates unsafe.Pointer, count int,
-) ([]uint32, error) {
-	return nil, NewMetalKernelError(kernel.KernelErrUnavailable, nil, "NearestAffinity")
-}
-
-func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
-	return job(context.Background())
-}
+func (backend *Backend) UniversalBitwise(optimizer *kernel.Optimizer) { return }
 
 func (backend *Backend) Name() string { return "metal" }
-

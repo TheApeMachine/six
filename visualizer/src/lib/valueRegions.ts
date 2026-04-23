@@ -31,6 +31,8 @@ import {
 	INSTR_DST_SPAN_SHIFT,
 	INSTR_DST_START_SHIFT,
 	INSTR_FIELD_MASK,
+	INSTR_IMM_MASK,
+	INSTR_IMM_SHIFT,
 	INSTR_MODE_MASK,
 	INSTR_MODE_SHIFT,
 	INSTR_OPCODE_MASK,
@@ -124,6 +126,7 @@ export function decodeInstructionWord(word: bigint): DecodedInstruction {
 		aStart: Number((word >> BigInt(INSTR_A_START_SHIFT)) & INSTR_FIELD_MASK),
 		opcode: Number((word >> BigInt(INSTR_OPCODE_SHIFT)) & INSTR_OPCODE_MASK),
 		mode: Number((word >> BigInt(INSTR_MODE_SHIFT)) & INSTR_MODE_MASK),
+		imm: Number((word >> BigInt(INSTR_IMM_SHIFT)) & INSTR_IMM_MASK),
 	};
 }
 

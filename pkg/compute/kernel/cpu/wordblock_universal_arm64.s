@@ -91,7 +91,16 @@ ub_pc_loop:
 	AND	$0xF, R12, R12          // R12 = opcode (temp)
 
 	LSR	$46, R2, R11
-	AND	$0x1, R11, R11          // R11 = mode
+	AND	$0x3, R11, R11          // R11 = mode
+
+	LSR	$48, R2, R10
+	MOVZ	$0xFFFF, R3
+	AND	R3, R10, R10            // R10 = imm (temp)
+
+	CMP	$2, R11
+	BEQ	do_cmov
+	CMP	$3, R11
+	BEQ	do_imm
 
 	// ---- build masks: m_i = -((opcode >> i) & 1) → 0 or all-ones ----
 	AND	$1, R12, R3
@@ -281,6 +290,77 @@ wb_pop_store:
 ub_advance_pc:
 	ADD	$8, R1, R1
 	JMP	ub_pc_loop
+
+do_cmov:
+	// mode 2: cmov
+	// if v[bStart] != 0: copy dstSpan words from v[aStart...] to v[dstStart...]
+	LSL	$3, R6, R3
+	ADD	R0, R3, R3
+	MOVD	(R3), R12               // R12 = v[bStart]
+	CBZ	R12, ub_advance_pc
+
+	MOVD	ZR, R10                 // idx = 0
+cmov_loop:
+	CMP	R5, R10
+	BGE	ub_advance_pc
+
+	// srcIdx = aStart + (idx % aSpan)
+	UDIV	R9, R10, R3             // R3 = idx / aSpan
+	MSUB	R3, R9, R10, R3         // R3 = idx - (idx / aSpan) * aSpan = idx % aSpan
+	ADD	R8, R3, R3              // R3 = aStart + (idx % aSpan)
+	
+	LSL	$3, R3, R3
+	ADD	R0, R3, R3
+	MOVD	(R3), R12               // R12 = v[srcIdx]
+	
+	ADD	R4, R10, R3             // R3 = dstStart + idx
+	LSL	$3, R3, R3
+	ADD	R0, R3, R3
+	MOVD	R12, (R3)               // v[dstStart+idx] = R12
+	
+	ADD	$1, R10, R10
+	JMP	cmov_loop
+
+do_imm:
+	// mode 3: imm
+	// a = v[aStart], b = imm
+	// result = (a & b & m0) | (a & ~b & m1) | (~a & b & m2) | (~a & ~b & m3)
+	// v[dstStart] = result
+	
+	LSL	$3, R8, R3
+	ADD	R0, R3, R3
+	MOVD	(R3), R12               // R12 = a
+	
+	// R10 is already imm
+	MOVD	R10, R13                // R13 = b
+	
+	MVN	R12, R14                // R14 = ~a
+	MVN	R13, R15                // R15 = ~b
+	
+	// (a & b) & m0
+	AND	R13, R12, R2
+	AND	R21, R2, R2             // R2 = (a & b) & m0
+	
+	// (a & ~b) & m1
+	AND	R15, R12, R3
+	AND	R22, R3, R3             // R3 = (a & ~b) & m1
+	ORR	R3, R2, R2
+	
+	// (~a & b) & m2
+	AND	R13, R14, R3
+	AND	R23, R3, R3             // R3 = (~a & b) & m2
+	ORR	R3, R2, R2
+	
+	// (~a & ~b) & m3
+	AND	R15, R14, R3
+	AND	R24, R3, R3             // R3 = (~a & ~b) & m3
+	ORR	R3, R2, R2              // R2 = result
+	
+	LSL	$3, R4, R3
+	ADD	R0, R3, R3
+	MOVD	R2, (R3)                // v[dstStart] = result
+	
+	JMP	ub_advance_pc
 
 ub_done:
 	RET

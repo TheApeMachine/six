@@ -3,10 +3,8 @@ package cpu
 import (
 	"context"
 	"runtime"
-	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type Backend struct {
@@ -43,46 +41,31 @@ func Available() int                  { return runtime.NumCPU() }
 func (backend *Backend) Name() string { return "cpu" }
 
 /*
-Execute resolves each pool index to its Value pointer and hands the raw
-1024-byte frame to UniversalBitwise. The kernel decodes the resident
-program region (a stream of packed 64-bit instructions) and applies it in
-place — there is no Go-side decoding, no per-frame argument extraction.
+UniversalBitwise runs the SIMD ALU pass on the given Optimizer frame.
 */
-func (backend *Backend) Execute(indices []uint32) error {
-	if len(indices) == 0 {
-		return nil
+func (backend *Backend) UniversalBitwise(frame *kernel.Optimizer) {
+	if frame == nil {
+		return
 	}
 
-	ptrs := make([]unsafe.Pointer, 0, len(indices))
+	for idx, op := range frame.OP {
+		aSlice := frame.A[idx]
+		bSlice := frame.B[idx]
+		dstSlice := frame.DST[idx]
 
-	for _, idx := range indices {
-		value := primitive.ValueAt(idx)
-		if value == nil {
-			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "Execute")
+		// If this instruction slot is empty, we're done
+		if len(aSlice) == 0 || len(bSlice) == 0 || len(dstSlice) == 0 {
+			break
 		}
 
-		ptrs = append(ptrs, unsafe.Pointer(&value[0]))
-	}
+		for i := range dstSlice {
+			a := aSlice[idx%len(aSlice)]
+			b := bSlice[idx%len(bSlice)]
 
-	return backend.ExecutePointers(ptrs)
-}
-
-/*
-ExecutePointers runs the CPU ALU on host pointers (heap Values and tests).
-*/
-func (backend *Backend) ExecutePointers(frames []unsafe.Pointer) error {
-	if len(frames) == 0 {
-		return nil
-	}
-
-	for _, ptr := range frames {
-		if ptr == nil {
-			return NewCPUKernelError(kernel.KernelErrNilPointer, nil, "ExecutePointers")
+			frame.RETURN[idx][i] ^= (a & b & (uint64(0) - (op & 1))) |
+				(a & ^b & (uint64(0) - ((op >> 1) & 1))) |
+				(^a & b & (uint64(0) - ((op >> 2) & 1))) |
+				(^a & ^b & (uint64(0) - ((op >> 3) & 1)))
 		}
-
-		UniversalBitwise(ptr)
 	}
-
-	return nil
 }
-

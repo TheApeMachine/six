@@ -25,8 +25,6 @@ type Collector struct {
 	cancel context.CancelFunc
 	err    error
 	rb     *ringbuffer.RingBuffer
-	pr     *ringbuffer.PipeReader
-	pw     *ringbuffer.PipeWriter
 	buf    chan *primitive.Value
 }
 
@@ -34,16 +32,14 @@ type Collector struct {
 // (e.g. core.Cfg.Value.Bytes).
 func NewCollector() *Collector {
 	ctx, cancel := context.WithCancel(context.Background())
-	rb := ringbuffer.New(core.Cfg.Value.Bytes * 64)
-	pr, pw := rb.Pipe()
 
 	return &Collector{
 		ctx:    ctx,
 		cancel: cancel,
-		rb:     rb,
-		pr:     pr,
-		pw:     pw,
-		buf:    make(chan *primitive.Value, 64),
+		rb: ringbuffer.New(
+			core.Cfg.Value.Bytes * 64,
+		).WithCancel(ctx),
+		buf: make(chan *primitive.Value, 64),
 	}
 }
 
@@ -73,7 +69,7 @@ func (collector *Collector) Read(p []byte) (n int, err error) {
 	case <-collector.ctx.Done():
 		return 0, collector.ctx.Err()
 	default:
-		return collector.pr.Read(p)
+		return collector.rb.Read(p)
 	}
 }
 
@@ -103,7 +99,7 @@ func (collector *Collector) Write(p []byte) (n int, err error) {
 			primitive.FreeValue(value)
 		}
 
-		return collector.pw.Write(p)
+		return collector.rb.Write(p)
 	}
 }
 
@@ -119,8 +115,8 @@ func (collector *Collector) Close() error {
 		collector.cancel()
 	}
 
-	if collector.pw != nil {
-		_ = collector.pw.Close()
+	if collector.rb != nil {
+		collector.rb.CloseWriter()
 	}
 
 	return collector.err
