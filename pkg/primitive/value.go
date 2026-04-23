@@ -426,13 +426,6 @@ func (value *Value) Write(p []byte) (int, error) {
 		(*tmpVal)[signalsStart:signalsStart+stageWords],
 	)
 
-	status, err := tmpVal.Property(STATUS)
-	if err != nil {
-		FreeValue(tmpVal)
-		return 0, err
-	}
-	value.Set(core.Cfg.Value.Region.Properties.Start+int(STATUS), status)
-
 	FreeValue(tmpVal)
 	return core.Cfg.Value.Bytes, nil
 }

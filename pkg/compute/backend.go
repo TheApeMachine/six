@@ -27,7 +27,6 @@ type Backend struct {
 	rb         *ringbuffer.RingBuffer
 	substrates []kernel.Substrate
 	pool       *pool.Pool
-	queue      *Queue
 	popped     atomic.Int64
 }
 
@@ -44,8 +43,8 @@ func NewBackend(ctx context.Context) *Backend {
 		rb:         ringbuffer.New(core.Cfg.Value.Bytes * 64),
 		substrates: make([]kernel.Substrate, 0),
 		pool:       pool.NewPool(uint64(runtime.NumCPU())),
-		queue:      NewQueue(ctx),
 	}
+	backend.rb.SetBlocking(true)
 
 	for device := 0; device < cuda.Available(); device++ {
 		backend.substrates = append(backend.substrates, cuda.NewBackend(device))
@@ -100,10 +99,6 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 				kernel.NewOptimizer(value, kernel.StrategyRotate),
 			)
 
-			if value.SchedulingNext() == 0 {
-				return
-			}
-
 			if _, err := backend.rb.Write(value.Bytes()); err != nil {
 				errnie.Error(err)
 			}
@@ -118,8 +113,8 @@ Close closes the Backend.
 */
 func (backend *Backend) Close() error {
 	errnie.Trace("compute.Backend.Close")
-
-	return backend.queue.Close()
+	backend.cancel()
+	return nil
 }
 
 /*

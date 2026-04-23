@@ -38,7 +38,7 @@ type FirmwareType string
 const (
 	LINK               FirmwareType = "link"
 	AFFINITY           FirmwareType = "affinity"
-	FOLD_SUBSTRATE     FirmwareType = "fold_substrate"
+	FOLD_SUBSTRATE     FirmwareType = "structural_component"
 	POPCOUNT           FirmwareType = "popcount"
 	COUPLING           FirmwareType = "coupling"
 	BEAM               FirmwareType = "beam"

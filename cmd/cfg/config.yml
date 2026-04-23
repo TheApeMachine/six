@@ -161,6 +161,8 @@ programs:
   # the moment where the longest zero-run or one-run is found.
   structural_component: |
     tokens[0,8] tokens[8,8] signals[0,8] xor accumulate
+    properties[0,1] 5 properties[5,1] b imm
+    properties[0,1] 3 properties[10,1] b imm
 
   # Popcount of the whole Affinity region into its Fermat tail word. This
   # is the saturation witness: when the XOR fold leaves affinity near 47%
@@ -402,21 +404,21 @@ programs:
     # If peerLabel is still != 0, adopt it
     asset[24,1] asset[24,1] properties[0,1] false cmov
     
-    # 2. If hostLabel != 0 AND ROLE == Prompt (1), promote to Readout
+    # 2. If hostLabel != 0 AND ROLE == Prompt (5), promote to Readout
     # signals[1] = hostLabel
     properties[0,1] 0 signals[1,1] a imm
-    # signals[2] = ROLE ^ 1 (0 if Prompt)
-    properties[10,1] 1 signals[2,1] xor imm
-    # If ROLE != 1, zero out signals[1]
+    # signals[2] = ROLE ^ 5 (0 if Prompt)
+    properties[10,1] 5 signals[2,1] xor imm
+    # If ROLE != 5, zero out signals[1]
     signals[0,1] signals[2,1] signals[1,1] false cmov
     
-    # Now signals[1] is non-zero ONLY IF (hostLabel != 0 AND ROLE == 1)
+    # Now signals[1] is non-zero ONLY IF (hostLabel != 0 AND ROLE == 5)
     # Prepare constants and conditionally apply them
-    properties[0,1] 5 signals[3,1] b imm
-    signals[3,1] signals[1,1] properties[10,1] false cmov # ROLE = 5 (Readout)
-    
     properties[0,1] 3 signals[3,1] b imm
-    signals[3,1] signals[1,1] properties[5,1] false cmov # STATUS = 3 (RESOLVED)
+    signals[3,1] signals[1,1] properties[10,1] false cmov # ROLE = 3 (Readout)
+    
+    properties[0,1] 5 signals[3,1] b imm
+    signals[3,1] signals[1,1] properties[5,1] false cmov # STATUS = 5 (RESOLVED)
     
     properties[0,1] 1 signals[3,1] b imm
     signals[3,1] signals[1,1] properties[12,1] false cmov # EMIT = 1

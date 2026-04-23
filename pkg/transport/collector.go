@@ -99,7 +99,7 @@ func (collector *Collector) Write(p []byte) (n int, err error) {
 			primitive.FreeValue(value)
 		}
 
-		return collector.rb.Write(p)
+		return len(p), nil
 	}
 }
 
