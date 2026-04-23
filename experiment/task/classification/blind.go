@@ -2,14 +2,13 @@ package classification
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -45,7 +44,9 @@ func NewBlindClassificationExperiment() *BlindClassificationExperiment {
 			// ag_news raw label range is [1, 4]; declare 1-indexed origin
 			// so dataset.LabelForSample returns a 0-indexed offset that
 			// matches agNewsLabels without any guesswork.
-			huggingface.DatasetWithLabelOrigin(1),
+			// We MUST NOT map these to 0-3 because 0 is the "unlabeled" slot in the substrate!
+			// We keep the original 1-based labels.
+			// huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
@@ -102,11 +103,18 @@ func (experiment *BlindClassificationExperiment) HoldoutForPrompt(idx int) ([]by
 }
 
 func (experiment *BlindClassificationExperiment) AddResult(results tools.ExperimentalData) {
+	if len(results.Resolved) > 0 {
+		value := results.Resolved[0]
+		labelWord, err := value.Property(primitive.LABELS)
+		if err == nil && labelWord > 0 {
+			if int(labelWord-1) < len(experiment.ClassLabels()) {
+				// We map it back to 0-indexed for the PredLabel so tools.Evaluator handles it correctly.
+				results.PredLabel = tools.OptionalLabel(int(labelWord - 1))
+			}
+		}
+	}
+
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
-		// LabelForSample is now always 0-indexed (see DatasetWithLabelOrigin
-		// above). The previous normalizeClassificationLabelIndex helper
-		// guessed indexing from the value itself, which silently shifted
-		// every ag_news label by one.
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
 			if label >= 0 && label < len(experiment.ClassLabels()) {
 				results.TrueLabel = tools.OptionalLabel(label)
@@ -114,24 +122,9 @@ func (experiment *BlindClassificationExperiment) AddResult(results tools.Experim
 		}
 	}
 
-	if results.PredLabel == nil && len(results.Classification) > 0 {
-		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
-
-		if idx, err := strconv.Atoi(normalizedClass); err == nil {
-			if idx >= 0 && idx < len(experiment.ClassLabels()) {
-				results.PredLabel = tools.OptionalLabel(idx)
-			}
-		} else {
-			for i, label := range experiment.ClassLabels() {
-				if normalizedClass == label {
-					results.PredLabel = tools.OptionalLabel(i)
-					break
-				}
-			}
-		}
+	if results.PredLabel != nil {
+		experiment.evaluator.Enrich(&results)
 	}
-
-	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -245,4 +238,3 @@ and category words.  Scaling ingestion volume or enriching the corpus with
 category-adjacent vocabulary may improve attractor formation.`
 	}
 }
-

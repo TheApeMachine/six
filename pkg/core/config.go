@@ -49,6 +49,7 @@ const (
 	HUB                FirmwareType = "hub"
 	UNSUPERVISED_LEARN FirmwareType = "unsupervised_learn"
 	VOTE_SWARM         FirmwareType = "vote_swarm"
+	SURVEY_COMMUNITY   FirmwareType = "survey_community"
 	MEASURE_FIELD      FirmwareType = "measure_field"
 	CLASSIFY_READOUT   FirmwareType = "classify_readout"
 	EPISODIC_REPLAY    FirmwareType = "episodic_replay"

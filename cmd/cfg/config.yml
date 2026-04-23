@@ -318,6 +318,24 @@ programs:
     context[0,8] asset[8,8]   signals[0,8]    xor accumulate
     signals[0,8] signals[0,8] properties[1,1] or  reduce
 
+  # Tally a community of labels by shifting incoming labels,
+  # tracking them in context[0,8], and performing a CSA tally.
+  survey_community: |
+    context[6,1] 0 context[7,1] a imm
+    context[5,1] 0 context[6,1] a imm
+    context[4,1] 0 context[5,1] a imm
+    context[3,1] 0 context[4,1] a imm
+    context[2,1] 0 context[3,1] a imm
+    context[1,1] 0 context[2,1] a imm
+    context[0,1] 0 context[1,1] a imm
+    asset[24,1] 0 context[0,1] a imm
+    context[0,8] asset[0,1] properties[0,1] or tally
+    properties[0,1] 5 signals[0,1] b imm
+    properties[0,1] 0 signals[1,1] b imm
+    signals[0,1] properties[0,1] properties[5,1] false cmov
+    signals[1,1] properties[0,1] asset[45,1] false cmov
+    next self
+
   # Community label-energy fingerprint: the orchestrator stages up to 8
   # community member label words (w48) into asset[0,8] before dispatch.
   # The OR sweep produces a 64-byte LSH signature; reduce writes its

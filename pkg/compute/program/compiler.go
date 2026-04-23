@@ -55,12 +55,12 @@ const (
 	InstrAStartShift   = 35
 	InstrOpcodeShift   = 42
 	InstrModeShift     = 46
-	InstrImmShift      = 48
+	InstrImmShift      = 49
 
 	InstrFieldMask  uint64 = 0x7F
 	InstrOpcodeMask uint64 = 0xF
-	InstrModeMask   uint64 = 0x3
-	InstrImmMask    uint64 = 0xFFFF
+	InstrModeMask   uint64 = 0x7
+	InstrImmMask    uint64 = 0x7FFF
 )
 
 const (
@@ -68,6 +68,7 @@ const (
 	ModeReduce     uint64 = 1
 	ModeCmov       uint64 = 2
 	ModeImm        uint64 = 3
+	ModeTally      uint64 = 4
 )
 
 // SelfSentinel marks a `next self` continuation in Compiled.SchedulingNext
@@ -205,8 +206,10 @@ func parseOpLine(fields []string, lay Layout) (uint64, error) {
 		mode = ModeCmov
 	case "imm":
 		mode = ModeImm
+	case "tally":
+		mode = ModeTally
 	default:
-		return 0, fmt.Errorf("unknown mode %q (want `accumulate`, `reduce`, `cmov`, or `imm`)", fields[4])
+		return 0, fmt.Errorf("unknown mode %q (want `accumulate`, `reduce`, `cmov`, `imm`, or `tally`)", fields[4])
 	}
 
 	aStart, aSpan, err := parseRegionRef(fields[0], lay)

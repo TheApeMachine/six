@@ -24,6 +24,8 @@ type Optimizer struct {
 	B        [][]uint64
 	DST      [][]uint64
 	OP       []uint64
+	MODE     []uint64
+	IMM      []uint64
 	RETURN   [][]uint64
 	strategy Strategy
 	value    *primitive.Value
@@ -40,6 +42,8 @@ func NewOptimizer(
 		B:        make([][]uint64, 16),
 		DST:      make([][]uint64, 16),
 		OP:       make([]uint64, 16),
+		MODE:     make([]uint64, 16),
+		IMM:      make([]uint64, 16),
 		RETURN:   make([][]uint64, 16),
 		value:    value,
 		strategy: strategy,
@@ -92,10 +96,12 @@ func (optimizer *Optimizer) Frame() *Optimizer {
 		}
 
 		// Decode the instruction to get the addresses
-		aStart, aSpan, bStart, bSpan, dstStart, dstSpan, op, _, _ := program.DecodeInstruction(instr)
+		aStart, aSpan, bStart, bSpan, dstStart, dstSpan, op, mode, imm := program.DecodeInstruction(instr)
 		optimizer.RETURN[i] = make([]uint64, dstSpan)
 
 		optimizer.OP[i] = op
+		optimizer.MODE[i] = mode
+		optimizer.IMM[i] = imm
 
 		// Extract the actual data slices from the Value frame
 		optimizer.A[i] = fullFrame[aStart : aStart+aSpan]

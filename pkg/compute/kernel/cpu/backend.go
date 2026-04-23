@@ -5,6 +5,7 @@ import (
 	"runtime"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	pospop "github.com/theapemachine/six/pkg/compute/kernel/cpu/csa"
 )
 
 type Backend struct {
@@ -58,6 +59,57 @@ func (backend *Backend) UniversalBitwise(frame *kernel.Optimizer) {
 			break
 		}
 
+		mode := frame.MODE[idx]
+		imm := frame.IMM[idx]
+
+		if mode == 2 { // cmov
+			if bSlice[0] != 0 {
+				for i := range dstSlice {
+					dstSlice[i] = aSlice[i%len(aSlice)]
+				}
+			}
+			continue
+		}
+
+		if mode == 3 { // imm
+			a := aSlice[0]
+			b := imm
+			notA, notB := ^a, ^b
+
+			m0, m1, m2, m3 := uint64(0), uint64(0), uint64(0), uint64(0)
+			if op&0x1 != 0 {
+				m0 = ^uint64(0)
+			}
+			if op&0x2 != 0 {
+				m1 = ^uint64(0)
+			}
+			if op&0x4 != 0 {
+				m2 = ^uint64(0)
+			}
+			if op&0x8 != 0 {
+				m3 = ^uint64(0)
+			}
+
+			dstSlice[0] = (a & b & m0) | (a & notB & m1) | (notA & b & m2) | (notA & notB & m3)
+			continue
+		}
+
+		if mode == 4 { // tally
+			var counts [64]int
+			pospop.Count64(&counts, aSlice)
+
+			var winner uint64
+			threshold := len(aSlice) / 2
+			for i := 0; i < 64; i++ {
+				if counts[i] > threshold {
+					winner |= (1 << i)
+				}
+			}
+
+			dstSlice[0] = winner
+			continue
+		}
+
 		for i := range dstSlice {
 			a := aSlice[idx%len(aSlice)]
 			b := bSlice[idx%len(bSlice)]
@@ -66,6 +118,11 @@ func (backend *Backend) UniversalBitwise(frame *kernel.Optimizer) {
 				(a & ^b & (uint64(0) - ((op >> 1) & 1))) |
 				(^a & b & (uint64(0) - ((op >> 2) & 1))) |
 				(^a & ^b & (uint64(0) - ((op >> 3) & 1)))
+
+			// Accumulate mode (0) writes back to DST
+			if mode == 0 {
+				dstSlice[i] ^= frame.RETURN[idx][i]
+			}
 		}
 	}
 }

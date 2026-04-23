@@ -2,14 +2,13 @@ package classification
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 var _ tools.HoldoutProvider = (*TextClassificationExperiment)(nil)
@@ -53,7 +52,9 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			// 4=Sci/Tech). Declare the origin so the streaming layer
 			// normalizes to [0, 3] internally and TrueLabel ends up
 			// referring to the same offsets agNewsLabels uses.
-			huggingface.DatasetWithLabelOrigin(1),
+			// We MUST NOT map these to 0-3 because 0 is the "unlabeled" slot in the substrate!
+			// We keep the original 1-based labels.
+			// huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
@@ -113,37 +114,27 @@ func (experiment *TextClassificationExperiment) HoldoutForPrompt(idx int) ([]byt
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
+	if len(results.Resolved) > 0 {
+		value := results.Resolved[0]
+		labelWord, err := value.Property(primitive.LABELS)
+		if err == nil && labelWord > 0 {
+			if int(labelWord-1) < len(experiment.ClassLabels()) {
+				// We map it back to 0-indexed for the PredLabel so tools.Evaluator handles it correctly.
+				// Since substrate uses 1-indexed, substrate label 1 means agNewsLabels[0] ("world").
+				results.PredLabel = tools.OptionalLabel(int(labelWord - 1))
+			}
+		}
+	}
+
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
-		// LabelForSample now returns the already-normalized 0-indexed
-		// class id (huggingface.Dataset.streamRows subtracts labelOrigin
-		// at read time). The previous heuristic normalizer guessed the
-		// indexing convention from the value itself which silently
-		// shifted ag_news labels by one for any [1, 3] sample.
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
 			if label >= 0 && label < len(experiment.ClassLabels()) {
-				results.TrueLabel = tools.OptionalLabel(label)
+				results.TrueLabel = new(label)
 			}
 		}
 	}
 
-	if results.PredLabel == nil && len(results.Classification) > 0 {
-		normalizedClass := strings.ToLower(strings.TrimSpace(string(results.Classification)))
-
-		if idx, err := strconv.Atoi(normalizedClass); err == nil {
-			if idx >= 0 && idx < len(experiment.ClassLabels()) {
-				results.PredLabel = tools.OptionalLabel(idx)
-			}
-		} else {
-			for i, label := range experiment.ClassLabels() {
-				if strings.Contains(normalizedClass, label) {
-					results.PredLabel = tools.OptionalLabel(i)
-					break
-				}
-			}
-		}
-	}
-
-	if results.PredLabel != nil && len(results.Classification) > 0 {
+	if results.PredLabel != nil {
 		experiment.evaluator.Enrich(&results)
 	} else {
 		results.Scores = tools.Scores{}
@@ -154,6 +145,16 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 	experiment.tableData = append(experiment.tableData, results)
 }
 
+func (experiment *TextClassificationExperiment) LabelForPrompt(idx int) []byte {
+	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
+		if label, ok := dataset.LabelForSample(uint32(idx)); ok {
+			return []byte(experiment.ClassLabels()[label])
+		}
+	}
+
+	return nil
+}
+
 func (experiment *TextClassificationExperiment) ensurePredictions() {
 	if experiment.predictionsComputed {
 		return
@@ -162,7 +163,7 @@ func (experiment *TextClassificationExperiment) ensurePredictions() {
 	for idx := range experiment.tableData {
 		row := &experiment.tableData[idx]
 
-		if row.PredLabel != nil && len(row.Classification) > 0 {
+		if row.PredLabel != nil {
 			experiment.evaluator.Enrich(row)
 		} else {
 			row.Scores = tools.Scores{}
@@ -181,7 +182,7 @@ func (experiment *TextClassificationExperiment) ComputePredictions() {
 	for idx := range experiment.tableData {
 		row := &experiment.tableData[idx]
 
-		if row.PredLabel != nil && len(row.Classification) > 0 {
+		if row.PredLabel != nil {
 			experiment.evaluator.Enrich(row)
 		} else {
 			row.Scores = tools.Scores{}
@@ -304,4 +305,3 @@ four AG News categories reliably.  Scaling the ingestion volume is expected
 to improve per-class disambiguation.`, n)
 	}
 }
-

@@ -1,0 +1,48 @@
+\begin{table}[htbp]
+\centering
+\caption{Compression — standardised result summary (N=50).}
+\label{tab:compression_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+16 &  & 0.0000 & 0.0312 & 0.0156 & 0.0114 \\
+1 &  & 0.0000 & 0.0312 & 0.0156 & 0.0114 \\
+2 &  & 0.0000 & 0.0312 & 0.0156 & 0.0114 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+49 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+48 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+47 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\textasciitilde{}(-hP<epR|cG)\%LCIPa05:``iDzh\textbackslash\{\}ar'}} & \multicolumn{2}{l}{\texttt{,=2tYs\{W\_;(eh0=]1l1>4\textbackslash\{\}n\#\textbackslash\{\}Sx>\textbackslash\{\},ntxo9nEqd7\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{>qLKmI1TY\textbackslash\{\}1?Cz?uKBb9O8H!k]7V(0iM}} & \multicolumn{2}{l}{\texttt{Tq|T1HC"GH(YRU-W@pIr<\_?I*([\$iXAHm2\$pTb[1\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{(wb6wNR)VE":`a'f(Tc5kJ//\$45g\textasciitilde{}H0Z}} & \multicolumn{2}{l}{\texttt{8V5\&n\}[1@xWR9\textasciitilde{}wOIqR|QK[:\#281:jOF|w"N?Z?x\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{\textbackslash\{\}\%F\#Nw*\#Ge4y?Z\$R.+Wf==\&V7KEvY`8e}} & \multicolumn{2}{l}{\texttt{h\^{}.1-AIMPk`6E@Mrexc\textasciitilde{}X5>+g)R 1=o)|mAP\{lqn\ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 50} & \multicolumn{3}{l}{Holdout: } \\
+\multicolumn{3}{l}{Mean score: 0.0036} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0114} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{19.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{23.0 ms} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{463µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{42.0 ms}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"io"
+	"sync"
 	"sync/atomic"
 
 	"github.com/smallnest/ringbuffer"
@@ -39,7 +40,7 @@ type Field struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	err     error
-	values  []*primitive.Value
+	values  sync.Map
 	rb      *ringbuffer.RingBuffer
 	id      uint64
 	modulus uint32
@@ -62,7 +63,7 @@ func NewField(
 	field := &Field{
 		ctx:     ctx,
 		cancel:  cancel,
-		values:  make([]*primitive.Value, 0),
+		values:  sync.Map{},
 		id:      fieldIDSeq.Add(1),
 		modulus: modulus,
 		fields:  make([]*Field, 0),
@@ -109,11 +110,12 @@ func (field *Field) Read(p []byte) (n int, err error) {
 	case <-field.ctx.Done():
 		return 0, io.EOF
 	default:
-		readers := make([]io.Reader, 0, len(field.values))
+		readers := make([]io.Reader, 0)
 
-		for _, value := range field.values {
-			readers = append(readers, value)
-		}
+		field.values.Range(func(key, value any) bool {
+			readers = append(readers, value.(io.Reader))
+			return true
+		})
 
 		return io.MultiReader(readers...).Read(p)
 	}
@@ -151,13 +153,25 @@ func (field *Field) Write(p []byte) (n int, err error) {
 		return 0, io.EOF
 	default:
 		value := primitive.AllocValue()
-		defer value.Close()
 
 		if err := value.LoadFullFrame(p); err != nil {
+			primitive.FreeValue(value)
 			return 0, errnie.Error(err)
 		}
 
-		field.values = append(field.values, value)
+		// Check if the value has a COMMUNITY property, and if it does,
+		// check if it is a resident of this field.
+		community, err := value.Property(primitive.COMMUNITY)
+
+		if err != nil {
+			primitive.FreeValue(value)
+			return 0, errnie.Error(err)
+		}
+
+		if community == field.id {
+			field.values.Swap(value.ID(), value)
+		}
+
 		return len(p), nil
 	}
 }

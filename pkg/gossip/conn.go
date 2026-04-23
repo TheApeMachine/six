@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -28,7 +29,6 @@ type Conn struct {
 	err        error
 	components []io.ReadWriteCloser
 	backend    *compute.Backend
-	telemetry  *telemetry.Bridge
 }
 
 /*
@@ -43,11 +43,13 @@ func NewConn(
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &Conn{
-		ctx:        ctx,
-		cancel:     cancel,
-		components: make([]io.ReadWriteCloser, 0),
-		backend:    backend,
-		telemetry:  telemetry,
+		ctx:    ctx,
+		cancel: cancel,
+		components: []io.ReadWriteCloser{
+			backend,
+			telemetry,
+		},
+		backend: backend,
 	}, nil
 }
 
@@ -64,21 +66,26 @@ func (conn *Conn) Fold() {
 		return
 	}
 
-	readers := make([]io.Reader, 0, len(conn.components))
-	writers := make([]io.Writer, 0, len(conn.components))
+	readers := make([]io.Reader, 0)
+	writers := make([]io.Writer, 0)
 
 	for _, component := range conn.components {
-		readers = append(readers, component)
-		writers = append(writers, component)
+		if reader, ok := component.(io.Reader); ok {
+			readers = append(readers, reader)
+		}
+
+		if writer, ok := component.(io.Writer); ok {
+			writers = append(writers, writer)
+		}
 	}
 
-	// We want to read one frame from each reader and write it to all writers.
-	buf := make([]byte, core.Cfg.Value.Bytes)
-	for _, reader := range readers {
-		// Try to read a frame non-blocking if possible, or just read
-		// Actually, if we just read, it might block.
-		// Let's use a goroutine or assume the reader has a TryRead.
-		// For now, let's just skip the blocking Fold and handle communication in the orchestrator.
+	if _, err := ringbuffer.New(
+		core.Cfg.Value.Bytes*64,
+	).WithCancel(conn.ctx).Copy(
+		io.MultiWriter(writers...),
+		io.MultiReader(readers...),
+	); err != nil {
+		errnie.Error(err)
 	}
 }
 
@@ -91,8 +98,8 @@ func (conn *Conn) Read(p []byte) (int, error) {
 func (conn *Conn) Write(p []byte) (int, error) {
 	errnie.Trace("gossip.Conn.Write")
 
-	writers := make([]io.Writer, 0, len(conn.components)+2)
-	writers = append(writers, conn.backend, conn.telemetry)
+	writers := make([]io.Writer, 0)
+
 	for _, component := range conn.components {
 		writers = append(writers, component)
 	}

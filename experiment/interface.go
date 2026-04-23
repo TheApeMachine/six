@@ -118,6 +118,7 @@ type PipelineExperiment interface {
 	Dataset() data.Provider
 	Prompts() []string
 	HoldoutForPrompt(idx int) ([]byte, bool)
+	LabelForPrompt(idx int) []byte
 	AddResult(ExperimentalData)
 	Outcome() (any, Assertion, any)
 	OutcomeForPrompt(idx int) (any, Assertion, any)
@@ -309,4 +310,3 @@ func OptionalLabel(label int) *int {
 func Slugify(name string) string {
 	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }
-

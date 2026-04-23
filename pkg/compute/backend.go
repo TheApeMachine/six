@@ -37,14 +37,15 @@ func NewBackend(ctx context.Context) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	backend := &Backend{
-		ctx:        ctx,
-		cancel:     cancel,
-		err:        nil,
-		rb:         ringbuffer.New(core.Cfg.Value.Bytes * 64),
+		ctx:    ctx,
+		cancel: cancel,
+		err:    nil,
+		rb: ringbuffer.New(
+			core.Cfg.Value.Bytes * 64,
+		).WithCancel(ctx),
 		substrates: make([]kernel.Substrate, 0),
 		pool:       pool.NewPool(uint64(runtime.NumCPU())),
 	}
-	backend.rb.SetBlocking(true)
 
 	for device := 0; device < cuda.Available(); device++ {
 		backend.substrates = append(backend.substrates, cuda.NewBackend(device))
@@ -95,9 +96,9 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 		backend.pool.Schedule(func() {
 			defer primitive.FreeValue(value)
 
-			backend.substrates[len(backend.substrates)-1].UniversalBitwise(
-				kernel.NewOptimizer(value, kernel.StrategyRotate),
-			)
+			opt := kernel.NewOptimizer(value, kernel.StrategyRotate).Frame()
+			backend.substrates[len(backend.substrates)-1].UniversalBitwise(opt)
+			opt.Value() // Reconciles RETURN
 
 			if _, err := backend.rb.Write(value.Bytes()); err != nil {
 				errnie.Error(err)

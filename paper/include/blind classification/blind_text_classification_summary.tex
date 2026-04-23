@@ -1,0 +1,48 @@
+\begin{table}[htbp]
+\centering
+\caption{Blind Text Classification — standardised result summary (N=100).}
+\label{tab:blind_text_classification_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+34 &  & 0.0000 & 1.0000 & 0.0164 & 0.2757 \\
+79 &  & 0.0000 & 1.0000 & 0.0156 & 0.2756 \\
+76 &  & 0.0000 & 1.0000 & 0.0156 & 0.2756 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+99 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+98 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+97 &  & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{1}} & \multicolumn{2}{l}{\texttt{mputing giant plans to have its biggest \ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{1}} & \multicolumn{2}{l}{\texttt{UN launches 210-million-dollar appeal fo\ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{3}} & \multicolumn{2}{l}{\texttt{ence by raising monthly phone bills for \ldots}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{1}} & \multicolumn{2}{l}{\texttt{Kmart Swings to Profit in 2Q; Stock Surg\ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: } \\
+\multicolumn{3}{l}{Mean score: 0.0110} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.2757} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{79.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{971.0 ms} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{9.0 ms} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.05 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

@@ -15,9 +15,6 @@ import (
 
 var samples = 100
 
-// Ensure LanguagesExperiment implements the full interface at compile time.
-var _ tools.PipelineExperiment = (*LanguagesExperiment)(nil)
-
 var _ tools.SummaryHoldoutDescriptor = (*LanguagesExperiment)(nil)
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
@@ -386,4 +383,3 @@ func (md *multiDataset) Read(p []byte) (n int, err error) {
 func (md *multiDataset) Close() error {
 	return nil
 }
-

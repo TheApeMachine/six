@@ -169,9 +169,10 @@ func (bridge *Bridge) Write(p []byte) (int, error) {
 	select {
 	case <-bridge.ctx.Done():
 		return 0, bridge.ctx.Err()
-
 	case bridge.send <- buf:
+		return len(p), nil
+	default:
+		// Drop the telemetry frame if the buffer is full (e.g. no connection)
 		return len(p), nil
 	}
 }
-

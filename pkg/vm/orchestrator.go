@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/gossip"
+	"github.com/theapemachine/six/pkg/mesh"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/transport"
@@ -33,6 +34,7 @@ type Orchestrator struct {
 	backend   *compute.Backend
 	telemetry *telemetry.Bridge
 	output    *transport.Collector
+	field     *mesh.Field
 }
 
 /*
@@ -47,7 +49,6 @@ func NewOrchestrator(
 
 	output := transport.NewCollector()
 	backend := compute.NewBackend(ctx)
-
 	conn, err := gossip.NewConn(ctx, backend, telemetry)
 
 	if err != nil {
@@ -62,6 +63,7 @@ func NewOrchestrator(
 		backend:   backend,
 		telemetry: telemetry,
 		output:    output,
+		field:     mesh.NewField(ctx, 65537),
 	}
 
 	if err := validate.Require(map[string]any{
@@ -136,47 +138,44 @@ func (orchestrator *Orchestrator) Cycle(
 		}
 	}
 
-	orchestrator.conn.Update(orchestrator.output)
+	orchestrator.conn.Update(orchestrator.field)
 
 	if _, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
 		orchestrator.conn, io.MultiReader(rwcs...),
 	); err != nil {
-		return nil, errnie.Error(err)
+		errnie.Error(err)
 	}
 
 	for {
 		select {
 		case <-orchestrator.ctx.Done():
 			return nil, orchestrator.ctx.Err()
-		default:
-			errnie.Trace("orchestrator.Cycle: entering loop")
-			var nn int64
+		case value := <-orchestrator.output.Next(core.Cfg.Value.Bytes):
+			if value == nil {
+				continue
+			}
 
-			if nn, err = ringbuffer.New(core.Cfg.Value.Bytes).Copy(
-				orchestrator.conn, orchestrator.conn,
+			// We intercept RESOLVED values directly from the output stream.
+			status, _ := value.Property(primitive.STATUS)
+
+			if status == uint64(primitive.RESOLVED) {
+				resolved = append(resolved, value)
+			}
+		default:
+			if _, err = ringbuffer.New(
+				core.Cfg.Value.Bytes*64,
+			).WithCancel(orchestrator.ctx).Copy(
+				orchestrator.output, orchestrator.conn,
 			); err != nil {
 				return nil, errnie.Error(err)
 			}
 
-			if nn == 0 {
-				return resolved, nil
-			}
-
-			recycle := false
-
-			for !recycle {
-				select {
-				case <-orchestrator.ctx.Done():
-					return nil, orchestrator.ctx.Err()
-				case value := <-orchestrator.output.Next(core.Cfg.Value.Bytes):
-					resolved = append(resolved, value)
-				default:
-					if len(resolved) > 0 {
-						return resolved, nil
-					}
-
-					recycle = true
-				}
+			if _, err = ringbuffer.New(
+				core.Cfg.Value.Bytes*64,
+			).WithCancel(orchestrator.ctx).Copy(
+				orchestrator.conn, orchestrator.output,
+			); err != nil {
+				return nil, errnie.Error(err)
 			}
 		}
 	}
