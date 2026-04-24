@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"math/bits"
 	"math/rand"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -31,6 +32,7 @@ type Machine struct {
 	community []*primitive.Value
 
 	communitySeeds map[uint64][primitive.AffinityWords]uint64
+	communityFolds map[uint64][primitive.AffinityWords]uint64
 	nextCommunity  uint64
 }
 
@@ -54,6 +56,7 @@ func NewMachine(
 		telemetry:      bridge,
 		backend:        compute.NewBackend(ctx),
 		communitySeeds: make(map[uint64][primitive.AffinityWords]uint64),
+		communityFolds: make(map[uint64][primitive.AffinityWords]uint64),
 		nextCommunity:  1,
 	}
 
@@ -159,17 +162,43 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 					
 					var cID uint64
 					if bestCID != 0 && bestDist <= core.Cfg.System.RouteBudget {
-						cID = bestCID
+						// Found a community within budget.
+						// Now check if it has reached the Shannon Limit (saturation via XOR fold).
+						fold := machine.communityFolds[bestCID]
+						
+						// Compute XOR fold with the new value's affinity
+						var newFold [primitive.AffinityWords]uint64
+						popcount := 0
+						for i := 0; i < primitive.AffinityWords; i++ {
+							newFold[i] = fold[i] ^ aff[i]
+							popcount += bits.OnesCount64(newFold[i])
+						}
+						
+						// The affinity region is 257 bits.
+						saturation := float64(popcount) / 257.0
+						
+						if saturation >= core.Cfg.System.ShannonLimit {
+							// Saturated: spawn new community
+							cID = machine.nextCommunity
+							machine.nextCommunity++
+							machine.communitySeeds[cID] = aff
+							machine.communityFolds[cID] = aff
+						} else {
+							// Join existing and update fold
+							cID = bestCID
+							machine.communityFolds[cID] = newFold
+						}
 					} else {
 						// Spawn new community
 						cID = machine.nextCommunity
 						machine.nextCommunity++
 						machine.communitySeeds[cID] = aff
+						machine.communityFolds[cID] = aff
 					}
-					
+
 					value.SetProperty(primitive.COMMUNITY, cID)
 				}
-				
+
 				cID, _ := value.Property(primitive.COMMUNITY)
 				communities[cID] = append(communities[cID], value)
 			}
