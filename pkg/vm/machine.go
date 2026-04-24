@@ -126,50 +126,71 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 		case <-machine.ctx.Done():
 			return nil, machine.ctx.Err()
 		default:
-			// 1. Scheduler: Build the active queue based on Continuation
-			active := make([]*primitive.Value, 0, len(machine.community))
+			// 0. Route Values into Community Fields based on Affinity
+			communities := make(map[uint64][]*primitive.Value)
 			for _, value := range machine.community {
-				cont := value.SchedulingNext()
+				// If a Value has computed an affinity, it migrates to that community
+				aff := value.AffinityArray()
+				if aff[0] != 0 {
+					value.SetProperty(primitive.COMMUNITY, aff[0])
+				}
+				
+				cID, _ := value.Property(primitive.COMMUNITY)
+				communities[cID] = append(communities[cID], value)
+			}
 
-				// Handle autonomous reprogramming via CONTINUATION
-				if cont > 0 && cont <= 20 {
-					var fw core.FirmwareType
-					switch cont {
-					case 1:
-						fw = core.FOLD_SUBSTRATE
-					case 2:
-						fw = core.CAUSAL_EXPLORE
-					case 3:
-						fw = core.VOTE_SWARM
-					}
+			// 1. Scheduler: Build the active queue per community based on Continuation
+			activeCommunities := make(map[uint64][]*primitive.Value)
+			
+			for cID, comm := range communities {
+				var active []*primitive.Value
+				for _, value := range comm {
+					cont := value.SchedulingNext()
 
-					if fw != "" {
-						value.InstallFirmware(fw)
-						value.SetProperty(primitive.STATUS, 0)
-						value.SetProperty(primitive.CONTINUATION, value.ID()) // Re-enter queue with new program
+					// Handle autonomous reprogramming via CONTINUATION
+					if cont > 0 && cont <= 20 {
+						var fw core.FirmwareType
+						switch cont {
+						case 1:
+							fw = core.FOLD_SUBSTRATE
+						case 2:
+							fw = core.CAUSAL_EXPLORE
+						case 3:
+							fw = core.VOTE_SWARM
+						}
+
+						if fw != "" {
+							value.InstallFirmware(fw)
+							value.SetProperty(primitive.STATUS, 0)
+							value.SetProperty(primitive.CONTINUATION, value.ID()) // Re-enter queue with new program
+							active = append(active, value)
+							continue
+						}
+					} else if cont != 0 {
+						// We only implement "continuation = own id" for now.
 						active = append(active, value)
-						continue
 					}
-				} else if cont != 0 {
-					// We only implement "continuation = own id" for now.
-					// For target ID routing, we would activate the target instead.
-					active = append(active, value)
+				}
+				if len(active) > 0 {
+					activeCommunities[cID] = active
 				}
 			}
 
-			if len(active) > 0 {
-				// 2. Encounter / Staging Substrate
-				// Each active Value encounters another random Value from the community
-				// and stages B's context and gradient into A's asset region.
-				nComm := len(machine.community)
+			// 2. Encounter / Staging Substrate & Execution per Community
+			for cID, active := range activeCommunities {
+				comm := communities[cID]
+				nComm := len(comm)
+				
 				if nComm > 1 {
+					// Each active Value encounters another random Value from its own community
+					// and stages B's context and gradient into A's asset region.
 					for _, a := range active {
 						bIdx := rand.Intn(nComm)
-						b := machine.community[bIdx]
+						b := comm[bIdx]
 
 						if a == b {
 							bIdx = (bIdx + 1) % nComm
-							b = machine.community[bIdx]
+							b = comm[bIdx]
 						}
 
 						// Stage B's Context (words 40-47) into A's Asset[8..15] (words 80-87)
@@ -187,7 +208,7 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 				}
 			}
 
-			done := len(active) == 0
+			done := len(activeCommunities) == 0
 			var newlyResolved []*primitive.Value
 
 			for _, value := range machine.community {
@@ -195,8 +216,6 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 				if status == uint64(primitive.RESOLVED) {
 					newlyResolved = append(newlyResolved, value)
 				}
-
-				log.Printf("Value %d status: %d, continuation: %d, role: %d", value.ID(), status, value.SchedulingNext(), value.Role())
 
 				if machine.telemetry != nil {
 					machine.telemetry.Write(value.Bytes())

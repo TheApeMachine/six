@@ -84,6 +84,25 @@ This is the actual end-to-end path the code implements today:
 
 *(Gossip and Mesh routing mechanisms are currently marked as **specified but not implemented** in the active snapshot, as the architecture transitions to pure in-band routing via `next`, `fold`, and `spawn`).*
 
+## The Intelligence Ladder
+
+The architecture is being built strictly according to a verifiable ladder of autonomy. We refuse to move up until each rung is mathematically proven via scalar witnesses.
+
+| Rung | Status | Description |
+|------|--------|-------------|
+| 1. Deterministic ALU correctness | **Implemented** | Universal Bitwise truth tables |
+| 2. Correct scalar witnesses | **Implemented** | Reductions (`popcnt`, `any_zero`) that accurately witness state |
+| 3. Continuation scheduling | **Implemented** | `properties.continuation` acts as the native active queue |
+| 4. Real per-Value resident programs | **Implemented** | Kernel groups community into cohorts based on 16-word firmware hash |
+| 5. Real next/fold/spawn | **Implemented** | Topologies handle shifts, hypercube reductions, and frame allocation |
+| 6. In-band reprogramming | **Implemented** | AST copies ROM directly into program region when `stuck` |
+| 7. Encounter/staging into asset | **Implemented** | Peer state staged into `asset` before tick execution |
+| 8. Active inference | **Implemented** | Decreasing `surprisal` closes the gap via `delta_surprisal` loop |
+| 9. Falsification & Causal Branching | **Implemented** | Popperian test (`->`) with causal drift if falsified |
+| 10. Memory survival/pruning | **Implemented** | Confidence rises on success, TTL decays to halt on failure |
+| 11. Multi-community routing | **Implemented** | Moving Values across Field boundaries based on Affinity, grouping `ExecuteCommunity` logic per-community |
+| 12. Open-ended generation | **Specified but not implemented** | Generating novel topologies via falsification filters |
+
 ## Values: Programmable Data
 
 The `Value` type comes from the idea that machine intelligence currently lacks its own distinct "language" and that, to me at least, it seems like a missed opportunity when we force machines to reason using human language. I believe that severely constrains a system, locking it in human-level semantics.

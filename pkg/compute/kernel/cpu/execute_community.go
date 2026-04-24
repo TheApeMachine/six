@@ -34,16 +34,17 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 
 	var spawned []*primitive.Value
 
-	for prog, indices := range cohorts {
-		cohortSize := len(indices)
-
-		for pc := 0; pc < 16; pc++ {
+	for pc := 0; pc < 16; pc++ {
+		anyExecuted := false
+		for prog, indices := range cohorts {
+			cohortSize := len(indices)
 			instr := prog[pc]
 			if instr == 0 {
-				break
+				continue
 			}
+			anyExecuted = true
 
-			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType := program.DecodeInstruction(instr)
+			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType, scope := program.DecodeInstruction(instr)
 
 			m0 := uint64(0)
 			if opcode&1 != 0 {
@@ -77,6 +78,19 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 
 			for idx, globalI := range indices {
 				frame := (*[128]uint64)(unsafe.Pointer(community[globalI]))
+
+				// Evaluate scope early
+				if scope != program.ScopeCommunity {
+					role := frame[66] // 66 is properties.role
+					if scope == program.ScopePrompt && role != uint64(primitive.ValueRolePrompt) {
+						writeMasks[idx] = 0
+						continue
+					}
+					if scope == program.ScopeLearner && role != uint64(primitive.ValueRoleLearner) {
+						writeMasks[idx] = 0
+						continue
+					}
+				}
 
 				writeMask := ^uint64(0)
 				if predCond != 0 {
@@ -178,13 +192,27 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 
 			var globalFoldRes []uint64
 			if topology == program.TopologyFold && cohortSize > 0 {
-				globalFoldRes = make([]uint64, len(foldRes[0]))
-				copy(globalFoldRes, foldRes[0])
-				for idx := 1; idx < cohortSize; idx++ {
-					for j := 0; j < len(globalFoldRes) && j < len(foldRes[idx]); j++ {
-						a := globalFoldRes[j]
-						b := foldRes[idx][j]
-						globalFoldRes[j] = (a & b & m0) | (a & ^b & m1) | (^a & b & m2) | (^a & ^b & m3)
+				// Find first non-nil foldRes to initialize globalFoldRes
+				firstValidIdx := -1
+				for i := 0; i < cohortSize; i++ {
+					if foldRes[i] != nil {
+						firstValidIdx = i
+						break
+					}
+				}
+
+				if firstValidIdx != -1 {
+					globalFoldRes = make([]uint64, len(foldRes[firstValidIdx]))
+					copy(globalFoldRes, foldRes[firstValidIdx])
+					for idx := firstValidIdx + 1; idx < cohortSize; idx++ {
+						if foldRes[idx] == nil {
+							continue
+						}
+						for j := 0; j < len(globalFoldRes) && j < len(foldRes[idx]); j++ {
+							a := globalFoldRes[j]
+							b := foldRes[idx][j]
+							globalFoldRes[j] = (a & b & m0) | (a & ^b & m1) | (^a & b & m2) | (^a & ^b & m3)
+						}
 					}
 				}
 			}
@@ -200,7 +228,12 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 				targetI := globalI
 				switch topology {
 				case program.TopologyNext:
-					targetI = indices[(idx+1)%cohortSize]
+					// Find next valid index
+					nextIdx := (idx + 1) % cohortSize
+					for writeMasks[nextIdx] == 0 && nextIdx != idx {
+						nextIdx = (nextIdx + 1) % cohortSize
+					}
+					targetI = indices[nextIdx]
 				case program.TopologyFold:
 					targetI = globalI
 				case program.TopologySpawn:
@@ -251,12 +284,16 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 				spawned = append(spawned, instrSpawned...)
 			}
 		}
-	}
 
-	// 6. Global Sync
-	for i := 0; i < n; i++ {
-		live := (*[128]uint64)(unsafe.Pointer(community[i]))
-		copy(live[:], post[i][:])
+		if !anyExecuted {
+			break
+		}
+
+		// 6. Global Sync after each PC step
+		for i := 0; i < n; i++ {
+			live := (*[128]uint64)(unsafe.Pointer(community[i]))
+			copy(live[:], post[i][:])
+		}
 	}
 
 	return spawned

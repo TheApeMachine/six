@@ -61,28 +61,18 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 	frame[40] = 1 
 	frame[32] = 0
 
-	// Tick 1: evaluate falsification
+	// Tick 1: evaluate falsification, decay TTL, and halt!
+	// Because ExecuteCommunity now properly syncs after EACH instruction,
+	// the second instruction observes falsified=1, and the third observes TTL=0.
 	ExecuteCommunity([]*primitive.Value{v1})
 	if frame[69] != 1 {
 		t.Fatalf("expected falsified=1 after tick 1, got %d", frame[69])
 	}
-	if frame[59] != 1 {
-		t.Fatalf("expected TTL 1 to remain unchanged in tick 1, got %d", frame[59])
-	}
-
-	// Tick 2: falsified is now 1 in pre-state, so TTL decays (1 \ 1 = 0)
-	ExecuteCommunity([]*primitive.Value{v1})
 	if frame[59] != 0 {
-		t.Fatalf("expected TTL 0 after tick 2, got %d", frame[59])
+		t.Fatalf("expected TTL 0 to decay in same tick, got %d", frame[59])
 	}
-	if frame[71] != v1.ID() {
-		t.Fatalf("expected continuation to remain own id")
-	}
-
-	// Tick 3: TTL is 0 in pre-state, continuation decays
-	ExecuteCommunity([]*primitive.Value{v1})
 	if frame[71] != 0 {
-		t.Fatalf("expected continuation 0 (halted) when TTL hit 0, got %d", frame[71])
+		t.Fatalf("expected continuation 0 (halted) when TTL hit 0 in same tick, got %d", frame[71])
 	}
 }
 

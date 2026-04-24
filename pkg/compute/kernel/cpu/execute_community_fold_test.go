@@ -17,7 +17,7 @@ func TestExecuteCommunity_TopologyFold(t *testing.T) {
 		},
 	}
 
-	comp, err := program.Compile("[ (dst fold) <= (a) <= community ]", lay)
+	comp, err := program.Compile("[ (dst fold) <= (a ^ 0) <= community ]", lay)
 	if err != nil {
 		t.Fatalf("compile failed: %v", err)
 	}
@@ -31,6 +31,8 @@ func TestExecuteCommunity_TopologyFold(t *testing.T) {
 	f3 := (*[128]uint64)(unsafe.Pointer(v3))
 
 	f1[16] = comp.Words[0]
+	f2[16] = comp.Words[0]
+	f3[16] = comp.Words[0]
 
 	f1[0] = 0x1
 	f2[0] = 0x2

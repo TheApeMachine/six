@@ -11,25 +11,28 @@ import (
 // Instruction encoding constants
 const (
 	InstrDstSpanShift  = 0
-	InstrDstStartShift = 7
+	InstrDstStartShift = 6
 
-	InstrASpanShift  = 14
-	InstrAStartShift = 21
+	InstrASpanShift  = 13
+	InstrAStartShift = 19
 
-	InstrBSpanShift  = 28
-	InstrBStartShift = 35
+	InstrBSpanShift  = 26
+	InstrBStartShift = 32
 
-	InstrOpcodeShift   = 42 // 4 bits
-	InstrModeShift     = 46 // 3 bits: 0=Truth, 1=Popcnt, 2=AnyZero, 3=AllOnes
-	InstrTopologyShift = 49 // 2 bits: 0=self, 1=next, 2=fold, 3=spawn
+	InstrOpcodeShift   = 39 // 4 bits
+	InstrModeShift     = 43 // 3 bits: 0=Truth, 1=Popcnt, 2=AnyZero, 3=AllOnes
+	InstrTopologyShift = 46 // 2 bits: 0=self, 1=next, 2=fold, 3=spawn
 
-	InstrPredStartShift = 51 // 7 bits
-	InstrPredCondShift  = 58 // 2 bits: 0=Always, 1=NotZero (!=0), 2=IsZero (==0), 3=GreaterThan (>)
+	InstrPredStartShift = 48 // 7 bits
+	InstrPredCondShift  = 55 // 2 bits: 0=Always, 1=NotZero (!=0), 2=IsZero (==0), 3=GreaterThan (>)
 
-	InstrAIndirectShift = 60 // 1 bit
-	InstrBTypeShift     = 61 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
+	InstrAIndirectShift = 57 // 1 bit
+	InstrBTypeShift     = 58 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
 
-	InstrFieldMask uint64 = 0x7F
+	InstrScopeShift     = 60 // 4 bits: 0=Community, 1=Prompt, 2=Learner, etc.
+
+	InstrSpanMask  uint64 = 0x3F // 6 bits for spans (up to 64 words)
+	InstrStartMask uint64 = 0x7F // 7 bits for starts (up to 128 words)
 )
 
 // Topologies
@@ -272,10 +275,23 @@ func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) 
 		}
 	}
 
+	var scope uint64
+	switch strings.ToLower(scopeGrp) {
+	case "community":
+		scope = ScopeCommunity
+	case "role.prompt":
+		scope = ScopePrompt
+	case "role.learner":
+		scope = ScopeLearner
+	default:
+		// For now, if we don't recognize it, just fallback to community
+		scope = ScopeCommunity
+	}
+
 	return EncodeInstruction(
 		aStart, aSpan, bStart, bSpan, dstStart, dstSpan,
 		opcode, mode, topology,
-		predStart, predCond, aInd, bType,
+		predStart, predCond, aInd, bType, scope,
 	), nil
 }
 
@@ -363,7 +379,7 @@ func parseRef(token string, lay Layout) (start, span int, indirect uint64, err e
 
 func EncodeInstruction(
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
-	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
+	opcode, mode, topology, predStart, predCond, aInd, bType, scope uint64,
 ) uint64 {
 	if aSpan <= 0 {
 		aSpan = 1
@@ -375,37 +391,39 @@ func EncodeInstruction(
 		dstSpan = 1
 	}
 
-	return ((uint64(dstSpan-1) & InstrFieldMask) << InstrDstSpanShift) |
-		((uint64(dstStart) & InstrFieldMask) << InstrDstStartShift) |
-		((uint64(aSpan-1) & InstrFieldMask) << InstrASpanShift) |
-		((uint64(aStart) & InstrFieldMask) << InstrAStartShift) |
-		((uint64(bSpan-1) & InstrFieldMask) << InstrBSpanShift) |
-		((uint64(bStart) & InstrFieldMask) << InstrBStartShift) |
+	return ((uint64(dstSpan-1) & InstrSpanMask) << InstrDstSpanShift) |
+		((uint64(dstStart) & InstrStartMask) << InstrDstStartShift) |
+		((uint64(aSpan-1) & InstrSpanMask) << InstrASpanShift) |
+		((uint64(aStart) & InstrStartMask) << InstrAStartShift) |
+		((uint64(bSpan-1) & InstrSpanMask) << InstrBSpanShift) |
+		((uint64(bStart) & InstrStartMask) << InstrBStartShift) |
 		((opcode & 0xF) << InstrOpcodeShift) |
 		((mode & 0x7) << InstrModeShift) |
 		((topology & 0x3) << InstrTopologyShift) |
-		((predStart & InstrFieldMask) << InstrPredStartShift) |
+		((predStart & InstrStartMask) << InstrPredStartShift) |
 		((predCond & 0x3) << InstrPredCondShift) |
 		((aInd & 0x1) << InstrAIndirectShift) |
-		((bType & 0x3) << InstrBTypeShift)
+		((bType & 0x3) << InstrBTypeShift) |
+		((scope & 0xF) << InstrScopeShift)
 }
 
 func DecodeInstruction(instr uint64) (
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
-	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
+	opcode, mode, topology, predStart, predCond, aInd, bType, scope uint64,
 ) {
-	dstSpan = int((instr>>InstrDstSpanShift)&InstrFieldMask) + 1
-	dstStart = int((instr >> InstrDstStartShift) & InstrFieldMask)
-	aSpan = int((instr>>InstrASpanShift)&InstrFieldMask) + 1
-	aStart = int((instr >> InstrAStartShift) & InstrFieldMask)
-	bSpan = int((instr>>InstrBSpanShift)&InstrFieldMask) + 1
-	bStart = int((instr >> InstrBStartShift) & InstrFieldMask)
+	dstSpan = int((instr>>InstrDstSpanShift)&InstrSpanMask) + 1
+	dstStart = int((instr >> InstrDstStartShift) & InstrStartMask)
+	aSpan = int((instr>>InstrASpanShift)&InstrSpanMask) + 1
+	aStart = int((instr >> InstrAStartShift) & InstrStartMask)
+	bSpan = int((instr>>InstrBSpanShift)&InstrSpanMask) + 1
+	bStart = int((instr >> InstrBStartShift) & InstrStartMask)
 	opcode = (instr >> InstrOpcodeShift) & 0xF
 	mode = (instr >> InstrModeShift) & 0x7
 	topology = (instr >> InstrTopologyShift) & 0x3
-	predStart = (instr >> InstrPredStartShift) & InstrFieldMask
+	predStart = (instr >> InstrPredStartShift) & InstrStartMask
 	predCond = (instr >> InstrPredCondShift) & 0x3
 	aInd = (instr >> InstrAIndirectShift) & 0x1
 	bType = (instr >> InstrBTypeShift) & 0x3
+	scope = (instr >> InstrScopeShift) & 0xF
 	return
 }

@@ -7,13 +7,17 @@ import (
 func TestCompiler(t *testing.T) {
 	lay := Layout{
 		Regions: map[string]RegionExtent{
-			"program":              {Start: 16, Words: 16},
-			"signals":              {Start: 32, Words: 8},
-			"context":              {Start: 40, Words: 8},
-			"gradient":             {Start: 48, Words: 8},
-			"properties.stuck":     {Start: 70, Words: 1},
-			"properties.falsified": {Start: 69, Words: 1},
-			"rom.unsupervised":     {Start: 100, Words: 16},
+			"program":          {Start: 16, Words: 16},
+			"signals":          {Start: 32, Words: 8},
+			"context":          {Start: 40, Words: 8},
+			"gradient":         {Start: 48, Words: 8},
+			"properties":       {Start: 56, Words: 16},
+			"rom":              {Start: 100, Words: 16},
+		},
+		Properties: map[string]int{
+			"stuck":     14,
+			"falsified": 13,
+			"unsupervised": 0,
 		},
 	}
 
