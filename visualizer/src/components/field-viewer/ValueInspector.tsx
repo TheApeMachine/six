@@ -601,13 +601,19 @@ export function ValueInspector({
 							</Badge>
 						)}
 					</div>
-					
+
 					<div className="flex flex-wrap gap-2 text-xs font-mono mb-2">
 						<span title="Time To Live">TTL: {snap.causal.ttl}</span>
-						<span title="Surprisal gap">SURPRISAL: {snap.causal.surprisal}</span>
-						<span title="Delta Surprisal gap">Δ: {snap.causal.delta_surprisal}</span>
+						<span title="Surprisal gap">
+							SURPRISAL: {snap.causal.surprisal}
+						</span>
+						<span title="Delta Surprisal gap">
+							Δ: {snap.causal.delta_surprisal}
+						</span>
 						<span title="Ticks stuck">STUCK: {snap.causal.stuck_count}</span>
-						<span title="Exploration temperature">TEMP: {snap.causal.temperature}</span>
+						<span title="Exploration temperature">
+							TEMP: {snap.causal.temperature}
+						</span>
 					</div>
 
 					<div className="flex items-center gap-2 flex-wrap min-w-0">

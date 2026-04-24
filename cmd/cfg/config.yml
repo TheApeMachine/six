@@ -248,12 +248,7 @@ programs:
     [ (properties.continuation self) <= (0) ? (properties.falsified != 0) <= community ]
 
     ; 4. THE EMISSION: If the novel coordinate survived falsification, spawn it into the persistent sequence.
-    [ (properties.target spawn) <= (0) ? (properties.falsified == 0) <= community ] '[ (signals[0,8] self) <= (context[0,8] ^ asset[8,8]) <= community
-    ]
-
-    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
-
-    '
+    [ (properties.target spawn) <= (0) ? (properties.falsified == 0) <= community ]
   survey_community: |
     [ (context[7,1] self) <= (context[6,1]) <= community ]
     [ (context[6,1] self) <= (context[5,1]) <= community ]
