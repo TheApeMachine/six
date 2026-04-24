@@ -57,7 +57,7 @@ The idea here is that the community fields "emerge" from the Values, and the glo
 
 The gossip mechanism allows Values, Community Fields, and the Global Field to exchange information fast. These communication pipes can be weighted by a learning mechanism, such as reinforcement learning.
 
-### Field Hierarchy
+### Field Hierarchy (Experimental)
 
 The three finite fields form a phase hierarchy. Each layer aggregates the one below it; gossip carries the vectors peers need to reconstruct the same pressure field.
 
@@ -69,7 +69,7 @@ The three finite fields form a phase hierarchy. Each layer aggregates the one be
 
 > To be clear, it is the Affinity region that uses GF(257) and rotating it using affine rotation can tell us something about the noise level of the Value.
 
-### Data Flow
+### Data Flow (Implemented)
 
 This is the actual end-to-end path the code implements today:
 
@@ -77,12 +77,12 @@ This is the actual end-to-end path the code implements today:
 2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
 3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
 4. **Program installed** — `compute.Backend.Dispatch` runs the firmware rule chain (`firmware.NewExecutable`, …), lowering compiled frames into each Value's program region — not raw hand-written words.
-5. **Published to Queue + Orchestrator** — Each minted Value is published to the `pool.Queue` (for backend execution) and the `vm.Orchestrator` (for community routing).
+5. **Published to Queue** — Each minted Value is published to the `pool.Queue` (for backend execution). *(Orchestrator routing is currently deprecated in favor of in-band CONTINUATION scheduling).*
 6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
-7. **Queue / scheduling** — If `properties.continuation` (word 71) is non-zero after execution, the work queue re-publishes that Value for another pass. This is no longer an external orchestrator hack; it is driven entirely in-band by the AST execution writing to its own continuation property.
-8. **Orchestrator → Field** — `vm.Orchestrator.Cycle` copies each input Value's wire frame through a **`gossip.Conn`** (Vyukov ring) and into the root **`mesh.Field.Write`**, which either **routes** into a child community (`findCommunity` over the five affinity words) or **stores** on a leaf. The field's **`Read`** path is the same **`gossip.Conn`** framing Values for downstream `io.Copy`.
+7. **In-Band Scheduling** — If `properties.continuation` (word 71) is non-zero after execution, `vm.Machine.Cycle` re-publishes that Value for another pass. This is driven entirely in-band by the AST execution writing to its own continuation property.
+8. **Encounter / Staging** — `vm.Machine.Cycle` pairs active Values with peers from the community, staging peer context and gradient into the active Value's asset region before execution.
 
-For prompts, mint segments with `primitive.NewValue`, install firmware through `compute.Backend.Dispatch` / `firmware.NewExecutable` (or your config `value.rules` chain), then call `Machine.Prompt(segments...)`. **`Prompt` currently forwards to a single `Orchestrator.Cycle`** (see `pkg/vm/machine.go`). Belief-gap closure and multi-cycle prompt loops are described in comments there and in `BEHAVIOR.md`; use a deadline or cancel on `ctx` if work must be bounded.
+*(Gossip and Mesh routing mechanisms are currently marked as **specified but not implemented** in the active snapshot, as the architecture transitions to pure in-band routing via `next`, `fold`, and `spawn`).*
 
 ## Values: Programmable Data
 
@@ -117,19 +117,22 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 | 56              | 0             | **labels**                                 | 4 × 16-bit slots packed low-to-high: slot 0 = bits 0–15, slot 1 = bits 16–31, slot 2 = bits 32–47, slot 3 = bits 48–63               |
 | 57              | 1             | **confidence**                             | Overall confidence calculated from the results of any algorithm that leaves an artifact (classification, beam search, etc.)          |
 | 58              | 2             | **epoch**                                  | +1 for any algorithm run                                                                                                             |
-| 59              | 3             | **TTL** (`PropertiesTTLWord`)              | Time-to-live for ephemeral Values; zero means dissolve, one means it can take one action, etc.                                       |
-| 60              | 4             | **temperature** (`PropertiesNoiseWord`)    | The scaler that determines how "creative" the model will be while executing algorithms                                               |
-| 61              | 5             | **status** (`PropertiesStatusWord`)        | Value status: PENDING, READY, BUSY, WAITING, DONE, RESOLVED, ERROR                                                                   |
-| 62              | 6             | **probe window**                           | `PackRegionRef` over token words for causal probes                                                                                   |
-| 63              | 7             | **probe depth**                            | Re-stabilisation depth for causal hub probes                                                                                         |
-| 64              | 8             | **community** (`PropertiesCommunityWord`)  | Stable `mesh.Field` ID stamped onto the visitor by the leaf `Field.Write` after routing — the visualiser keys community buckets here |
+| 59              | 3             | **TTL**                                    | Time-to-live for ephemeral Values; zero means dissolve, one means it can take one action, etc.                                       |
+| 60              | 4             | **temperature**                            | The scaler that determines how "creative" the model will be while executing algorithms                                               |
+| 61              | 5             | **status**                                 | Value status: PENDING, READY, BUSY, WAITING, DONE, RESOLVED, ERROR                                                                   |
+| 62              | 6             | **noise**                                  | Noise metrics                                                                                                                        |
+| 63              | 7             | **program_id**                             | Identifier of the currently executing routine                                                                                        |
+| 64              | 8             | **community**                              | Stable `mesh.Field` ID stamped onto the visitor by the leaf `Field.Write` after routing — the visualiser keys community buckets here |
 | 65              | 9             | **target**                                 | ValueID of an addressable target (linker / encounter dispatch)                                                                       |
 | 66              | 10            | **role**                                   | In-band `ValueRole` (e.g. `ValueRoleProgrammer`); zero means no special role                                                         |
 | 67              | 11            | **reference**                              | ValueID to encounter before the target (linker staging)                                                                              |
-| 68              | 12            | **program_id**                             | Identifier of the currently executing routine                                                                                        |
-| 69              | 13            | **surprisal**                              | Scalar reduction of the prediction error gap                                                                                         |
-| 70              | 14            | **falsified**                              | Witness register for Popperian hypothesis testing                                                                                    |
-| 71              | 15            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
+| 68              | 12            | **surprisal**                              | Scalar reduction of the prediction error gap                                                                                         |
+| 69              | 13            | **prev_surprisal**                         | Prior step gap, used to compute delta.                                                                                               |
+| 70              | 14            | **delta_surprisal**                        | Reduced difference between surprisal ticks.                                                                                          |
+| 71              | 15            | **stuck_count**                            | The number of ticks where delta_surprisal == 0.                                                                                      |
+| 72              | 16            | **falsified**                              | Witness register for Popperian hypothesis testing                                                                                    |
+| 73              | 17            | **stuck**                                  | Triggers autonomous reprogramming based on stagnation                                                                                |
+| 74              | 18            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
 
 ### Program Authoring (`pkg/compute/firmware` — config-time DSL only)
 

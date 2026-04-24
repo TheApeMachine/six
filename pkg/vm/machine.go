@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math/rand"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
@@ -157,6 +158,29 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 			}
 
 			if len(active) > 0 {
+				// 2. Encounter / Staging Substrate
+				// Each active Value encounters another random Value from the community
+				// and stages B's context and gradient into A's asset region.
+				nComm := len(machine.community)
+				if nComm > 1 {
+					for _, a := range active {
+						bIdx := rand.Intn(nComm)
+						b := machine.community[bIdx]
+
+						if a == b {
+							bIdx = (bIdx + 1) % nComm
+							b = machine.community[bIdx]
+						}
+
+						// Stage B's Context (words 40-47) into A's Asset[8..15] (words 80-87)
+						// Stage B's Gradient (words 48-55) into A's Asset[16..23] (words 88-95)
+						for i := 0; i < 8; i++ {
+							a.Set(80+i, (*b)[40+i]) // Context
+							a.Set(88+i, (*b)[48+i]) // Gradient
+						}
+					}
+				}
+
 				spawned := machine.backend.ExecuteCommunity(active)
 				if len(spawned) > 0 {
 					machine.community = append(machine.community, spawned...)

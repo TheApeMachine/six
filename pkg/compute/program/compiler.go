@@ -122,7 +122,7 @@ func Compile(source string, lay Layout) (Compiled, error) {
 		targetGrp := matches[1]
 		exprGrp := matches[2]
 		predGrp := matches[3] // optional
-	instr, err := parseInstruction(targetGrp, exprGrp, predGrp, matches[4], lay)
+		instr, err := parseInstruction(targetGrp, exprGrp, predGrp, matches[4], lay)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("line %d: %v", lineNo+1, err))
 			continue
@@ -256,9 +256,9 @@ func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) 
 			return 0, fmt.Errorf("predicate region: %w", err)
 		}
 		predStart = uint64(pStart)
-		
+
 		// 1: != 0, 2: == 0, 3: >
-		// Note: The right hand side of the predicate is currently constrained by our parsing 
+		// Note: The right hand side of the predicate is currently constrained by our parsing
 		// strategy or we only test against 0, but if we assume `pParts[2]` is the target value,
 		// we'd need to encode that too. We're currently limited by bit budget for predicates.
 		if pParts[1] == "!=" && pParts[2] == "0" {
@@ -266,7 +266,7 @@ func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) 
 		} else if pParts[1] == "==" && pParts[2] == "0" {
 			predCond = 2
 		} else if pParts[1] == ">" && pParts[2] == "0" {
-			predCond = 3 
+			predCond = 3
 		} else {
 			return 0, fmt.Errorf("predicate condition %q %q not fully supported yet", pParts[1], pParts[2])
 		}
