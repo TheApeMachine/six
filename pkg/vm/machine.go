@@ -29,6 +29,9 @@ type Machine struct {
 	backend   *compute.Backend
 	telemetry *telemetry.Bridge
 	community []*primitive.Value
+
+	communityIDMap map[uint64]uint64
+	nextCommunity  uint64
 }
 
 type machineOpts func(*Machine)
@@ -46,10 +49,12 @@ func NewMachine(
 	}
 
 	machine := &Machine{
-		ctx:       ctx,
-		cancel:    cancel,
-		telemetry: bridge,
-		backend:   compute.NewBackend(ctx),
+		ctx:            ctx,
+		cancel:         cancel,
+		telemetry:      bridge,
+		backend:        compute.NewBackend(ctx),
+		communityIDMap: make(map[uint64]uint64),
+		nextCommunity:  1,
 	}
 
 	for _, opt := range opts {
@@ -131,9 +136,15 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 				// If a Value has computed an affinity, it migrates to that community
 				aff := value.AffinityArray()
 				if aff[0] != 0 {
-					value.SetProperty(primitive.COMMUNITY, aff[0])
+					cID, exists := machine.communityIDMap[aff[0]]
+					if !exists {
+						cID = machine.nextCommunity
+						machine.communityIDMap[aff[0]] = cID
+						machine.nextCommunity++
+					}
+					value.SetProperty(primitive.COMMUNITY, cID)
 				}
-
+				
 				cID, _ := value.Property(primitive.COMMUNITY)
 				communities[cID] = append(communities[cID], value)
 			}
