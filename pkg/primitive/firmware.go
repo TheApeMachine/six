@@ -17,13 +17,15 @@ func (value *Value) HasProgram() bool {
 	return false
 }
 
-func (value *Value) InstallProgram(words []uint64, schedulingNext uint64) bool {
+// InstallProgram installs a packed instruction buffer directly into the Value's
+// program region and sets its status to READY.
+func (value *Value) InstallProgram(words []uint64) bool {
 	if value == nil || len(words) == 0 {
 		return false
 	}
 
 	value.WriteProgramWords(words)
-	value.SetSchedulingNext(schedulingNext)
+	value.SetProperty(CONTINUATION, value.ID())
 	value.SetStatus(READY)
 	return true
 }
@@ -38,5 +40,5 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
 		return false
 	}
 
-	return value.InstallProgram(entry.Compiled(), entry.ResolveSchedulingNext(value.ID()))
+	return value.InstallProgram(entry.Compiled())
 }

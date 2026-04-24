@@ -259,4 +259,3 @@ Error implements the error interface for ProcrustesError.
 func (err ProcrustesError) Error() string {
 	return string(err)
 }
-

@@ -107,4 +107,3 @@ func roundSliceDecimal(values []float64, places int) []float64 {
 
 	return out
 }
-

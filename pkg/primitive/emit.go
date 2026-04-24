@@ -82,15 +82,15 @@ func WithProbeState(probeState uint64) EmitOptions {
 	}
 }
 
-func WithProbeWindow(probeWindow uint64) EmitOptions {
+func WithProgramID(programID uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(core.Cfg.Value.Region.Properties.Start+int(WINDOW), probeWindow)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(PROGRAM_ID), programID)
 	}
 }
 
-func WithProbeDepth(probeDepth uint64) EmitOptions {
+func WithTemperature(temperature uint64) EmitOptions {
 	return func(value *Value) {
-		value.Set(core.Cfg.Value.Region.Properties.Start+int(DEPTH), probeDepth)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(TEMPERATURE), temperature)
 	}
 }
 
@@ -117,7 +117,7 @@ func WithProgram(words []uint64) EmitOptions {
 			return
 		}
 
-		value.InstallProgram(words, 0)
+		value.InstallProgram(words)
 	}
 }
 

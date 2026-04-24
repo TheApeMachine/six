@@ -201,4 +201,3 @@ func comboSeriesBarWidth(kind, width string) string {
 
 	return "15%"
 }
-

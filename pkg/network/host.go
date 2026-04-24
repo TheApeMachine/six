@@ -51,4 +51,3 @@ func (host *Host) Close() error {
 func (host *Host) Error() error {
 	return host.err
 }
-

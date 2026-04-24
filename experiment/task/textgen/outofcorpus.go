@@ -101,4 +101,3 @@ func (experiment *OutOfCorpusExperiment) TableData() any { return experiment.tab
 func (experiment *OutOfCorpusExperiment) Artifacts() []tools.Artifact {
 	return OutOfCorpusArtifacts(experiment.tableData, experiment.Score())
 }
-

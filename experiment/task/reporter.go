@@ -526,4 +526,3 @@ func polarConstraintData(data any) (projector.PolarConstraintData, error) {
 		return projector.PolarConstraintData{}, fmt.Errorf("unexpected polar constraint payload %T", data)
 	}
 }
-

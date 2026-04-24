@@ -130,104 +130,197 @@ static __device__ __forceinline__ void exact_binary_device(
     }
 }
 
-static __device__ __forceinline__ void universal_bitwise_device(
-    uint64_t* frame,
-    int aStart, int aSpan,
-    int bStart, int bSpan,
-    int dstStart, int dstSpan,
-    int mode, uint64_t opcodeTable
+/*
+hypercube_gossip_kernel diffuses each Value's S+C+G+P band across the
+community using an XOR-routed hypercube. Parity: kernel.HypercubeGossipRef
+(Metal) — missing neighbors use neutral 0, not self (XORing self^self=0
+would corrupt the band). A full 256-Value field uses __shfl_xor_sync for
+dimensions 0..4 (in-warp) and shared mem for 5..7, matching the Metal split.
+
+A single block of value_count threads is launched per community.
+*/
+#define GOSSIP_BAND_START_WORD_CUDA   SIGNALS_START_WORD
+#define GOSSIP_BAND_TARGET_WORD_CUDA  ASSET_START_WORD
+#define GOSSIP_BAND_WORDS_CUDA        (SIGNALS_WORDS + CONTEXT_WORDS + GRADIENT_WORDS + PROPERTIES_WORDS)
+#define GOSSIP_K_PER_CHUNK_CUDA       8
+#define GOSSIP_FULL_HYPERCUBE_CUDA    256u
+
+__device__ __forceinline__ uint64_t gossip_fold_ull(uint64_t a, uint64_t b, uint32_t fold_op) {
+    return (fold_op == 0u) ? (a | b) : (a ^ b);
+}
+
+__device__ __forceinline__ uint64_t shfl_xor_ull(uint64_t v, int lane_mask) {
+    unsigned int lo = (unsigned int)(v & 0xFFFFFFFFu);
+    unsigned int hi = (unsigned int)(v >> 32);
+    lo = __shfl_xor_sync(0xFFFFFFFFu, (int)lo, lane_mask, 32);
+    hi = __shfl_xor_sync(0xFFFFFFFFu, (int)hi, lane_mask, 32);
+    return (((uint64_t)hi) << 32) | (uint64_t)lo;
+}
+
+__global__ void hypercube_gossip_kernel(
+    uint64_t*       arena,
+    const uint32_t* indices,
+    uint32_t        value_count,
+    uint32_t        d_max,
+    uint32_t        fold_op
 ) {
-    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
-    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
-    if (aStart + aSpan > 128 || bStart + bSpan > 128 || dstStart + dstSpan > 128) return;
+    extern __shared__ uint64_t shared[];
 
-    uint64_t aLane[4] = {0, 0, 0, 0};
-    for (int idx = 0; idx < aSpan; idx++) {
-        aLane[idx & 3] ^= frame[aStart + idx];
-    }
+    uint32_t lid = threadIdx.x;
+    bool active = lid < value_count;
+    uint64_t* frame = nullptr;
 
-    uint8_t sigBytes[64];
-    for (int i = 0; i < 64; i++) sigBytes[i] = 0;
+    if (active) {
+        frame = arena + (uint64_t)indices[lid] * (uint64_t)WORDS;
 
-    for (int rot = 0; rot < 16; rot++) {
-        uint8_t op = (uint8_t)((opcodeTable >> (rot * 4)) & 0xF);
-        uint64_t m0 = (op & 1) ? ~0ULL : 0ULL;
-        uint64_t m1 = (op & 2) ? ~0ULL : 0ULL;
-        uint64_t m2 = (op & 4) ? ~0ULL : 0ULL;
-        uint64_t m3 = (op & 8) ? ~0ULL : 0ULL;
-
-        for (int lane = 0; lane < 4; lane++) {
-            int bIdx = bStart + ((rot * 4) + lane) % bSpan;
-            uint64_t a = aLane[lane];
-            uint64_t b = frame[bIdx];
-            uint64_t notA = ~a;
-            uint64_t notB = ~b;
-
-            uint64_t result = (a & b & m0) |
-                              (a & notB & m1) |
-                              (notA & b & m2) |
-                              (notA & notB & m3);
-
-            sigBytes[rot * 4 + lane] = (uint8_t)(result & 0xFF);
+        for (uint32_t w = 0; w < GOSSIP_BAND_WORDS_CUDA; w++) {
+            frame[GOSSIP_BAND_TARGET_WORD_CUDA + w] = frame[GOSSIP_BAND_START_WORD_CUDA + w];
         }
     }
 
-    uint64_t sigWords[8];
-    for (int w = 0; w < 8; w++) {
-        int base = w * 8;
-        sigWords[w] = (uint64_t)sigBytes[base] |
-                      ((uint64_t)sigBytes[base + 1] << 8) |
-                      ((uint64_t)sigBytes[base + 2] << 16) |
-                      ((uint64_t)sigBytes[base + 3] << 24) |
-                      ((uint64_t)sigBytes[base + 4] << 32) |
-                      ((uint64_t)sigBytes[base + 5] << 40) |
-                      ((uint64_t)sigBytes[base + 6] << 48) |
-                      ((uint64_t)sigBytes[base + 7] << 56);
-    }
+    __syncthreads();
 
-    if (mode == 0) {
-        int limit = dstSpan;
-        if (limit > 8) limit = 8;
-        for (int idx = 0; idx < limit; idx++) {
-            frame[dstStart + idx] ^= sigWords[idx];
+    for (uint32_t chunkBase = 0; chunkBase < GOSSIP_BAND_WORDS_CUDA; chunkBase += GOSSIP_K_PER_CHUNK_CUDA) {
+        uint32_t chunkSize = GOSSIP_K_PER_CHUNK_CUDA;
+        if (chunkBase + chunkSize > GOSSIP_BAND_WORDS_CUDA) {
+            chunkSize = GOSSIP_BAND_WORDS_CUDA - chunkBase;
         }
-        return;
-    }
 
-    uint64_t total = 0;
-    for (int idx = 0; idx < 8; idx++) {
-        total += __popcll(sigWords[idx]);
+        if (active && frame && value_count == GOSSIP_FULL_HYPERCUBE_CUDA) {
+            uint64_t my_chunk[GOSSIP_K_PER_CHUNK_CUDA];
+            for (uint32_t w = 0; w < chunkSize; w++) {
+                my_chunk[w] = frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w];
+            }
+            for (uint32_t d = 0; d < d_max && d < 5u; d++) {
+                int sh = (1 << (int)d);
+                for (uint32_t w = 0; w < chunkSize; w++) {
+                    uint64_t peer = shfl_xor_ull(my_chunk[w], sh);
+                    my_chunk[w] = gossip_fold_ull(my_chunk[w], peer, fold_op);
+                }
+            }
+            for (uint32_t d = 5; d < d_max; d++) {
+                uint32_t dmask = 1u << d;
+                for (uint32_t w = 0; w < chunkSize; w++) {
+                    shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w] = my_chunk[w];
+                }
+                __syncthreads();
+                for (uint32_t w = 0; w < chunkSize; w++) {
+                    uint32_t nbr = lid ^ dmask;
+                    uint64_t peer = shared[(uint64_t)nbr * GOSSIP_K_PER_CHUNK_CUDA + w];
+                    my_chunk[w] = gossip_fold_ull(my_chunk[w], peer, fold_op);
+                }
+                __syncthreads();
+            }
+            for (uint32_t w = 0; w < chunkSize; w++) {
+                frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w] = my_chunk[w];
+            }
+        } else {
+            if (active) {
+                for (uint32_t w = 0; w < chunkSize; w++) {
+                    shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w] =
+                        frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w];
+                }
+            }
+            __syncthreads();
+
+            for (uint32_t d = 0; d < d_max; d++) {
+                uint32_t mask = 1u << d;
+                uint64_t nbr_chunk[GOSSIP_K_PER_CHUNK_CUDA];
+
+                if (active) {
+                    uint32_t nbr = lid ^ mask;
+                    bool nbr_valid = nbr < value_count;
+                    for (uint32_t w = 0; w < chunkSize; w++) {
+                        nbr_chunk[w] = nbr_valid
+                            ? shared[(uint64_t)nbr * GOSSIP_K_PER_CHUNK_CUDA + w]
+                            : 0uLL;
+                    }
+                }
+
+                __syncthreads();
+
+                if (active) {
+                    for (uint32_t w = 0; w < chunkSize; w++) {
+                        uint64_t self_w = shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w];
+                        uint64_t fl = gossip_fold_ull(self_w, nbr_chunk[w], fold_op);
+                        shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w] = fl;
+                    }
+                }
+
+                __syncthreads();
+            }
+
+            if (active) {
+                for (uint32_t w = 0; w < chunkSize; w++) {
+                    frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w] =
+                        shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w];
+                }
+            }
+        }
+        __syncthreads();
     }
-    frame[dstStart] = total;
 }
 
-static __device__ __forceinline__ uint64_t broadcast_opcode_nibble(uint8_t opLow) {
-    uint64_t n = (uint64_t)(opLow & 0xF);
-    uint64_t packed = 0;
-    for (int i = 0; i < 16; i++) {
-        packed |= n << (i * 4);
+// Padded affinity-row stride matches kernel/cpu/affinity_distances.go's
+// affinityDistanceVectorWords (8 × uint64). The Go caller pre-packs the
+// host buffer to this layout so all three backends (CPU, Metal, CUDA)
+// consume identical memory.
+#define AFFINITY_ROW_WORDS 8
+
+__global__ void batch_first_fit_kernel(
+    const uint64_t* community_ors,
+    const uint64_t* value_affinities,
+    int32_t*        out,
+    uint32_t        community_count,
+    uint32_t        value_count,
+    uint32_t        hamming_budget,
+    uint32_t        saturation_cap
+) {
+    uint32_t vid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (vid >= value_count) return;
+
+    // Hold the value's 257 bits in registers across the entire community
+    // sweep — never reload them inside the inner loop.
+    uint32_t v_base = vid * AFFINITY_ROW_WORDS;
+    uint64_t v0 = value_affinities[v_base + 0];
+    uint64_t v1 = value_affinities[v_base + 1];
+    uint64_t v2 = value_affinities[v_base + 2];
+    uint64_t v3 = value_affinities[v_base + 3];
+    uint64_t v4 = value_affinities[v_base + 4] & 1ULL;
+
+    int32_t hit = -1;
+
+    for (uint32_t c = 0; c < community_count; c++) {
+        uint32_t c_base = c * AFFINITY_ROW_WORDS;
+        uint64_t c0 = community_ors[c_base + 0];
+        uint64_t c1 = community_ors[c_base + 1];
+        uint64_t c2 = community_ors[c_base + 2];
+        uint64_t c3 = community_ors[c_base + 3];
+        uint64_t c4 = community_ors[c_base + 4] & 1ULL;
+
+        uint32_t hamming =
+            (uint32_t)__popcll(v0 ^ c0) +
+            (uint32_t)__popcll(v1 ^ c1) +
+            (uint32_t)__popcll(v2 ^ c2) +
+            (uint32_t)__popcll(v3 ^ c3) +
+            (uint32_t)(v4 ^ c4);
+
+        if (hamming > hamming_budget) continue;
+
+        uint32_t unionc =
+            (uint32_t)__popcll(v0 | c0) +
+            (uint32_t)__popcll(v1 | c1) +
+            (uint32_t)__popcll(v2 | c2) +
+            (uint32_t)__popcll(v3 | c3) +
+            (uint32_t)(v4 | c4);
+
+        if (unionc > saturation_cap) continue;
+
+        hit = (int32_t)c;
+        break;
     }
-    return packed;
-}
 
-__global__ void unified_bitwise_kernel(uint64_t* A, uint32_t num_values) {
-    uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= num_values) return;
-
-    uint32_t base = id * WORDS;
-    uint64_t* frame = A + base;
-
-    uint8_t opLow = (uint8_t)(frame[PROGRAM_START_WORD] & 0xF);
-    if (opLow == 0) return;
-
-    uint64_t opcodeTable = broadcast_opcode_nibble(opLow);
-    int mode = (int)(frame[PROGRAM_START_WORD + 1] & 0xFF);
-    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
-
-    universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
+    out[vid] = hit;
 }
 
 __global__ void nearest_affinity_kernel(
@@ -330,6 +423,68 @@ static int ensure_aff_pool(uint32_t count) {
     return 0;
 }
 
+// Device-side staging buffers for batch_first_fit. Sized in 8-word padded
+// rows. Capacity grows monotonically and is freed by cleanup_cuda_pools.
+static uint64_t* d_bff_communities = nullptr;
+static uint64_t* d_bff_values      = nullptr;
+static int32_t*  d_bff_out         = nullptr;
+static uint32_t  bff_comm_cap      = 0;
+static uint32_t  bff_val_cap       = 0;
+
+// Pinned arena state for the gossip kernel.
+// CUDA does not have Apple Silicon's unified shared memory; we allocate
+// a device-resident arena and stream Value frames in/out per dispatch.
+// gossip_arena_cap counts Value frames (not bytes) of headroom.
+static uint64_t* d_gossip_arena   = nullptr;
+static uint32_t* d_gossip_indices = nullptr;
+static uint32_t  gossip_arena_cap = 0;
+static uint32_t  gossip_idx_cap   = 0;
+
+static int ensure_gossip_pool(uint32_t value_count) {
+    if (value_count > gossip_arena_cap) {
+        if (d_gossip_arena) { cudaFree(d_gossip_arena); d_gossip_arena = nullptr; }
+        uint32_t cap = value_count * 2;
+        if (cap < 256) cap = 256;
+        size_t bytes = (size_t)cap * WORDS * sizeof(uint64_t);
+        if (cudaMalloc((void**)&d_gossip_arena, bytes) != cudaSuccess) return -1;
+        gossip_arena_cap = cap;
+    }
+    if (value_count > gossip_idx_cap) {
+        if (d_gossip_indices) { cudaFree(d_gossip_indices); d_gossip_indices = nullptr; }
+        uint32_t cap = value_count * 2;
+        if (cap < 256) cap = 256;
+        size_t bytes = (size_t)cap * sizeof(uint32_t);
+        if (cudaMalloc((void**)&d_gossip_indices, bytes) != cudaSuccess) return -1;
+        gossip_idx_cap = cap;
+    }
+    return 0;
+}
+
+static int ensure_bff_pool(uint32_t community_count, uint32_t value_count) {
+    if (community_count > bff_comm_cap) {
+        if (d_bff_communities) { cudaFree(d_bff_communities); d_bff_communities = nullptr; }
+        uint32_t cap = community_count * 2;
+        if (cap < 64) cap = 64;
+        size_t bytes = (size_t)cap * AFFINITY_ROW_WORDS * sizeof(uint64_t);
+        if (cudaMalloc((void**)&d_bff_communities, bytes) != cudaSuccess) return -1;
+        bff_comm_cap = cap;
+    }
+
+    if (value_count > bff_val_cap) {
+        if (d_bff_values) { cudaFree(d_bff_values); d_bff_values = nullptr; }
+        if (d_bff_out)    { cudaFree(d_bff_out);    d_bff_out    = nullptr; }
+        uint32_t cap = value_count * 2;
+        if (cap < 256) cap = 256;
+        size_t val_bytes = (size_t)cap * AFFINITY_ROW_WORDS * sizeof(uint64_t);
+        size_t out_bytes = (size_t)cap * sizeof(int32_t);
+        if (cudaMalloc((void**)&d_bff_values, val_bytes) != cudaSuccess) return -1;
+        if (cudaMalloc((void**)&d_bff_out,    out_bytes) != cudaSuccess) return -1;
+        bff_val_cap = cap;
+    }
+
+    return 0;
+}
+
 extern "C" {
 
     int cuda_device_count() {
@@ -343,8 +498,115 @@ extern "C" {
         if (d_aff_candidates)  { cudaFree(d_aff_candidates);  d_aff_candidates  = nullptr; }
         if (d_aff_query)       { cudaFree(d_aff_query);       d_aff_query       = nullptr; }
         if (d_aff_distances)   { cudaFree(d_aff_distances);   d_aff_distances   = nullptr; }
-        pool_capacity = 0;
-        aff_pool_cap  = 0;
+        if (d_bff_communities) { cudaFree(d_bff_communities); d_bff_communities = nullptr; }
+        if (d_bff_values)      { cudaFree(d_bff_values);      d_bff_values      = nullptr; }
+        if (d_bff_out)         { cudaFree(d_bff_out);         d_bff_out         = nullptr; }
+        if (d_gossip_arena)    { cudaFree(d_gossip_arena);    d_gossip_arena    = nullptr; }
+        if (d_gossip_indices)  { cudaFree(d_gossip_indices);  d_gossip_indices  = nullptr; }
+        pool_capacity   = 0;
+        aff_pool_cap    = 0;
+        bff_comm_cap    = 0;
+        bff_val_cap     = 0;
+        gossip_arena_cap = 0;
+        gossip_idx_cap   = 0;
+    }
+
+    /*
+    hypercube_gossip_cuda runs the per-community gossip pipeline on
+    CUDA. The host packs the resident community's Value frames
+    contiguously starting at value_frames[0] and provides indices
+    [0..value_count) corresponding to those packed slots. The kernel
+    publishes the S+C+G+P band into asset and runs d_max XOR-routed
+    fold steps with the chosen fold_op (0 = OR, 1 = XOR). After the
+    kernel the host reads back the modified frames.
+    */
+    int hypercube_gossip_cuda(
+        int       device_id,
+        uint64_t* value_frames_host,
+        uint32_t  value_count,
+        uint32_t  d_max,
+        uint32_t  fold_op
+    ) {
+        if (!value_frames_host || value_count == 0) return -1;
+        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+        if (ensure_gossip_pool(value_count) != 0)    return -1;
+
+        size_t frames_bytes  = (size_t)value_count * WORDS * sizeof(uint64_t);
+        size_t indices_bytes = (size_t)value_count * sizeof(uint32_t);
+
+        if (cudaMemcpy(d_gossip_arena, value_frames_host, frames_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+
+        uint32_t* host_indices = (uint32_t*)malloc(indices_bytes);
+        if (!host_indices) return -2;
+        for (uint32_t i = 0; i < value_count; i++) host_indices[i] = i;
+
+        cudaError_t cpy_idx = cudaMemcpy(d_gossip_indices, host_indices, indices_bytes, cudaMemcpyHostToDevice);
+        free(host_indices);
+        if (cpy_idx != cudaSuccess) return -2;
+
+        size_t shared_bytes =
+            (size_t)value_count * GOSSIP_K_PER_CHUNK_CUDA * sizeof(uint64_t);
+
+        hypercube_gossip_kernel<<<1, value_count, shared_bytes>>>(
+            d_gossip_arena, d_gossip_indices, value_count, d_max, fold_op
+        );
+
+        if (cudaGetLastError()      != cudaSuccess) return -3;
+        if (cudaDeviceSynchronize() != cudaSuccess) return -4;
+        if (cudaMemcpy(value_frames_host, d_gossip_arena, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+
+        return 0;
+    }
+
+    /*
+    batch_first_fit_cuda runs the fused dual-gate first-fit routing
+    kernel on the GPU. Inputs are 8-word padded rows (matching CPU and
+    Metal). out_host receives one int32 per value: the first community
+    index that satisfies the dual gate, or -1 when no community fits.
+    */
+    int batch_first_fit_cuda(
+        int             device_id,
+        const uint64_t* community_ors_host,
+        uint32_t        community_count,
+        const uint64_t* value_affinities_host,
+        uint32_t        value_count,
+        uint32_t        hamming_budget,
+        uint32_t        saturation_cap,
+        int32_t*        out_host
+    ) {
+        if (!out_host || value_count == 0) return -1;
+        if (community_count > 0 && (!community_ors_host || !value_affinities_host)) return -1;
+        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+        if (ensure_bff_pool(community_count, value_count) != 0) return -1;
+
+        size_t comm_bytes = (size_t)community_count * AFFINITY_ROW_WORDS * sizeof(uint64_t);
+        size_t val_bytes  = (size_t)value_count     * AFFINITY_ROW_WORDS * sizeof(uint64_t);
+        size_t out_bytes  = (size_t)value_count     * sizeof(int32_t);
+
+        if (comm_bytes > 0) {
+            if (cudaMemcpy(d_bff_communities, community_ors_host, comm_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        }
+        if (cudaMemcpy(d_bff_values, value_affinities_host, val_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+
+        const int tpb = 256;
+        int blocks = (int)((value_count + tpb - 1) / tpb);
+        if (blocks < 1) blocks = 1;
+
+        batch_first_fit_kernel<<<blocks, tpb>>>(
+            d_bff_communities,
+            d_bff_values,
+            d_bff_out,
+            community_count,
+            value_count,
+            hamming_budget,
+            saturation_cap
+        );
+
+        if (cudaGetLastError()      != cudaSuccess) return -3;
+        if (cudaDeviceSynchronize() != cudaSuccess) return -4;
+        if (cudaMemcpy(out_host, d_bff_out, out_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+
+        return 0;
     }
 
     int nearest_affinity_cuda(
@@ -426,52 +688,6 @@ extern "C" {
             return -6;
         }
 
-        return 0;
-    }
-
-    int unified_bitwise_cuda(
-        int device_id,
-        void* a_host,
-        uint32_t num_values
-    ) {
-        if (!a_host || num_values == 0) return -1;
-        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-        if (ensure_pool(num_values) != 0) return -1;
-
-        size_t bytes = (size_t)num_values * WORDS * sizeof(uint64_t);
-
-        cudaError_t cpyErr = cudaMemcpy(d_pool_A, a_host, bytes, cudaMemcpyHostToDevice);
-        if (cpyErr != cudaSuccess) {
-            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy H->D failed: %s\n",
-                    cudaGetErrorString(cpyErr));
-            return -4;
-        }
-
-        const int threadsPerBlock = 256;
-        int blocks = (int)((num_values + threadsPerBlock - 1) / threadsPerBlock);
-        if (blocks < 1) blocks = 1;
-
-        unified_bitwise_kernel<<<blocks, threadsPerBlock>>>((uint64_t*)d_pool_A, num_values);
-
-        cudaError_t launchErr = cudaGetLastError();
-        if (launchErr != cudaSuccess) {
-            fprintf(stderr, "unified_bitwise_cuda: kernel launch failed: %s\n",
-                    cudaGetErrorString(launchErr));
-            return -2;
-        }
-        cudaError_t syncErr = cudaDeviceSynchronize();
-        if (syncErr != cudaSuccess) {
-            fprintf(stderr, "unified_bitwise_cuda: cudaDeviceSynchronize failed: %s\n",
-                    cudaGetErrorString(syncErr));
-            return -3;
-        }
-
-        cpyErr = cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
-        if (cpyErr != cudaSuccess) {
-            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy D->H failed: %s\n",
-                    cudaGetErrorString(cpyErr));
-            return -6;
-        }
         return 0;
     }
 }

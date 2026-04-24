@@ -17,4 +17,3 @@ func SurprisalVelocityCouple(leftVelocity float64, rightVelocity float64) float6
 
 	return (leftVelocity * rightVelocity) / (geometricMean * geometricMean)
 }
-

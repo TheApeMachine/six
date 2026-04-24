@@ -177,4 +177,3 @@ func normalizeJSONNumber(number json.Number) interface{} {
 
 	return int64(unsigned)
 }
-

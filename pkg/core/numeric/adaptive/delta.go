@@ -57,4 +57,3 @@ func (delta *Delta) Reset() error {
 	delta.previous = 0
 	return delta.smoother.Reset()
 }
-

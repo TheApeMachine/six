@@ -39,4 +39,3 @@ type TwoHopResult struct {
 	Base2MaxGain float64       `json:"base2_max_gain"`
 	BestComposed TwoHopTrace   `json:"best_composed"`
 }
-

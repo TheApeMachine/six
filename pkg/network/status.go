@@ -279,11 +279,11 @@ func (monitor *transportMonitor) Allow(layer string, op string) error {
 	monitor.status.SystemicFailure = true
 
 	return &NetworkError{
-		Subsystem:    layer,
-		Op:       op,
-		Mode:     TransportFailureCircuitOpen,
-		Systemic: true,
-		Err:      ErrTransportCircuitOpen,
+		Subsystem: layer,
+		Op:        op,
+		Mode:      TransportFailureCircuitOpen,
+		Systemic:  true,
+		Err:       ErrTransportCircuitOpen,
 	}
 }
 
@@ -335,4 +335,3 @@ func (monitor *transportMonitor) RecordFailure(mode TransportFailureMode, err er
 	monitor.status.ConsecutiveFailures = monitor.breaker.ConsecutiveFailures()
 	monitor.status.NextAttemptAt = monitor.breaker.NextAttemptAt()
 }
-

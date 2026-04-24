@@ -8,7 +8,7 @@ import (
 
 type (
 	// a single slot for a worker in PoolWithFunc
-	SlotFunc[T any] struct {
+	slotFunc[T any] struct {
 		threadPtr unsafe.Pointer
 		data      T
 	}
@@ -26,44 +26,29 @@ type (
 		free     func(any)
 		task     func(T)
 		_p2      [cacheLinePadSize - unsafe.Sizeof(uint64(0)) - 3*unsafe.Sizeof(func() {})]byte
-		top      atomic.Pointer[DataItem[T]]
-		_p3      [cacheLinePadSize - unsafe.Sizeof(
-			atomic.Pointer[DataItem[T]]{},
-		)]byte
+		top      atomic.Pointer[dataItem[T]]
+		_p3      [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[dataItem[T]]{})]byte
 	}
 )
 
-/*
-NewPoolWithFunc returns a new PoolWithFunc
-*/
+// NewPoolWithFunc returns a new PoolWithFunc
 func NewPoolWithFunc[T any](size uint64, task func(T)) *PoolWithFunc[T] {
-	dataPool := sync.Pool{
-		New: func() any { return new(DataItem[T]) },
-	}
-
-	return &PoolWithFunc[T]{
-		maxSize: size,
-		task:    task,
-		alloc:   dataPool.Get,
-		free:    dataPool.Put,
-	}
+	dataPool := sync.Pool{New: func() any { return new(dataItem[T]) }}
+	return &PoolWithFunc[T]{maxSize: size, task: task, alloc: dataPool.Get, free: dataPool.Put}
 }
 
-/*
-Invoke invokes the pre-defined method in PoolWithFunc by assigning the data to an already existing worker
-or spawning a new worker given queue size is in limits
-*/
+// Invoke invokes the pre-defined method in PoolWithFunc by assigning the data to an already existing worker
+// or spawning a new worker given queue size is in limits
 func (self *PoolWithFunc[T]) Invoke(value T) {
-	var slot *SlotFunc[T]
-
+	var s *slotFunc[T]
 	for {
-		if slot = self.pop(); slot != nil {
-			slot.data = value
-			safe_ready(slot.threadPtr)
+		if s = self.pop(); s != nil {
+			s.data = value
+			safe_ready(s.threadPtr)
 			return
 		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
-			slot = &SlotFunc[T]{data: value}
-			go self.loopQ(slot)
+			s = &slotFunc[T]{data: value}
+			go self.loopQ(s)
 			return
 		} else {
 			atomic.AddUint64(&self.currSize, uint64SubtractionConstant)
@@ -72,42 +57,33 @@ func (self *PoolWithFunc[T]) Invoke(value T) {
 	}
 }
 
-/*
-loopQ represents the infinite loop for a worker goroutine
-*/
-func (self *PoolWithFunc[T]) loopQ(sf *SlotFunc[T]) {
-	sf.threadPtr = GetG()
-
+// represents the infinite loop for a worker goroutine
+func (self *PoolWithFunc[T]) loopQ(d *slotFunc[T]) {
+	d.threadPtr = GetG()
 	for {
-		self.task(sf.data)
-		self.push(sf)
+		self.task(d.data)
+		self.push(d)
 		mcall(fast_park)
 	}
 }
 
-/*
-DataItem is a single node in the stack
-*/
-type DataItem[T any] struct {
-	next  atomic.Pointer[DataItem[T]]
-	value *SlotFunc[T]
+// Stack implementation below for storing goroutine references
+
+// a single node in the stack
+type dataItem[T any] struct {
+	next  atomic.Pointer[dataItem[T]]
+	value *slotFunc[T]
 }
 
-/*
-pop pops value from the top of the stack
-*/
-func (self *PoolWithFunc[T]) pop() (value *SlotFunc[T]) {
-	var top, next *DataItem[T]
-
+// pop pops value from the top of the stack
+func (self *PoolWithFunc[T]) pop() (value *slotFunc[T]) {
+	var top, next *dataItem[T]
 	for {
 		top = self.top.Load()
-
 		if top == nil {
 			return
 		}
-
 		next = top.next.Load()
-
 		if self.top.CompareAndSwap(top, next) {
 			value = top.value
 			top.value = nil
@@ -118,24 +94,18 @@ func (self *PoolWithFunc[T]) pop() (value *SlotFunc[T]) {
 	}
 }
 
-/*
-push pushes a value on top of the stack
-*/
-func (self *PoolWithFunc[T]) push(value *SlotFunc[T]) {
+// push pushes a value on top of the stack
+func (self *PoolWithFunc[T]) push(v *slotFunc[T]) {
 	var (
-		top  *DataItem[T]
-		item = self.alloc().(*DataItem[T])
+		top  *dataItem[T]
+		item = self.alloc().(*dataItem[T])
 	)
-
-	item.value = value
-
+	item.value = v
 	for {
 		top = self.top.Load()
 		item.next.Store(top)
-
 		if self.top.CompareAndSwap(top, item) {
 			return
 		}
 	}
 }
-

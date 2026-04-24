@@ -67,4 +67,3 @@ func (ratio *Ratio) Reset() error {
 
 	return ratio.smoother.Reset()
 }
-

@@ -49,4 +49,3 @@ means it is converging.
 func (phase *Phase) Velocity(surprisalMean float64, surprisalPrev float64) float64 {
 	return surprisalMean - surprisalPrev
 }
-

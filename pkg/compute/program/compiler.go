@@ -1,128 +1,102 @@
-/*
-Package program holds the DSL compiler that lowers human-authored firmware
-strings (from cmd/cfg/config.yml) into the native 64-bit instruction format
-that the universal-bitwise kernel executes directly.
-
-Lowering happens once at config load. After that the runtime never touches
-DSL source again — execution operates only on the packed uint64 instruction
-words inside a Value's program region.
-
-Instruction layout (one DSL line = one uint64 word):
-
-	bits  0..6   dstSpan - 1   (7 bits, 1..128)
-	bits  7..13  dstStart      (7 bits, 0..127)
-	bits 14..20  bSpan - 1     (7 bits, 1..128)
-	bits 21..27  bStart        (7 bits, 0..127)
-	bits 28..34  aSpan - 1     (7 bits, 1..128)
-	bits 35..41  aStart        (7 bits, 0..127)
-	bits 42..45  opcode nibble (4 bits, truth table)
-	bits     46  mode          (0 = accumulate, 1 = reduce)
-	bits 47..63  reserved
-
-A zero word terminates execution. The compiler also returns the uint64 to
-write into kernel.SchedulingNextProgramWord (word 117) when the source
-includes a trailing `next self` or `next <id>` directive — that word is part
-of the install buffer, never written by a separate Go pass.
-
-DSL grammar (one statement per non-empty, non-comment line):
-
-	OpLine   := REGION_REF REGION_REF REGION_REF OPCODE MODE
-	NextLine := "next" ("self" | UINT64)
-
-Region refs are `name[start]` or `name[start,span]` (span defaults to 1). The
-caller supplies a Layout describing the named regions and binary-string
-opcode names so the substrate can re-shape its layout without forking the
-compiler.
-*/
 package program
 
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
-// Instruction encoding constants. Mirrors the decoder in
-// pkg/compute/kernel/cpu/wordblock_universal.go.
+// Instruction encoding constants
 const (
 	InstrDstSpanShift  = 0
 	InstrDstStartShift = 7
-	InstrBSpanShift    = 14
-	InstrBStartShift   = 21
-	InstrASpanShift    = 28
-	InstrAStartShift   = 35
-	InstrOpcodeShift   = 42
-	InstrModeShift     = 46
-	InstrImmShift      = 49
 
-	InstrFieldMask  uint64 = 0x7F
-	InstrOpcodeMask uint64 = 0xF
-	InstrModeMask   uint64 = 0x7
-	InstrImmMask    uint64 = 0x7FFF
+	InstrASpanShift  = 14
+	InstrAStartShift = 21
+
+	InstrBSpanShift  = 28
+	InstrBStartShift = 35
+
+	InstrOpcodeShift   = 42 // 4 bits
+	InstrModeShift     = 46 // 3 bits: 0=Truth, 1=Popcnt, 2=AnyZero, 3=AllOnes
+	InstrTopologyShift = 49 // 2 bits: 0=self, 1=next, 2=fold, 3=spawn
+
+	InstrPredStartShift = 51 // 7 bits
+	InstrPredCondShift  = 58 // 2 bits: 0=Always, 1=NotZero (!=0), 2=IsZero (==0)
+
+	InstrAIndirectShift = 60 // 1 bit
+	InstrBTypeShift     = 61 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
+
+	InstrFieldMask uint64 = 0x7F
 )
 
+// Topologies
 const (
-	ModeAccumulate uint64 = 0
-	ModeReduce     uint64 = 1
-	ModeCmov       uint64 = 2
-	ModeImm        uint64 = 3
-	ModeTally      uint64 = 4
+	TopologySelf  = 0
+	TopologyNext  = 1
+	TopologyFold  = 2
+	TopologySpawn = 3
 )
 
-// SelfSentinel marks a `next self` continuation in Compiled.SchedulingNext
-// before installation. Callers rewrite it to the resident Value's ID at
-// install time.
-const SelfSentinel uint64 = 0xFFFFFFFFFFFFFFFF
+// Modes
+const (
+	ModeTruth   = 0
+	ModePopcnt  = 1
+	ModeAnyZero = 2
+	ModeAllOnes = 3
+)
 
-// RegionExtent describes one named region in a Value frame: starting word
-// index plus how many 64-bit words it covers.
+var Opcodes = map[string]uint64{
+	"0":  0b0000,
+	"&":  0b0001,
+	"\\": 0b0010,
+	"A":  0b0011,
+	"/":  0b0100,
+	"B":  0b0101,
+	"^":  0b0110,
+	"|":  0b0111,
+	"~|": 0b1000,
+	"==": 0b1001,
+	"~B": 0b1010,
+	"<-": 0b1011,
+	"~A": 0b1100,
+	"->": 0b1101,
+	"~&": 0b1110,
+	"1":  0b1111,
+}
+
+var Topologies = map[string]uint64{
+	"self":  TopologySelf,
+	"next":  TopologyNext,
+	"fold":  TopologyFold,
+	"spawn": TopologySpawn,
+}
+
 type RegionExtent struct {
 	Start int
 	Words int
 }
 
-// Layout pairs a region name table with an opcode-name → 4-bit nibble table.
-// Pass core-derived defaults via NewLayout; the compiler treats the names as
-// authoritative and never imports the config package directly (avoids a
-// cyclic dependency).
 type Layout struct {
-	Regions map[string]RegionExtent
-	Opcodes map[string]uint64
+	Regions    map[string]RegionExtent
+	Properties map[string]int
+	Opcodes    map[string]uint64 // Unused in new AST, but kept for signature
 }
 
-// Compiled is the result of lowering a single named program. Words are the
-// packed instruction stream that loads into a Value's program region.
-// SchedulingNext is the value to write into word 117 when the program is
-// installed: 0 (none), SelfSentinel (encoded "self" — see ResolveSchedulingNext),
-// or a literal Value ID.
 type Compiled struct {
-	Words          []uint64
-	SchedulingNext uint64
-	HasSelfNext    bool
+	Words []uint64
 }
 
-// ResolveSchedulingNext picks the actual scheduler word for an install: when
-// the program declared `next self` it returns the resident Value's ID;
-// otherwise it returns the literal continuation (0 = no follow-up).
-func (c Compiled) ResolveSchedulingNext(residentValueID uint64) uint64 {
-	if c.HasSelfNext {
-		return residentValueID
-	}
+// AST Syntax: [ (Target Topology) <= (Expr) ? (Predicate) <= Scope ]
+// e.g. [ (16..24 self) <= (0..8 ^ 8..16) <= (0..n) ]
+// e.g. [ (gradient fold) <= (scratch ^ context) ? (properties.falsified != 0) <= community ]
+var parserRe = regexp.MustCompile(`\[\s*\((.*?)\)\s*<=\s*(.*?)\s*(?:\?\s*\((.*?)\))?\s*<=\s*(.*?)\s*\]`)
 
-	return c.SchedulingNext
-}
-
-// Compile lowers DSL source into a packed instruction stream against the
-// supplied Layout. The returned Compiled is safe to inspect even when err
-// is non-nil (it carries whatever lines parsed successfully so callers can
-// surface partial diagnostics).
 func Compile(source string, lay Layout) (Compiled, error) {
-	var (
-		out  Compiled
-		errs []string
-	)
+	var out Compiled
+	var errs []string
 
 	for lineNo, raw := range strings.Split(source, "\n") {
 		line := stripComment(raw)
@@ -131,20 +105,20 @@ func Compile(source string, lay Layout) (Compiled, error) {
 			continue
 		}
 
-		fields := strings.Fields(line)
-
-		if strings.EqualFold(fields[0], "next") {
-			if err := parseNext(fields, &out); err != nil {
-				errs = append(errs, fmt.Sprintf("line %d: %v", lineNo+1, err))
-			}
-
+		matches := parserRe.FindStringSubmatch(line)
+		if matches == nil {
+			errs = append(errs, fmt.Sprintf("line %d: invalid syntax. Must be [ (Target) <= (Expr) <= Scope ]", lineNo+1))
 			continue
 		}
 
-		instr, err := parseOpLine(fields, lay)
+		targetGrp := matches[1]
+		exprGrp := matches[2]
+		predGrp := matches[3] // optional
+		// scopeGrp := matches[4] // parsed but ignored mechanically
+
+		instr, err := parseInstruction(targetGrp, exprGrp, predGrp, lay)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("line %d: %v", lineNo+1, err))
-
 			continue
 		}
 
@@ -159,205 +133,252 @@ func Compile(source string, lay Layout) (Compiled, error) {
 }
 
 func stripComment(s string) string {
+	if i := strings.Index(s, ";"); i >= 0 {
+		return s[:i]
+	}
 	if i := strings.Index(s, "#"); i >= 0 {
 		return s[:i]
 	}
-
 	return s
 }
 
-func parseNext(fields []string, out *Compiled) error {
-	if len(fields) != 2 {
-		return fmt.Errorf("`next` requires exactly one argument, got %d", len(fields)-1)
+func parseInstruction(targetGrp, exprGrp, predGrp string, lay Layout) (uint64, error) {
+	// 1. Target & Topology
+	tParts := strings.Fields(targetGrp)
+	if len(tParts) != 2 {
+		return 0, fmt.Errorf("target must be 'Region Topology', got %q", targetGrp)
 	}
-
-	target := strings.ToLower(fields[1])
-
-	if target == "self" {
-		out.HasSelfNext = true
-		out.SchedulingNext = SelfSentinel
-
-		return nil
-	}
-
-	id, err := strconv.ParseUint(target, 10, 64)
+	dstStart, dstSpan, _, err := parseRef(tParts[0], lay)
 	if err != nil {
-		return fmt.Errorf("`next %s`: not `self` and not a uint64", fields[1])
+		return 0, fmt.Errorf("target region: %w", err)
+	}
+	topology, ok := Topologies[strings.ToLower(tParts[1])]
+	if !ok {
+		return 0, fmt.Errorf("unknown topology %q", tParts[1])
 	}
 
-	out.HasSelfNext = false
-	out.SchedulingNext = id
-
-	return nil
-}
-
-func parseOpLine(fields []string, lay Layout) (uint64, error) {
-	if len(fields) != 5 {
-		return 0, fmt.Errorf("op line wants `srcA srcB dst op mode`, got %d fields", len(fields))
-	}
-
-	var mode uint64
-	switch strings.ToLower(fields[4]) {
-	case "accumulate":
-		mode = ModeAccumulate
-	case "reduce":
-		mode = ModeReduce
-	case "cmov":
-		mode = ModeCmov
-	case "imm":
-		mode = ModeImm
-	case "tally":
-		mode = ModeTally
-	default:
-		return 0, fmt.Errorf("unknown mode %q (want `accumulate`, `reduce`, `cmov`, `imm`, or `tally`)", fields[4])
-	}
-
-	aStart, aSpan, err := parseRegionRef(fields[0], lay)
-	if err != nil {
-		return 0, fmt.Errorf("srcA: %w", err)
-	}
-
+	// 2. Expr & Mode
+	var mode uint64 = ModeTruth
+	var aStart, aSpan int
 	var bStart, bSpan int
-	var imm uint64
-	if mode == ModeImm {
-		immVal, err := strconv.ParseUint(fields[1], 10, 16)
-		if err != nil {
-			return 0, fmt.Errorf("srcB (imm): %w", err)
+	var aInd, bType uint64
+	var opcode uint64
+
+	// Extract optional reduction function
+	if strings.HasPrefix(exprGrp, "popcnt(") {
+		mode = ModePopcnt
+		exprGrp = exprGrp[7 : len(exprGrp)-1]
+	} else if strings.HasPrefix(exprGrp, "any_zero(") {
+		mode = ModeAnyZero
+		exprGrp = exprGrp[9 : len(exprGrp)-1]
+	} else if strings.HasPrefix(exprGrp, "all_ones(") {
+		mode = ModeAllOnes
+		exprGrp = exprGrp[9 : len(exprGrp)-1]
+	} else if strings.HasPrefix(exprGrp, "(") && strings.HasSuffix(exprGrp, ")") {
+		exprGrp = exprGrp[1 : len(exprGrp)-1]
+	}
+
+	eParts := strings.Fields(exprGrp)
+	if len(eParts) == 1 {
+		// e.g. `(0)` or `(A)` or `(rom.unsupervised)`
+		if eParts[0] == "0" {
+			opcode = Opcodes["0"]
+		} else if eParts[0] == "1" {
+			opcode = Opcodes["1"]
+		} else {
+			aStart, aSpan, aInd, err = parseRef(eParts[0], lay)
+			if err != nil {
+				return 0, fmt.Errorf("expr A: %w", err)
+			}
+			opcode = Opcodes["A"]
 		}
-		imm = immVal
+	} else if len(eParts) == 3 {
+		// e.g. `0..8 ^ 8..16`
+		aStart, aSpan, aInd, err = parseRef(eParts[0], lay)
+		if err != nil {
+			return 0, fmt.Errorf("expr A: %w", err)
+		}
+		op, ok := Opcodes[eParts[1]]
+		if !ok {
+			return 0, fmt.Errorf("unknown operator %q", eParts[1])
+		}
+		opcode = op
+
+		// B operand could be region or immediate
+		if isNumeric(eParts[2]) {
+			bType = 2 // Immediate
+			imm, _ := strconv.ParseUint(eParts[2], 10, 14)
+			bStart = int(imm & 0x7F)
+			bSpan = int((imm>>7)&0x7F) + 1
+		} else {
+			var bInd uint64
+			bStart, bSpan, bInd, err = parseRef(eParts[2], lay)
+			if err != nil {
+				return 0, fmt.Errorf("expr B: %w", err)
+			}
+			if bInd == 1 {
+				bType = 1 // Indirect
+			}
+		}
 	} else {
-		bStart, bSpan, err = parseRegionRef(fields[1], lay)
+		return 0, fmt.Errorf("expr must be 'A op B' or 'A', got %q", exprGrp)
+	}
+
+	// 3. Predicate
+	var predStart, predCond uint64
+	if predGrp != "" {
+		pParts := strings.Fields(predGrp)
+		if len(pParts) != 3 {
+			return 0, fmt.Errorf("predicate must be 'Region != 0' or 'Region == 0'")
+		}
+		pStart, _, _, err := parseRef(pParts[0], lay)
 		if err != nil {
-			return 0, fmt.Errorf("srcB: %w", err)
+			return 0, fmt.Errorf("predicate region: %w", err)
+		}
+		predStart = uint64(pStart)
+		if pParts[1] == "!=" && pParts[2] == "0" {
+			predCond = 1
+		} else if pParts[1] == "==" && pParts[2] == "0" {
+			predCond = 2
+		} else {
+			return 0, fmt.Errorf("predicate condition must be '!= 0' or '== 0'")
 		}
 	}
 
-	dstStart, dstSpan, err := parseRegionRef(fields[2], lay)
-	if err != nil {
-		return 0, fmt.Errorf("dst: %w", err)
-	}
-
-	op, ok := lay.Opcodes[strings.ToLower(fields[3])]
-	if !ok {
-		return 0, fmt.Errorf("unknown opcode %q (known: %s)", fields[3], knownOpcodes(lay))
-	}
-
-	return EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan, op, mode, imm), nil
+	return EncodeInstruction(
+		aStart, aSpan, bStart, bSpan, dstStart, dstSpan,
+		opcode, mode, topology,
+		predStart, predCond, aInd, bType,
+	), nil
 }
 
-func parseRegionRef(token string, lay Layout) (start, span int, err error) {
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func parseRef(token string, lay Layout) (start, span int, indirect uint64, err error) {
+	if strings.HasPrefix(token, "*") {
+		indirect = 1
+		token = token[1:]
+	}
+
+	// Case 1: Numeric range "16..24" or "16"
+	if isNumeric(token) {
+		start, _ = strconv.Atoi(token)
+		span = 1
+		return start, span, indirect, nil
+	}
+	if parts := strings.Split(token, ".."); len(parts) == 2 {
+		if isNumeric(parts[0]) && isNumeric(parts[1]) {
+			s, _ := strconv.Atoi(parts[0])
+			e, _ := strconv.Atoi(parts[1])
+			if e < s {
+				return 0, 0, 0, fmt.Errorf("invalid range %s", token)
+			}
+			return s, e - s, indirect, nil
+		}
+	}
+
+	// Case 2: Symbolic region "properties.stuck" or "properties[14]"
+	if idx := strings.IndexByte(token, '.'); idx >= 0 {
+		regionName := strings.ToLower(token[:idx])
+		propName := strings.ToLower(token[idx+1:])
+
+		region, ok := lay.Regions[regionName]
+		if !ok {
+			return 0, 0, 0, fmt.Errorf("unknown region %q", regionName)
+		}
+
+		propOffset, ok := lay.Properties[propName]
+		if !ok {
+			return 0, 0, 0, fmt.Errorf("unknown property %q in region %q", propName, regionName)
+		}
+
+		absStart := region.Start + propOffset
+		return absStart, 1, indirect, nil
+	}
+
 	open := strings.IndexByte(token, '[')
-	if open < 0 || !strings.HasSuffix(token, "]") {
-		return 0, 0, fmt.Errorf("region ref %q must look like name[start] or name[start,span]", token)
-	}
-
-	name := strings.ToLower(token[:open])
-
-	region, ok := lay.Regions[name]
-	if !ok {
-		return 0, 0, fmt.Errorf("unknown region %q (known: %s)", name, knownRegions(lay))
-	}
-
-	body := token[open+1 : len(token)-1]
-	parts := strings.Split(body, ",")
-
-	relStart, parseErr := strconv.Atoi(strings.TrimSpace(parts[0]))
-	if parseErr != nil {
-		return 0, 0, fmt.Errorf("region ref %q: %v", token, parseErr)
-	}
-
-	span = 1
-
-	if len(parts) == 2 {
-		spanVal, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
-		if parseErr != nil {
-			return 0, 0, fmt.Errorf("region ref %q span: %v", token, parseErr)
+	if open >= 0 && strings.HasSuffix(token, "]") {
+		name := strings.ToLower(token[:open])
+		region, ok := lay.Regions[name]
+		if !ok {
+			return 0, 0, 0, fmt.Errorf("unknown region %q", name)
 		}
-
-		span = spanVal
+		body := token[open+1 : len(token)-1]
+		parts := strings.Split(body, ",")
+		relStart, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+		span = 1
+		if len(parts) == 2 {
+			span, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+		}
+		return region.Start + relStart, span, indirect, nil
 	}
 
-	if len(parts) > 2 {
-		return 0, 0, fmt.Errorf("region ref %q: too many components", token)
+	// Case 3: Bare symbolic region "program", "tokens", "properties.surprisal"
+	// For dot notation, we expect it's a known alias in lay.Regions, OR we implement a hardcoded lookup map.
+	// We'll trust lay.Regions has exact mappings like "properties.surprisal" = {Start: 68, Words: 1}.
+	name := strings.ToLower(token)
+	if region, ok := lay.Regions[name]; ok {
+		return region.Start, region.Words, indirect, nil
 	}
 
-	if relStart < 0 || span <= 0 {
-		return 0, 0, fmt.Errorf("region ref %q: start/span must be non-negative", token)
-	}
-
-	if relStart+span > region.Words {
-		return 0, 0, fmt.Errorf(
-			"region ref %q: [%d,%d] exceeds %s region (%d words)",
-			token, relStart, span, name, region.Words,
-		)
-	}
-
-	start = region.Start + relStart
-
-	return start, span, nil
+	return 0, 0, 0, fmt.Errorf("unknown region alias %q", token)
 }
 
-// EncodeInstruction packs the seven operand fields into a 64-bit instruction
-// word. Out-of-range values are clamped to the field width; zero would mean
-// "halt" so spans of zero are silently coerced to one.
-func EncodeInstruction(aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opcode, mode, imm uint64) uint64 {
+func EncodeInstruction(
+	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
+	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
+) uint64 {
 	if aSpan <= 0 {
 		aSpan = 1
 	}
-
 	if bSpan <= 0 {
 		bSpan = 1
 	}
-
 	if dstSpan <= 0 {
 		dstSpan = 1
 	}
 
 	return ((uint64(dstSpan-1) & InstrFieldMask) << InstrDstSpanShift) |
 		((uint64(dstStart) & InstrFieldMask) << InstrDstStartShift) |
-		((uint64(bSpan-1) & InstrFieldMask) << InstrBSpanShift) |
-		((uint64(bStart) & InstrFieldMask) << InstrBStartShift) |
 		((uint64(aSpan-1) & InstrFieldMask) << InstrASpanShift) |
 		((uint64(aStart) & InstrFieldMask) << InstrAStartShift) |
-		((opcode & InstrOpcodeMask) << InstrOpcodeShift) |
-		((mode & InstrModeMask) << InstrModeShift) |
-		((imm & InstrImmMask) << InstrImmShift)
+		((uint64(bSpan-1) & InstrFieldMask) << InstrBSpanShift) |
+		((uint64(bStart) & InstrFieldMask) << InstrBStartShift) |
+		((opcode & 0xF) << InstrOpcodeShift) |
+		((mode & 0x7) << InstrModeShift) |
+		((topology & 0x3) << InstrTopologyShift) |
+		((predStart & InstrFieldMask) << InstrPredStartShift) |
+		((predCond & 0x3) << InstrPredCondShift) |
+		((aInd & 0x1) << InstrAIndirectShift) |
+		((bType & 0x3) << InstrBTypeShift)
 }
 
-// DecodeInstruction is the inverse of EncodeInstruction. The kernel's hot
-// path inlines the bit math, but tests and tooling go through this helper.
-func DecodeInstruction(instr uint64) (aStart, aSpan, bStart, bSpan, dstStart, dstSpan int, opcode, mode, imm uint64) {
+func DecodeInstruction(instr uint64) (
+	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
+	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
+) {
 	dstSpan = int((instr>>InstrDstSpanShift)&InstrFieldMask) + 1
 	dstStart = int((instr >> InstrDstStartShift) & InstrFieldMask)
-	bSpan = int((instr>>InstrBSpanShift)&InstrFieldMask) + 1
-	bStart = int((instr >> InstrBStartShift) & InstrFieldMask)
 	aSpan = int((instr>>InstrASpanShift)&InstrFieldMask) + 1
 	aStart = int((instr >> InstrAStartShift) & InstrFieldMask)
-	opcode = (instr >> InstrOpcodeShift) & InstrOpcodeMask
-	mode = (instr >> InstrModeShift) & InstrModeMask
-	imm = (instr >> InstrImmShift) & InstrImmMask
-
-	return aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, imm
-}
-
-func knownOpcodes(lay Layout) string {
-	names := make([]string, 0, len(lay.Opcodes))
-	for name := range lay.Opcodes {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return strings.Join(names, ", ")
-}
-
-func knownRegions(lay Layout) string {
-	names := make([]string, 0, len(lay.Regions))
-	for name := range lay.Regions {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return strings.Join(names, ", ")
+	bSpan = int((instr>>InstrBSpanShift)&InstrFieldMask) + 1
+	bStart = int((instr >> InstrBStartShift) & InstrFieldMask)
+	opcode = (instr >> InstrOpcodeShift) & 0xF
+	mode = (instr >> InstrModeShift) & 0x7
+	topology = (instr >> InstrTopologyShift) & 0x3
+	predStart = (instr >> InstrPredStartShift) & InstrFieldMask
+	predCond = (instr >> InstrPredCondShift) & 0x3
+	aInd = (instr >> InstrAIndirectShift) & 0x1
+	bType = (instr >> InstrBTypeShift) & 0x3
+	return
 }

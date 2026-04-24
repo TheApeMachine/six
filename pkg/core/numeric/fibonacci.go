@@ -93,4 +93,3 @@ func (numerics *Numerics) SieveOfEratosthenes(limit int) {
 		}
 	}
 }
-

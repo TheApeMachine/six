@@ -100,4 +100,3 @@ func (experiment *CompositionalExperiment) TableData() any { return experiment.t
 func (experiment *CompositionalExperiment) Artifacts() []tools.Artifact {
 	return CompositionalArtifacts(experiment.tableData, experiment.Score())
 }
-

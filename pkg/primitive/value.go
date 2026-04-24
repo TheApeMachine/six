@@ -498,42 +498,32 @@ func (value *Value) WriteProgramWords(words []uint64) {
 }
 
 /*
-SchedulingNextProgramWord is the absolute word index inside the asset region
-that the runtime checks for `next <id>` / `next self` continuations. Mirrors
-pkg/compute/kernel.SchedulingNextProgramWord (kept here to avoid an import
-cycle from primitive into kernel).
-*/
-const SchedulingNextProgramWord = 117
-
-/*
-SetSchedulingNext stamps the continuation word that drives `next self` and
-`next <id>` semantics. Pass 0 to clear; pass the resident Value's ID for a
-self-loop (callers usually go through ProgramConfig.ResolveSchedulingNext
-which does that substitution against the SelfSentinel).
-*/
-func (value *Value) SetSchedulingNext(next uint64) {
-	if value == nil {
-		return
-	}
-
-	value.Set(SchedulingNextProgramWord, next)
-}
-
-/*
-SchedulingNext returns word 117: continuation for `next <id>` / `next self` (0 = none).
+SchedulingNext returns the continuation word for `next <id>` / `next self` (0 = none).
 */
 func (value *Value) SchedulingNext() uint64 {
 	if value == nil {
 		return 0
 	}
 
-	w := SchedulingNextProgramWord
-
-	if w < 0 || w >= len(*value) {
+	word, err := value.Property(CONTINUATION)
+	if err != nil {
 		return 0
 	}
 
-	return (*value)[w]
+	return word
+}
+
+/*
+SetSchedulingNext stamps the continuation word that drives `next self` and
+`next <id>` semantics. Pass 0 to clear; pass the resident Value's ID for a
+self-loop.
+*/
+func (value *Value) SetSchedulingNext(next uint64) {
+	if value == nil {
+		return
+	}
+
+	value.SetProperty(CONTINUATION, next)
 }
 
 /*

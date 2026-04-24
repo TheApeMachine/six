@@ -305,4 +305,3 @@ func fmtDur(d time.Duration) string {
 		return fmt.Sprintf("%.1f min", d.Minutes())
 	}
 }
-

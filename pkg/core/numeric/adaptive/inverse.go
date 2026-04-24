@@ -95,4 +95,3 @@ func (inverse *Inverse) Reset() error {
 
 	return nil
 }
-

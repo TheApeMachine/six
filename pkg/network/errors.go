@@ -91,4 +91,3 @@ const (
 func (transportErr TransportStatusError) Error() string {
 	return string(transportErr)
 }
-

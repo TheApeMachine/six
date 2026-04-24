@@ -433,4 +433,3 @@ const (
 
 // Error implements the error interface for IPCError.
 func (ipcErr IPCError) Error() string { return string(ipcErr) }
-

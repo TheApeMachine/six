@@ -9,4 +9,3 @@ Use Ring when you need lock-free handoff between goroutines; use ListRing when
 you need a fixed-size cyclic structure for iteration or in-place rewiring.
 */
 package data
-

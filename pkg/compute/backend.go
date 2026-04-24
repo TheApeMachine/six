@@ -2,7 +2,6 @@ package compute
 
 import (
 	"context"
-	"runtime"
 	"sync/atomic"
 
 	"github.com/smallnest/ringbuffer"
@@ -12,7 +11,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -26,7 +24,6 @@ type Backend struct {
 	err        error
 	rb         *ringbuffer.RingBuffer
 	substrates []kernel.Substrate
-	pool       *pool.Pool
 	popped     atomic.Int64
 }
 
@@ -44,7 +41,6 @@ func NewBackend(ctx context.Context) *Backend {
 			core.Cfg.Value.Bytes * 64,
 		).WithCancel(ctx),
 		substrates: make([]kernel.Substrate, 0),
-		pool:       pool.NewPool(uint64(runtime.NumCPU())),
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -93,20 +89,30 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 			return 0, errnie.Error(err)
 		}
 
-		backend.pool.Schedule(func() {
+		go func() {
 			defer primitive.FreeValue(value)
 
-			opt := kernel.NewOptimizer(value, kernel.StrategyRotate).Frame()
-			backend.substrates[len(backend.substrates)-1].UniversalBitwise(opt)
-			opt.Value() // Reconciles RETURN
+			backend.substrates[len(backend.substrates)-1].ExecuteCommunity(
+				[]*primitive.Value{value},
+			)
 
 			if _, err := backend.rb.Write(value.Bytes()); err != nil {
 				errnie.Error(err)
 			}
-		})
+		}()
 
 		return len(p), nil
 	}
+}
+
+/*
+ExecuteCommunity executes a community of Values in lockstep across the substrates.
+*/
+func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
+	if len(community) == 0 {
+		return nil
+	}
+	return backend.substrates[len(backend.substrates)-1].ExecuteCommunity(community)
 }
 
 /*

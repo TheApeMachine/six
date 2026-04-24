@@ -176,4 +176,3 @@ the current refactoring phase.
 		},
 	}
 }
-

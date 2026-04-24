@@ -8,4 +8,3 @@ var count64funcs = []count64impl{
 	{count64neon, "neon", true},
 	{count64generic, "generic", true},
 }
-

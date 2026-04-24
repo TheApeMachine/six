@@ -62,4 +62,3 @@ func (accumulator *Accumulator) Reset() error {
 	accumulator.value = 0
 	return accumulator.smoother.Reset()
 }
-

@@ -161,4 +161,3 @@ func characterNgramCosineASCII(left, right string, n int) float64 {
 
 	return dot / (math.Sqrt(leftMag) * math.Sqrt(rightMag))
 }
-

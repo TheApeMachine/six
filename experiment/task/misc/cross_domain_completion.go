@@ -403,4 +403,3 @@ func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
 func (m *multiDomainDataset) Close() error {
 	return nil
 }
-

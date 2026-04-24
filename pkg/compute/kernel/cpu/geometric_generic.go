@@ -1,5 +1,3 @@
-//go:build !amd64 && !arm64
-
 package cpu
 
 import (
@@ -22,26 +20,27 @@ Opcode high nibble selects the operation:
   - 0x20 sandwich: out = (left * right) * reverse(right)
   - 0x30 reverse:  out = reverse(left)
 */
-func geometricFrame(value *uint64, opcode uint64) bool {
+func GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
+	base := (*uint64)(value)
 	switch opcode & 0xF0 {
 	case 0x10:
-		left := lanesAt(value, 256)
-		right := lanesAt(value, 320)
+		left := lanesAt(base, 256)
+		right := lanesAt(base, 320)
 		out := geometricProduct(left, right)
-		storeLanes(value, 192, out)
+		storeLanes(base, 192, out)
 		return true
 	case 0x20:
-		left := lanesAt(value, 256)
-		right := lanesAt(value, 320)
+		left := lanesAt(base, 256)
+		right := lanesAt(base, 320)
 		tmp := geometricProduct(left, right)
 		rev := reverseLanes(right)
 		out := geometricProduct(tmp, rev)
-		storeLanes(value, 192, out)
+		storeLanes(base, 192, out)
 		return true
 	case 0x30:
-		left := lanesAt(value, 256)
+		left := lanesAt(base, 256)
 		out := reverseLanes(left)
-		storeLanes(value, 192, out)
+		storeLanes(base, 192, out)
 		return true
 	default:
 		return false
@@ -111,4 +110,3 @@ func geometricProduct(left, right [8]float64) [8]float64 {
 
 	return out
 }
-

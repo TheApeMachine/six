@@ -65,42 +65,6 @@ var regions = []region{
 	{"affinity", "AFFINITY", "Affinity", "affinity"},
 }
 
-// propertyTypes mirrors pkg/primitive/properties.go's PropertyType iota in
-// declaration order. The offset of each entry is its slot inside the
-// properties region (PROPERTIES_START_WORD + index). Adding a property in
-// properties.go REQUIRES adding it here too — there is no automatic linkage
-// because PropertyType is a plain Go iota with method receivers, not a
-// schema. The TS-side test suite asserts the visualiser sees the same
-// names, so a forgotten append trips a runtime assertion.
-var propertyTypes = []string{
-	"LABELS",
-	"CONFIDENCE",
-	"EPOCH",
-	"TTL",
-	"NOISE",
-	"STATUS",
-	"WINDOW",
-	"DEPTH",
-	"COMMUNITY",
-	"TARGET",
-	"ROLE",
-	"REFERENCE",
-	"EMIT",
-	"SURPRISAL",
-}
-
-// valueRoles mirrors ValueRole in properties.go — same drift contract as
-// propertyTypes above. Used by the visualiser to interpret the ROLE
-// property word without re-hardcoding numeric sentinels.
-var valueRoles = []string{
-	"None",
-	"Programmer",
-	"Learner",
-	"Readout",
-	"Association",
-	"Prompt",
-}
-
 // resolved is the per-region snapshot the renderers consume.
 type resolved struct {
 	region
@@ -132,6 +96,20 @@ func main() {
 	viper.SetConfigFile(cfgFile)
 	if err := viper.ReadInConfig(); err != nil {
 		die("read config %q: %v", cfgFile, err)
+	}
+
+	var propertyTypes = viper.GetStringSlice("value.properties")
+	var valueRoles = viper.GetStringSlice("value.roles")
+	var statusTypes = viper.GetStringSlice("value.status")
+
+	if len(propertyTypes) == 0 {
+		die("value.properties missing from config")
+	}
+	if len(valueRoles) == 0 {
+		die("value.roles missing from config")
+	}
+	if len(statusTypes) == 0 {
+		die("value.status missing from config")
 	}
 
 	required := []string{"value.words"}
@@ -189,6 +167,9 @@ func main() {
 	}
 
 	propertiesStart := byStem["PROPERTIES"].start
+	if err := writePropertiesGo(propertyTypes, valueRoles, statusTypes); err != nil {
+		die("write Go properties: %v", err)
+	}
 	if err := writePropertiesTS(propertyTypes, valueRoles, propertiesStart); err != nil {
 		die("write TS properties: %v", err)
 	}
@@ -477,8 +458,13 @@ func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved) 
 		opcodes[name] = v
 	}
 
+	propertiesMap := make(map[string]int)
+	for i, prop := range viper.GetStringSlice("value.properties") {
+		propertiesMap[strings.ToLower(prop)] = i
+	}
+
 	_ = byStem // reserved for future cross-checks
-	return program.Layout{Regions: regionsMap, Opcodes: opcodes}, nil
+	return program.Layout{Regions: regionsMap, Properties: propertiesMap, Opcodes: opcodes}, nil
 }
 
 // compiledProgram is one row of the generated TS table.
@@ -531,17 +517,18 @@ func writeProgramsTS(programs []compiledProgram) error {
 	// raw program region don't carry their own copy of the constants.
 	fmt.Fprintf(&b, "export const INSTR_DST_SPAN_SHIFT  = %d;\n", program.InstrDstSpanShift)
 	fmt.Fprintf(&b, "export const INSTR_DST_START_SHIFT = %d;\n", program.InstrDstStartShift)
-	fmt.Fprintf(&b, "export const INSTR_B_SPAN_SHIFT    = %d;\n", program.InstrBSpanShift)
-	fmt.Fprintf(&b, "export const INSTR_B_START_SHIFT   = %d;\n", program.InstrBStartShift)
 	fmt.Fprintf(&b, "export const INSTR_A_SPAN_SHIFT    = %d;\n", program.InstrASpanShift)
 	fmt.Fprintf(&b, "export const INSTR_A_START_SHIFT   = %d;\n", program.InstrAStartShift)
+	fmt.Fprintf(&b, "export const INSTR_B_SPAN_SHIFT    = %d;\n", program.InstrBSpanShift)
+	fmt.Fprintf(&b, "export const INSTR_B_START_SHIFT   = %d;\n", program.InstrBStartShift)
 	fmt.Fprintf(&b, "export const INSTR_OPCODE_SHIFT    = %d;\n", program.InstrOpcodeShift)
 	fmt.Fprintf(&b, "export const INSTR_MODE_SHIFT      = %d;\n", program.InstrModeShift)
-	fmt.Fprintf(&b, "export const INSTR_IMM_SHIFT       = %d;\n", program.InstrImmShift)
-	fmt.Fprintf(&b, "export const INSTR_FIELD_MASK   = 0x%xn;\n", program.InstrFieldMask)
-	fmt.Fprintf(&b, "export const INSTR_OPCODE_MASK  = 0x%xn;\n", program.InstrOpcodeMask)
-	fmt.Fprintf(&b, "export const INSTR_MODE_MASK    = 0x%xn;\n", program.InstrModeMask)
-	fmt.Fprintf(&b, "export const INSTR_IMM_MASK     = 0x%xn;\n\n", program.InstrImmMask)
+	fmt.Fprintf(&b, "export const INSTR_TOPOLOGY_SHIFT  = %d;\n", program.InstrTopologyShift)
+	fmt.Fprintf(&b, "export const INSTR_PRED_START_SHIFT= %d;\n", program.InstrPredStartShift)
+	fmt.Fprintf(&b, "export const INSTR_PRED_COND_SHIFT = %d;\n", program.InstrPredCondShift)
+	fmt.Fprintf(&b, "export const INSTR_A_IND_SHIFT     = %d;\n", program.InstrAIndirectShift)
+	fmt.Fprintf(&b, "export const INSTR_B_TYPE_SHIFT    = %d;\n", program.InstrBTypeShift)
+	fmt.Fprintf(&b, "export const INSTR_FIELD_MASK   = 0x%xn;\n\n", program.InstrFieldMask)
 
 	b.WriteString("export interface DecodedInstruction {\n")
 	b.WriteString("\taStart: number;\n")
@@ -552,7 +539,11 @@ func writeProgramsTS(programs []compiledProgram) error {
 	b.WriteString("\tdstSpan: number;\n")
 	b.WriteString("\topcode: number;\n")
 	b.WriteString("\tmode: number;\n")
-	b.WriteString("\timm: number;\n")
+	b.WriteString("\ttopology: number;\n")
+	b.WriteString("\tpredStart: number;\n")
+	b.WriteString("\tpredCond: number;\n")
+	b.WriteString("\taInd: number;\n")
+	b.WriteString("\tbType: number;\n")
 	b.WriteString("}\n\n")
 
 	b.WriteString("export interface ProgramSignature {\n")
@@ -568,10 +559,10 @@ func writeProgramsTS(programs []compiledProgram) error {
 	for _, p := range programs {
 		fmt.Fprintf(&b, "\t{\n\t\tname: %q,\n\t\tinstructions: [\n", p.name)
 		for _, w := range p.words {
-			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, imm := program.DecodeInstruction(w)
+			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType := program.DecodeInstruction(w)
 			fmt.Fprintf(&b,
-				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, imm: %d },\n",
-				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, imm,
+				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, topology: %d, predStart: %d, predCond: %d, aInd: %d, bType: %d },\n",
+				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType,
 			)
 		}
 		b.WriteString("\t\t],\n\t},\n")
@@ -579,5 +570,54 @@ func writeProgramsTS(programs []compiledProgram) error {
 	b.WriteString("] as const;\n")
 
 	target := filepath.Join(rootRel("..", "..", "visualizer", "src", "lib"), "programsGenerated.ts")
+	return writeOut(target, b.String())
+}
+
+func writePropertiesGo(propertyTypes []string, valueRoles []string, statusTypes []string) error {
+	var b strings.Builder
+	b.WriteString("// Code generated by go generate; DO NOT EDIT.\n")
+	b.WriteString("// Source of truth: cmd/cfg/config.yml\n\n")
+	b.WriteString("package primitive\n\n")
+
+	b.WriteString("type StatusType uint64\n\n")
+	b.WriteString("const (\n")
+	for i, name := range statusTypes {
+		if i == 0 {
+			fmt.Fprintf(&b, "\t%s StatusType = iota\n", name)
+		} else {
+			fmt.Fprintf(&b, "\t%s\n", name)
+		}
+	}
+	b.WriteString(")\n\n")
+
+	b.WriteString("type PropertyType int\n\n")
+	b.WriteString("/*\n")
+	b.WriteString("PropertyType indexes words inside the properties region.\n")
+	b.WriteString("*/\n")
+	b.WriteString("const (\n")
+	for i, name := range propertyTypes {
+		if i == 0 {
+			fmt.Fprintf(&b, "\t%s PropertyType = iota\n", name)
+		} else {
+			fmt.Fprintf(&b, "\t%s\n", name)
+		}
+	}
+	b.WriteString(")\n\n")
+
+	b.WriteString("/*\n")
+	b.WriteString("ValueRole is the in-band role carried in the Role property word.\n")
+	b.WriteString("*/\n")
+	b.WriteString("type ValueRole uint64\n\n")
+	b.WriteString("const (\n")
+	for i, name := range valueRoles {
+		if i == 0 {
+			fmt.Fprintf(&b, "\tValueRole%s ValueRole = iota\n", name)
+		} else {
+			fmt.Fprintf(&b, "\tValueRole%s\n", name)
+		}
+	}
+	b.WriteString(")\n")
+
+	target := rootRel("properties_generated.go")
 	return writeOut(target, b.String())
 }

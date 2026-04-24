@@ -35,27 +35,43 @@ drift between the compiler and the decoder trips an assertion instead
 of silently misclassifying programs in the visualiser.
 */
 function encodeInstruction(opts: {
-	aStart: number;
-	aSpan: number;
-	bStart: number;
-	bSpan: number;
-	dstStart: number;
-	dstSpan: number;
-	opcode: number;
-	mode: number;
+	aStart?: number;
+	aSpan?: number;
+	bStart?: number;
+	bSpan?: number;
+	dstStart?: number;
+	dstSpan?: number;
+	opcode?: number;
+	mode?: number;
+	topology?: number;
+	predStart?: number;
+	predCond?: number;
+	aInd?: number;
+	bType?: number;
 }): bigint {
 	const f = (v: number) => BigInt(v) & 0x7fn;
-	const op = BigInt(opts.opcode) & 0xfn;
-	const mode = BigInt(opts.mode) & 0x1n;
+	const op = BigInt(opts.opcode ?? 0) & 0xfn;
+	const mode = BigInt(opts.mode ?? 0) & 0x7n;
+	const topology = BigInt(opts.topology ?? 0) & 0x3n;
+	const predStart = BigInt(opts.predStart ?? 0) & 0x7fn;
+	const predCond = BigInt(opts.predCond ?? 0) & 0x3n;
+	const aInd = BigInt(opts.aInd ?? 0) & 0x1n;
+	const bType = BigInt(opts.bType ?? 0) & 0x3n;
+
 	return (
-		f(opts.dstSpan - 1) |
-		(f(opts.dstStart) << 7n) |
-		(f(opts.bSpan - 1) << 14n) |
-		(f(opts.bStart) << 21n) |
-		(f(opts.aSpan - 1) << 28n) |
-		(f(opts.aStart) << 35n) |
+		f((opts.dstSpan ?? 1) - 1) |
+		(f(opts.dstStart ?? 0) << 7n) |
+		(f((opts.aSpan ?? 1) - 1) << 14n) |
+		(f(opts.aStart ?? 0) << 21n) |
+		(f((opts.bSpan ?? 1) - 1) << 28n) |
+		(f(opts.bStart ?? 0) << 35n) |
 		(op << 42n) |
-		(mode << 46n)
+		(mode << 46n) |
+		(topology << 49n) |
+		(predStart << 51n) |
+		(predCond << 58n) |
+		(aInd << 60n) |
+		(bType << 61n)
 	);
 }
 
@@ -69,6 +85,11 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		dstSpan: 1,
 		opcode: 0x6,
 		mode: 1,
+		topology: 0,
+		predStart: 0,
+		predCond: 0,
+		aInd: 0,
+		bType: 0,
 	});
 
 	const decoded = decodeInstructionWord(word);
@@ -82,6 +103,11 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		dstSpan: 1,
 		opcode: 0x6,
 		mode: 1,
+		topology: 0,
+		predStart: 0,
+		predCond: 0,
+		aInd: 0,
+		bType: 0,
 	});
 });
 

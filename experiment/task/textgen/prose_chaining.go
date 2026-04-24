@@ -100,4 +100,3 @@ func (experiment *ProseChainingExperiment) TableData() any { return experiment.t
 func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
 	return ProseChainingArtifacts(experiment.tableData, experiment.Score())
 }
-

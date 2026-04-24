@@ -3,8 +3,10 @@ package vm
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -19,13 +21,14 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	err          error
-	host         *network.Host
-	tokenizer    *Tokenizer
-	orchestrator *Orchestrator
-	telemetry    *telemetry.Bridge
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	host      *network.Host
+	tokenizer *Tokenizer
+	backend   *compute.Backend
+	telemetry *telemetry.Bridge
+	community []*primitive.Value
 }
 
 type machineOpts func(*Machine)
@@ -46,6 +49,7 @@ func NewMachine(
 		ctx:       ctx,
 		cancel:    cancel,
 		telemetry: bridge,
+		backend:   compute.NewBackend(ctx),
 	}
 
 	for _, opt := range opts {
@@ -60,13 +64,6 @@ func NewMachine(
 		return nil, errnie.Error(machine.err)
 	}
 
-	if machine.orchestrator, machine.err = NewOrchestrator(
-		ctx,
-		machine.telemetry,
-	); machine.err != nil {
-		return nil, errnie.Error(machine.err)
-	}
-
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx,
 	); machine.err != nil {
@@ -78,14 +75,12 @@ func NewMachine(
 		"cancel":    machine.cancel,
 		"host":      machine.host,
 		"tokenizer": machine.tokenizer,
+		"backend":   machine.backend,
 	})
 }
 
 /*
 Close the machine.
-
-Cancels the shared pool.Queue (owned here for Backend construction) once host
-and tokenizer are closed so goroutine-pool work does not outlive dependents.
 */
 func (machine *Machine) Close() error {
 	var errs []error
@@ -104,8 +99,8 @@ func (machine *Machine) Close() error {
 		}
 	}
 
-	if machine.orchestrator != nil {
-		if err := machine.orchestrator.Close(); err != nil {
+	if machine.backend != nil {
+		if err := machine.backend.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -121,11 +116,84 @@ func (machine *Machine) Error() error {
 }
 
 /*
+Cycle executes the entire community loop until it converges (all continuations are 0)
+or at least one newly resolved Value emerges.
+*/
+func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
+	for {
+		select {
+		case <-machine.ctx.Done():
+			return nil, machine.ctx.Err()
+		default:
+			// 1. Scheduler: Build the active queue based on Continuation
+			active := make([]*primitive.Value, 0, len(machine.community))
+			for _, value := range machine.community {
+				cont := value.SchedulingNext()
+				
+				// Handle autonomous reprogramming via CONTINUATION
+				if cont > 0 && cont <= 20 {
+					var fw core.FirmwareType
+					switch cont {
+					case 1:
+						fw = core.FOLD_SUBSTRATE
+					case 2:
+						fw = core.CAUSAL_EXPLORE
+					case 3:
+						fw = core.VOTE_SWARM
+					}
+
+					if fw != "" {
+						value.InstallFirmware(fw)
+						value.SetProperty(primitive.STATUS, 0)
+						value.SetProperty(primitive.CONTINUATION, value.ID()) // Re-enter queue with new program
+						active = append(active, value)
+						continue
+					}
+				} else if cont != 0 {
+					// We only implement "continuation = own id" for now.
+					// For target ID routing, we would activate the target instead.
+					active = append(active, value)
+				}
+			}
+
+			if len(active) > 0 {
+				spawned := machine.backend.ExecuteCommunity(active)
+				if len(spawned) > 0 {
+					machine.community = append(machine.community, spawned...)
+				}
+			}
+
+			done := len(active) == 0
+			var newlyResolved []*primitive.Value
+
+			for _, value := range machine.community {
+				status, _ := value.Property(primitive.STATUS)
+				if status == uint64(primitive.RESOLVED) {
+					newlyResolved = append(newlyResolved, value)
+				}
+				
+				log.Printf("Value %d status: %d, continuation: %d, role: %d", value.ID(), status, value.SchedulingNext(), value.Role())
+
+				if machine.telemetry != nil {
+					machine.telemetry.Write(value.Bytes())
+				}
+			}
+
+			if len(newlyResolved) > 0 {
+				return newlyResolved, nil
+			}
+
+			if done {
+				return nil, nil
+			}
+		}
+	}
+}
+
+/*
 Load walks Generate(), mints Morton-packed Values from each sample’s Text via
 primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
-Properties word when Label is present, then runs orchestrator.Publish per
-segment. Resets tokenizer ingest state when finished so later Prompt paths
-see a clean pipe.
+Properties word when Label is present, then runs Cycle.
 */
 func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
@@ -143,7 +211,9 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 			return errnie.Error(err)
 		}
 
-		if _, err := machine.orchestrator.Cycle(segments...); err != nil {
+		machine.community = append(machine.community, segments...)
+
+		if _, err := machine.Cycle(); err != nil {
 			return errnie.Error(err)
 		}
 	}
@@ -152,12 +222,7 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 }
 
 /*
-Prompt injects the prompt segment Values on the first orchestrator Cycle, then
-runs further Cycles with no new ingress until the field reports at least one
-resolved Value (belief gap ≤ BeliefEpsilon — see Orchestrator.Cycle). Those
-returned Values are the prompt outcome. The only normal exit is gap closure;
-use context cancellation or deadline on NewMachine’s context to bound work if
-the substrate never reaches epsilon.
+Prompt injects the prompt segment Values into the community and cycles until settled.
 */
 func (machine *Machine) Prompt(values ...*primitive.Value) (
 	resolved []*primitive.Value, err error,
@@ -168,17 +233,13 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (
 		return nil, errnie.Error(err)
 	}
 
-	// Stamp ValueRolePrompt on every input segment so the wire frame
-	// itself carries the provenance forward through the orchestrator.
-	// Downstream telemetry consumers (visualiser, inspector) read the
-	// Role property word and surface prompt Values distinctly without
-	// any out-of-band signalling.
 	for _, value := range values {
 		if value == nil {
 			continue
 		}
 		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
+		machine.community = append(machine.community, value)
 	}
 
-	return machine.orchestrator.Cycle(values...)
+	return machine.Cycle()
 }

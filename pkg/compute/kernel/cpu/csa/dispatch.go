@@ -32,4 +32,3 @@ Count64 adds, for each index j in 0..63, the number of elements in buf with bit 
 func Count64(counts *[64]int, buf []uint64) {
 	count64func(counts, buf)
 }
-

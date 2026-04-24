@@ -37,4 +37,3 @@ func (sample Sample) TaskPrompt() []byte {
 
 	return sample.Text
 }
-

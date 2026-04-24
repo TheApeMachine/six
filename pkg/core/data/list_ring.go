@@ -161,4 +161,3 @@ func (ring *ListRing[T]) Do(visitor func(T)) {
 		visitor(walk.Value)
 	}
 }
-

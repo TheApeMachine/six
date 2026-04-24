@@ -26,4 +26,3 @@ func DecodeImageBytes(raw []byte) ([]byte, error) {
 
 	return dst.Pix, nil
 }
-

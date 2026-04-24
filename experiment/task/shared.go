@@ -21,4 +21,3 @@ var Aphorisms = []string{
 func NewLocalProvider(corpus []string) data.Provider {
 	return local.New(local.WithStrings(corpus))
 }
-

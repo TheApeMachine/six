@@ -30,4 +30,3 @@ func LaTeXEscape(s string) string {
 	s = strings.ReplaceAll(s, `~`, `\textasciitilde{}`)
 	return s
 }
-

@@ -15,4 +15,3 @@ func aphorismSplitPrompts() (prompts []string, holdouts [][]byte) {
 	}
 	return prompts, holdouts
 }
-

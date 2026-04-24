@@ -46,4 +46,3 @@ func init() {
 		panic("numeric: sieve did not yield enough primes for PhaseDial")
 	}
 }
-

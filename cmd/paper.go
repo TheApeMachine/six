@@ -187,4 +187,3 @@ It executes at package initialization time.
 func init() {
 	rootCmd.AddCommand(paperCmd)
 }
-

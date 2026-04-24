@@ -34,6 +34,11 @@ test("every generated program matches a signature with the same instruction stre
 					return (
 						instr.opcode === o.opcode &&
 						instr.mode === o.mode &&
+						instr.topology === o.topology &&
+						instr.predStart === o.predStart &&
+						instr.predCond === o.predCond &&
+						instr.aInd === o.aInd &&
+						instr.bType === o.bType &&
 						instr.aStart === o.aStart &&
 						instr.aSpan === o.aSpan &&
 						instr.bStart === o.bStart &&
@@ -52,9 +57,9 @@ test("every generated program matches a signature with the same instruction stre
 	}
 });
 
-test("classifyInstructionStream identifies fold_substrate as structural", () => {
-	const result = classifyInstructionStream(signatureFor("fold_substrate"));
-	assert.equal(result.program, "fold_substrate");
+test("classifyInstructionStream identifies structural_component as structural", () => {
+	const result = classifyInstructionStream(signatureFor("structural_component"));
+	assert.equal(result.program, "structural_component");
 	assert.equal(result.category, "structural");
 	assert.equal(result.style.shape, "triangle_down");
 });
@@ -76,7 +81,11 @@ test("classifyInstructionStream falls through to unknown for an unrecognised tup
 			dstSpan: 8,
 			opcode: 0x6,
 			mode: 0,
-			imm: 0,
+			topology: 0,
+			predStart: 0,
+			predCond: 0,
+			aInd: 0,
+			bType: 0,
 		},
 	]);
 
@@ -85,13 +94,13 @@ test("classifyInstructionStream falls through to unknown for an unrecognised tup
 });
 
 test("classifyInstructionStream rejects shorter prefix matches", () => {
-	const fold = signatureFor("fold_substrate");
-	assert.ok(fold.length > 1, "fold_substrate must be multi-instruction");
+	const fold = signatureFor("structural_component");
+	assert.ok(fold.length > 1, "structural_component must be multi-instruction");
 
 	const result = classifyInstructionStream(fold.slice(0, 1));
 	assert.notEqual(
 		result.program,
-		"fold_substrate",
-		"a one-instruction prefix must not be classified as fold_substrate",
+		"structural_component",
+		"a one-instruction prefix must not be classified as structural_component",
 	);
 });

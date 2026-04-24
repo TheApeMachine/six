@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"runtime"
 	"unsafe"
 	_ "unsafe"
 
@@ -14,11 +15,9 @@ const (
 
 type cacheLinePadding struct{ _ [cacheLinePadSize]byte }
 
-/*
-Linking ZenQ with golang internal runtime library to allow
-usage of scheduling primitives like goready(), mcall() etc
-to allow low-level scheduling of goroutines
-*/
+// Linking ZenQ with golang internal runtime library to allow usage of scheduling primitives
+// like goready(), mcall() etc to allow low-level scheduling of goroutines
+
 type mutex struct {
 	// Futex-based impl treats it as uint32 key,
 	// while sema-based impl as M* waitm.
@@ -26,10 +25,8 @@ type mutex struct {
 	key uintptr
 }
 
-/*
-The functions below are used for scheduling goroutines with exclusive control
-Shifting to the below flow will remove the spinning and mutex lock implementations
-*/
+// The functions below are used for scheduling goroutines with exclusive control
+// Shifting to the below flow will remove the spinning and mutex lock implementations
 
 //go:linkname lock runtime.lock
 func lock(l *mutex)
@@ -68,6 +65,7 @@ func runtime_canSpin(i int) bool
 // runtime_doSpin does active spinning.
 // //go:linkname runtime_doSpin sync.runtime_doSpin
 // func runtime_doSpin()
+
 func runtime_doSpin() {
 	spin(30)
 }
@@ -153,37 +151,21 @@ func ProcPin() int
 func ProcUnpin()
 
 // custom parking function
-//
-// park_m transitions _Grunning→_Gwaiting before dropg. Doing dropg first
-// leaves curg cleared while atomicstatus is still _Grunning, so g.m is nil
-// for a supposedly-running G — GC suspendG can fault on gp.m (preempt.go).
 func fast_park(gp unsafe.Pointer) {
-	casgstatus(gp, _Grunning, _Gwaiting)
 	dropg()
+	casgstatus(gp, _Grunning, _Gwaiting)
 	schedule()
 }
 
+// whether the system has multiple cores or a single core
+var multicore = runtime.NumCPU() > 1
+
 // call ready after ensuring the goroutine is parked
-//
-// A parked pool worker is _Gwaiting, but the GC may set _Gscan while it
-// suspends the G for stack scanning (_Gscanwaiting). Masking with ^_Gscan
-// makes that look like plain _Gwaiting; calling goready in that window races
-// suspendG/resumeG and can corrupt g status (e.g. SIGSEGV inside suspendG).
-// We only goready when the status is exactly _Gwaiting with no scan bit.
 func safe_ready(gp unsafe.Pointer) {
-	for {
-		status := Readgstatus(gp)
-		base := status &^ _Gscan
-		scan := status & _Gscan
-
-		if base == _Gwaiting && scan == 0 {
-			goready(gp, 1)
-
-			return
-		}
-
+	for Readgstatus(gp)&^_Gscan != _Gwaiting {
 		mcall(gosched_m)
 	}
+	goready(gp, 1)
 }
 
 type waitReason uint8
@@ -367,4 +349,3 @@ const (
 	_Gscanwaiting   = _Gscan + _Gwaiting   // 0x1004
 	_Gscanpreempted = _Gscan + _Gpreempted // 0x1009
 )
-

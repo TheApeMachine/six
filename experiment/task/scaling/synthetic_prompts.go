@@ -39,4 +39,3 @@ func syntheticSamplePrompts(ds *SyntheticDataset, maxPrompts, suffixBytes int) (
 	}
 	return prompts, holdouts
 }
-

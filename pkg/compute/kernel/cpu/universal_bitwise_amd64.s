@@ -3,7 +3,8 @@
 #include "textflag.h"
 
 // ============================================================================
-// UniversalBitwise — AMD64 in-band virtual machine.
+// universalBitwise — AMD64 in-place VM (links to Go: //go:noescape func universalBitwise(unsafe.Pointer)).
+// TEXT ·universalBitwise(SB): · is the package symbol link; (SB) is the assembler “static base” register, not part of the name.
 //
 // Signature: func(value unsafe.Pointer)
 //   value+0(FP) — pointer to a 1024-byte (128 × uint64) Value frame
@@ -54,7 +55,7 @@
 //   AX,BX,CX,DX,SI — scratch (CX doubles as inner-loop counter k)
 // ============================================================================
 
-TEXT ·UniversalBitwise(SB), NOSPLIT, $128-8
+TEXT ·universalBitwise(SB), NOSPLIT, $128-8
 	MOVQ	value+0(FP), DI
 	TESTQ	DI, DI
 	JZ	ub_done

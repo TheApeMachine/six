@@ -177,4 +177,3 @@ func WithDynamics(dynamics ...Dynamic) DerivedOption {
 		derived.dynamics = dynamics
 	}
 }
-

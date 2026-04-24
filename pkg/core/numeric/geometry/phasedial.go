@@ -357,4 +357,3 @@ func (rotor PhaseRotor) ToDialCompat() PhaseDial {
 
 	return dial.normalize()
 }
-

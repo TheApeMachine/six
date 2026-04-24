@@ -187,4 +187,3 @@ func phaseModeFromDominant(dominantPhase PhaseMode) PhaseMode {
 		Concentration: dominantPhase.Concentration,
 	}
 }
-

@@ -101,4 +101,3 @@ func sanitizeLabel(prompt string) string {
 		return '_'
 	}, strings.ToLower(prompt))
 }
-

@@ -145,4 +145,3 @@ func fmt1(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) }
 func fmt2(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
 func fmt3(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
 func fmt4(v float64) string { return strconv.FormatFloat(v, 'f', 4, 64) }
-

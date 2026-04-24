@@ -26,4 +26,3 @@ metadata without consulting prompt-time holdouts.
 type CorpusRegistrar interface {
 	RegisterCorpusSample(valueID uint64, sample []byte)
 }
-

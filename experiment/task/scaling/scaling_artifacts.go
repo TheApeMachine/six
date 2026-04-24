@@ -946,4 +946,3 @@ independently across corpus depth.`,
 			statisticalProse(topScore), trend, projector.F3(rejection.Mean))
 	}
 }
-

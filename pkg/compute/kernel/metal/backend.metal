@@ -154,113 +154,73 @@ static inline Multivector sandwich(Multivector motor, Multivector target) {
     return geometric_product(geometric_product(motor, target), reverse(motor));
 }
 
-static inline void unpack_region_ref(ulong word, thread int* start, thread int* span) {
-    *start = (int)(uint)word;
-    *span = (int)(uint)(word >> 32);
-}
+// Padded affinity-row stride matches kernel/cpu/affinity_distances.go's
+// affinityDistanceVectorWords (8 × uint64). Keep in lock-step with the CPU
+// reference and the CUDA kernel so the host can ship one packing buffer
+// across all backends.
+#define AFFINITY_ROW_WORDS 8
 
-static inline void universal_bitwise_device(
-    device ulong* frame,
-    int aStart, int aSpan,
-    int bStart, int bSpan,
-    int dstStart, int dstSpan,
-    int mode, ulong opcodeTable
+struct BatchFirstFitParams {
+    uint community_count;
+    uint value_count;
+    uint hamming_budget;
+    uint saturation_cap;
+};
+
+kernel void batch_first_fit_kernel(
+    device const ulong* community_ors [[buffer(0)]],
+    device const ulong* value_affinities [[buffer(1)]],
+    constant BatchFirstFitParams& params [[buffer(2)]],
+    device int* out [[buffer(3)]],
+    uint vid [[thread_position_in_grid]]
 ) {
-    if (aSpan <= 0 || bSpan <= 0 || dstSpan <= 0) return;
-    if (aStart < 0 || bStart < 0 || dstStart < 0) return;
-    if (aStart + aSpan > 128 || bStart + bSpan > 128 || dstStart + dstSpan > 128) return;
+    if (vid >= params.value_count) return;
 
-    ulong aLane[4] = {0, 0, 0, 0};
-    for (int idx = 0; idx < aSpan; idx++) {
-        aLane[idx & 3] ^= frame[aStart + idx];
+    // Hold the value's 257 bits in thread-private registers across the
+    // entire community sweep — the kernel never reloads them.
+    uint v_base = vid * AFFINITY_ROW_WORDS;
+    ulong v0 = value_affinities[v_base + 0];
+    ulong v1 = value_affinities[v_base + 1];
+    ulong v2 = value_affinities[v_base + 2];
+    ulong v3 = value_affinities[v_base + 3];
+    ulong v4 = value_affinities[v_base + 4] & 1UL;
+
+    uint hbud = params.hamming_budget;
+    uint scap = params.saturation_cap;
+
+    int hit = -1;
+
+    for (uint c = 0; c < params.community_count; c++) {
+        uint c_base = c * AFFINITY_ROW_WORDS;
+        ulong c0 = community_ors[c_base + 0];
+        ulong c1 = community_ors[c_base + 1];
+        ulong c2 = community_ors[c_base + 2];
+        ulong c3 = community_ors[c_base + 3];
+        ulong c4 = community_ors[c_base + 4] & 1UL;
+
+        uint hamming =
+            (uint)popcount(v0 ^ c0) +
+            (uint)popcount(v1 ^ c1) +
+            (uint)popcount(v2 ^ c2) +
+            (uint)popcount(v3 ^ c3) +
+            (uint)(v4 ^ c4);
+
+        if (hamming > hbud) continue;
+
+        uint unionc =
+            (uint)popcount(v0 | c0) +
+            (uint)popcount(v1 | c1) +
+            (uint)popcount(v2 | c2) +
+            (uint)popcount(v3 | c3) +
+            (uint)(v4 | c4);
+
+        if (unionc > scap) continue;
+
+        hit = (int)c;
+        break;
     }
 
-    uchar sigBytes[64];
-    for (int i = 0; i < 64; i++) sigBytes[i] = 0;
-
-    for (int rot = 0; rot < 16; rot++) {
-        uchar op = (uchar)((opcodeTable >> (rot * 4)) & 0xF);
-        ulong m0 = (op & 1) ? ~0UL : 0UL;
-        ulong m1 = (op & 2) ? ~0UL : 0UL;
-        ulong m2 = (op & 4) ? ~0UL : 0UL;
-        ulong m3 = (op & 8) ? ~0UL : 0UL;
-
-        for (int lane = 0; lane < 4; lane++) {
-            int bIdx = bStart + ((rot * 4) + lane) % bSpan;
-            ulong a = aLane[lane];
-            ulong b = frame[bIdx];
-            ulong notA = ~a;
-            ulong notB = ~b;
-
-            ulong result = (a & b & m0) |
-                           (a & notB & m1) |
-                           (notA & b & m2) |
-                           (notA & notB & m3);
-
-            sigBytes[rot * 4 + lane] = (uchar)(result & 0xFF);
-        }
-    }
-
-    ulong sigWords[8];
-    for (int w = 0; w < 8; w++) {
-        int base = w * 8;
-        sigWords[w] = (ulong)sigBytes[base] |
-                      ((ulong)sigBytes[base + 1] << 8) |
-                      ((ulong)sigBytes[base + 2] << 16) |
-                      ((ulong)sigBytes[base + 3] << 24) |
-                      ((ulong)sigBytes[base + 4] << 32) |
-                      ((ulong)sigBytes[base + 5] << 40) |
-                      ((ulong)sigBytes[base + 6] << 48) |
-                      ((ulong)sigBytes[base + 7] << 56);
-    }
-
-    if (mode == 0) {
-        int limit = dstSpan;
-        if (limit > 8) limit = 8;
-        for (int idx = 0; idx < limit; idx++) {
-            frame[dstStart + idx] ^= sigWords[idx];
-        }
-        return;
-    }
-
-    ulong total = 0;
-    for (int idx = 0; idx < 8; idx++) {
-        total += popcount(sigWords[idx]);
-    }
-    frame[dstStart] = total;
-}
-
-static inline ulong broadcast_opcode_nibble(uchar opLow) {
-    ulong n = (ulong)(opLow & 0xF);
-    ulong packed = 0;
-    for (int i = 0; i < 16; i++) {
-        packed |= n << (i * 4);
-    }
-    return packed;
-}
-
-kernel void unified_bitwise_kernel(
-    device ulong* A [[buffer(0)]],
-    uint id [[thread_position_in_grid]]
-) {
-    uint base = id * WORDS;
-    device ulong* frame = A + base;
-
-    uchar opLow = (uchar)(frame[PROGRAM_START_WORD] & 0xF);
-    if (opLow == 0) {
-        finish_frame_post_alu_device(frame);
-        return;
-    }
-
-    ulong opcodeTable = broadcast_opcode_nibble(opLow);
-    int mode = (int)(frame[PROGRAM_START_WORD + 1] & 0xFF);
-    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
-
-    universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
-    finish_frame_post_alu_device(frame);
+    out[vid] = hit;
 }
 
 kernel void nearest_affinity_kernel(
@@ -368,29 +328,154 @@ kernel void geometric_arena_indices_kernel(
     }
 }
 
-kernel void unified_bitwise_arena_indices_kernel(
-    device ulong* arena [[buffer(0)]],
-    device const uint* indices [[buffer(1)]],
-    device atomic_uint* linear_next [[buffer(2)]],
-    uint id [[thread_position_in_grid]]
-) {
-    uint parent_slot = indices[id];
-    device ulong* frame = arena + (uint64_t)parent_slot * (uint64_t)WORDS;
+/*
+hypercube_gossip_kernel diffuses each Value's S+C+G+P band across the
+community using an XOR-routed hypercube. Threadgroup memory plays the
+role of the on-chip crossbar; for a full 256-Value field, dimensions
+0..4 use simd_shuffle_xor (in-warp, register) and 5..7 use
+threadgroup (inter-warp) — O(log2 N) and parity-equivalent to
+kernel.HypercubeGossipRef on CPU.
 
-    uchar opLow = (uchar)(frame[PROGRAM_START_WORD] & 0xF);
-    if (opLow == 0) {
-        finish_frame_post_alu_device(frame);
-        return;
+A neighbor j = lid ^ (1<<d) with j >= value_count is outside the
+active grid; the reference skips that pair. OR/XOR with a neutral
+operand is done by treating the neighbor contribution as 0 (do not
+use nbr = lid, which would XOR a lane with itself to zero).
+
+The band is chunked at GOSSIP_K_PER_CHUNK words per pass to fit
+within the per-threadgroup memory budget. With GOSSIP_K_PER_CHUNK = 8
+and the hard cap of 256 Values per community, one chunk consumes
+8 * 256 * 8 = 16 KiB, under the 32 KiB M-series default.
+
+Inactive lanes (lid >= value_count) participate in every barrier so
+the threadgroup never deadlocks; their reads/writes are gated.
+*/
+#define GOSSIP_BAND_START_WORD   SIGNALS_START_WORD
+#define GOSSIP_BAND_TARGET_WORD  ASSET_START_WORD
+#define GOSSIP_BAND_WORDS        (SIGNALS_WORDS + CONTEXT_WORDS + GRADIENT_WORDS + PROPERTIES_WORDS)
+#define GOSSIP_K_PER_CHUNK       8
+#define GOSSIP_FULL_HYPERCUBE    256u
+
+struct GossipParams {
+    uint value_count;
+    uint d_max;
+    uint fold_op;
+    uint _pad;
+};
+
+static inline ulong gossip_fold(ulong a, ulong b, uint foldOp) {
+    return (foldOp == 0u) ? (a | b) : (a ^ b);
+}
+
+/* simd_shuffle_xor is 32b-wide; pair half-shuffles to move a 64b neighbor word. */
+static inline ulong simd_shuffle_ulong_xor(ulong v, uint dmask) {
+    uint lo = (uint)(v);
+    uint hi = (uint)(v >> 32u);
+    ushort m = (ushort)(dmask);
+    uint pl = simd_shuffle_xor(lo, m);
+    uint ph = simd_shuffle_xor(hi, m);
+    return (ulong(pl) & 0xFFFFFFFFuL) | (ulong(ph) << 32u);
+}
+
+kernel void hypercube_gossip_kernel(
+    device ulong* arena                 [[buffer(0)]],
+    device const uint* indices          [[buffer(1)]],
+    constant GossipParams& params       [[buffer(2)]],
+    threadgroup ulong* shared           [[threadgroup(0)]],
+    uint lid                            [[thread_position_in_threadgroup]]
+) {
+    bool active = lid < params.value_count;
+    device ulong* frame = nullptr;
+    if (active) {
+        frame = arena + (uint64_t)indices[lid] * (uint64_t)WORDS;
+
+        for (uint w = 0; w < GOSSIP_BAND_WORDS; w++) {
+            frame[GOSSIP_BAND_TARGET_WORD + w] = frame[GOSSIP_BAND_START_WORD + w];
+        }
     }
 
-    ulong opcodeTable = broadcast_opcode_nibble(opLow);
-    int mode = (int)(frame[PROGRAM_START_WORD + 1] & 0xFF);
-    int aStart, aSpan, bStart, bSpan, dstStart, dstSpan;
-    unpack_region_ref(frame[PROGRAM_START_WORD + 3], &aStart, &aSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 4], &bStart, &bSpan);
-    unpack_region_ref(frame[PROGRAM_START_WORD + 5], &dstStart, &dstSpan);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
 
-    universal_bitwise_device(frame, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, mode, opcodeTable);
-    finish_frame_post_alu_device(frame);
+    for (uint chunkBase = 0; chunkBase < GOSSIP_BAND_WORDS; chunkBase += GOSSIP_K_PER_CHUNK) {
+        uint chunkSize = GOSSIP_K_PER_CHUNK;
+        if (chunkBase + chunkSize > GOSSIP_BAND_WORDS) {
+            chunkSize = GOSSIP_BAND_WORDS - chunkBase;
+        }
+
+        if (active && frame && params.value_count == GOSSIP_FULL_HYPERCUBE) {
+            /* Full hypercube: dims 0..4 in-warp, 5..7 over threadgroup (matches
+               simdgroup width 32: masks 1,2,4,8,16 stay in-lane; 32+ cross warp). */
+            ulong myChunk[GOSSIP_K_PER_CHUNK];
+            for (uint w = 0; w < chunkSize; w++) {
+                myChunk[w] = frame[GOSSIP_BAND_TARGET_WORD + chunkBase + w];
+            }
+            for (uint d = 0u; d < params.d_max && d < 5u; d++) {
+                uint dmask = 1u << d;
+                for (uint w = 0; w < chunkSize; w++) {
+                    ulong peer = simd_shuffle_ulong_xor(myChunk[w], dmask);
+                    myChunk[w] = gossip_fold(myChunk[w], peer, params.fold_op);
+                }
+            }
+            for (uint d = 5u; d < params.d_max; d++) {
+                uint dmask = 1u << d;
+                for (uint w = 0; w < chunkSize; w++) {
+                    shared[lid * GOSSIP_K_PER_CHUNK + w] = myChunk[w];
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+                for (uint w = 0; w < chunkSize; w++) {
+                    uint nbr = lid ^ dmask;
+                    ulong peer = shared[uint64_t(nbr) * GOSSIP_K_PER_CHUNK + w];
+                    myChunk[w] = gossip_fold(myChunk[w], peer, params.fold_op);
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+            for (uint w = 0; w < chunkSize; w++) {
+                frame[GOSSIP_BAND_TARGET_WORD + chunkBase + w] = myChunk[w];
+            }
+        } else {
+            if (active) {
+                for (uint w = 0; w < chunkSize; w++) {
+                    shared[lid * GOSSIP_K_PER_CHUNK + w] =
+                        frame[GOSSIP_BAND_TARGET_WORD + chunkBase + w];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            for (uint d = 0; d < params.d_max; d++) {
+                uint mask = 1u << d;
+                ulong nbrChunk[GOSSIP_K_PER_CHUNK];
+
+                if (active) {
+                    uint nbr = lid ^ mask;
+                    bool nbrValid = nbr < params.value_count;
+                    for (uint w = 0; w < chunkSize; w++) {
+                        nbrChunk[w] = nbrValid
+                            ? shared[uint64_t(nbr) * GOSSIP_K_PER_CHUNK + w]
+                            : 0uL;
+                    }
+                }
+
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+
+                if (active) {
+                    for (uint w = 0; w < chunkSize; w++) {
+                        ulong selfW = shared[lid * GOSSIP_K_PER_CHUNK + w];
+                        ulong fl = gossip_fold(selfW, nbrChunk[w], params.fold_op);
+                        shared[lid * GOSSIP_K_PER_CHUNK + w] = fl;
+                    }
+                }
+
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+
+            if (active) {
+                for (uint w = 0; w < chunkSize; w++) {
+                    frame[GOSSIP_BAND_TARGET_WORD + chunkBase + w] =
+                        shared[lid * GOSSIP_K_PER_CHUNK + w];
+                }
+            }
+        }
+
+        threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
+    }
 }
 

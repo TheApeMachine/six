@@ -112,4 +112,3 @@ func TableWithOutput(out io.Writer) tableOpts {
 		table.out = out
 	}
 }
-

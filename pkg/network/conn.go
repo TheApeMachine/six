@@ -184,7 +184,7 @@ func UniConnWithTransport(
 		}
 
 		conn.transports[transportType] = transport
-		
+
 		if conn.active != nil {
 			return
 		}
@@ -247,4 +247,3 @@ Error implements the error interface for UniConnError.
 func (connErr UniConnError) Error() string {
 	return string(connErr)
 }
-

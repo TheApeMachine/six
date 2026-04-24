@@ -32,4 +32,3 @@ type ElasticsearchConfig struct {
 	// BulkRefresh is passed to the bulk API (e.g. "true", "wait_for", "false"). Empty defaults to "false" (no forced refresh per bulk).
 	BulkRefresh string `mapstructure:"bulk_refresh"`
 }
-

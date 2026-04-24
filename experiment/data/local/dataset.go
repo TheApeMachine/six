@@ -123,4 +123,3 @@ func WithBytesOfBytes(corpus [][]byte) datasetOpts {
 		dataset.corpus = corpus
 	}
 }
-

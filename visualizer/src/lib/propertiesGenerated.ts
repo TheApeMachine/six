@@ -9,16 +9,18 @@ export type PropertyName =
 	| "CONFIDENCE"
 	| "EPOCH"
 	| "TTL"
-	| "NOISE"
+	| "TEMPERATURE"
 	| "STATUS"
-	| "WINDOW"
-	| "DEPTH"
+	| "NOISE"
+	| "PROGRAM_ID"
 	| "COMMUNITY"
 	| "TARGET"
 	| "ROLE"
 	| "REFERENCE"
-	| "EMIT"
-	| "SURPRISAL";
+	| "SURPRISAL"
+	| "FALSIFIED"
+	| "STUCK"
+	| "CONTINUATION";
 
 // PROPERTY_OFFSET maps a PropertyName to its slot inside the properties
 // region. Use PROPERTY_WORD() for the absolute frame word index.
@@ -27,16 +29,18 @@ export const PROPERTY_OFFSET: Record<PropertyName, number> = {
 	CONFIDENCE: 1,
 	EPOCH: 2,
 	TTL: 3,
-	NOISE: 4,
+	TEMPERATURE: 4,
 	STATUS: 5,
-	WINDOW: 6,
-	DEPTH: 7,
+	NOISE: 6,
+	PROGRAM_ID: 7,
 	COMMUNITY: 8,
 	TARGET: 9,
 	ROLE: 10,
 	REFERENCE: 11,
-	EMIT: 12,
-	SURPRISAL: 13,
+	SURPRISAL: 12,
+	FALSIFIED: 13,
+	STUCK: 14,
+	CONTINUATION: 15,
 };
 
 export const PROPERTY_WORD = (name: PropertyName): number =>

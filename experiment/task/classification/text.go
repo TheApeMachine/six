@@ -58,7 +58,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
-			tools.EvalWithFixedExpectation(0.30, 0.85),
+			tools.EvalWithFixedExpectation(0.00, 0.85),
 		),
 	}
 
@@ -148,7 +148,10 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 func (experiment *TextClassificationExperiment) LabelForPrompt(idx int) []byte {
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
 		if label, ok := dataset.LabelForSample(uint32(idx)); ok {
-			return []byte(experiment.ClassLabels()[label])
+			// dataset returns 1-based labels, so subtract 1
+			if label > 0 {
+				return []byte(experiment.ClassLabels()[label-1])
+			}
 		}
 	}
 

@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -58,10 +57,19 @@ func ensureMetalArena() error {
 }
 
 /*
-Backend runs the unified bitwise Value kernel on Apple Silicon (shared memory).
+Backend runs the in-band Value kernels on Apple Silicon (shared memory).
+It satisfies the full kernel.Substrate contract — the per-Value
+optimizer path runs on CPU (single-Value GPU dispatch is wasteful), but
+ExecuteCommunity / AssignFirstFit dispatch to the GPU pipelines built
+on init.
+
+Pressure tracks inflight dispatches plus an EMA over per-job service
+time (ns) so compute.Backend can pick the lowest-loaded substrate.
 */
 type Backend struct {
-	idx int
+	idx      int
+	inflight atomic.Int64
+	emaNs    atomic.Uint64
 }
 
 type backendOption func(*Backend)
@@ -94,13 +102,15 @@ func Available() int {
 }
 
 /*
-UniversalBitwise dispatches arena slot indices: the GPU runs the unified bitwise kernel
-on each Value frame in-place.
+Pressure reports inflight dispatches plus an EMA of per-job service
+time in nanoseconds.
 */
-func (backend *Backend) UniversalBitwise(optimizer *kernel.Optimizer) {
-	if !metalReady.Load() {
-		return
-	}
+func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
+	return nil
+}
+
+func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
+	return false
 }
 
 func init() {

@@ -505,4 +505,3 @@ Error implements the error interface.
 func (err GemmaIntegrationError) Error() string {
 	return string(err)
 }
-

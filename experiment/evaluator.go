@@ -389,4 +389,3 @@ func EvalAssertTarget() evalOpts {
 		evaluator.expectation.Gate = ExpectationGateTarget
 	}
 }
-

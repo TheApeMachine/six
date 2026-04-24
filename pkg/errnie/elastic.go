@@ -275,4 +275,3 @@ func certPoolFromPEM(pem []byte) (*x509.CertPool, error) {
 	}
 	return pool, nil
 }
-

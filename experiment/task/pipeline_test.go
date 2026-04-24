@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
@@ -19,13 +18,6 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 )
-
-type runTiming struct {
-	loadDur     time.Duration
-	promptDur   time.Duration
-	finalizeDur time.Duration
-	n           int // number of prompts processed
-}
 
 var reporter = NewProjectorReporter()
 

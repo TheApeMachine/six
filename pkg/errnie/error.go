@@ -52,4 +52,3 @@ func IsReschedulable(err error) bool {
 func HasContext(err error) context.Context {
 	return nil // placeholder, not implemented cleanly in this branch yet
 }
-

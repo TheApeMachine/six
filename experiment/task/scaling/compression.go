@@ -119,4 +119,3 @@ func (experiment *CompressionExperiment) Finalize(substrate any) error {
 }
 
 var _ tools.HoldoutProvider = (*CompressionExperiment)(nil)
-

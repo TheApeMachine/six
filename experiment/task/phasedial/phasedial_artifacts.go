@@ -52,4 +52,3 @@ func PhasedialSectionArtifacts(
 
 	return artifacts
 }
-

@@ -71,4 +71,3 @@ func traceKeyvalsFormatted(keyvals []any) []any {
 	}
 	return out
 }
-

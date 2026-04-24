@@ -8,68 +8,12 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
-type StatusType uint64
-
-const (
-	PENDING StatusType = iota
-	READY
-	BUSY
-	WAITING
-	DONE
-	RESOLVED
-	ERROR
-)
-
-type PropertyType int
-
-/*
-PropertyType indexes words inside the properties region (first words align with
-kernel TTL, community, status, etc.). Role + TargetID live in the extension
-band (addressability); see Value.Write and ValueRole.
-*/
-const (
-	LABELS PropertyType = iota
-	CONFIDENCE
-	EPOCH
-	TTL
-	NOISE
-	STATUS
-	WINDOW
-	DEPTH
-	COMMUNITY
-	TARGET
-	ROLE
-	REFERENCE
-	EMIT
-	SURPRISAL
-)
-
-/*
-ValueRole is the in-band role carried in the Role property word. Zero means no
-special role; other values extend the substrate without new property slots.
-
-ValueRolePrompt is stamped by Machine.Prompt before injection so downstream
-observers (notably the visualiser) can tell at a glance which Values entered
-the substrate as a user-supplied prompt rather than as a learning sample or
-a kernel-generated emission.
-*/
-type ValueRole uint64
-
-const (
-	ValueRoleNone ValueRole = iota
-	ValueRoleProgrammer
-	ValueRoleLearner
-	ValueRoleReadout
-	ValueRoleAssociation
-	ValueRolePrompt
-)
-
 func (value *Value) Property(property PropertyType) (uint64, error) {
 	if value == nil {
 		return 0, errors.New("value is nil")
 	}
 
-	if property < 0 || property > SURPRISAL {
+	if property < 0 || property > CONTINUATION {
 		return 0, errors.New("property out of range")
 	}
 
@@ -83,7 +27,7 @@ func PropertyWord(property PropertyType) int {
 }
 
 func (value *Value) SetProperty(property PropertyType, data uint64) {
-	if value == nil || property < 0 || property > SURPRISAL {
+	if value == nil || property < 0 || property > CONTINUATION {
 		return
 	}
 
@@ -187,32 +131,4 @@ func StatusWordFromWireFrame(frame []byte) (uint64, error) {
 	}
 
 	return binary.LittleEndian.Uint64(frame[off : off+8]), nil
-}
-
-/*
-RequestEmit raises the emit flag in the EMIT property word. The post-ALU
-hook installed on the queue picks it up after Dispatch returns and pushes
-the resulting wire frame onto the orchestrator's outbound ring so the
-frame "falls out" of vm.Orchestrator.Cycle.
-*/
-func (value *Value) RequestEmit() {
-	if value == nil {
-		return
-	}
-
-	value.Set(core.Cfg.Value.Region.Properties.Start+int(EMIT), 1)
-}
-
-/*
-EmitRequested reports whether the EMIT property word is non-zero. Pure
-read; safe to call from any goroutine because the underlying word is
-written via Set (single-word store, atomic on the architectures we
-target).
-*/
-func (value *Value) EmitRequested() bool {
-	if value == nil {
-		return false
-	}
-
-	return (*value)[core.Cfg.Value.Region.Properties.Start+int(EMIT)] != 0
 }

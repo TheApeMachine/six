@@ -28,4 +28,3 @@ func (spread *Spread) Next(out float64, values ...float64) (float64, error) {
 func (spread *Spread) Reset() error {
 	return spread.smoother.Reset()
 }
-

@@ -3,7 +3,7 @@
 #include "textflag.h"
 
 // ============================================================================
-// UniversalBitwise — ARM64 in-band virtual machine.
+// universalBitwise — ARM64 in-place VM (links to Go: //go:noescape func universalBitwise(unsafe.Pointer)).
 //
 // Signature: func(value unsafe.Pointer)
 //   value+0(FP) — pointer to a 1024-byte (128 × uint64) Value frame
@@ -52,7 +52,7 @@
 //   R2,R3,R8,R9,R12,R13,R14,R15 — scratch
 // ============================================================================
 
-TEXT ·UniversalBitwise(SB), NOSPLIT, $64-8
+TEXT ·universalBitwise(SB), NOSPLIT, $64-8
 	MOVD	value+0(FP), R0
 	CBZ	R0, ub_done
 

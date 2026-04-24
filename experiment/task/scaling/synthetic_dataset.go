@@ -107,4 +107,3 @@ func (ds *SyntheticDataset) advanceReadSampleForNextByte() bool {
 func (ds *SyntheticDataset) Close() error {
 	return nil
 }
-

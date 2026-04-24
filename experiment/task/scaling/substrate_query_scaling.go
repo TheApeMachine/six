@@ -86,4 +86,3 @@ func (experiment *SubstrateQueryScalingExperiment) Artifacts() []tools.Artifact 
 func (experiment *SubstrateQueryScalingExperiment) RawOutput() bool { return false }
 
 var _ tools.HoldoutProvider = (*SubstrateQueryScalingExperiment)(nil)
-

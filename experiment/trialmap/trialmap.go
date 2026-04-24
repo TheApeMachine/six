@@ -224,4 +224,3 @@ func TwoScorePanels(
 		},
 	}
 }
-

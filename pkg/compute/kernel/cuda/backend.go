@@ -8,23 +8,25 @@ package cuda
 int cuda_device_count();
 void cleanup_cuda_pools();
 
-int unified_bitwise_cuda(int device_id, void* a_host, uint32_t num_values);
 int nearest_affinity_cuda(int device_id, void* query_host, void* candidates_host, uint32_t count, uint64_t* best_packed_result_host);
 */
 import "C"
 import (
 	"context"
-	"errors"
 	"sync"
-	"unsafe"
+	"sync/atomic"
+	"time"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
 
 /*
 Backend dispatches Value-native GPU kernels on NVIDIA CUDA devices.
+The in-band VM (UniversalBitwise) runs in-process; geometric_cuda and
+other kernels stay on device.
 */
 type Backend struct {
 	initOnce    sync.Once
@@ -32,13 +34,12 @@ type Backend struct {
 	deviceIdx   int
 	ctx         context.Context
 	cancel      context.CancelFunc
+	inflight    atomic.Int64
+	emaNs       atomic.Uint64
 }
 
 type backendOption func(*Backend)
 
-/*
-NewBackend returns a CUDA kernel Backend.
-*/
 func NewBackend(idx int, opts ...backendOption) *Backend {
 	ctx, cancel := context.WithCancel(context.Background())
 	backend := &Backend{
@@ -74,9 +75,6 @@ func (backend *Backend) init() {
 	})
 }
 
-/*
-Available returns the number of CUDA-capable GPUs.
-*/
 func Available() int {
 	b := NewBackend(0)
 	b.init()
@@ -84,35 +82,79 @@ func Available() int {
 	return b.deviceCount
 }
 
-/*
-UniversalBitwise runs the unified bitwise kernel on each Value frame.
-*/
-func (backend *Backend) UniversalBitwise(optimizer *kernel.Optimizer) {
-	if C.unified_bitwise_cuda(
-		C.int(backend.deviceIdx),
-		ptr,
-		C.uint32_t(1),
-	) != 0 {
-		if C.unified_bitwise_cuda(
-			C.int(backend.deviceIdx),
-			ptr,
-			C.uint32_t(1),
-		) != 0 {
-			err := NewCUDAKernelError(
-				kernel.KernelErrDispatchFailed,
-				errors.New("unified bitwise dispatch failed"),
-				"Execute",
-				1,
-			)
+const cudaCommunityBreakEven = 16
 
-			kv := kernel.CorrelationKeyvalsFlat(ptr)
-			merged := make([]any, 0, len(kv)+4)
-			merged = append(merged, kv...)
-			merged = append(merged, "device_idx", backend.deviceIdx, "slot", slot)
+func (backend *Backend) Pressure() (inflight int64, emaNs uint64) {
+	return backend.inflight.Load(), backend.emaNs.Load()
+}
 
-			backend.observer.Error("cuda.Backend.Execute", err, merged...)
+func (backend *Backend) CanProfit(kind kernel.JobKind, size int) bool {
+	backend.init()
+	if backend.deviceCount == 0 {
+		return false
+	}
+	switch kind {
+	case kernel.JobKindCommunity:
+		return size >= cudaCommunityBreakEven
+	default:
+		return false
+	}
+}
 
-			return err
+func (backend *Backend) recordService(start time.Time) {
+	elapsed := uint64(time.Since(start).Nanoseconds())
+	for {
+		old := backend.emaNs.Load()
+		next := old - (old >> 3) + (elapsed >> 3)
+		if old == 0 {
+			next = elapsed
+		}
+		if backend.emaNs.CompareAndSwap(old, next) {
+			return
 		}
 	}
+}
+
+func (backend *Backend) UniversalBitwise(a, b, dst *primitive.Value) {
+	backend.inflight.Add(1)
+	start := time.Now()
+	defer func() {
+		backend.inflight.Add(-1)
+		backend.recordService(start)
+	}()
+	kernel.RunUniversalBitwise(a, b, dst)
+}
+
+func (backend *Backend) AssignFirstFit(
+	communityORs [][primitive.AffinityWords]uint64,
+	valueAffinities [][primitive.AffinityWords]uint64,
+	hammingBudget uint32,
+	saturationCap uint32,
+) []int32 {
+	backend.inflight.Add(1)
+	start := time.Now()
+	defer func() {
+		backend.inflight.Add(-1)
+		backend.recordService(start)
+	}()
+	out, err := backend.BatchFirstFit(communityORs, valueAffinities, hammingBudget, saturationCap)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
+	if len(community) == 0 {
+		return nil
+	}
+	backend.inflight.Add(1)
+	start := time.Now()
+	defer func() {
+		backend.inflight.Add(-1)
+		backend.recordService(start)
+	}()
+
+	cpu.ExecuteCommunity(community)
+	return nil
 }

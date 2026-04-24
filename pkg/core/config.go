@@ -95,21 +95,13 @@ type SystemConfig struct {
 
 /*
 ProgramConfig caches the lowering of a named DSL block: the original Source
-text (for diagnostics and tooling), the packed instruction Words ready to
-load into a Value's program region, and SchedulingNext — the value the
-install path must write into kernel.SchedulingNextProgramWord (word 117).
-
-When SelfNext is true, SchedulingNext is a sentinel: callers replace it with
-the resident Value's ID at install time so `next self` resolves dynamically.
-A literal `next <id>` line leaves SelfNext false and SchedulingNext set to
-the parsed ID.
+text (for diagnostics and tooling) and the packed instruction Words ready to
+load into a Value's program region.
 */
 type ProgramConfig struct {
-	Name           string
-	Source         string
-	Words          []uint64
-	SchedulingNext uint64
-	SelfNext       bool
+	Name   string
+	Source string
+	Words  []uint64
 }
 
 /*
@@ -119,28 +111,16 @@ sites that previously read .Compiled keep working with minimal noise.
 func (p ProgramConfig) Compiled() []uint64 { return p.Words }
 
 /*
-ResolveSchedulingNext picks the actual scheduler word for an install: when
-the program declared `next self` it returns the resident Value's ID;
-otherwise the literal continuation (0 = no follow-up).
-*/
-func (p ProgramConfig) ResolveSchedulingNext(residentValueID uint64) uint64 {
-	if p.SelfNext {
-		return residentValueID
-	}
-
-	return p.SchedulingNext
-}
-
-/*
 ValueConfig holds the configuration for a Value.
 */
 type ValueConfig struct {
-	Word         int                `mapstructure:"word"`
-	Words        int                `mapstructure:"words"`
-	Bytes        int                `mapstructure:"bytes"`
-	NumRotations int                `mapstructure:"num_rotations"`
-	Region       ValueRegionConfig  `mapstructure:"region"`
-	Opcodes      ValueOpcodesConfig `mapstructure:"opcodes"`
+	Word           int                `mapstructure:"word"`
+	Words          int                `mapstructure:"words"`
+	Bytes          int                `mapstructure:"bytes"`
+	NumRotations   int                `mapstructure:"num_rotations"`
+	Region         ValueRegionConfig  `mapstructure:"region"`
+	Opcodes        ValueOpcodesConfig `mapstructure:"opcodes"`
+	PropertiesList []string           `mapstructure:"properties"`
 }
 
 /*
@@ -316,6 +296,7 @@ func NewConfig() *Config {
 			NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
 			TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
 		},
+		PropertiesList: viper.GetStringSlice("value.properties"),
 	}
 
 	quiescenceTimeout := viper.GetDuration("system.quiescenceTimeout")
@@ -405,11 +386,9 @@ func precompile(value ValueConfig) map[FirmwareType]ProgramConfig {
 		}
 
 		out[ft] = ProgramConfig{
-			Name:           name,
-			Source:         source,
-			Words:          compiled.Words,
-			SchedulingNext: compiled.SchedulingNext,
-			SelfNext:       compiled.HasSelfNext,
+			Name:   name,
+			Source: source,
+			Words:  compiled.Words,
 		}
 	}
 
@@ -454,7 +433,12 @@ func buildProgramLayout(value ValueConfig) program.Layout {
 		"true":     nibbleOf(value.Opcodes.TRUE, 0xF),
 	}
 
-	return program.Layout{Regions: regions, Opcodes: opcodes}
+	propertiesMap := make(map[string]int)
+	for i, prop := range value.PropertiesList {
+		propertiesMap[strings.ToLower(prop)] = i
+	}
+
+	return program.Layout{Regions: regions, Properties: propertiesMap, Opcodes: opcodes}
 }
 
 func extentFor(cfg ValueOffsetConfig) program.RegionExtent {

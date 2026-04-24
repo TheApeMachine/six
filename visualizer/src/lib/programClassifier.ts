@@ -181,7 +181,7 @@ visualiser just doesn't paint a special glyph for it.
 const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	link: "plumbing",
 	affinity: "plumbing",
-	fold_substrate: "structural",
+	structural_component: "structural",
 	beam_swarm_step: "beam",
 	active_inference: "inference",
 	classify_readout: "classify",
@@ -229,7 +229,11 @@ function instructionsEqual(
 	return (
 		a.opcode === b.opcode &&
 		a.mode === b.mode &&
-		a.imm === b.imm &&
+		a.topology === b.topology &&
+		a.predStart === b.predStart &&
+		a.predCond === b.predCond &&
+		a.aInd === b.aInd &&
+		a.bType === b.bType &&
 		a.aStart === b.aStart &&
 		a.aSpan === b.aSpan &&
 		a.bStart === b.bStart &&

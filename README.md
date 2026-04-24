@@ -79,7 +79,7 @@ This is the actual end-to-end path the code implements today:
 4. **Program installed** — `compute.Backend.Dispatch` runs the firmware rule chain (`firmware.NewExecutable`, …), lowering compiled frames into each Value's program region — not raw hand-written words.
 5. **Published to Queue + Orchestrator** — Each minted Value is published to the `pool.Queue` (for backend execution) and the `vm.Orchestrator` (for community routing).
 6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
-7. **Queue / scheduling** — If word 117 (`SchedulingNextProgramWord`) is non-zero after execution, the work queue can re-publish that Value for another pass (`next` / `next self` in firmware). This is orthogonal to the ALU kernels, which only execute the current program slice.
+7. **Queue / scheduling** — If `properties.continuation` (word 71) is non-zero after execution, the work queue re-publishes that Value for another pass. This is no longer an external orchestrator hack; it is driven entirely in-band by the AST execution writing to its own continuation property.
 8. **Orchestrator → Field** — `vm.Orchestrator.Cycle` copies each input Value's wire frame through a **`gossip.Conn`** (Vyukov ring) and into the root **`mesh.Field.Write`**, which either **routes** into a child community (`findCommunity` over the five affinity words) or **stores** on a leaf. The field's **`Read`** path is the same **`gossip.Conn`** framing Values for downstream `io.Copy`.
 
 For prompts, mint segments with `primitive.NewValue`, install firmware through `compute.Backend.Dispatch` / `firmware.NewExecutable` (or your config `value.rules` chain), then call `Machine.Prompt(segments...)`. **`Prompt` currently forwards to a single `Orchestrator.Cycle`** (see `pkg/vm/machine.go`). Belief-gap closure and multi-cycle prompt loops are described in comments there and in `BEHAVIOR.md`; use a deadline or cancel on `ctx` if work must be bounded.
@@ -102,11 +102,11 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 - **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines which community the Value joins.
 - **Program region**: Packed bits the compute kernels interpret for the **universal bitwise** path: the **low nibble** of the first program word selects the 4-input truth-table opcode; the kernel **broadcasts** that nibble across all 16 internal rotation slots (one schedule—no separate rotation-table word). The next word is **mode** (`accumulate` vs `reduce`); **operand references** occupy the following configured words (`srcA`, `srcB`, `dst` — see `pkg/compute/kernel/layout.go` and `core.Cfg.Value.Region.Program`). **Authoring** does not hand-edit raw words: you write lines of source (see below), `pkg/compute/firmware` **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
 - **Properties region** (words 56–71): 1024-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Fixed slots (TTL, noise, probe ABI, community id, firmware status) use the same word indices as `pkg/compute/kernel/layout.go` and `pkg/primitive/properties.go`.
-- **Asset region** (words 72–119): 3072-bit scratch and bundled payload (the space that remains before Prev/Next/ID/Affinity); scheduler word 117 and kernel frame metadata at words 118–119 live in this span.
+- **Asset region** (words 72–119): 3072-bit scratch and bundled payload (the space that remains before Prev/Next/ID/Affinity); kernel frame metadata at words 118–119 live in this span.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
 - **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads) and for maintaining sequence order across tokenizer chunks. Values always know their original ordering.
 - **ID**: 64-bit unique identifier, assigned by atomic counter at mint time.
-- **Word 117** (`SchedulerNextProgramWord`): scheduler next program — `compute.Backend` materializes this from lowered firmware (`next` / `next self`); **`Executable.Execute`** runs after install. Zero means settled. `next self` means re-enter the Queue for another ALU pass.
+- **Continuation** (`properties.continuation`): Word 71, scheduling hop natively driven by the in-band ALU AST. Zero means settled. Writing `id` means re-enter the Queue for another pass (recursion). Writing another Value's ID means branching/sequencing.
 
 ### Properties
 
@@ -126,7 +126,10 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 | 65              | 9             | **target**                                 | ValueID of an addressable target (linker / encounter dispatch)                                                                       |
 | 66              | 10            | **role**                                   | In-band `ValueRole` (e.g. `ValueRoleProgrammer`); zero means no special role                                                         |
 | 67              | 11            | **reference**                              | ValueID to encounter before the target (linker staging)                                                                              |
-| 68              | 12            | **emit**                                   | Single-bit flag asking the post-ALU hook to publish this frame onto the orchestrator's outbound ring                                 |
+| 68              | 12            | **program_id**                             | Identifier of the currently executing routine                                                                                        |
+| 69              | 13            | **surprisal**                              | Scalar reduction of the prediction error gap                                                                                         |
+| 70              | 14            | **falsified**                              | Witness register for Popperian hypothesis testing                                                                                    |
+| 71              | 15            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
 
 ### Program Authoring (`pkg/compute/firmware` — config-time DSL only)
 
@@ -135,23 +138,19 @@ Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-l
 Pipeline in order:
 
 1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
-2. **`Parser.Parse()`** — returns **`([]Token, *Continuation, error)`**. Operation lines use five fields: **`srcA` `srcB` `dst` `op` `mode`** (region refs like `tokens[0,2]`, `affinity[0]`, `signals[0]`; ops such as `xor`, `popcount`, `and`, `or`; modes `accumulate` or `reduce`). Optionally, **after all op lines**, a single trailing directive may name the **next program by ValueID**: **`next <uint64>`** or **`next self`** (self = reschedule this Value's own ID — recursion / re-entry).
-3. **`NewCompiler(tokens, WithContinuation(cont))`** — holds tokens and the optional continuation; **`Compile(CompilerTarget)`** dispatches to CPU / Metal / CUDA lowering and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
-4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**'s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** writes **word 117** on each Value: **non-final Values** in the batch point to the **following emitted Value's ID** (implicit chain across a multi-frame compile); the **final** Value uses the parsed **`next`** line when present (**literal ID** anywhere in the system, **`next self`**, or omit for no trailing hop). An optional **finalizer** can emit follow-on Values; **`Finalize`** runs on one post-execution Value.
+2. **`Parser.Parse()`** — returns **`([]Token, error)`**. Operation lines use the new AST syntax: **`[ (Target Topology) <= (Expr) ? (Predicate) <= Scope ]`**. For example: `[ (16..24 self) <= (0..8 ^ 8..16) <= (0..n) ]`. This unified syntax completely replaces the old 5-column source and explicitly defines math, routing, reductions, dynamic addressing, and branchless predicates natively on the 1KB Value.
+3. **`NewCompiler()`** — reads tokens; **`Compile()`** lowers the AST into a compact 64-bit Instruction array and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
+4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**'s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** resolves the AST. Non-final Values in a batch point their `properties.continuation` to the following emitted Value's ID (implicit chain).
 
-So: **one compiled frame → one program region on one Value**; **N frames → N Values**; **chaining** is expressed both **within a batch** (frame *i* → frame *i+1*) and **after the last frame** (arbitrary ValueID, including self).
+So: **one compiled frame → one program region on one Value**; **N frames → N Values**. Chaining is natively expressed by setting the `continuation` property word in the AST.
 
 ### The ALU
 
-The Boolean **universal bitwise** path reads three **region references** from the configured program words: **A**, **B**, and **destination**. Operand data is read from those spans inside the **same** `[128]uint64` frame. The kernel folds **A** into four lanes, tiles **B** across an internal 16-step sweep, applies the truth-table opcode defined by the **program word’s low nibble** (repeated at every step), and packs a 64-byte signature; **mode** chooses whether that signature is **XOR-accumulated** into the destination words or **reduced** to a single popcount written at `dst[0]`. So the ALU **does** write back into whatever region the compiled program names as `dst` (often `signals`, sometimes `affinity`, etc.) — it is not a side-effect-free pure read of tokens.
+The Boolean **universal bitwise** path has been completely rewritten to execute the new 64-bit AST Instructions using **Tick Semantics (Double Buffering)** across a community vector. It reads the source spans, executes the 4-bit truth table, applies optional scalar reductions (`popcnt`, `any_zero`, `all_ones`), evaluates the predicate mask, and stages the result into a `post` buffer, guaranteeing deterministic, data-race-free state updates per instruction. 
 
-The high-level **source lines** under `programs:` are **not** the same as raw machine words — the compiler lowers them into the program region; CPU, Metal, and CUDA share the same interpretation: opcode nibble, mode word, then packed `PackRegionRef` operands (`pkg/compute/kernel`).
+The high-level **source lines** under `programs:` are **not** the same as raw machine words — the compiler lowers them into the program region; CPU, Metal, and CUDA share the same interpretation: opcode, mode, topology, predicate, indirection, and spans packed into single 64-bit words.
 
-Scheduling hops (**word 117**, `next` / `next self` in firmware) are still part of the toolchain for multi-step programs, but the **kernels themselves** only execute the universal-bitwise (and geometric) opcodes described here — they do not interpret a separate “region program” table in the reserved band.
-
-The linear sweep is a deliberate limitation over loops and branching, as it is sympathetic to the hardware, eliminating thread divergence on the GPU and enabling parallelism via SIMD on the CPU.
-
-To recover the ability for loops and branching, a final instruction can be written (need to take some of the reserved region) to mark a `Value` for a loop (re)cycle, or branch traversal. When the `Value` comes out of the `ALU` and is marked as such, it is then (re)placed onto a priority `Queue` in the orchestrator and fed back into the `ALU` for another run.
+Scheduling hops (branching, looping via `properties.continuation`) are executed by the **kernels themselves** via native bitwise writes. There is no separate external orchestration needed for re-entry.
 
 ### Geometric ALU
 
@@ -251,12 +250,11 @@ Crystallization.Score = Coverage × Consensus × LabelDensity
 
 When a community's `Coverage` is below `crystallizationFloor` (0.35), higher-level rules (e.g. unsupervised / orchestration) can run a labeling pass on it — the field itself only **measures** and **emits** pressure through the same I/O paths.
 
-**`measure_field` (firmware resident):** A resident Value can run the `measure_field` program so peers stage label-bearing state through the gossip substrate (`Conn.Write` → `StageAssetFrom`), with `asset[0,8]` carrying routed peers' compressed state. The YAML line OR-reduces into `signals[7,1]` as an in-band energy readout. Separately, **`mesh.Field`** observability comes from **`MeasureFieldMetrics` + eigenmode detection** (`refreshMetrics` / `Cycle` on leaves), not from Go reading that resident's `signals[7]` on every tick.
+**`measure_field` (firmware resident):** A resident Value can run the `measure_field` program so peers stage label-bearing state through the gossip substrate (`Conn.Write` → `StageAssetFrom`), with `asset` carrying routed peers' compressed state. The AST reduces into `signals` as an in-band energy readout. Separately, **`mesh.Field`** observability comes from **`MeasureFieldMetrics` + eigenmode detection** (`refreshMetrics` / `Cycle` on leaves), not from Go reading that resident's `signals[7]` on every tick.
 
-```yaml
-measure_field: |
-  asset[0,8]  asset[0,8]  signals[7,1]  or  reduce
-  next self
+```text
+[ (signals self) <= popcnt(asset) <= community ]
+[ (properties.continuation self) <= (id) <= community ]
 ```
 
 ### Global Crystallization and the Spawn Trigger
@@ -297,7 +295,7 @@ signals[0,8] signals[0,8] properties[1,1] or  reduce
 
 #### `episodic_replay`
 
-Same primitive as `unsupervised_learn`, different routing convention: the carrier is the sequence predecessor (chosen by `PrevID` residency) rather than an unrelated community member. The chain delta — how this Value diverges from the one that preceded it — is the XOR of local context against the predecessor's staged context, reduced into `properties[1,1]`. No `next self`: one observation per delivered predecessor; multi-hop walks are chains of deliveries through the gossip substrate, not program loops.
+Same primitive as `unsupervised_learn`, different routing convention: the carrier is the sequence predecessor (chosen by `PrevID` residency) rather than an unrelated community member. The chain delta — how this Value diverges from the one that preceded it — is the XOR of local context against the predecessor's staged context, reduced into `properties[1,1]`. No recursive loop: one observation per delivered predecessor; multi-hop walks are chains of deliveries through the gossip substrate, not program loops.
 
 #### `intervene` (Pearl L2 `do(X)`)
 
@@ -418,7 +416,7 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 
 1. **`hypothesize`** — affinity routed, `context[0,8]` and `gradient[0,8]` carry a live belief, `properties[0,1]` holds the reduced surprisal, and `properties[1,1]` (the refutation target) is still empty. The `hypothesis` program XORs context against gradient into `signals[0,8]`, reduces that signature into `properties[1,1]`, and folds the Value's own `id[0,1]` to guarantee a non-zero target. **This is the "what if" question being asked autonomously.**
 2. **`falsify`** — a target is armed. The existing `falsification` program runs the Popperian test: XOR tokens against context, reduce back into `properties[1,1]`. The kernel's `ApplyRefutationProbe` runs post-ALU — when signals have a ≥48-bit one-run it stamps `FalsifiedBitNoiseWord` into `properties[4,1]`, clears the heartbeat, and clears `properties[1,1]`. No Go-side classifier reads signals; the refutation test lives in the kernel.
-3. **`iterate_causal`** — `properties[4,1]` is stamped. `causal_hub` loops via `next self`, drifting gradient through stacked `asset[40,8]` residuals. Each heartbeat advances the belief along the counterfactual the refutation revealed — this is the "what would be different if that claim weren't true" question being answered in-band.
+3. **`iterate_causal`** — `properties[4,1]` is stamped. `causal_hub` loops via `properties.continuation`, drifting gradient through stacked `asset[40,8]` residuals. Each heartbeat advances the belief along the counterfactual the refutation revealed — this is the "what would be different if that claim weren't true" question being answered in-band.
 4. **`do_intervention`** — a foreign carrier with severed history (`prev[0,1]: false`) lands via `Conn.Write` with its gradient staged in `asset[16,8]`. The `intervene` program folds the foreign gradient into local gradient and reduces the scalar witness into `properties[0,1]`. The rule is placed before `peer_gap` so severed-history carriers take the do-operation path instead of the unsupervised similarity path — the semantics diverge even though both observe a staged peer.
 
 Agency is the rule engine's first-match-wins traversal over the Value's own region state. Hypotheses are generated because the shape of the regions after `beam_swarm_step` is exactly the shape `hypothesize` matches. Refutations cascade into counterfactuals because `ApplyRefutationProbe` stamps a witness that `iterate_causal` reads. Nothing in the Go code decides when to ask "what if"; the substrate asks.
@@ -438,7 +436,7 @@ Agency is the rule engine's first-match-wins traversal over the Value's own regi
 
 ### Ephemerality and TTL
 
-Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every explore step; when it reaches zero the program writes `next 0` into word 117 and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
+Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every explore step; when it reaches zero the program zeros `properties.continuation` and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
 
 Because a hypothesis query and a real observation share the same substrate, Six can interleave the two freely. A stream of real observations updates the field. In-between, ephemeral queries probe the field without disturbing it. The field itself cannot tell a query from an observation until the query dies — which means the same dynamics that handle real-world inference handle hypothetical reasoning for free.
 

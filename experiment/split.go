@@ -34,4 +34,3 @@ func ByteSuffixLastN(s string, n int) (prefix, holdout string) {
 	split := len(b) - n
 	return string(b[:split]), string(b[split:])
 }
-

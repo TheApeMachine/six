@@ -4,18 +4,27 @@ package cuda
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
+	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
+// ErrUnavailable is returned when the CUDA backend is not initialised.
+var ErrUnavailable = errors.New("cuda: backend unavailable")
+
 /*
-Backend is the stub used on non-CUDA builds. Available probes NVML to
-detect GPUs even without the CUDA compiler present.
+Backend is the stub used on non-CUDA builds. It satisfies the full
+kernel.Substrate contract by delegating every call to the cross-
+substrate CPU helpers.
 */
 type Backend struct {
 	deviceIdx int
 	ctx       context.Context
 	cancel    context.CancelFunc
+	inflight  atomic.Int64
+	emaNs     atomic.Uint64
 }
 
 type backendOption func(*Backend)
@@ -43,12 +52,16 @@ func (backend *Backend) Close() {
 }
 
 /*
-Available probes NVML for GPU count.
+Available always returns 0 on non-CUDA builds.
 */
-func Available() int {
-	return 0
-}
-
-func (backend *Backend) UniversalBitwise(optimizer *kernel.Optimizer) { return }
+func Available() int { return 0 }
 
 func (backend *Backend) Name() string { return "cuda" }
+
+func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
+	return nil
+}
+
+func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
+	return false
+}

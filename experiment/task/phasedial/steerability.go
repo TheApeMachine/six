@@ -166,4 +166,3 @@ predicts super-additive composition gain.`,
 		},
 	}
 }
-

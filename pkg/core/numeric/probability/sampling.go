@@ -66,4 +66,3 @@ func sampleGreedy(distribution []Ranked, rng *rand.Rand) string {
 
 	return best[rng.Intn(len(best))]
 }
-

@@ -37,4 +37,3 @@ func Outcome(score float64, n int, benchmarkType BenchmarkType) (any, Assertion,
 		panic("unknown benchmark type")
 	}
 }
-

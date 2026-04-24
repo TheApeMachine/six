@@ -24,19 +24,20 @@ import {
 } from "./layoutGenerated";
 import {
 	type DecodedInstruction,
+	INSTR_A_IND_SHIFT,
 	INSTR_A_SPAN_SHIFT,
 	INSTR_A_START_SHIFT,
 	INSTR_B_SPAN_SHIFT,
 	INSTR_B_START_SHIFT,
+	INSTR_B_TYPE_SHIFT,
 	INSTR_DST_SPAN_SHIFT,
 	INSTR_DST_START_SHIFT,
 	INSTR_FIELD_MASK,
-	INSTR_IMM_MASK,
-	INSTR_IMM_SHIFT,
-	INSTR_MODE_MASK,
 	INSTR_MODE_SHIFT,
-	INSTR_OPCODE_MASK,
 	INSTR_OPCODE_SHIFT,
+	INSTR_PRED_COND_SHIFT,
+	INSTR_PRED_START_SHIFT,
+	INSTR_TOPOLOGY_SHIFT,
 } from "./programsGenerated";
 
 export type { ValueRegionName } from "./layoutGenerated";
@@ -124,9 +125,13 @@ export function decodeInstructionWord(word: bigint): DecodedInstruction {
 		bStart: Number((word >> BigInt(INSTR_B_START_SHIFT)) & INSTR_FIELD_MASK),
 		aSpan: Number((word >> BigInt(INSTR_A_SPAN_SHIFT)) & INSTR_FIELD_MASK) + 1,
 		aStart: Number((word >> BigInt(INSTR_A_START_SHIFT)) & INSTR_FIELD_MASK),
-		opcode: Number((word >> BigInt(INSTR_OPCODE_SHIFT)) & INSTR_OPCODE_MASK),
-		mode: Number((word >> BigInt(INSTR_MODE_SHIFT)) & INSTR_MODE_MASK),
-		imm: Number((word >> BigInt(INSTR_IMM_SHIFT)) & INSTR_IMM_MASK),
+		opcode: Number((word >> BigInt(INSTR_OPCODE_SHIFT)) & 0xfn),
+		mode: Number((word >> BigInt(INSTR_MODE_SHIFT)) & 0x7n),
+		topology: Number((word >> BigInt(INSTR_TOPOLOGY_SHIFT)) & 0x3n),
+		predStart: Number((word >> BigInt(INSTR_PRED_START_SHIFT)) & 0x7fn),
+		predCond: Number((word >> BigInt(INSTR_PRED_COND_SHIFT)) & 0x3n),
+		aInd: Number((word >> BigInt(INSTR_A_IND_SHIFT)) & 0x1n),
+		bType: Number((word >> BigInt(INSTR_B_TYPE_SHIFT)) & 0x3n),
 	};
 }
 

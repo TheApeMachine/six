@@ -43,4 +43,3 @@ func PreserveGlobalConfig(tb testing.TB) {
 		*current = deepCopyConfigSnapshot(&snap)
 	})
 }
-

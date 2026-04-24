@@ -150,4 +150,3 @@ func RunLabel(startBit, length int) uint16 {
 
 	return uint16(h ^ (h >> 16))
 }
-

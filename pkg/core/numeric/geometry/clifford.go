@@ -164,4 +164,3 @@ multiplication order matches chronological application order.
 func (mv Multivector) Compose(other Multivector) Multivector {
 	return other.GeometricProduct(mv)
 }
-

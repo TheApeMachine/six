@@ -1,74 +1,42 @@
 loglevel: trace
-
-# WebSocket URL for raw primitive.Value wire frames (same bridge the UI uses).
 telemetry:
   enabled: true
-  ws_url: "ws://127.0.0.1:3000/ws"
-
-# Logging and trace shipping (see pkg/errnie/logging_config.go).
+  ws_url: ws://127.0.0.1:3000/ws
 logging:
   logfile: false
   trace:
-    # Empty path writes to ./trace.log under the process working directory.
-    path: ""
+    path: ''
   elasticsearch:
-    # Ship structured logs to Elasticsearch. Set false when the cluster is not
-    # running (or export ELASTICSEARCH_ENABLED=0) to avoid noisy I/O; errnie also
-    # rate-limits repeated ES errors when enabled but unreachable.
     enabled: true
     urls:
-      - https://127.0.0.1:9200
+    - https://127.0.0.1:9200
     index: six-logs
     username: elastic
-    # Leave empty and set ELASTIC_PASSWORD (e.g. from .env) for Docker stacks.
-    password: ""
-    # Base64 API key (optional); overrides username/password when set. Or ELASTICSEARCH_API_KEY.
-    api_key: ""
-    # PEM path to the cluster CA (e.g. Elasticsearch docker certs/ca/ca.crt).
-    ca_cert: ""
-    # Local development only when you cannot mount the CA.
+    password: ''
+    api_key: ''
+    ca_cert: ''
     insecure_skip_verify: true
-    # Low-latency shipping defaults are applied when these are omitted (near-real-time in Kibana).
-    # bulk_flush_bytes: 1
-    # flush_interval_ms: 50
-    # bulk_refresh: "true"
-
 system:
-  projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
+  projectRoot: /Users/theapemachine/go/src/github.com/theapemachine/six
   batchSize: 10000
   batchWindow: 500
   queueSize: 20000
   shannonLimit: 0.47
   resonanceThreshold: 0.6
   beliefEpsilon: 0.05
-  # Max Hamming distance (total popcount over affinity words) to join an
-  # existing child field; higher values merge more visitors per community.
   routeBudget: 64
-  # Hard backstop on members per leaf Field. The shannonLimit gate above is
-  # an XOR-saturation check that stays silent for highly-correlated
-  # populations (their affinity contributions cancel rather than saturate),
-  # which lets a field grow unboundedly even when intuition says it's full.
-  # This cap forces a sibling/spawn once a community absorbs this many Values
-  # regardless of fingerprint statistics. 0 disables.
   maxMembersPerField: 256
-  # Busy-wait bound in vm.Orchestrator.Cycle before draining emitted frames.
   quiescenceTimeout: 100ms
-  # Post-quiescence drain loop cap.
   drainTimeout: 100ms
-
 value:
   word: 64
   words: 128
   bytes: 1024
-  # UniversalBitwise rotates the B span in 8-bit steps; one opcode per rotation.
   num_rotations: 16
   region:
     tokens:
       start: 0
       bits: 1024
-    # Program region holds packed 64-bit instructions (one per DSL line).
-    # 16 words = up to 16 instructions per resident program, enough for
-    # active_inference (12 lines) and the longest current firmware blocks.
     program:
       start: 16
       bits: 1024
@@ -84,8 +52,6 @@ value:
     properties:
       start: 56
       bits: 1024
-    # Asset shrinks from 56 → 48 words to absorb the extra program words; word
-    # indices for the scheduler (117) and frame metadata (118-119) are unchanged.
     asset:
       start: 72
       bits: 3072
@@ -102,14 +68,14 @@ value:
       start: 123
       bits: 257
   opcodes:
-    false: 0000
-    and: 0001
-    aandnotb: 0010
-    a: 0011
-    notandb: 0100
-    b: 0101
-    xor: 0110
-    or: 0111
+    false: 0
+    and: 1
+    aandnotb: 8
+    a: 9
+    notandb: 64
+    b: 65
+    xor: 72
+    or: 73
     nor: 1000
     xnor: 1001
     notb: 1010
@@ -118,330 +84,242 @@ value:
     ifathenb: 1101
     nand: 1110
     true: 1111
-    
+  properties:
+    - LABELS
+    - CONFIDENCE
+    - EPOCH
+    - TTL
+    - TEMPERATURE
+    - STATUS
+    - NOISE
+    - PROGRAM_ID
+    - COMMUNITY
+    - TARGET
+    - ROLE
+    - REFERENCE
+    - SURPRISAL
+    - FALSIFIED
+    - STUCK
+    - CONTINUATION
+  roles:
+    - None
+    - Programmer
+    - Learner
+    - Readout
+    - Association
+    - Prompt
+  status:
+    - PENDING
+    - READY
+    - BUSY
+    - WAITING
+    - DONE
+    - RESOLVED
+    - ERROR
 programs:
-  # Region refs are region[start,span] where span is the number of 64-bit
-  # words. A bare region[index] means span=1. Every DSL line is:
-  #   srcA  srcB  dst  op  mode
-  # mode is one of:
-  #   accumulate  XOR the 8 signal words the substrate writes into the dst
-  #               slice (up to the dst span). Successive lines layer on top
-  #               of the same dst, so multi-line programs build up state.
-  #   reduce      popcount the whole signals region and write the total to
-  #               dst[start]; dst[start+1..] is untouched.
-  # Optional last line: next <value_id> | next self  (scheduler: word 117).
+  link: '[ (prev[0,1] self) <= (asset[0,1] | asset[0,1]) <= community ]
 
-  # Link generation: the orchestrator stages the previous Value's ID into
-  # asset[0] and the next Value's ID into asset[1]. This program copies
-  # those IDs into the prev and next regions respectively.
-  link: |
-    asset[0,1] asset[0,1] prev[0,1] or accumulate
-    asset[1,1] asset[1,1] next[0,1] or accumulate
-    next self
+    [ (next[0,1] self) <= (asset[1,1] | asset[1,1]) <= community ]
 
-  # Affinity generation: fold every token word against every other token
-  # word through the substrate's 16-rotation sweep, then accumulate the
-  # resulting 64-byte LSH signature across the five affinity words. Pure
-  # XOR keeps the fold linear so merging two Values' affinities commutes
-  # with merging their tokens as clusters approach the Shannon saturation limit.
-  affinity: |
-    tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
 
-  # Structural component: the README "Signals" algorithm.
-  # It builds a structural component graph by using bitwise operations to
-  # discover and break apart shared components between two spans of tokens,
-  # and then restructuring the parts into new Values, linked in a graph
-  # formation. To do so, we have to take the token region of a Value, and
-  # divide it into two equal halves, the A span and B span. The A span we
-  # hold stable, while we rotate the B span by 8 bits per step so we work
-  # at the byte level granularity and don't compare at the sub-byte level.
-  # We will pre-rotate the B span, resulting in a 16 line expanded program,
-  # that becomes an efficient sweep from top to bottom, writing the results
-  # of each line into the signals region, which will then ultimately reveal
-  # the moment where the longest zero-run or one-run is found.
+    '
+  affinity: '[ (affinity[0,5] self) <= (tokens[0,16] ^ tokens[0,16]) <= community
+    ]
+
+    '
   structural_component: |
-    tokens[0,8] tokens[8,8] signals[0,8] xor accumulate
-    properties[0,1] 5 properties[5,1] b imm
-    properties[0,1] 3 properties[10,1] b imm
+    [ (signals[0,8] self) <= (tokens[0,8] ^ tokens[8,8]) <= community ]
+    [ (properties.continuation self) <= (properties.continuation B 2) ? (properties.role != 0) <= community ]
+    [ (properties.role self) <= (properties.role B 3) <= community ]
+  popcount: '[ (affinity[4,1] self) <= popcnt(affinity[0,5]) <= community
+    ]
 
-  # Popcount of the whole Affinity region into its Fermat tail word. This
-  # is the saturation witness: when the XOR fold leaves affinity near 47%
-  # set bits, the tail word's value crosses the Shannon limit and routing
-  # can refuse the cluster.
-  popcount: |
-    affinity[0,5] affinity[0,5] affinity[4,1] xor reduce
+    '
+  coupling: '[ (signals[0,1] self) <= popcnt(tokens[0,16] & affinity[0,5]) <= community
+    ]
 
-  # Jaccard coupling numerator/denominator. AND then OR over the same
-  # operand pair; reduce writes popcount scalars to signals[0] and
-  # signals[1] for the Go side to divide. The affinity-vs-tokens shape
-  # makes this the routing-distance primitive.
-  coupling: |
-    tokens[0,16] affinity[0,5] signals[0,1] and reduce
-    tokens[0,16] affinity[0,5] signals[1,1] or  reduce
+    [ (signals[1,1] self) <= popcnt(tokens[0,16] | affinity[0,5]) <= community ]
 
-  # Beam-swarm step — emergent exploration run by every Value on a trie
-  # node when a prompt Value lands. The Value advances its own state
-  # through the local gradient, scores interference against the context
-  # attractor, collapses that into a scalar error, OR-s in the field
-  # pressure signal, morphs its affinity so high-error Values physically
-  # drift away in DHT space, and folds the prediction error back into
-  # gradient so the next beam pass advances state from an updated belief
-  # rather than re-running the same static rotation. Without that last
-  # fold the belief would be frozen at whatever gradient was stamped by
-  # the staging path, and the beam would reduce to `context = tokens`
-  # on every pass — the visualiser-visible symptom is a gradient region
-  # stuck at zero (or whatever the incoming peer had) while signals and
-  # context oscillate. Loops via `next self` so the scheduler keeps
-  # spreading the cascade one ALU pass at a time.
-  beam_swarm_step: |
-    tokens[0,8]      gradient[0,8]   context[0,8]     xor accumulate
-    tokens[0,8]      context[0,8]    signals[0,8]     xor accumulate
-    signals[0,8]     signals[0,8]    properties[13,1] xor reduce
-    properties[13,1] properties[1,1] properties[13,1] or  accumulate
-    properties[13,1] affinity[0,5]   affinity[0,5]    xor accumulate
-    signals[0,8]     gradient[0,8]   gradient[0,8]    xor accumulate
-    next self
+    '
+  beam_swarm_step: '[ (context[0,8] self) <= (tokens[0,8] ^ gradient[0,8]) <= community
+    ]
 
-  # Free Energy / Prediction Error: the surprisal primitive computes the
-  # gap between incoming tokens and the context eigenmode, collapses it
-  # into a scalar error in properties[0,1], and folds the signature into
-  # gradient so the next beam pass advances belief through the freshly
-  # scored residual. Loops via `next self` so when the `integrate_belief`
-  # rule transitions the Value out of beam_swarm_step the scheduler can
-  # keep this program resident until gradient/asset witnesses steer
-  # the chain elsewhere.
-  surprisal: |
-    tokens[0,8]  context[0,8]  signals[0,8]     xor accumulate
-    signals[0,8] signals[0,8]  properties[13,1] xor reduce
-    signals[0,8] gradient[0,8] gradient[0,8]    xor accumulate
-    next self
+    [ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
 
-  # Hypothesis: arms the in-kernel Popperian probe (ApplyRefutationProbe)
-  # by stamping a non-zero target into properties[1,1] (word 49 in absolute
-  # layout = PropertiesRefutationTargetWord). The XOR of context against
-  # gradient lands a 64-byte prediction signature into signals[0,8] — the
-  # only scratch span safe to overwrite at this point, since the
-  # `hypothesize` rule gates on properties[0,1] being already reduced by
-  # beam_swarm_step's surprisal collapse and signals can be rewritten for
-  # the subsequent falsification pass. Reducing that signature into
-  # properties[1,1] seeds the target with real entropy, and folding the
-  # Value's own id[0,1] guarantees the target never settles to zero even
-  # when context XOR gradient happens to cancel — a zero target reads as
-  # "not armed" to the kernel probe. Once armed, the next rule (`falsify`)
-  # fires `falsification`, whose signals rewrite feeds the kernel probe
-  # that decides whether the claim survives.
-  hypothesis: |
-    context[0,8] gradient[0,8] signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8]  properties[1,1] or  reduce
-    id[0,1]      id[0,1]       properties[1,1] or  accumulate
+    [ (properties.falsified self) <= popcnt(signals[0,8]) <= community
+    ]
 
-  # Popperian Test: XORs tokens against a predicted-absent pattern in
-  # context. A high popcount in properties[1] means the claim held (they
-  # differ); a low popcount refutes it. If refuted, we zero the TTL word
-  # (properties[3]). The falsification residual also drives gradient —
-  # a refuted claim perturbs the belief direction so downstream beam
-  # passes can recover without external intervention. `next self` keeps
-  # the program resident once the `test_falsification` rule selects it.
-  falsification: |
-    tokens[0,8]     context[0,8]    signals[0,8]    xor accumulate
-    signals[0,8]    signals[0,8]    properties[1,1] xor reduce
-    properties[1,1] properties[3,1] properties[3,1] and accumulate
-    signals[0,8]    gradient[0,8]   gradient[0,8]   xor accumulate
-    next self
+    [ (properties.falsified self) <= (properties.falsified | properties.confidence) <= community
+    ]
 
-  # Temperature: Physical noise injected into the Affinity vector during
-  # exploration to widen the search space.
-  temperature: |
-    properties[4,1] affinity[0,5] affinity[0,5] xor accumulate
+    [ (affinity[0,5] self) <= (properties.falsified ^ affinity[0,5]) <= community ]
 
-  # Active Inference: unified cognitive loop that simulates multiple
-  # futures, evaluates their expected free energy across asset[0..32],
-  # and applies the action direction that minimises surprisal back into
-  # gradient — the planned belief update the next beam pass will advance
-  # state through. properties[2,1] captures a scalar "plan intensity"
-  # witness so the `iterate_causal` rule can observe that the plan has
-  # been staged without re-walking the asset block. Loops via
-  # `next self` so once the `integrate_belief` rule fires this program
-  # keeps refining the plan against each freshly scored error frame.
-  active_inference: |
-    tokens[0,8]  gradient[0,8]   asset[0,8]      xor accumulate
-    tokens[0,4]  properties[4,2] asset[8,4]      and accumulate
-    tokens[4,4]  properties[6,2] asset[12,4]     and accumulate
-    tokens[0,8]  context[0,8]    asset[16,8]     xor accumulate
-    asset[0,8]   context[0,8]    signals[0,8]    xor accumulate
-    asset[8,8]   context[0,8]    asset[24,8]     xor accumulate
-    asset[16,8]  context[0,8]    asset[32,8]     xor accumulate
-    signals[0,8] signals[0,8]    signals[0,1]    xor reduce
-    asset[24,8]  asset[24,8]     signals[1,1]    xor reduce
-    asset[32,8]  asset[32,8]     signals[2,1]    xor reduce
-    asset[16,8]  asset[0,8]      gradient[0,8]   xor accumulate
-    asset[0,8]   asset[16,8]     properties[2,1] xor reduce
-    next self
+    [ (gradient[0,8] self) <= (signals[0,8] ^ gradient[0,8]) <= community ]
 
-  # Causal Explore: Single-pass causal gap (tokens XOR context/gradient).
-  # Used by phase probes; the field drives parallel population, not one tight loop.
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
+
+    '
+  surprisal: '[ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
+
+    [ (properties.falsified self) <= popcnt(signals[0,8]) <= community
+    ]
+
+    [ (gradient[0,8] self) <= (signals[0,8] ^ gradient[0,8]) <= community ]
+
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
+
+    '
+  hypothesis: '[ (signals[0,8] self) <= (context[0,8] ^ gradient[0,8]) <= community
+    ]
+
+    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
+
+    [ (properties.confidence self) <= (id[0,1] | id[0,1]) <= community ]
+
+    '
+  falsification: '[ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community
+    ]
+
+    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
+
+    [ (properties.ttl self) <= (properties.confidence & properties.ttl) <= community ]
+
+    [ (gradient[0,8] self) <= (signals[0,8] ^ gradient[0,8]) <= community ]
+
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
+
+    '
+  temperature: '[ (affinity[0,5] self) <= (properties.temperature ^ affinity[0,5]) <= community
+    ]
+
+    '
+  active_inference: '[ (asset[0,8] self) <= (tokens[0,8] ^ gradient[0,8]) <= community
+    ]
+
+    [ (asset[8,4] self) <= (tokens[0,4] & properties.temperature) <= community ]
+
+    [ (asset[12,4] self) <= (tokens[4,4] & properties.noise) <= community ]
+
+    [ (asset[16,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
+
+    [ (signals[0,8] self) <= (asset[0,8] ^ context[0,8]) <= community ]
+
+    [ (asset[24,8] self) <= (asset[8,8] ^ context[0,8]) <= community ]
+
+    [ (asset[32,8] self) <= (asset[16,8] ^ context[0,8]) <= community ]
+
+    [ (signals[0,1] self) <= popcnt(signals[0,8]) <= community ]
+
+    [ (signals[1,1] self) <= popcnt(asset[24,8]) <= community ]
+
+    [ (signals[2,1] self) <= popcnt(asset[32,8]) <= community ]
+
+    [ (gradient[0,8] self) <= (asset[16,8] ^ asset[0,8]) <= community ]
+
+    [ (properties.epoch self) <= popcnt(asset[0,8] ^ asset[16,8]) <= community ]
+
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
+
+    '
   causal_explore: |
-    tokens[0,8]      context[0,8]    signals[0,8]     xor accumulate
-    gradient[0,8]    context[0,8]    asset[40,8]      xor accumulate
-    signals[0,8]     signals[0,8]    properties[13,2] xor reduce
-    properties[13,2] properties[2,2] properties[13,2] or  accumulate
+    [ (signals[0,8] self) <= (tokens[0,8] -> context[0,8]) <= community ]
+    [ (properties.falsified self) <= any_zero(signals[0,8]) <= community ]
+    [ (gradient[0,8] fold) <= (gradient[0,8] ^ context[0,8]) ? (properties.falsified != 0) <= community ]
+    [ (properties.status self) <= (properties.status B 5) <= community ]
+    [ (properties.continuation self) <= (0) <= community ]
+  causal_hub: '[ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community
+    ]
 
-  # Causal Hub: iterative causal-gap exploration. Loops via `next self`
-  # until the queue or a finalizer breaks the circuit. Each iteration
-  # XORs the gradient-conditioned residual back into gradient itself,
-  # so the belief trajectory reflects the cumulative counterfactual
-  # pressure rather than snapshotting the initial gradient and stalling
-  # the moment the causal-explore residual lands. The `iterate_causal`
-  # rule selects this program once falsification has stamped its witness;
-  # from that point every heartbeat drifts gradient through the stacked
-  # asset[40,8] residuals, which is what the visualiser needs to see to
-  # confirm the causal loop is actually driving the substrate.
-  causal_hub: |
-    tokens[0,8]      context[0,8]    signals[0,8]     xor accumulate
-    gradient[0,8]    context[0,8]    asset[40,8]      xor accumulate
-    signals[0,8]     signals[0,8]    properties[13,2] xor reduce
-    properties[13,2] properties[2,2] properties[13,2] or  accumulate
-    asset[40,8]      gradient[0,8]   gradient[0,8]    xor accumulate
-    next self
+    [ (asset[40,8] self) <= (gradient[0,8] ^ context[0,8]) <= community ]
 
-  # Unsupervised learning: the peer whose similarity we're measuring has
-  # landed here via Conn.Write, which invokes StageAssetFrom to copy the
-  # peer's contiguous Signals+Context+Gradient+Properties block into this
-  # Value's asset region:
-  #   asset[0,8]   = peer.signals    asset[16,8]  = peer.gradient
-  #   asset[8,8]   = peer.context    asset[24,8]  = peer.properties
-  # Self-knowledge is the XOR of my context (local eigenmode alignment)
-  # against the peer's context — shared structure shows up as a long
-  # zero-run in the 64-byte signature. Reduce that signature into
-  # properties[1,1] as the in-band similarity metric.
-  unsupervised_learn: |
-    context[0,8] asset[8,8]   signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[1,1] or  reduce
+    [ (properties.falsified self) <= popcnt(signals[0,8]) <= community
+    ]
 
-  # Tally a community of labels by shifting incoming labels,
-  # tracking them in context[0,8], and performing a CSA tally.
+    [ (properties.falsified self) <= (properties.falsified | properties.epoch) <= community
+    ]
+
+    [ (gradient[0,8] self) <= (asset[40,8] ^ gradient[0,8]) <= community ]
+
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
+
+    '
+  unsupervised_learn: '[ (signals[0,8] self) <= (context[0,8] ^ asset[8,8]) <= community
+    ]
+
+    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
+
+    '
   survey_community: |
-    context[6,1] 0 context[7,1] a imm
-    context[5,1] 0 context[6,1] a imm
-    context[4,1] 0 context[5,1] a imm
-    context[3,1] 0 context[4,1] a imm
-    context[2,1] 0 context[3,1] a imm
-    context[1,1] 0 context[2,1] a imm
-    context[0,1] 0 context[1,1] a imm
-    asset[24,1] 0 context[0,1] a imm
-    context[0,8] asset[0,1] properties[0,1] or tally
-    properties[0,1] 5 signals[0,1] b imm
-    properties[0,1] 0 signals[1,1] b imm
-    signals[0,1] properties[0,1] properties[5,1] false cmov
-    signals[1,1] properties[0,1] asset[45,1] false cmov
-    next self
+    [ (context[7,1] self) <= (context[6,1]) <= community ]
+    [ (context[6,1] self) <= (context[5,1]) <= community ]
+    [ (context[5,1] self) <= (context[4,1]) <= community ]
+    [ (context[4,1] self) <= (context[3,1]) <= community ]
+    [ (context[3,1] self) <= (context[2,1]) <= community ]
+    [ (context[2,1] self) <= (context[1,1]) <= community ]
+    [ (context[1,1] self) <= (context[0,1]) <= community ]
+    [ (context[0,1] self) <= (asset[24,1]) <= community ]
 
-  # Community label-energy fingerprint: the orchestrator stages up to 8
-  # community member label words (w48) into asset[0,8] before dispatch.
-  # The OR sweep produces a 64-byte LSH signature; reduce writes its
-  # popcount into signals[7]. Higher popcount → more label bits set across
-  # the community → more crystallisation energy. The resident loops via
-  # next self; the orchestrator reads signals[7] each cycle to steer the
-  # community eigenmode and check the global crystallisation floor.
-  measure_field: |
-    asset[0,8] asset[0,8] signals[7,1] or reduce
-    next self
+    [ (properties.labels self) <= popcnt(context[0,8]) <= community ]
 
-  # Classification readout: broadcast the 16-bit dataset label held in
-  # properties[0] (word 48, slot 0) into signals[0] so downstream observers
-  # can see the class without mutating the source Value. Firing is driven
-  # by the `classify` rule: properties non-empty AND signals empty, so the
-  # readout only runs on freshly settled Values that actually carry a label.
-  classify_readout: |
-    properties[0,1] properties[0,1] signals[0,1] or accumulate
+    [ (properties.status self) <= (properties.labels B 5) ? (properties.labels != 0) <= community ]
 
-  # Episodic replay: the predecessor emits itself into this Value via a
-  # gossip.Conn (io.Copy from predecessor into a Conn that targets this
-  # Value by affinity). Conn.Write calls StageAssetFrom, so asset[0,32]
-  # now carries the predecessor's Signals+Context+Gradient+Properties.
-  # Chain-delta is the XOR of my context against the predecessor's
-  # context (asset[8,8]); the reduced signature lands in properties[1,1]
-  # as the per-link replay witness. No `next self` — replay is a single
-  # observation per delivered predecessor; a multi-hop walk is a chain
-  # of deliveries through the gossip substrate, not a program loop.
-  episodic_replay: |
-    context[0,8] asset[8,8]   signals[0,8]    xor accumulate
-    signals[0,8] signals[0,8] properties[1,1] or  reduce
+    [ (properties.continuation self) <= (0) ? (properties.labels != 0) <= community ]
+    [ (properties.continuation self) <= (id[0,1]) ? (properties.labels == 0) <= community ]
+  measure_field: '[ (signals[7,1] self) <= popcnt(asset[0,8]) <= community
+    ]
 
-  # Intervention (Pearl L2 do-operation): a carrier Value from a foreign
-  # community arrived here via Conn.Write with prev left unset — severed
-  # causal history — so StageAssetFrom populated asset[0,32] with the
-  # intervener's S+C+G+P. The XOR of my context against the injected
-  # gradient (asset[16,8]) is the do-direction: where the intervener
-  # pushes me relative to the attractor I was already converging on.
-  # The reduced signature sits in properties[0,1] as the intervention
-  # witness; whoever scheduled the do-op reads that word to decide
-  # whether to persist the perturbation or let it dissolve via TTL.
-  # Gradient carries the do-direction forward so downstream beam passes
-  # advance state through the perturbed belief until TTL dissolves it;
-  # without the gradient write the intervention would leave only the
-  # scalar witness and the population would revert to its pre-perturb
-  # trajectory on the very next ALU pass. Single-shot by design — no
-  # `next self`; TTL-decay in the lifecycle finalizer terminates the
-  # cascade.
-  intervene: |
-    context[0,8] asset[16,8]   signals[0,8]     xor accumulate
-    signals[0,8] signals[0,8]  properties[13,1] or  reduce
-    asset[16,8]  gradient[0,8] gradient[0,8]    xor accumulate
+    [ (properties.continuation self) <= (id[0,1]) <= community ]
 
-  # Swarm voting: keeps a value resident in the kernel dispatch loop
-  # (via `next self`) so gossip has repeated opportunities to stage
-  # labeled peers into the asset region. Each dispatch:
-  #
-  #   asset[0,8] holds the most recently encountered peer's signals
-  #     half (their fold_substrate cancel+merge sweep, i.e. their
-  #     structural fingerprint), placed there by Value.Write during
-  #     the gossip pass.
-  #   context[0,8] is the host's running co-encounter histogram. We
-  #     use the kernel's XOR-accumulate semantics (the only writeback
-  #     mode the universal-bitwise sweep offers) so bits that flip
-  #     between visits encode "this peer is structurally novel" while
-  #     bits that recur cancel out to "this peer is structurally
-  #     redundant".
-  #
-  # Host's own signals[0,8] is untouched: the host keeps its own
-  # structural identity from the first-pass fold_substrate so the
-  # post-exec label-propagation hook can compare host.signals against
-  # asset[0,8] when deciding whether the visiting peer is close enough
-  # to copy LABELS from. The hook is what terminates this loop by
-  # stamping ROLE=Readout + STATUS=RESOLVED once a label has been
-  # adopted; until then `next self` keeps the value circulating.
+    '
+  classify_readout: '[ (signals[0,1] self) <= (properties.labels | properties.labels)
+    <= community ]
+
+    '
+  episodic_replay: '[ (signals[0,8] self) <= (context[0,8] ^ asset[8,8]) <= community
+    ]
+
+    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
+
+    '
+  intervene: '[ (signals[0,8] self) <= (context[0,8] ^ asset[16,8]) <= community ]
+
+    [ (properties.falsified self) <= popcnt(signals[0,8] | signals[0,8]) <= community
+    ]
+
+    [ (gradient[0,8] self) <= (asset[16,8] ^ gradient[0,8]) <= community ]
+
+    '
   vote_swarm: |
-    asset[0,8] context[0,8] context[0,8] xor accumulate
-    
+    [ (context[0,8] self) <= (asset[0,8] ^ context[0,8]) <= community ]
+
     # 1. Copy peer label to host label if host label is 0
-    # signals[0] = 0
-    properties[0,1] 0 signals[0,1] false imm
     # If hostLabel != 0, zero out the staged peerLabel
-    signals[0,1] properties[0,1] asset[24,1] false cmov
+    [ (asset[24,1] self) <= (0) ? (properties.labels != 0) <= community ]
     # If peerLabel is still != 0, adopt it
-    asset[24,1] asset[24,1] properties[0,1] false cmov
-    
+    [ (properties.labels self) <= (asset[24,1] A 0) ? (asset[24,1] != 0) <= community ]
+
     # 2. If hostLabel != 0 AND ROLE == Prompt (5), promote to Readout
     # signals[1] = hostLabel
-    properties[0,1] 0 signals[1,1] a imm
+    [ (signals[1,1] self) <= (properties.labels) <= community ]
     # signals[2] = ROLE ^ 5 (0 if Prompt)
-    properties[10,1] 5 signals[2,1] xor imm
+    [ (signals[2,1] self) <= (properties.role ^ 5) <= community ]
     # If ROLE != 5, zero out signals[1]
-    signals[0,1] signals[2,1] signals[1,1] false cmov
-    
+    [ (signals[1,1] self) <= (0) ? (signals[2,1] != 0) <= community ]
+
     # Now signals[1] is non-zero ONLY IF (hostLabel != 0 AND ROLE == 5)
     # Prepare constants and conditionally apply them
-    properties[0,1] 3 signals[3,1] b imm
-    signals[3,1] signals[1,1] properties[10,1] false cmov # ROLE = 3 (Readout)
-    
-    properties[0,1] 5 signals[3,1] b imm
-    signals[3,1] signals[1,1] properties[5,1] false cmov # STATUS = 5 (RESOLVED)
-    
-    properties[0,1] 1 signals[3,1] b imm
-    signals[3,1] signals[1,1] properties[12,1] false cmov # EMIT = 1
-    
-    # SchedulingNext (word 117) is asset[45,1]. Clear it to stop `next self`.
-    signals[0,1] signals[1,1] asset[45,1] false cmov
-    
-    next self
+
+    # ROLE = 3 (Readout)
+    [ (properties.role self) <= (properties.labels B 3) ? (signals[1,1] != 0) <= community ]
+
+    # STATUS = 5 (RESOLVED)
+    [ (properties.status self) <= (properties.labels B 5) ? (signals[1,1] != 0) <= community ]
+
+    # EMIT = 1
+    [ (properties.surprisal self) <= (properties.labels B 1) ? (signals[1,1] != 0) <= community ]
+
+    # Stop looping by zeroing properties.continuation
+    [ (properties.continuation self) <= (0) ? (signals[1,1] != 0) <= community ]
+
+    [ (properties.continuation self) <= (id[0,1]) ? (signals[1,1] == 0) <= community ]

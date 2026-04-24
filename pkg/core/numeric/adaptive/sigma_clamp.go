@@ -115,4 +115,3 @@ func (clamp *SigmaClamp) Clone() *SigmaClamp {
 		epsilon: clamp.epsilon,
 	}
 }
-

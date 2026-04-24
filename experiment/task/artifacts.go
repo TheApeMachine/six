@@ -7,10 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 )
+
+type runTiming struct {
+	loadDur     time.Duration
+	promptDur   time.Duration
+	finalizeDur time.Duration
+	n           int // number of prompts processed
+}
 
 var paperDirMemo = make(map[string]string)
 var paperDirMemoMu sync.RWMutex
@@ -321,4 +329,3 @@ func projectorImageStripRows(rows []tools.ImageStripRow) []projector.ImageStripR
 	}
 	return out
 }
-
