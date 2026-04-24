@@ -237,7 +237,18 @@ programs:
     [ (properties.continuation self) <= (id[0,1]) <= community ]
 
     '
-  unsupervised_learn: '[ (signals[0,8] self) <= (context[0,8] ^ asset[8,8]) <= community
+  open_ended_generation: |
+    ; 1. THE AFFINE ROTATION: Rotate the current token vectors toward the prompt's context.
+    [ (tokens[0,16] self) <= (tokens[0,16] ^ asset[8,16]) <= community ]
+
+    ; 2. THE BOOLEAN FILTER: Check if the mutated tokens break structural rules in Context.
+    [ (properties.falsified self) <= any_zero(tokens[0,8] -> context[0,8]) <= community ]
+
+    ; 3. THE CULLING: Halt the Value if it violates causal logic (falsified).
+    [ (properties.continuation self) <= (0) ? (properties.falsified != 0) <= community ]
+
+    ; 4. THE EMISSION: If the novel coordinate survived falsification, spawn it into the persistent sequence.
+    [ (properties.target spawn) <= (0) ? (properties.falsified == 0) <= community ] '[ (signals[0,8] self) <= (context[0,8] ^ asset[8,8]) <= community
     ]
 
     [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]

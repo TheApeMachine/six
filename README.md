@@ -101,7 +101,7 @@ The architecture is being built strictly according to a verifiable ladder of aut
 | 9. Falsification & Causal Branching | **Implemented** | Popperian test (`->`) with causal drift if falsified |
 | 10. Memory survival/pruning | **Implemented** | Confidence rises on success, TTL decays to halt on failure |
 | 11. Multi-community routing | **Implemented** | Moving Values across Field boundaries based on Affinity, grouping `ExecuteCommunity` logic per-community |
-| 12. Open-ended generation | **Specified but not implemented** | Generating novel topologies via falsification filters |
+| 12. Open-ended generation | **Implemented** | Generating novel topologies via falsification filters |
 
 ## Values: Programmable Data
 

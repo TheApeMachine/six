@@ -29,7 +29,7 @@ const (
 	InstrAIndirectShift = 57 // 1 bit
 	InstrBTypeShift     = 58 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
 
-	InstrScopeShift     = 60 // 4 bits: 0=Community, 1=Prompt, 2=Learner, etc.
+	InstrScopeShift = 60 // 4 bits: 0=Community, 1=Prompt, 2=Learner, etc.
 
 	InstrSpanMask  uint64 = 0x3F // 6 bits for spans (up to 64 words)
 	InstrStartMask uint64 = 0x7F // 7 bits for starts (up to 128 words)

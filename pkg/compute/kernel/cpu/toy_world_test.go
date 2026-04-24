@@ -53,12 +53,12 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 	copy(frame[16:32], comp.Words)
 
 	// Set initial state
-	frame[59] = 1 // TTL = 1
+	frame[59] = 1       // TTL = 1
 	frame[71] = v1.ID() // continuation = own id (keep looping)
-	
+
 	// Expectation (context) = 1 (A -> B)
 	// Reality (signals) = 0 (Intervention do(B=X), making B disappear)
-	frame[40] = 1 
+	frame[40] = 1
 	frame[32] = 0
 
 	// Tick 1: evaluate falsification, decay TTL, and halt!
@@ -109,8 +109,8 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 	frame := (*[128]uint64)(unsafe.Pointer(v1))
 
 	copy(frame[16:32], comp.Words)
-	frame[40] = 1 
-	frame[32] = 0 // falsified
+	frame[40] = 1
+	frame[32] = 0  // falsified
 	frame[59] = 10 // TTL
 
 	// Tick 1: evaluates falsification
@@ -121,7 +121,7 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 	if len(spawned) != 1 {
 		t.Fatalf("expected 1 spawned value, got %d", len(spawned))
 	}
-	
+
 	sFrame := (*[128]uint64)(unsafe.Pointer(spawned[0]))
 	if sFrame[122] == 0 || sFrame[122] == v1.ID() {
 		t.Fatalf("expected spawned value to have a new ID")

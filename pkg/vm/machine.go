@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"log"
 	"math/rand"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -134,14 +133,14 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 				if aff[0] != 0 {
 					value.SetProperty(primitive.COMMUNITY, aff[0])
 				}
-				
+
 				cID, _ := value.Property(primitive.COMMUNITY)
 				communities[cID] = append(communities[cID], value)
 			}
 
 			// 1. Scheduler: Build the active queue per community based on Continuation
 			activeCommunities := make(map[uint64][]*primitive.Value)
-			
+
 			for cID, comm := range communities {
 				var active []*primitive.Value
 				for _, value := range comm {
@@ -180,7 +179,7 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 			for cID, active := range activeCommunities {
 				comm := communities[cID]
 				nComm := len(comm)
-				
+
 				if nComm > 1 {
 					// Each active Value encounters another random Value from its own community
 					// and stages B's context and gradient into A's asset region.
