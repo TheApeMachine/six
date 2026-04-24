@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -106,7 +107,7 @@ Pressure reports inflight dispatches plus an EMA of per-job service
 time in nanoseconds.
 */
 func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
-	return nil
+	return cpu.ExecuteCommunity(community)
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {

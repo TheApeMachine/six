@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -59,7 +60,7 @@ func Available() int { return 0 }
 func (backend *Backend) Name() string { return "cuda" }
 
 func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
-	return nil
+	return cpu.ExecuteCommunity(community)
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {

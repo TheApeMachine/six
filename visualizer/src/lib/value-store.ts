@@ -112,26 +112,32 @@ export interface StoredValue {
 }
 
 function blankCausalState(): CausalState {
-	return { hypothesizing: false, falsified: false, intervening: false };
+	return { 
+		hypothesizing: false, 
+		falsified: false, 
+		intervening: false,
+		surprisal: 0,
+		delta_surprisal: 0,
+		stuck_count: 0,
+		stuck: false,
+		ttl: 0,
+		temperature: 0,
+	};
 }
 
 /*
-readCausalState pulls three residues straight off the wire frame:
- - hypothesizing : properties[1] is non-zero (refutation target is armed)
- - falsified     : properties[4] has the FalsifiedBit (kernel stamped it
-                   after ApplyRefutationProbe saw a ≥48-bit one-run)
- - intervening   : the do_intervention rule was the firing rule — asset
-                   gradient window is non-zero, local context is non-zero,
-                   and there is no prev ID (severed causal history).
-
-All three checks are O(span) and only touch already-decoded words so
-the overhead per frame is a handful of BigInt ORs.
+readCausalState pulls causal residues and scalar witnesses straight off the wire frame.
 */
 function readCausalState(words: bigint[]): CausalState {
 	const hypothesizing = words[PROPERTIES_REFUTATION_TARGET_WORD] !== 0n;
 
-	const noise = words[PROPERTIES_NOISE_WORD] ?? 0n;
-	const falsified = (noise & FALSIFIED_BIT) !== 0n;
+	const falsified = words[PROPERTY_WORD("FALSIFIED")] !== 0n;
+	const surprisal = Number(words[PROPERTY_WORD("SURPRISAL")] ?? 0n);
+	const delta_surprisal = Number(words[PROPERTY_WORD("DELTA_SURPRISAL")] ?? 0n);
+	const stuck_count = Number(words[PROPERTY_WORD("STUCK_COUNT")] ?? 0n);
+	const stuck = words[PROPERTY_WORD("STUCK")] !== 0n;
+	const ttl = Number(words[PROPERTY_WORD("TTL")] ?? 0n);
+	const temperature = Number(words[PROPERTY_WORD("TEMPERATURE")] ?? 0n);
 
 	let gradientAcc = 0n;
 
@@ -150,7 +156,17 @@ function readCausalState(words: bigint[]): CausalState {
 	const intervening =
 		gradientAcc !== 0n && contextAcc !== 0n && prev === 0n;
 
-	return { hypothesizing, falsified, intervening };
+	return { 
+		hypothesizing, 
+		falsified, 
+		intervening,
+		surprisal,
+		delta_surprisal,
+		stuck_count,
+		stuck,
+		ttl,
+		temperature,
+	};
 }
 
 function formatValueId(word: bigint): string {

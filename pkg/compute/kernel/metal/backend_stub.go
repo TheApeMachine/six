@@ -100,8 +100,7 @@ func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primit
 	}
 
 	// Just fallback to CPU for now
-	cpu.ExecuteCommunity(community)
-	return nil
+	return cpu.ExecuteCommunity(community)
 }
 
 /*

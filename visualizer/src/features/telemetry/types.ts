@@ -53,6 +53,12 @@ export interface CausalState {
 	hypothesizing: boolean;
 	falsified: boolean;
 	intervening: boolean;
+	surprisal: number;
+	delta_surprisal: number;
+	stuck_count: number;
+	stuck: boolean;
+	ttl: number;
+	temperature: number;
 }
 
 export interface VizInspectSnapshot {

@@ -155,6 +155,5 @@ func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primit
 		backend.recordService(start)
 	}()
 
-	cpu.ExecuteCommunity(community)
-	return nil
+	return cpu.ExecuteCommunity(community)
 }
