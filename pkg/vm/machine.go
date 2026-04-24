@@ -30,7 +30,7 @@ type Machine struct {
 	telemetry *telemetry.Bridge
 	community []*primitive.Value
 
-	communityIDMap map[uint64]uint64
+	communitySeeds map[uint64][primitive.AffinityWords]uint64
 	nextCommunity  uint64
 }
 
@@ -53,7 +53,7 @@ func NewMachine(
 		cancel:         cancel,
 		telemetry:      bridge,
 		backend:        compute.NewBackend(ctx),
-		communityIDMap: make(map[uint64]uint64),
+		communitySeeds: make(map[uint64][primitive.AffinityWords]uint64),
 		nextCommunity:  1,
 	}
 
@@ -135,13 +135,38 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 			for _, value := range machine.community {
 				// If a Value has computed an affinity, it migrates to that community
 				aff := value.AffinityArray()
-				if aff[0] != 0 {
-					cID, exists := machine.communityIDMap[aff[0]]
-					if !exists {
-						cID = machine.nextCommunity
-						machine.communityIDMap[aff[0]] = cID
-						machine.nextCommunity++
+				
+				// Check if affinity is non-zero
+				isZero := true
+				for _, w := range aff {
+					if w != 0 {
+						isZero = false
+						break
 					}
+				}
+
+				if !isZero {
+					bestDist := 9999
+					bestCID := uint64(0)
+					
+					for cID, seed := range machine.communitySeeds {
+						dist := primitive.AffinityHamming(aff, seed)
+						if dist < bestDist {
+							bestDist = dist
+							bestCID = cID
+						}
+					}
+					
+					var cID uint64
+					if bestCID != 0 && bestDist <= core.Cfg.System.RouteBudget {
+						cID = bestCID
+					} else {
+						// Spawn new community
+						cID = machine.nextCommunity
+						machine.nextCommunity++
+						machine.communitySeeds[cID] = aff
+					}
+					
 					value.SetProperty(primitive.COMMUNITY, cID)
 				}
 				
