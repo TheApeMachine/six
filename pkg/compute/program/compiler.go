@@ -24,7 +24,7 @@ const (
 	InstrTopologyShift = 49 // 2 bits: 0=self, 1=next, 2=fold, 3=spawn
 
 	InstrPredStartShift = 51 // 7 bits
-	InstrPredCondShift  = 58 // 2 bits: 0=Always, 1=NotZero (!=0), 2=IsZero (==0)
+	InstrPredCondShift  = 58 // 2 bits: 0=Always, 1=NotZero (!=0), 2=IsZero (==0), 3=GreaterThan (>)
 
 	InstrAIndirectShift = 60 // 1 bit
 	InstrBTypeShift     = 61 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
@@ -38,6 +38,14 @@ const (
 	TopologyNext  = 1
 	TopologyFold  = 2
 	TopologySpawn = 3
+)
+
+// Scopes
+const (
+	ScopeCommunity = 0
+	ScopePrompt    = 1
+	ScopeLearner   = 2
+	// For future property-based scopes, we might need a dedicated scope payload
 )
 
 // Modes
@@ -90,7 +98,7 @@ type Compiled struct {
 }
 
 // AST Syntax: [ (Target Topology) <= (Expr) ? (Predicate) <= Scope ]
-// e.g. [ (16..24 self) <= (0..8 ^ 8..16) <= (0..n) ]
+// e.g. [ (16..24 self) <= (0..8 ^ 8..16) <= community ]
 // e.g. [ (gradient fold) <= (scratch ^ context) ? (properties.falsified != 0) <= community ]
 var parserRe = regexp.MustCompile(`\[\s*\((.*?)\)\s*<=\s*(.*?)\s*(?:\?\s*\((.*?)\))?\s*<=\s*(.*?)\s*\]`)
 
@@ -114,9 +122,7 @@ func Compile(source string, lay Layout) (Compiled, error) {
 		targetGrp := matches[1]
 		exprGrp := matches[2]
 		predGrp := matches[3] // optional
-		// scopeGrp := matches[4] // parsed but ignored mechanically
-
-		instr, err := parseInstruction(targetGrp, exprGrp, predGrp, lay)
+	instr, err := parseInstruction(targetGrp, exprGrp, predGrp, matches[4], lay)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("line %d: %v", lineNo+1, err))
 			continue
@@ -142,7 +148,7 @@ func stripComment(s string) string {
 	return s
 }
 
-func parseInstruction(targetGrp, exprGrp, predGrp string, lay Layout) (uint64, error) {
+func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) (uint64, error) {
 	// 1. Target & Topology
 	tParts := strings.Fields(targetGrp)
 	if len(tParts) != 2 {
@@ -224,24 +230,45 @@ func parseInstruction(targetGrp, exprGrp, predGrp string, lay Layout) (uint64, e
 		return 0, fmt.Errorf("expr must be 'A op B' or 'A', got %q", exprGrp)
 	}
 
+	// 2a. Validate topology & fold semantics
+	if topology == TopologyFold {
+		// Only associative/commutative ops are generally allowed for fold, unless explicit ordering is requested.
+		// For now, we reject non-associative ops to enforce SYNTAX.md constraints.
+		switch opcode {
+		case Opcodes["0"], Opcodes["1"], Opcodes["A"], Opcodes["B"], Opcodes["nota"], Opcodes["notb"]:
+			// Ok
+		case Opcodes["&"], Opcodes["|"], Opcodes["^"], Opcodes["~&"], Opcodes["~|"], Opcodes["=="]:
+			// Ok (associative/commutative)
+		default:
+			// "->", "<-", "\", "/" etc. are NOT commutative/associative
+			return 0, fmt.Errorf("fold topology requires associative/commutative operators, got opcode 0x%x", opcode)
+		}
+	}
 	// 3. Predicate
 	var predStart, predCond uint64
 	if predGrp != "" {
 		pParts := strings.Fields(predGrp)
 		if len(pParts) != 3 {
-			return 0, fmt.Errorf("predicate must be 'Region != 0' or 'Region == 0'")
+			return 0, fmt.Errorf("predicate must be 'Region OP Value'")
 		}
 		pStart, _, _, err := parseRef(pParts[0], lay)
 		if err != nil {
 			return 0, fmt.Errorf("predicate region: %w", err)
 		}
 		predStart = uint64(pStart)
+		
+		// 1: != 0, 2: == 0, 3: >
+		// Note: The right hand side of the predicate is currently constrained by our parsing 
+		// strategy or we only test against 0, but if we assume `pParts[2]` is the target value,
+		// we'd need to encode that too. We're currently limited by bit budget for predicates.
 		if pParts[1] == "!=" && pParts[2] == "0" {
 			predCond = 1
 		} else if pParts[1] == "==" && pParts[2] == "0" {
 			predCond = 2
+		} else if pParts[1] == ">" && pParts[2] == "0" {
+			predCond = 3 
 		} else {
-			return 0, fmt.Errorf("predicate condition must be '!= 0' or '== 0'")
+			return 0, fmt.Errorf("predicate condition %q %q not fully supported yet", pParts[1], pParts[2])
 		}
 	}
 

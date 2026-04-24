@@ -36,7 +36,7 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 
 	for prog, indices := range cohorts {
 		cohortSize := len(indices)
-		
+
 		for pc := 0; pc < 16; pc++ {
 			instr := prog[pc]
 			if instr == 0 {
@@ -85,6 +85,8 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 						writeMask = 0
 					} else if predCond == 2 && pval != 0 {
 						writeMask = 0
+					} else if predCond == 3 && pval == 0 {
+						writeMask = 0 // Greater than 0
 					}
 				}
 				writeMasks[idx] = writeMask
@@ -244,7 +246,7 @@ func ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
 					}
 				}
 			}
-			
+
 			if len(instrSpawned) > 0 {
 				spawned = append(spawned, instrSpawned...)
 			}

@@ -98,6 +98,9 @@ value:
     - ROLE
     - REFERENCE
     - SURPRISAL
+    - PREV_SURPRISAL
+    - DELTA_SURPRISAL
+    - STUCK_COUNT
     - FALSIFIED
     - STUCK
     - CONTINUATION
@@ -178,50 +181,40 @@ programs:
     [ (properties.confidence self) <= (id[0,1] | id[0,1]) <= community ]
 
     '
-  falsification: '[ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community
-    ]
+  memory_prune: |
+    [ (properties.confidence self) <= (properties.confidence | 1) ? (properties.status != 0) <= community ]
+    [ (properties.confidence self) <= (properties.confidence \ 1) ? (properties.falsified != 0) <= community ]
+    
+    [ (properties.ttl self) <= (properties.ttl \ 1) ? (properties.confidence == 0) <= community ]
+    
+    [ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
+    [ (properties.continuation self) <= (id[0,1]) ? (properties.ttl != 0) <= community ]
+  temperature: |
+    [ (affinity[0,5] self) <= (properties.temperature ^ affinity[0,5]) <= community ]
+    
+    [ (properties.temperature self) <= (properties.temperature | 1) ? (properties.delta_surprisal == 0) <= community ]
+    [ (properties.ttl self) <= (properties.ttl \ 1) ? (properties.temperature != 0) <= community ]
+    
+    [ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
+    [ (properties.continuation self) <= (id[0,1]) ? (properties.ttl != 0) <= community ]
+  active_inference: |
+    [ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
+    [ (properties.prev_surprisal self) <= (properties.surprisal | 0) <= community ]
+    [ (properties.surprisal self) <= popcnt(signals[0,8]) <= community ]
+    
+    [ (properties.delta_surprisal self) <= (properties.prev_surprisal ^ properties.surprisal) <= community ]
+    
+    [ (context[0,8] self) <= (context[0,8] ^ gradient[0,8]) <= community ]
 
-    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
+    [ (properties.stuck_count self) <= (properties.stuck_count | 1) ? (properties.delta_surprisal == 0) <= community ]
+    [ (properties.stuck_count self) <= (0) ? (properties.delta_surprisal != 0) <= community ]
+    
+    [ (properties.stuck self) <= (1) ? (properties.stuck_count != 0) <= community ]
 
-    [ (properties.ttl self) <= (properties.confidence & properties.ttl) <= community ]
+    [ (properties.continuation self) <= (0) ? (properties.surprisal == 0) <= community ]
+    [ (properties.status self) <= (properties.status B 5) ? (properties.surprisal == 0) <= community ]
 
-    [ (gradient[0,8] self) <= (signals[0,8] ^ gradient[0,8]) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
-  temperature: '[ (affinity[0,5] self) <= (properties.temperature ^ affinity[0,5]) <= community
-    ]
-
-    '
-  active_inference: '[ (asset[0,8] self) <= (tokens[0,8] ^ gradient[0,8]) <= community
-    ]
-
-    [ (asset[8,4] self) <= (tokens[0,4] & properties.temperature) <= community ]
-
-    [ (asset[12,4] self) <= (tokens[4,4] & properties.noise) <= community ]
-
-    [ (asset[16,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
-
-    [ (signals[0,8] self) <= (asset[0,8] ^ context[0,8]) <= community ]
-
-    [ (asset[24,8] self) <= (asset[8,8] ^ context[0,8]) <= community ]
-
-    [ (asset[32,8] self) <= (asset[16,8] ^ context[0,8]) <= community ]
-
-    [ (signals[0,1] self) <= popcnt(signals[0,8]) <= community ]
-
-    [ (signals[1,1] self) <= popcnt(asset[24,8]) <= community ]
-
-    [ (signals[2,1] self) <= popcnt(asset[32,8]) <= community ]
-
-    [ (gradient[0,8] self) <= (asset[16,8] ^ asset[0,8]) <= community ]
-
-    [ (properties.epoch self) <= popcnt(asset[0,8] ^ asset[16,8]) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
+    [ (properties.continuation self) <= (id[0,1]) ? (properties.surprisal != 0) <= community ]
   causal_explore: |
     [ (signals[0,8] self) <= (tokens[0,8] -> context[0,8]) <= community ]
     [ (properties.falsified self) <= any_zero(signals[0,8]) <= community ]
@@ -266,12 +259,13 @@ programs:
 
     [ (properties.continuation self) <= (0) ? (properties.labels != 0) <= community ]
     [ (properties.continuation self) <= (id[0,1]) ? (properties.labels == 0) <= community ]
-  measure_field: '[ (signals[7,1] self) <= popcnt(asset[0,8]) <= community
-    ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
+  meta_controller: |
+    [ (properties.continuation self) <= (properties.continuation B 4) ? (properties.falsified != 0) <= community ]
+    [ (properties.continuation self) <= (properties.continuation B 5) ? (properties.stuck != 0) <= community ]
+    [ (properties.continuation self) <= (properties.continuation B 6) ? (properties.surprisal == 0) <= community ]
+    [ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
+    
+    [ (properties.continuation self) <= (properties.continuation B 7) ? (properties.surprisal != 0) <= community ]
   classify_readout: '[ (signals[0,1] self) <= (properties.labels | properties.labels)
     <= community ]
 

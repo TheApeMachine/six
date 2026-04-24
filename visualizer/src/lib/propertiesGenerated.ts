@@ -18,6 +18,9 @@ export type PropertyName =
 	| "ROLE"
 	| "REFERENCE"
 	| "SURPRISAL"
+	| "PREV_SURPRISAL"
+	| "DELTA_SURPRISAL"
+	| "STUCK_COUNT"
 	| "FALSIFIED"
 	| "STUCK"
 	| "CONTINUATION";
@@ -38,9 +41,12 @@ export const PROPERTY_OFFSET: Record<PropertyName, number> = {
 	ROLE: 10,
 	REFERENCE: 11,
 	SURPRISAL: 12,
-	FALSIFIED: 13,
-	STUCK: 14,
-	CONTINUATION: 15,
+	PREV_SURPRISAL: 13,
+	DELTA_SURPRISAL: 14,
+	STUCK_COUNT: 15,
+	FALSIFIED: 16,
+	STUCK: 17,
+	CONTINUATION: 18,
 };
 
 export const PROPERTY_WORD = (name: PropertyName): number =>

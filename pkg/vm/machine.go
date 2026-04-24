@@ -129,7 +129,7 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 			active := make([]*primitive.Value, 0, len(machine.community))
 			for _, value := range machine.community {
 				cont := value.SchedulingNext()
-				
+
 				// Handle autonomous reprogramming via CONTINUATION
 				if cont > 0 && cont <= 20 {
 					var fw core.FirmwareType
@@ -171,7 +171,7 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 				if status == uint64(primitive.RESOLVED) {
 					newlyResolved = append(newlyResolved, value)
 				}
-				
+
 				log.Printf("Value %d status: %d, continuation: %d, role: %d", value.ID(), status, value.SchedulingNext(), value.Role())
 
 				if machine.telemetry != nil {

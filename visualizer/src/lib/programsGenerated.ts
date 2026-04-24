@@ -46,19 +46,17 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 	{
 		name: "active_inference",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 72, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 4, bStart: 60, bSpan: 1, dstStart: 80, dstSpan: 4, opcode: 0x1, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 4, aSpan: 4, bStart: 62, bSpan: 1, dstStart: 84, dstSpan: 4, opcode: 0x1, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 88, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 80, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 96, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 88, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 104, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 96, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 104, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 34, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 88, aSpan: 8, bStart: 72, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 72, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 58, dstSpan: 1, opcode: 0x6, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 68, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 68, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 69, aSpan: 1, bStart: 68, bSpan: 1, dstStart: 70, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 71, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 70, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 73, dstSpan: 1, opcode: 0xf, mode: 0, topology: 0, predStart: 71, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 68, predCond: 1, aInd: 0, bType: 0 },
 		],
 	},
 	{
@@ -72,21 +70,21 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		instructions: [
 			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 69, aSpan: 1, bStart: 57, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 69, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 57, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "causal_explore",
 		instructions: [
 			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0xd, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x3, mode: 2, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 2, predStart: 69, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 2, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 2, predStart: 72, predCond: 1, aInd: 0, bType: 0 },
 			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
@@ -94,10 +92,10 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		instructions: [
 			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 112, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 69, aSpan: 1, bStart: 58, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 58, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 112, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
@@ -121,16 +119,6 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		],
 	},
 	{
-		name: "falsification",
-		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 57, aSpan: 1, bStart: 59, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x1, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-		],
-	},
-	{
 		name: "hypothesis",
 		instructions: [
 			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
@@ -142,7 +130,7 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		name: "intervene",
 		instructions: [
 			{ aStart: 40, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 88, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
@@ -151,14 +139,27 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		instructions: [
 			{ aStart: 72, aSpan: 1, bStart: 72, bSpan: 1, dstStart: 120, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 73, aSpan: 1, bStart: 73, bSpan: 1, dstStart: 121, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
-		name: "measure_field",
+		name: "memory_prune",
 		instructions: [
-			{ aStart: 72, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 39, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 57, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 61, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 57, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 59, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 57, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 0 },
+		],
+	},
+	{
+		name: "meta_controller",
+		instructions: [
+			{ aStart: 74, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 73, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 6, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 7, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 1, aInd: 0, bType: 2 },
 		],
 	},
 	{
@@ -171,7 +172,7 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		name: "structural_component",
 		instructions: [
 			{ aStart: 0, aSpan: 8, bStart: 8, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 71, aSpan: 1, bStart: 2, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 66, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 2, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 66, predCond: 1, aInd: 0, bType: 2 },
 			{ aStart: 66, aSpan: 1, bStart: 3, bSpan: 1, dstStart: 66, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
 		],
 	},
@@ -179,9 +180,9 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		name: "surprisal",
 		instructions: [
 			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
@@ -197,14 +198,18 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 			{ aStart: 96, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 40, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 40, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 56, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 56, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 56, predCond: 2, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "temperature",
 		instructions: [
 			{ aStart: 60, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 60, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 60, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 59, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 60, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 0 },
 		],
 	},
 	{
@@ -226,8 +231,8 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 			{ aStart: 56, aSpan: 1, bStart: 3, bSpan: 1, dstStart: 66, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
 			{ aStart: 56, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
 			{ aStart: 56, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 68, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 33, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 33, predCond: 2, aInd: 0, bType: 0 },
 		],
 	},
 ] as const;
