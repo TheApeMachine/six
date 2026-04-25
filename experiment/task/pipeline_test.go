@@ -149,34 +149,32 @@ func TestPipeline(t *testing.T) {
 
 					Convey("And a prompt is provided", func() {
 						for idx, prompt := range experiment.Prompts() {
-							values := make([]*primitive.Value, 0)
-							label := experiment.LabelForPrompt(idx)
+							values, err := primitive.NewValue([]byte(prompt))
+							So(err, ShouldBeNil)
+							So(len(values), ShouldBeGreaterThan, 0)
 
-							if label == nil {
-								values, err := primitive.NewValue([]byte(prompt))
-								So(err, ShouldBeNil)
-								So(len(values), ShouldBeGreaterThan, 0)
-							} else {
-								// Convert the label from string to uint64 (bits)
-								labelBits := uint64(0)
-
-								for i, char := range label {
-									labelBits |= uint64(char) << (i * 8)
-								}
-
-								values, err = primitive.NewValue([]byte(prompt), labelBits)
-								So(err, ShouldBeNil)
-								So(len(values), ShouldBeGreaterThan, 0)
+							for _, value := range values {
+								value.InstallFirmware(core.FOLD_SUBSTRATE)
 							}
 
 							resolved, err := machine.Prompt(values...)
 							So(err, ShouldBeNil)
 							So(len(resolved), ShouldBeGreaterThan, 0)
+
+							holdout, _ := experiment.HoldoutForPrompt(idx)
+							experiment.AddResult(tools.ExperimentalData{
+								Idx:      idx,
+								Prompt:   prompt,
+								Holdout:  holdout,
+								Resolved: resolved,
+							})
 						}
 
 						Convey("Then the results are scored", func() {
 							So(experiment.Outcome())
 						})
+
+						WriteArtifacts(experiment)
 					})
 				})
 			})

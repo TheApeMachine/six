@@ -3,9 +3,10 @@ package program
 import (
 	"errors"
 	"fmt"
-	"regexp"
+	"math/bits"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Instruction encoding constants
@@ -29,11 +30,38 @@ const (
 	InstrAIndirectShift = 57 // 1 bit
 	InstrBTypeShift     = 58 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
 
-	InstrScopeShift = 60 // 4 bits: 0=Community, 1=Prompt, 2=Learner, etc.
-
 	InstrSpanMask  uint64 = 0x3F // 6 bits for spans (up to 64 words)
 	InstrStartMask uint64 = 0x7F // 7 bits for starts (up to 128 words)
 )
+
+const (
+	InstrFlagTargetB     uint64 = 1 << 60
+	InstrFlagTargetOwner uint64 = 1 << 61
+)
+
+const predExtended = 3
+
+type predicateKind uint8
+
+const predicatePopcntLTE predicateKind = 1
+
+type predicateSpec struct {
+	kind      predicateKind
+	start     int
+	span      int
+	threshold uint64
+}
+
+var predicates = struct {
+	sync.RWMutex
+	next  uint64
+	ids   map[predicateSpec]uint64
+	specs map[uint64]predicateSpec
+}{
+	next:  1,
+	ids:   make(map[predicateSpec]uint64),
+	specs: make(map[uint64]predicateSpec),
+}
 
 // Topologies
 const (
@@ -43,20 +71,13 @@ const (
 	TopologySpawn = 3
 )
 
-// Scopes
-const (
-	ScopeCommunity = 0
-	ScopePrompt    = 1
-	ScopeLearner   = 2
-	// For future property-based scopes, we might need a dedicated scope payload
-)
-
 // Modes
 const (
 	ModeTruth   = 0
 	ModePopcnt  = 1
 	ModeAnyZero = 2
 	ModeAllOnes = 3
+	ModeEmit    = 5
 )
 
 var Opcodes = map[string]uint64{
@@ -83,6 +104,7 @@ var Topologies = map[string]uint64{
 	"next":  TopologyNext,
 	"fold":  TopologyFold,
 	"spawn": TopologySpawn,
+	"emit":  TopologySpawn,
 }
 
 type RegionExtent struct {
@@ -100,14 +122,19 @@ type Compiled struct {
 	Words []uint64
 }
 
-// AST Syntax: [ (Target Topology) <= (Expr) ? (Predicate) <= Scope ]
-// e.g. [ (16..24 self) <= (0..8 ^ 8..16) <= community ]
-// e.g. [ (gradient fold) <= (scratch ^ context) ? (properties.falsified != 0) <= community ]
-var parserRe = regexp.MustCompile(`\[\s*\((.*?)\)\s*<=\s*(.*?)\s*(?:\?\s*\((.*?)\))?\s*<=\s*(.*?)\s*\]`)
-
 func Compile(source string, lay Layout) (Compiled, error) {
 	var out Compiled
 	var errs []string
+
+	if strings.Contains(source, "{") || strings.Contains(source, "[(") {
+		words, err := compileFeedSource(source, lay)
+		if err != nil {
+			return out, err
+		}
+
+		out.Words = words
+		return out, nil
+	}
 
 	for lineNo, raw := range strings.Split(source, "\n") {
 		line := stripComment(raw)
@@ -116,16 +143,14 @@ func Compile(source string, lay Layout) (Compiled, error) {
 			continue
 		}
 
-		matches := parserRe.FindStringSubmatch(line)
-		if matches == nil {
-			errs = append(errs, fmt.Sprintf("line %d: invalid syntax. Must be [ (Target) <= (Expr) <= Scope ]", lineNo+1))
+		parser := NewParser(line)
+		instrNode, err := parser.ParseInstruction()
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("line %d: %v", lineNo+1, err))
 			continue
 		}
 
-		targetGrp := matches[1]
-		exprGrp := matches[2]
-		predGrp := matches[3] // optional
-		instr, err := parseInstruction(targetGrp, exprGrp, predGrp, matches[4], lay)
+		instr, err := compileInstruction(instrNode, lay)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("line %d: %v", lineNo+1, err))
 			continue
@@ -141,6 +166,715 @@ func Compile(source string, lay Layout) (Compiled, error) {
 	return out, nil
 }
 
+type feedSite struct {
+	emit bool
+	body string
+}
+
+type feedAtom struct {
+	owner string
+	ref   string
+	imm   bool
+}
+
+type feedExpr struct {
+	left  feedAtom
+	right feedAtom
+	op    string
+	mode  uint64
+}
+
+func compileFeedSource(source string, lay Layout) ([]uint64, error) {
+	sites, err := parseFeedSites(source)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]uint64, 0, len(sites))
+
+	if !strings.Contains(source, "<=") {
+		var pendingPredStart, pendingPredCond uint64
+		for site := 0; site < len(sites); site++ {
+			if predStart, predCond, ok, err := feedSiteGate(sites[site], lay); err != nil {
+				return nil, fmt.Errorf("site %d: %w", site+1, err)
+			} else if ok {
+				pendingPredStart = predStart
+				pendingPredCond = predCond
+				continue
+			}
+
+			words, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, lay)
+			if err != nil {
+				return nil, fmt.Errorf("site %d: %w", site+1, err)
+			}
+			if ok {
+				out = append(out, words...)
+				pendingPredStart = 0
+				pendingPredCond = 0
+			}
+		}
+
+		return out, nil
+	}
+
+	var pendingPredStart, pendingPredCond uint64
+	for site := len(sites) - 1; site >= 0; site-- {
+		if predStart, predCond, ok, err := feedSiteGate(sites[site], lay); err != nil {
+			return nil, fmt.Errorf("site %d: %w", len(sites)-site, err)
+		} else if ok {
+			pendingPredStart = predStart
+			pendingPredCond = predCond
+			continue
+		}
+
+		words, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, lay)
+		if err != nil {
+			return nil, fmt.Errorf("site %d: %w", len(sites)-site, err)
+		}
+		if ok {
+			out = append(out, words...)
+			pendingPredStart = 0
+			pendingPredCond = 0
+		}
+	}
+
+	return out, nil
+}
+
+func parseFeedSites(source string) ([]feedSite, error) {
+	var sites []feedSite
+
+	for pos := 0; pos < len(source); pos++ {
+		if source[pos] != '[' {
+			continue
+		}
+
+		emit := pos > 0 && source[pos-1] == '<'
+		depth := 1
+		end := pos + 1
+
+		for ; end < len(source); end++ {
+			switch source[end] {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					body := strings.TrimSpace(source[pos+1 : end])
+					sites = append(sites, feedSite{emit: emit, body: body})
+					pos = end
+					goto next
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("unclosed pipe starting at byte %d", pos)
+
+	next:
+	}
+
+	if len(sites) == 0 {
+		return nil, fmt.Errorf("feed source contains no pipes")
+	}
+
+	return sites, nil
+}
+
+func compileFeedSite(site feedSite, inheritedPredStart, inheritedPredCond uint64, lay Layout) ([]uint64, bool, error) {
+	body := strings.TrimSpace(site.body)
+	if !strings.Contains(body, "{") {
+		body = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(body, ")"), "("))
+		parts := strings.Fields(body)
+		if len(parts) == 0 {
+			return nil, false, nil
+		}
+		if site.emit {
+			instr, ok, err := compileEmitSite(parts, inheritedPredStart, inheritedPredCond, lay)
+			if !ok || err != nil {
+				return nil, ok, err
+			}
+
+			return []uint64{instr}, true, nil
+		}
+
+		instr, ok, err := compileOperationSite(parts, inheritedPredStart, inheritedPredCond, lay)
+		if !ok || err != nil {
+			return nil, ok, err
+		}
+
+		return []uint64{instr}, true, nil
+	}
+
+	blocks, err := bracedBlocks(body)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(blocks) == 0 {
+		return nil, false, fmt.Errorf("missing operation block")
+	}
+
+	var predStart, predCond uint64
+	if inheritedPredCond != 0 {
+		predStart = inheritedPredStart
+		predCond = inheritedPredCond
+	}
+	if len(blocks) > 1 && strings.Contains(blocks[1], "?") {
+		pred, err := parseFeedPredicate(blocks[1])
+		if err != nil {
+			return nil, false, err
+		}
+
+		predStart, predCond, err = compilePredicate(pred, lay)
+		if err != nil {
+			return nil, false, err
+		}
+
+		blocks = blocks[:1]
+	}
+
+	words := make([]uint64, 0, len(blocks))
+	for _, opBlock := range blocks {
+		if strings.Contains(opBlock, "{") && strings.Contains(opBlock, "?") {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(opBlock), "{") {
+			nested, err := bracedBlocks(opBlock)
+			if err != nil {
+				return nil, false, err
+			}
+			if len(nested) == 0 {
+				return nil, false, fmt.Errorf("empty nested operation")
+			}
+
+			opBlock = nested[0]
+		}
+
+		parts := feedFields(opBlock)
+		if len(parts) == 0 {
+			return nil, false, fmt.Errorf("empty operation")
+		}
+
+		var instr uint64
+		var ok bool
+		if site.emit {
+			instr, ok, err = compileEmitOperationSite(parts, predStart, predCond, lay)
+		} else {
+			instr, ok, err = compileOperationSite(parts, predStart, predCond, lay)
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if ok {
+			words = append(words, instr)
+		}
+	}
+
+	return words, len(words) > 0, nil
+}
+
+func feedFields(raw string) []string {
+	var fields []string
+	var token strings.Builder
+	depth := 0
+
+	flush := func() {
+		if token.Len() == 0 {
+			return
+		}
+
+		fields = append(fields, strings.ReplaceAll(token.String(), ", ", ","))
+		token.Reset()
+	}
+
+	for _, char := range raw {
+		switch char {
+		case ' ', '\t', '\n', '\r':
+			if depth == 0 {
+				flush()
+				continue
+			}
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+		}
+
+		token.WriteRune(char)
+	}
+
+	flush()
+
+	return fields
+}
+
+func bracedBlocks(raw string) ([]string, error) {
+	var blocks []string
+
+	for idx := 0; idx < len(raw); idx++ {
+		if raw[idx] != '{' {
+			continue
+		}
+
+		start := idx
+		depth := 0
+		for ; idx < len(raw); idx++ {
+			switch raw[idx] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					blocks = append(blocks, strings.TrimSpace(raw[start+1:idx]))
+					goto next
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("unclosed operation brace")
+
+	next:
+	}
+
+	return blocks, nil
+}
+
+func feedSiteGate(site feedSite, lay Layout) (uint64, uint64, bool, error) {
+	body := strings.TrimSpace(site.body)
+	if !strings.Contains(body, "{") {
+		return 0, 0, false, nil
+	}
+
+	blocks, err := bracedBlocks(body)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if len(blocks) == 0 || !strings.Contains(blocks[0], "{") || !strings.Contains(blocks[0], "?") {
+		return 0, 0, false, nil
+	}
+
+	nested, err := bracedBlocks(blocks[0])
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if len(nested) == 0 {
+		return 0, 0, false, nil
+	}
+
+	pred, err := parseNestedGatePredicate(blocks[0], nested[0])
+	if err != nil {
+		return 0, 0, false, err
+	}
+
+	predStart, predCond, err := compilePredicate(pred, lay)
+	if err != nil {
+		return 0, 0, false, err
+	}
+
+	return predStart, predCond, true, nil
+}
+
+func parseNestedGatePredicate(block, nested string) (*PredicateNode, error) {
+	close := strings.LastIndexByte(block, '}')
+	if close < 0 {
+		return nil, fmt.Errorf("invalid gate %q", block)
+	}
+
+	tail := strings.Fields(block[close+1:])
+	if len(tail) == 2 && tail[1] == "?" {
+		parts := strings.Fields(nested)
+		if len(parts) == 2 && parts[1] == "popcnt" {
+			left, err := parseFeedAtom(parts[0])
+			if err != nil {
+				return nil, err
+			}
+
+			return &PredicateNode{
+				IsPopcnt:  true,
+				Region:    left.ref,
+				Op:        "|",
+				Threshold: tail[0],
+			}, nil
+		}
+	}
+
+	return parseFeedPredicate(nested)
+}
+
+func compileEmitSite(parts []string, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+	dstStart, dstSpan, _, err := parseRef("properties.continuation", lay)
+	if err != nil {
+		return 0, false, err
+	}
+
+	aStart, aSpan, aInd, err := parseRef("id", lay)
+	if err != nil {
+		return 0, false, err
+	}
+
+	return EncodeInstruction(
+		aStart, aSpan, 0, 1, dstStart, dstSpan,
+		Opcodes["A"], ModeEmit, TopologySpawn,
+		predStart, predCond, aInd, 0,
+	) | InstrFlagTargetOwner, true, nil
+}
+
+func compileEmitOperationSite(parts []string, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+	expr, err := parseFeedExpr(parts)
+	if err != nil {
+		return 0, false, err
+	}
+
+	expr.mode = ModeEmit
+
+	return compileFeedExprWithTopology(expr, predStart, predCond, TopologySpawn, lay)
+}
+
+func compileGateSite(predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+	return 0, false, nil
+}
+
+func compileOperationSite(parts []string, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+	expr, err := parseFeedExpr(parts)
+	if err != nil {
+		return 0, false, err
+	}
+
+	return compileFeedExpr(expr, predStart, predCond, lay)
+}
+
+func parseFeedExpr(parts []string) (feedExpr, error) {
+	stack := make([]feedExpr, 0, len(parts))
+
+	for _, part := range parts {
+		if isFeedReducer(part) {
+			if len(stack) < 1 {
+				return feedExpr{}, fmt.Errorf("reducer %q needs one operand", part)
+			}
+
+			src := stack[len(stack)-1]
+			stack[len(stack)-1] = feedExpr{
+				left: src.left,
+				op:   "A",
+				mode: feedReducerMode(part),
+			}
+			continue
+		}
+
+		if feedTokenIsOperator(part, len(stack)) {
+			if len(stack) < 2 {
+				return feedExpr{}, fmt.Errorf("operator %q needs two operands", part)
+			}
+
+			right := stack[len(stack)-1]
+			left := stack[len(stack)-2]
+			stack = stack[:len(stack)-2]
+			stack = append(stack, feedExpr{
+				left:  left.left,
+				right: right.left,
+				op:    part,
+				mode:  ModeTruth,
+			})
+			continue
+		}
+
+		atom, err := parseFeedAtom(part)
+		if err != nil {
+			return feedExpr{}, err
+		}
+		stack = append(stack, feedExpr{left: atom, op: "A", mode: ModeTruth})
+	}
+
+	if len(stack) == 1 {
+		return stack[0], nil
+	}
+
+	if len(stack) == 2 {
+		return feedExpr{left: stack[0].left, right: stack[1].left, op: "B", mode: ModeTruth}, nil
+	}
+
+	return feedExpr{}, fmt.Errorf("operation leaves %d stack values: %v", len(stack), parts)
+}
+
+func feedTokenIsOperator(part string, depth int) bool {
+	if isNumeric(part) || strings.EqualFold(part, "done") || strings.EqualFold(part, "clear") {
+		return false
+	}
+
+	if (part == "A" || part == "B") && depth < 2 {
+		return false
+	}
+
+	_, ok := Opcodes[part]
+	return ok
+}
+
+func compileFeedExpr(expr feedExpr, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+	return compileFeedExprWithTopology(expr, predStart, predCond, TopologySelf, lay)
+}
+
+func compileFeedExprWithTopology(expr feedExpr, predStart, predCond, topology uint64, lay Layout) (uint64, bool, error) {
+	aStart, aSpan, aInd, err := parseFeedOperand(expr.left, lay)
+	if err != nil {
+		return 0, false, fmt.Errorf("left: %w", err)
+	}
+
+	bStart, bSpan, bType, err := compileFeedRight(expr.right, lay)
+	if err != nil {
+		return 0, false, fmt.Errorf("right: %w", err)
+	}
+
+	dstRef := feedDestination(expr.left, expr.right, expr.op, aSpan)
+	dstStart, dstSpan, _, err := parseRef(dstRef, lay)
+	if err != nil {
+		return 0, false, fmt.Errorf("target: %w", err)
+	}
+
+	opcode, ok := Opcodes[expr.op]
+	if !ok {
+		return 0, false, fmt.Errorf("unknown operator %q", expr.op)
+	}
+
+	flags := uint64(0)
+	if strings.EqualFold(expr.left.owner, "B") && strings.EqualFold(dstRef, expr.left.ref) {
+		flags |= InstrFlagTargetB
+	}
+
+	return EncodeInstruction(
+		aStart, aSpan, bStart, bSpan, dstStart, dstSpan,
+		opcode, expr.mode, topology,
+		predStart, predCond, aInd, bType,
+	) | flags, true, nil
+}
+
+func compileFeedRight(atom feedAtom, lay Layout) (start, span int, bType uint64, err error) {
+	if atom.ref == "" && atom.owner == "" && !atom.imm {
+		return 0, 1, 0, nil
+	}
+
+	start, span, indirect, err := parseFeedOperand(atom, lay)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if atom.imm {
+		return start, span, 2, nil
+	}
+
+	return start, span, indirect, nil
+}
+
+func feedDestination(left, right feedAtom, op string, span int) string {
+	if left.ref == "" {
+		return "signals[0,8]"
+	}
+	if right.owner == "" && (strings.EqualFold(right.ref, "signals") || strings.HasPrefix(strings.ToLower(right.ref), "signals[")) {
+		return right.ref
+	}
+	if strings.EqualFold(left.ref, "tokens") || strings.HasPrefix(strings.ToLower(left.ref), "tokens[") {
+		if op == "&" {
+			return fmt.Sprintf("signals[4,%d]", minInt(span, 4))
+		}
+
+		return fmt.Sprintf("signals[0,%d]", minInt(span, 4))
+	}
+	if left.owner != "" && right.owner != "" && !strings.EqualFold(left.owner, right.owner) {
+		return "signals[0,8]"
+	}
+
+	return left.ref
+}
+
+func parseFeedPredicate(raw string) (*PredicateNode, error) {
+	parts := strings.Fields(raw)
+	if len(parts) == 3 {
+		left, err := parseFeedAtom(parts[0])
+		if err != nil {
+			return nil, err
+		}
+
+		return &PredicateNode{
+			Region: left.ref,
+			Op:     parts[2],
+			Value:  parts[1],
+		}, nil
+	}
+
+	if len(parts) == 4 && parts[1] == "popcnt" {
+		left, err := parseFeedAtom(parts[0])
+		if err != nil {
+			return nil, err
+		}
+
+		return &PredicateNode{
+			IsPopcnt:  true,
+			Region:    left.ref,
+			Op:        "|",
+			Threshold: parts[2],
+		}, nil
+	}
+
+	return nil, fmt.Errorf("invalid gate %v", parts)
+}
+
+func parseFeedAtom(raw string) (feedAtom, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return feedAtom{}, fmt.Errorf("empty operand")
+	}
+
+	if strings.HasPrefix(raw, "{") && strings.HasSuffix(raw, "}") {
+		return parseFeedAtom(strings.TrimSpace(raw[1 : len(raw)-1]))
+	}
+	if strings.Contains(raw, "{") && strings.Contains(raw, "}") {
+		blocks, err := bracedBlocks(raw)
+		if err != nil {
+			return feedAtom{}, err
+		}
+		if len(blocks) == 1 {
+			return parseFeedAtom(blocks[0])
+		}
+	}
+
+	if strings.EqualFold(raw, "A") || strings.EqualFold(raw, "B") {
+		return feedAtom{owner: strings.ToUpper(raw), ref: "signals[0,8]"}, nil
+	}
+
+	if isNumeric(raw) || strings.EqualFold(raw, "done") || strings.EqualFold(raw, "clear") {
+		return feedAtom{ref: strings.ToLower(raw), imm: true}, nil
+	}
+
+	if len(raw) > 3 && (raw[0] == 'A' || raw[0] == 'B') && raw[1] == '(' && raw[len(raw)-1] == ')' {
+		ref, err := parseFeedAtomRef(raw[2 : len(raw)-1])
+		if err != nil {
+			return feedAtom{}, err
+		}
+
+		return feedAtom{owner: raw[:1], ref: ref}, nil
+	}
+
+	if strings.Contains(raw, "[") || isKnownFeedRegion(raw) {
+		return feedAtom{ref: raw}, nil
+	}
+
+	return feedAtom{}, fmt.Errorf("operand %q must be A(region), B(region), region, clear, done, or a number", raw)
+}
+
+func parseFeedAtomRef(raw string) (string, error) {
+	parts := feedFields(raw)
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+
+	if len(parts) == 3 && isNumeric(parts[1]) && (parts[2] == "<<" || parts[2] == ">>") {
+		amount, _ := strconv.Atoi(parts[1])
+		if parts[2] == ">>" {
+			amount = -amount
+		}
+
+		return rotateFeedRef(parts[0], amount)
+	}
+
+	return "", fmt.Errorf("invalid operand ref %q", raw)
+}
+
+func rotateFeedRef(raw string, amount int) (string, error) {
+	open := strings.IndexByte(raw, '[')
+	if open < 0 || !strings.HasSuffix(raw, "]") {
+		return "", fmt.Errorf("rotation requires indexed region, got %q", raw)
+	}
+
+	name := raw[:open]
+	body := raw[open+1 : len(raw)-1]
+	parts := strings.Split(body, ",")
+	if len(parts) == 0 || len(parts) > 2 {
+		return "", fmt.Errorf("invalid indexed region %q", raw)
+	}
+
+	start, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return "", err
+	}
+
+	span := 1
+	if len(parts) == 2 {
+		span, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return "", err
+		}
+	}
+	if span <= 0 {
+		return "", fmt.Errorf("invalid span in %q", raw)
+	}
+
+	rotated := (start + amount) % span
+	if rotated < 0 {
+		rotated += span
+	}
+
+	return fmt.Sprintf("%s[%d,%d]", name, rotated, span-rotated), nil
+}
+
+func isKnownFeedRegion(raw string) bool {
+	switch strings.ToLower(raw) {
+	case "tokens", "program", "signals", "context", "gradient", "properties", "asset", "prev", "next", "id", "affinity":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseFeedOperand(atom feedAtom, lay Layout) (start, span int, indirect uint64, err error) {
+	if !atom.imm {
+		return parseRef(atom.ref, lay)
+	}
+
+	switch atom.ref {
+	case "clear":
+		return 0, 1, 0, nil
+	case "done":
+		return 4, 1, 0, nil
+	default:
+		imm, err := strconv.ParseUint(atom.ref, 10, 14)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+
+		return int(imm & 0x7F), int((imm>>7)&0x7F) + 1, 0, nil
+	}
+}
+
+func isFeedReducer(raw string) bool {
+	return raw == "popcnt" || raw == "any_zero" || raw == "all_ones"
+}
+
+func feedReducerMode(raw string) uint64 {
+	switch raw {
+	case "popcnt":
+		return ModePopcnt
+	case "any_zero":
+		return ModeAnyZero
+	case "all_ones":
+		return ModeAllOnes
+	default:
+		return ModeTruth
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+
+	return b
+}
+
 func stripComment(s string) string {
 	if i := strings.Index(s, ";"); i >= 0 {
 		return s[:i]
@@ -151,19 +885,21 @@ func stripComment(s string) string {
 	return s
 }
 
-func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) (uint64, error) {
+func compileInstruction(node *InstructionNode, lay Layout) (uint64, error) {
 	// 1. Target & Topology
-	tParts := strings.Fields(targetGrp)
-	if len(tParts) != 2 {
-		return 0, fmt.Errorf("target must be 'Region Topology', got %q", targetGrp)
-	}
-	dstStart, dstSpan, _, err := parseRef(tParts[0], lay)
+	flags := uint64(0)
+	dstStart, dstSpan, _, err := parseRef(node.Target.Region, lay)
 	if err != nil {
 		return 0, fmt.Errorf("target region: %w", err)
 	}
-	topology, ok := Topologies[strings.ToLower(tParts[1])]
+	topologyName := strings.ToLower(node.Target.Topology)
+	if topologyName == "b" {
+		topologyName = "self"
+		flags |= InstrFlagTargetB
+	}
+	topology, ok := Topologies[topologyName]
 	if !ok {
-		return 0, fmt.Errorf("unknown topology %q", tParts[1])
+		return 0, fmt.Errorf("unknown topology %q", node.Target.Topology)
 	}
 
 	// 2. Expr & Mode
@@ -173,55 +909,69 @@ func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) 
 	var aInd, bType uint64
 	var opcode uint64
 
-	// Extract optional reduction function
-	if strings.HasPrefix(exprGrp, "popcnt(") {
+	switch node.Expr.Mode {
+	case "popcnt":
 		mode = ModePopcnt
-		exprGrp = exprGrp[7 : len(exprGrp)-1]
-	} else if strings.HasPrefix(exprGrp, "any_zero(") {
+	case "any_zero":
 		mode = ModeAnyZero
-		exprGrp = exprGrp[9 : len(exprGrp)-1]
-	} else if strings.HasPrefix(exprGrp, "all_ones(") {
+	case "all_ones":
 		mode = ModeAllOnes
-		exprGrp = exprGrp[9 : len(exprGrp)-1]
-	} else if strings.HasPrefix(exprGrp, "(") && strings.HasSuffix(exprGrp, ")") {
-		exprGrp = exprGrp[1 : len(exprGrp)-1]
+	case "saturates":
+		return 0, fmt.Errorf("saturates is not a language intrinsic")
 	}
 
-	eParts := strings.Fields(exprGrp)
-	if len(eParts) == 1 {
+	if node.Expr.A == "DONE" && node.Expr.Op == "" && node.Expr.B == "" {
+		opcode = Opcodes["B"]
+		bType = 2
+		bStart = 4
+		bSpan = 1
+		flags |= InstrFlagTargetOwner
+	} else if topologyName == "emit" && node.Expr.A == "A" && node.Expr.Op == "" && node.Expr.B == "" {
+		mode = ModeEmit
+		opcode = Opcodes["A"]
+		flags |= InstrFlagTargetOwner
+	} else if node.Expr.Op == "" && node.Expr.B == "" {
 		// e.g. `(0)` or `(A)` or `(rom.unsupervised)`
-		if eParts[0] == "0" {
+		if node.Expr.A == "0" {
 			opcode = Opcodes["0"]
-		} else if eParts[0] == "1" {
+		} else if node.Expr.A == "1" {
 			opcode = Opcodes["1"]
+		} else if node.Expr.A == "A" {
+			opcode = Opcodes["A"]
 		} else {
-			aStart, aSpan, aInd, err = parseRef(eParts[0], lay)
+			aStart, aSpan, aInd, err = parseRef(node.Expr.A, lay)
 			if err != nil {
 				return 0, fmt.Errorf("expr A: %w", err)
 			}
 			opcode = Opcodes["A"]
 		}
-	} else if len(eParts) == 3 {
-		// e.g. `0..8 ^ 8..16`
-		aStart, aSpan, aInd, err = parseRef(eParts[0], lay)
+	} else if node.Expr.Op == "A" && node.Expr.B == "" {
+		aStart, aSpan, aInd, err = parseRef(node.Expr.A, lay)
 		if err != nil {
 			return 0, fmt.Errorf("expr A: %w", err)
 		}
-		op, ok := Opcodes[eParts[1]]
+		opcode = Opcodes["A"]
+	} else if node.Expr.Op != "" && node.Expr.B != "" {
+		// e.g. `0..8 ^ 8..16`
+		aStart, aSpan, aInd, err = parseRef(node.Expr.A, lay)
+		if err != nil {
+			return 0, fmt.Errorf("expr A: %w", err)
+		}
+		op, ok := Opcodes[node.Expr.Op]
 		if !ok {
-			return 0, fmt.Errorf("unknown operator %q", eParts[1])
+			return 0, fmt.Errorf("unknown operator %q", node.Expr.Op)
 		}
 		opcode = op
 
 		// B operand could be region or immediate
-		if isNumeric(eParts[2]) {
+		if isNumeric(node.Expr.B) {
 			bType = 2 // Immediate
-			imm, _ := strconv.ParseUint(eParts[2], 10, 14)
+			imm, _ := strconv.ParseUint(node.Expr.B, 10, 14)
 			bStart = int(imm & 0x7F)
 			bSpan = int((imm>>7)&0x7F) + 1
 		} else {
 			var bInd uint64
-			bStart, bSpan, bInd, err = parseRef(eParts[2], lay)
+			bStart, bSpan, bInd, err = parseRef(node.Expr.B, lay)
 			if err != nil {
 				return 0, fmt.Errorf("expr B: %w", err)
 			}
@@ -230,69 +980,127 @@ func parseInstruction(targetGrp, exprGrp, predGrp, scopeGrp string, lay Layout) 
 			}
 		}
 	} else {
-		return 0, fmt.Errorf("expr must be 'A op B' or 'A', got %q", exprGrp)
+		return 0, fmt.Errorf("expr must be 'A op B' or 'A', got %+v", node.Expr)
 	}
 
 	// 2a. Validate topology & fold semantics
 	if topology == TopologyFold {
-		// Only associative/commutative ops are generally allowed for fold, unless explicit ordering is requested.
-		// For now, we reject non-associative ops to enforce SYNTAX.md constraints.
 		switch opcode {
 		case Opcodes["0"], Opcodes["1"], Opcodes["A"], Opcodes["B"], Opcodes["nota"], Opcodes["notb"]:
 			// Ok
 		case Opcodes["&"], Opcodes["|"], Opcodes["^"], Opcodes["~&"], Opcodes["~|"], Opcodes["=="]:
 			// Ok (associative/commutative)
 		default:
-			// "->", "<-", "\", "/" etc. are NOT commutative/associative
 			return 0, fmt.Errorf("fold topology requires associative/commutative operators, got opcode 0x%x", opcode)
 		}
 	}
-	// 3. Predicate
+
 	var predStart, predCond uint64
-	if predGrp != "" {
-		pParts := strings.Fields(predGrp)
-		if len(pParts) != 3 {
-			return 0, fmt.Errorf("predicate must be 'Region OP Value'")
-		}
-		pStart, _, _, err := parseRef(pParts[0], lay)
+	if node.Predicate != nil {
+		predStart, predCond, err = compilePredicate(node.Predicate, lay)
 		if err != nil {
-			return 0, fmt.Errorf("predicate region: %w", err)
+			return 0, err
 		}
-		predStart = uint64(pStart)
-
-		// 1: != 0, 2: == 0, 3: >
-		// Note: The right hand side of the predicate is currently constrained by our parsing
-		// strategy or we only test against 0, but if we assume `pParts[2]` is the target value,
-		// we'd need to encode that too. We're currently limited by bit budget for predicates.
-		if pParts[1] == "!=" && pParts[2] == "0" {
-			predCond = 1
-		} else if pParts[1] == "==" && pParts[2] == "0" {
-			predCond = 2
-		} else if pParts[1] == ">" && pParts[2] == "0" {
-			predCond = 3
-		} else {
-			return 0, fmt.Errorf("predicate condition %q %q not fully supported yet", pParts[1], pParts[2])
-		}
-	}
-
-	var scope uint64
-	switch strings.ToLower(scopeGrp) {
-	case "community":
-		scope = ScopeCommunity
-	case "role.prompt":
-		scope = ScopePrompt
-	case "role.learner":
-		scope = ScopeLearner
-	default:
-		// For now, if we don't recognize it, just fallback to community
-		scope = ScopeCommunity
 	}
 
 	return EncodeInstruction(
 		aStart, aSpan, bStart, bSpan, dstStart, dstSpan,
 		opcode, mode, topology,
-		predStart, predCond, aInd, bType, scope,
-	), nil
+		predStart, predCond, aInd, bType,
+	) | flags, nil
+}
+
+func compilePredicate(node *PredicateNode, lay Layout) (uint64, uint64, error) {
+	if node.IsPopcnt {
+		if node.Op != "|" {
+			return 0, 0, fmt.Errorf("popcnt predicate must use '| Threshold'")
+		}
+		threshold, err := strconv.ParseUint(node.Threshold, 10, 7)
+		if err != nil {
+			return 0, 0, fmt.Errorf("popcnt predicate threshold: %w", err)
+		}
+		start, span, _, err := parseRef(node.Region, lay)
+		if err != nil {
+			return 0, 0, fmt.Errorf("popcnt predicate region: %w", err)
+		}
+		id, err := registerPredicate(predicateSpec{
+			kind:      predicatePopcntLTE,
+			start:     start,
+			span:      span,
+			threshold: threshold,
+		})
+		if err != nil {
+			return 0, 0, err
+		}
+		return id, predExtended, nil
+	}
+
+	pStart, _, _, err := parseRef(node.Region, lay)
+	if err != nil {
+		return 0, 0, fmt.Errorf("predicate region: %w", err)
+	}
+
+	if node.Op == "!=" && node.Value == "0" {
+		return uint64(pStart), 1, nil
+	}
+	if node.Op == "==" && node.Value == "0" {
+		return uint64(pStart), 2, nil
+	}
+	if node.Op == ">" && node.Value == "0" {
+		return uint64(pStart), predExtended, nil
+	}
+	return 0, 0, fmt.Errorf("predicate condition %q %q not fully supported yet", node.Op, node.Value)
+}
+
+func registerPredicate(spec predicateSpec) (uint64, error) {
+	predicates.Lock()
+	defer predicates.Unlock()
+
+	if id, ok := predicates.ids[spec]; ok {
+		return id, nil
+	}
+	if predicates.next > InstrStartMask {
+		return 0, fmt.Errorf("too many extended predicates")
+	}
+	id := predicates.next
+	predicates.next++
+	predicates.ids[spec] = id
+	predicates.specs[id] = spec
+	return id, nil
+}
+
+func PredicateAllows(frame *[128]uint64, predStart, predCond uint64) bool {
+	switch predCond {
+	case 0:
+		return true
+	case 1:
+		return frame[predStart] != 0
+	case 2:
+		return frame[predStart] == 0
+	case predExtended:
+		predicates.RLock()
+		spec, ok := predicates.specs[predStart]
+		predicates.RUnlock()
+		if !ok {
+			return frame[predStart] > 0
+		}
+		switch spec.kind {
+		case predicatePopcntLTE:
+			count := 0
+			for i := 0; i < spec.span; i++ {
+				idx := spec.start + i
+				if idx >= 128 {
+					break
+				}
+				count += bits.OnesCount64(frame[idx])
+			}
+			return uint64(count) <= spec.threshold
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 func isNumeric(s string) bool {
@@ -373,13 +1181,21 @@ func parseRef(token string, lay Layout) (start, span int, indirect uint64, err e
 	if region, ok := lay.Regions[name]; ok {
 		return region.Start, region.Words, indirect, nil
 	}
+	if propOffset, ok := lay.Properties[name]; ok {
+		region, ok := lay.Regions["properties"]
+		if !ok {
+			return 0, 0, 0, fmt.Errorf("unknown properties region")
+		}
+
+		return region.Start + propOffset, 1, indirect, nil
+	}
 
 	return 0, 0, 0, fmt.Errorf("unknown region alias %q", token)
 }
 
 func EncodeInstruction(
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
-	opcode, mode, topology, predStart, predCond, aInd, bType, scope uint64,
+	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
 ) uint64 {
 	if aSpan <= 0 {
 		aSpan = 1
@@ -403,13 +1219,12 @@ func EncodeInstruction(
 		((predStart & InstrStartMask) << InstrPredStartShift) |
 		((predCond & 0x3) << InstrPredCondShift) |
 		((aInd & 0x1) << InstrAIndirectShift) |
-		((bType & 0x3) << InstrBTypeShift) |
-		((scope & 0xF) << InstrScopeShift)
+		((bType & 0x3) << InstrBTypeShift)
 }
 
 func DecodeInstruction(instr uint64) (
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
-	opcode, mode, topology, predStart, predCond, aInd, bType, scope uint64,
+	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
 ) {
 	dstSpan = int((instr>>InstrDstSpanShift)&InstrSpanMask) + 1
 	dstStart = int((instr >> InstrDstStartShift) & InstrStartMask)
@@ -424,6 +1239,5 @@ func DecodeInstruction(instr uint64) (
 	predCond = (instr >> InstrPredCondShift) & 0x3
 	aInd = (instr >> InstrAIndirectShift) & 0x1
 	bType = (instr >> InstrBTypeShift) & 0x3
-	scope = (instr >> InstrScopeShift) & 0xF
 	return
 }

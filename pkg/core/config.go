@@ -58,6 +58,7 @@ const (
 	FALSIFICATION      FirmwareType = "falsification"
 	CAUSAL_EXPLORE     FirmwareType = "causal_explore"
 	CAUSAL_HUB         FirmwareType = "causal_hub"
+	RECRUIT_COMMUNITY  FirmwareType = "recruit_community"
 )
 
 type SystemConfig struct {

@@ -271,18 +271,6 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 			stamp.NormalizeAffinity()
 		}
 
-		// Default install for a freshly minted Value is fold_substrate
-		// (see config.yml): one program region carrying affinity fold +
-		// cancel sweep (XOR → signals[0,4]) + merge sweep (AND →
-		// signals[4,4]). The kernel post-hook (Backend.updateKernels)
-		// scans those signal halves for long zero / one runs and emits
-		// Association Values per the README "Signals" algorithm — that
-		// is what populates the substrate with structural labels and
-		// the Prev/Next graph the recall path walks. AFFINITY alone
-		// would route the visitor without ever surfacing a structural
-		// signal, which is exactly the regression we were stuck at.
-		stamp.InstallFirmware(core.FOLD_SUBSTRATE)
-
 		// Stamp prev/next links across adjacent segments. The previous
 		// segment learns this segment's ID as its Next; this segment
 		// learns the previous segment's ID as its Prev. Heads and tails
@@ -424,6 +412,12 @@ func (value *Value) Write(p []byte) (int, error) {
 	copy(
 		(*value)[assetStart:assetStart+stageWords],
 		(*tmpVal)[signalsStart:signalsStart+stageWords],
+	)
+
+	affinityStart, affinityWords := AffinityRegion.WordExtent()
+	copy(
+		(*value)[assetStart+stageWords:assetStart+stageWords+affinityWords],
+		(*tmpVal)[affinityStart:affinityStart+affinityWords],
 	)
 
 	FreeValue(tmpVal)

@@ -54,7 +54,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			// referring to the same offsets agNewsLabels uses.
 			// We MUST NOT map these to 0-3 because 0 is the "unlabeled" slot in the substrate!
 			// We keep the original 1-based labels.
-			// huggingface.DatasetWithLabelOrigin(1),
+			huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
@@ -115,13 +115,25 @@ func (experiment *TextClassificationExperiment) HoldoutForPrompt(idx int) ([]byt
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
 	if len(results.Resolved) > 0 {
-		value := results.Resolved[0]
-		labelWord, err := value.Property(primitive.LABELS)
-		if err == nil && labelWord > 0 {
-			if int(labelWord-1) < len(experiment.ClassLabels()) {
-				// We map it back to 0-indexed for the PredLabel so tools.Evaluator handles it correctly.
-				// Since substrate uses 1-indexed, substrate label 1 means agNewsLabels[0] ("world").
-				results.PredLabel = tools.OptionalLabel(int(labelWord - 1))
+		// Vote among all resolved segments
+		votes := make(map[uint64]int)
+		bestLabel := uint64(0)
+		bestVotes := 0
+
+		for _, value := range results.Resolved {
+			labelWord, err := value.Property(primitive.LABELS)
+			if err == nil && labelWord > 0 {
+				votes[labelWord]++
+				if votes[labelWord] > bestVotes {
+					bestVotes = votes[labelWord]
+					bestLabel = labelWord
+				}
+			}
+		}
+
+		if bestLabel > 0 {
+			if int(bestLabel-1) < len(experiment.ClassLabels()) {
+				results.PredLabel = tools.OptionalLabel(int(bestLabel - 1))
 			}
 		}
 	}
@@ -148,9 +160,8 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 func (experiment *TextClassificationExperiment) LabelForPrompt(idx int) []byte {
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
 		if label, ok := dataset.LabelForSample(uint32(idx)); ok {
-			// dataset returns 1-based labels, so subtract 1
-			if label > 0 {
-				return []byte(experiment.ClassLabels()[label-1])
+			if label >= 0 && label < len(experiment.ClassLabels()) {
+				return []byte(experiment.ClassLabels()[label])
 			}
 		}
 	}

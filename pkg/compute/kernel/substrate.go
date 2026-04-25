@@ -11,7 +11,7 @@ Substrate is the unified contract every compute backend (CPU, Metal, CUDA)
 implements. The new population-vectored AST abstracts all networking,
 state transitions, and computation into a single execution loop.
 
-  - ExecuteCommunity: Applies the packed 64-bit AST instructions contained
+  - HypercubeGossip: Applies the packed 64-bit AST instructions contained
     in the resident program region of the first Value (or all Values
     concurrently) across the entire community in SIMD lockstep.
     Routing (self, next, fold, spawn), math, and predication are handled
@@ -25,6 +25,7 @@ Substrates mutate in place and do not retain pointers after return.
 */
 type Substrate interface {
 	Name() string
-	ExecuteCommunity(community []*primitive.Value) []*primitive.Value
+	HypercubeGossip(value *primitive.Value, values []*primitive.Value) []*primitive.Value
 	GeometricFrame(value unsafe.Pointer, opcode uint64) bool
+	Close() error
 }

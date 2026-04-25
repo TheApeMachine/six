@@ -3,151 +3,286 @@
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \providecommand \oddpage@label [2]{}
-\@writefile{toc}{\contentsline {subsection}{\numberline {0.1}Introduction}{1}{subsection.0.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {0.2}Representation and Primitive Operations}{2}{subsection.0.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Instructions as Boolean Functions.}{2}{section*.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Region-Based Execution.}{2}{section*.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Programs as Data.}{2}{section*.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Control Through State Mutation.}{3}{section*.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Implications.}{3}{section*.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {0.3}Memory Substrate: Structured Execution Space}{3}{subsection.0.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Addressed Storage.}{3}{section*.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Locality and Overlap.}{3}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Execution Through Interaction.}{3}{section*.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Persistence and Transformation.}{4}{section*.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{No Separation Between Storage and Compute.}{4}{section*.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Implications.}{4}{section*.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {1}Architecture}{5}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}The Two-Tiered Universe: Address Plane and Logic Plane}{5}{subsection.1.1}\protected@file@percent }
-\newlabel{sec:dual_architecture}{{1.1}{5}{The Two-Tiered Universe: Address Plane and Logic Plane}{subsection.1.1}{}}
-\newlabel{sec:dual_architecture@cref}{{[subsection][1][1]1.1}{[1][5][]5}{}{}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.1.1}The Address Plane (DMT): The Static Ground}{5}{subsubsection.1.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.1.2}The Logic Plane: Volatile Reasoning and Ephemeral Registers}{5}{subsubsection.1.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}{6}{section.2}\protected@file@percent }
-\newlabel{sec:entropy_routing}{{2}{6}{Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}{section.2}{}}
-\newlabel{sec:entropy_routing@cref}{{[section][2][]2}{[1][5][]6}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}The Shannon Limit and the ``Wall of Ones''}{6}{subsection.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Hierarchical Trie Structure as an Entropy Relief Valve}{6}{subsection.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Affine Entropy Diffusion}{6}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}State Space Analysis: Topology as a Capacity Multiplier}{7}{subsection.2.4}\protected@file@percent }
-\newlabel{sec:state_space}{{2.4}{7}{State Space Analysis: Topology as a Capacity Multiplier}{subsection.2.4}{}}
-\newlabel{sec:state_space@cref}{{[subsection][4][2]2.4}{[1][6][]7}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Level 1: The 8191-Bit Value.}{7}{section*.12}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Level 2: The Morton-Keyed Trie.}{7}{section*.13}\protected@file@percent }
-\newlabel{eq:state_trie}{{1}{7}{Level 2: The Morton-Keyed Trie}{equation.1}{}}
-\newlabel{eq:state_trie@cref}{{[equation][1][]1}{[1][7][]7}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Level 3: Affine Group Multiplier.}{7}{section*.14}\protected@file@percent }
-\newlabel{eq:state_total}{{2}{7}{Level 3: Affine Group Multiplier}{equation.2}{}}
-\newlabel{eq:state_total@cref}{{[equation][2][]2}{[1][7][]7}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Comparison with Parameter-Count Scaling.}{7}{section*.15}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Memory footprint vs.\ representational state space. The GF(8191) affine trie achieves exponentially larger state spaces per byte by exploiting group-theoretic multipliers rather than increasing parameter counts.}}{7}{table.caption.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Architecture}{3}{section.2}\protected@file@percent }
+\newlabel{sec:architecture}{{2}{3}{Architecture}{section.2}{}}
+\newlabel{sec:architecture@cref}{{[section][2][]2}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Representation and Primitive Operations}{3}{subsection.2.1}\protected@file@percent }
+\newlabel{sec:representation}{{2.1}{3}{Representation and Primitive Operations}{subsection.2.1}{}}
+\newlabel{sec:representation@cref}{{[subsection][1][2]2.1}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Frame Layout.}{3}{section*.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Value frame layout. All offsets are word indices into the 128-word frame. Bit widths are given for the default configuration.}}{3}{table.caption.2}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{tab:capacity_comparison}{{1}{7}{Memory footprint vs.\ representational state space. The GF(8191) affine trie achieves exponentially larger state spaces per byte by exploiting group-theoretic multipliers rather than increasing parameter counts}{table.caption.16}{}}
-\newlabel{tab:capacity_comparison@cref}{{[table][1][]1}{[1][7][]7}{}{}{}}
+\newlabel{tab:value_layout}{{1}{3}{Value frame layout. All offsets are word indices into the 128-word frame. Bit widths are given for the default configuration}{table.caption.2}{}}
+\newlabel{tab:value_layout@cref}{{[table][1][]1}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{The Sixteen Boolean Operations.}{4}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Geometric ALU Extensions.}{4}{section*.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Geometric opcode contract. The multivector layout is the even subalgebra of $\mathrm  {Cl}(3,0,1)$: $(1,e_{01},e_{02},e_{03},e_{12},e_{31},e_{23},e_{0123})$.}}{4}{table.caption.5}\protected@file@percent }
+\newlabel{tab:geometric_opcodes}{{2}{4}{Geometric opcode contract. The multivector layout is the even subalgebra of $\mathrm {Cl}(3,0,1)$: $(1,e_{01},e_{02},e_{03},e_{12},e_{31},e_{23},e_{0123})$}{table.caption.5}{}}
+\newlabel{tab:geometric_opcodes@cref}{{[table][2][]2}{[1][4][]4}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Program Execution.}{4}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Instruction Encoding.}{5}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Programs as Data.}{5}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Firmware.}{5}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Computational Substrate}{5}{subsection.2.2}\protected@file@percent }
+\newlabel{sec:substrate}{{2.2}{5}{Computational Substrate}{subsection.2.2}{}}
+\newlabel{sec:substrate@cref}{{[subsection][2][2]2.2}{[1][5][]5}{}{}{}}
+\newlabel{sec:multi_backend}{{2.2}{5}{Multi-Substrate Backend}{section*.10}{}}
+\newlabel{sec:multi_backend@cref}{{[subsection][2][2]2.2}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Multi-Substrate Backend.}{5}{section*.10}\protected@file@percent }
+\newlabel{eq:truth_table_expansion}{{1}{5}{Multi-Substrate Backend}{equation.1}{}}
+\newlabel{eq:truth_table_expansion@cref}{{[equation][1][]1}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Priority Spill Ring.}{6}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Machine.}{6}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Network Transport.}{6}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Unified Data--Execution Architecture}{6}{subsection.2.3}\protected@file@percent }
+\newlabel{sec:value_architecture}{{2.3}{6}{Unified Data--Execution Architecture}{subsection.2.3}{}}
+\newlabel{sec:value_architecture@cref}{{[subsection][3][2]2.3}{[1][6][]6}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}The Data Plane}{6}{subsubsection.2.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}The Execution Plane}{6}{subsubsection.2.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.3}Interaction Between Planes}{7}{subsubsection.2.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.4}Values as Linked Sequences}{7}{subsubsection.2.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Representational Capacity}{7}{subsection.2.4}\protected@file@percent }
+\newlabel{sec:capacity_analysis}{{2.4}{7}{Representational Capacity}{subsection.2.4}{}}
+\newlabel{sec:capacity_analysis@cref}{{[subsection][4][2]2.4}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.1}State Space of a Single Value}{7}{subsubsection.2.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.2}SimHash Projection and Collision Bounds}{8}{subsubsection.2.4.2}\protected@file@percent }
+\newlabel{eq:simhash_agreement}{{9}{8}{SimHash Projection and Collision Bounds}{equation.9}{}}
+\newlabel{eq:simhash_agreement@cref}{{[equation][9][]9}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.3}Kademlia Metric from Affinity}{8}{subsubsection.2.4.3}\protected@file@percent }
+\newlabel{eq:xor_distance}{{10}{8}{Kademlia Metric from Affinity}{equation.10}{}}
+\newlabel{eq:xor_distance@cref}{{[equation][10][]10}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.4}Capacity Amplification Through the Layer Stack}{8}{subsubsection.2.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Layer 1: Value.}{9}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Layer 2: MarkovTrie.}{9}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Layer 3: Kadabra DHT.}{9}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Layer 4: The Field.}{9}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.5}Comparison with Parameter-Count Scaling}{9}{subsubsection.2.4.5}\protected@file@percent }
+\newlabel{sec:capacity_comparison}{{2.4.5}{9}{Comparison with Parameter-Count Scaling}{subsubsection.2.4.5}{}}
+\newlabel{sec:capacity_comparison@cref}{{[subsubsection][5][2,4]2.4.5}{[1][9][]9}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Memory footprint and representational state space. The Value architecture achieves comparable information density per byte to parameterized models, but navigates state space through boolean composition and adaptive trie learning rather than gradient descent.}}{9}{table.caption.18}\protected@file@percent }
+\newlabel{tab:capacity_comparison}{{3}{9}{Memory footprint and representational state space. The Value architecture achieves comparable information density per byte to parameterized models, but navigates state space through boolean composition and adaptive trie learning rather than gradient descent}{table.caption.18}{}}
+\newlabel{tab:capacity_comparison@cref}{{[table][3][]3}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Firmware Chaining and Program Composition}{9}{subsection.2.5}\protected@file@percent }
+\newlabel{sec:firmware}{{2.5}{9}{Firmware Chaining and Program Composition}{subsection.2.5}{}}
+\newlabel{sec:firmware@cref}{{[subsection][5][2]2.5}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.5.1}Firmware Compilation}{9}{subsubsection.2.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.5.2}The Firmware Library}{10}{subsubsection.2.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.5.3}Firmware Chains as Pipelines}{10}{subsubsection.2.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.5.4}Self-Modification and Program Discovery}{10}{subsubsection.2.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Affinity Projection and Topological Routing}{11}{subsection.2.6}\protected@file@percent }
+\newlabel{sec:entropy_routing}{{2.6}{11}{Affinity Projection and Topological Routing}{subsection.2.6}{}}
+\newlabel{sec:entropy_routing@cref}{{[subsection][6][2]2.6}{[1][10][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.6.1}The Shannon Limit and Bundling Saturation}{11}{subsubsection.2.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.6.2}SimHash Affinity Projection}{11}{subsubsection.2.6.2}\protected@file@percent }
+\newlabel{sec:simhash}{{2.6.2}{11}{SimHash Affinity Projection}{subsubsection.2.6.2}{}}
+\newlabel{sec:simhash@cref}{{[subsubsection][2][2,6]2.6.2}{[1][11][]11}{}{}{}}
+\newlabel{eq:simhash_index}{{11}{11}{SimHash Projection}{equation.11}{}}
+\newlabel{eq:simhash_index@cref}{{[equation][11][]11}{[1][11][]11}{}{}{}}
+\newlabel{eq:majority_vote}{{12}{11}{SimHash Projection}{equation.12}{}}
+\newlabel{eq:majority_vote@cref}{{[equation][12][]12}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.6.3}Bloom Filter Fallback}{11}{subsubsection.2.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.6.4}Topological Affinity Clustering}{12}{subsubsection.2.6.4}\protected@file@percent }
+\newlabel{eq:affinity_overlap}{{13}{12}{Topological Affinity Clustering}{equation.13}{}}
+\newlabel{eq:affinity_overlap@cref}{{[equation][13][]13}{[1][11][]12}{}{}{}}
+\newlabel{eq:affinity_jaccard}{{14}{12}{Topological Affinity Clustering}{equation.14}{}}
+\newlabel{eq:affinity_jaccard@cref}{{[equation][14][]14}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.6.5}State Space Analysis}{12}{subsubsection.2.6.5}\protected@file@percent }
+\newlabel{sec:state_space}{{2.6.5}{12}{State Space Analysis}{subsubsection.2.6.5}{}}
+\newlabel{sec:state_space@cref}{{[subsubsection][5][2,6]2.6.5}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Level 1: The 8192-Bit Value.}{12}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Level 2: The Distributed Topological Graph.}{12}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Level 3: Trie and Field States.}{12}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Sequence Encoding and Transition Geometry}{12}{subsection.2.7}\protected@file@percent }
+\newlabel{sec:topological_sequencing}{{2.7}{12}{Sequence Encoding and Transition Geometry}{subsection.2.7}{}}
+\newlabel{sec:topological_sequencing@cref}{{[subsection][7][2]2.7}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.1}LFSR Sequence Generator}{12}{subsubsection.2.7.1}\protected@file@percent }
+\newlabel{eq:lfsr_step}{{15}{12}{LFSR Sequence Generator}{equation.15}{}}
+\newlabel{eq:lfsr_step@cref}{{[equation][15][]15}{[1][12][]12}{}{}{}}
+\newlabel{eq:lfsr_feedback}{{16}{12}{LFSR Sequence Generator}{equation.16}{}}
+\newlabel{eq:lfsr_feedback@cref}{{[equation][16][]16}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.2}Transition Motors}{13}{subsubsection.2.7.2}\protected@file@percent }
+\newlabel{eq:transition_motor}{{17}{13}{Transition Motors}{equation.17}{}}
+\newlabel{eq:transition_motor@cref}{{[equation][17][]17}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.3}Sequence Position via LFSR Advance}{13}{subsubsection.2.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.8}The MarkovTrie Store}{13}{subsection.2.8}\protected@file@percent }
+\newlabel{sec:markovtrie}{{2.8}{13}{The MarkovTrie Store}{subsection.2.8}{}}
+\newlabel{sec:markovtrie@cref}{{[subsection][8][2]2.8}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.1}Data Structure}{13}{subsubsection.2.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.2}Lazy Decay}{13}{subsubsection.2.8.2}\protected@file@percent }
+\newlabel{eq:lazy_decay}{{18}{13}{Lazy Decay}{equation.18}{}}
+\newlabel{eq:lazy_decay@cref}{{[equation][18][]18}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.3}Surprisal-Modulated Plasticity}{14}{subsubsection.2.8.3}\protected@file@percent }
+\newlabel{sec:surprisal_plasticity}{{2.8.3}{14}{Surprisal-Modulated Plasticity}{subsubsection.2.8.3}{}}
+\newlabel{sec:surprisal_plasticity@cref}{{[subsubsection][3][2,8]2.8.3}{[1][14][]14}{}{}{}}
+\newlabel{eq:surprisal}{{19}{14}{Surprisal-Modulated Plasticity}{equation.19}{}}
+\newlabel{eq:surprisal@cref}{{[equation][19][]19}{[1][14][]14}{}{}{}}
+\newlabel{eq:adaptive_lr}{{20}{14}{Surprisal-Modulated Plasticity}{equation.20}{}}
+\newlabel{eq:adaptive_lr@cref}{{[equation][20][]20}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.4}Adaptive Self-Tuning}{14}{subsubsection.2.8.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Adaptive parameter derivation. Each parameter is a deterministic function of an online signal; no search or meta-optimization is required.}}{14}{table.caption.22}\protected@file@percent }
+\newlabel{tab:adaptive_params}{{4}{14}{Adaptive parameter derivation. Each parameter is a deterministic function of an online signal; no search or meta-optimization is required}{table.caption.22}{}}
+\newlabel{tab:adaptive_params@cref}{{[table][4][]4}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.5}Classification}{14}{subsubsection.2.8.5}\protected@file@percent }
+\newlabel{eq:classification}{{21}{14}{Classification}{equation.21}{}}
+\newlabel{eq:classification@cref}{{[equation][21][]21}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.6}Generation}{15}{subsubsection.2.8.6}\protected@file@percent }
+\newlabel{eq:generation}{{22}{15}{Generation}{equation.22}{}}
+\newlabel{eq:generation@cref}{{[equation][22][]22}{[1][14][]15}{}{}{}}
+\newlabel{eq:geometric_continuation_boost}{{23}{15}{Generation}{equation.23}{}}
+\newlabel{eq:geometric_continuation_boost@cref}{{[equation][23][]23}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.7}Cross-Domain Procrustes Alignment}{15}{subsubsection.2.8.7}\protected@file@percent }
+\newlabel{eq:domain_procrustes}{{24}{15}{Cross-Domain Procrustes Alignment}{equation.24}{}}
+\newlabel{eq:domain_procrustes@cref}{{[equation][24][]24}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.8}Episodic Memory}{15}{subsubsection.2.8.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.9}Experience-Driven Learning}{16}{subsubsection.2.8.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.9}Kadabra: Affinity-Routed Distributed Hash Table}{16}{subsection.2.9}\protected@file@percent }
+\newlabel{sec:kadabra_dht}{{2.9}{16}{Kadabra: Affinity-Routed Distributed Hash Table}{subsection.2.9}{}}
+\newlabel{sec:kadabra_dht@cref}{{[subsection][9][2]2.9}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.9.1}Routing Architecture}{16}{subsubsection.2.9.1}\protected@file@percent }
+\newlabel{eq:bucket_index}{{25}{16}{Routing Architecture}{equation.25}{}}
+\newlabel{eq:bucket_index@cref}{{[equation][25][]25}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.9.2}Affinity-Based Value Routing}{16}{subsubsection.2.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.9.3}Adaptive Peer Selection via Multi-Armed Bandit}{16}{subsubsection.2.9.3}\protected@file@percent }
+\newlabel{sec:mab_peers}{{2.9.3}{16}{Adaptive Peer Selection via Multi-Armed Bandit}{subsubsection.2.9.3}{}}
+\newlabel{sec:mab_peers@cref}{{[subsubsection][3][2,9]2.9.3}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.9.4}Gossip Protocol and Field Digests}{16}{subsubsection.2.9.4}\protected@file@percent }
+\newlabel{sec:gossip}{{2.9.4}{16}{Gossip Protocol and Field Digests}{subsubsection.2.9.4}{}}
+\newlabel{sec:gossip@cref}{{[subsubsection][4][2,9]2.9.4}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.9.5}Replication and Redundancy}{17}{subsubsection.2.9.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.10}The Field: Emergent Attention via Eigenmode Selection}{17}{subsection.2.10}\protected@file@percent }
+\newlabel{sec:field}{{2.10}{17}{The Field: Emergent Attention via Eigenmode Selection}{subsection.2.10}{}}
+\newlabel{sec:field@cref}{{[subsection][10][2]2.10}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.10.1}Affinity Coupling: Structural Alignment}{17}{subsubsection.2.10.1}\protected@file@percent }
+\newlabel{eq:field_affinity_coupling}{{26}{17}{Affinity Coupling: Structural Alignment}{equation.26}{}}
+\newlabel{eq:field_affinity_coupling@cref}{{[equation][26][]26}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.10.2}Phase Coherence: Surprisal Velocity Alignment}{17}{subsubsection.2.10.2}\protected@file@percent }
+\newlabel{eq:phase_velocity}{{27}{17}{Phase Coherence: Surprisal Velocity Alignment}{equation.27}{}}
+\newlabel{eq:phase_velocity@cref}{{[equation][27][]27}{[1][17][]17}{}{}{}}
+\newlabel{eq:phase_coupling}{{28}{17}{Phase Coherence: Surprisal Velocity Alignment}{equation.28}{}}
+\newlabel{eq:phase_coupling@cref}{{[equation][28][]28}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.10.3}Eigenmode Detection}{18}{subsubsection.2.10.3}\protected@file@percent }
+\newlabel{sec:eigenmode_detection}{{2.10.3}{18}{Eigenmode Detection}{subsubsection.2.10.3}{}}
+\newlabel{sec:eigenmode_detection@cref}{{[subsubsection][3][2,10]2.10.3}{[1][18][]18}{}{}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Eigenmode Detection}}{18}{algorithm.1}\protected@file@percent }
+\newlabel{alg:eigenmode}{{1}{18}{Eigenmode Detection}{algorithm.1}{}}
+\newlabel{alg:eigenmode@cref}{{[algorithm][1][]1}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.10.4}Asymmetric Field Projection}{18}{subsubsection.2.10.4}\protected@file@percent }
+\newlabel{eq:alignment_ratio}{{29}{18}{Asymmetric Field Projection}{equation.29}{}}
+\newlabel{eq:alignment_ratio@cref}{{[equation][29][]29}{[1][18][]18}{}{}{}}
+\citation{kanerva2009hyperdimensional}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Field pressure multipliers. The ratio is derived from the dominant-mode energy share and is further modulated by mesh-wide phase alignment.}}{19}{table.caption.23}\protected@file@percent }
+\newlabel{tab:field_pressure}{{5}{19}{Field pressure multipliers. The ratio is derived from the dominant-mode energy share and is further modulated by mesh-wide phase alignment}{table.caption.23}{}}
+\newlabel{tab:field_pressure@cref}{{[table][5][]5}{[1][18][]19}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.10.5}Interpretation as Attention}{19}{subsubsection.2.10.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.11}Hyperdimensional Computing and Vector Symbolic Architectures}{19}{subsection.2.11}\protected@file@percent }
+\newlabel{sec:related_hdc_vsa}{{2.11}{19}{Hyperdimensional Computing and Vector Symbolic Architectures}{subsection.2.11}{}}
+\newlabel{sec:related_hdc_vsa@cref}{{[subsection][11][2]2.11}{[1][19][]19}{}{}{}}
+\citation{gayler2003vector}
 \citation{bronstein2021geometric}
 \citation{cohen2016group}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Implications for Scaling}{8}{subsection.2.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Algebraic Topology and Group-Equivariant Computation}{8}{subsection.2.6}\protected@file@percent }
-\newlabel{sec:related_algebraic_topology}{{2.6}{8}{Algebraic Topology and Group-Equivariant Computation}{subsection.2.6}{}}
-\newlabel{sec:related_algebraic_topology@cref}{{[subsection][6][2]2.6}{[1][8][]8}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{The Affine Group $\text  {Aff}(\text  {GF}(8191))$ and Non-Commutative Computation.}{8}{section*.17}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Implications for Value Addressing.}{8}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.12}Algebraic Structure and Group-Equivariant Computation}{20}{subsection.2.12}\protected@file@percent }
+\newlabel{sec:related_algebraic_topology}{{2.12}{20}{Algebraic Structure and Group-Equivariant Computation}{subsection.2.12}{}}
+\newlabel{sec:related_algebraic_topology@cref}{{[subsection][12][2]2.12}{[1][20][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Non-Commutativity and Sequence Sensitivity.}{20}{section*.24}\protected@file@percent }
 \citation{witten1987arithmetic}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}{9}{subsection.2.7}\protected@file@percent }
-\newlabel{sec:related_godel_arithmetic}{{2.7}{9}{Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}{subsection.2.7}{}}
-\newlabel{sec:related_godel_arithmetic@cref}{{[subsection][7][2]2.7}{[1][8][]9}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{From G\"{o}del Numbers to Prime Bitsets.}{9}{section*.19}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Collision as Compression via Arithmetic Coding.}{9}{section*.20}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Implications for Capacity and Scaling.}{9}{section*.21}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.8}Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}{9}{subsection.2.8}\protected@file@percent }
-\newlabel{sec:related_hardware_accel}{{2.8}{9}{Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}{subsection.2.8}{}}
-\newlabel{sec:related_hardware_accel@cref}{{[subsection][8][2]2.8}{[1][9][]9}{}{}{}}
-\citation{morton1966computer,samet2006foundations}
-\citation{kanerva2009hyperdimensional}
-\@writefile{toc}{\contentsline {paragraph}{Immutable Radix Trie and Collision-as-Compression.}{10}{section*.22}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Morton-Coded Keys and Cache Locality.}{10}{section*.23}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Metal Compute Kernels and SIMD Bitwise Operations.}{10}{section*.24}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.9}Hyperdimensional Computing and Vector Symbolic Architectures}{10}{subsection.2.9}\protected@file@percent }
-\newlabel{sec:related_hdc_vsa}{{2.9}{10}{Hyperdimensional Computing and Vector Symbolic Architectures}{subsection.2.9}{}}
-\newlabel{sec:related_hdc_vsa@cref}{{[subsection][9][2]2.9}{[1][10][]10}{}{}{}}
-\citation{gayler2003vector}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.13}Deterministic Encoding and Collision Properties}{21}{subsection.2.13}\protected@file@percent }
+\newlabel{sec:related_godel_arithmetic}{{2.13}{21}{Deterministic Encoding and Collision Properties}{subsection.2.13}{}}
+\newlabel{sec:related_godel_arithmetic@cref}{{[subsection][13][2]2.13}{[1][20][]21}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Relationship to G\"{o}del Numbering.}{21}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Collision and Deduplication.}{21}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Implications for Storage Scaling.}{21}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.14}Hardware-Accelerated Frame Computation}{21}{subsection.2.14}\protected@file@percent }
+\newlabel{sec:related_hardware_accel}{{2.14}{21}{Hardware-Accelerated Frame Computation}{subsection.2.14}{}}
+\newlabel{sec:related_hardware_accel@cref}{{[subsection][14][2]2.14}{[1][21][]21}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{SIMD and GPU Mapping.}{21}{section*.28}\protected@file@percent }
 \citation{chung2018classification}
 \citation{cohen2024manifoldcapacity}
+\@writefile{toc}{\contentsline {paragraph}{Deterministic Latency.}{22}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Write-Optimized Access Patterns.}{22}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Relationship to In-Memory Computing.}{22}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.15}Manifold Capacity and Representation Geometry}{22}{subsection.2.15}\protected@file@percent }
+\newlabel{sec:related_manifold_capacity}{{2.15}{22}{Manifold Capacity and Representation Geometry}{subsection.2.15}{}}
+\newlabel{sec:related_manifold_capacity@cref}{{[subsection][15][2]2.15}{[1][22][]22}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Manifold Capacity Theory.}{22}{section*.32}\protected@file@percent }
 \citation{hataya2023noncommutative}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.10}Manifold Capacity and Noncommutative Product Structure}{11}{subsection.2.10}\protected@file@percent }
-\newlabel{sec:related_manifold_capacity}{{2.10}{11}{Manifold Capacity and Noncommutative Product Structure}{subsection.2.10}{}}
-\newlabel{sec:related_manifold_capacity@cref}{{[subsection][10][2]2.10}{[1][11][]11}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Manifold Capacity Theory.}{11}{section*.25}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Noncommutative $C^*$-algebra Structure.}{11}{section*.26}\protected@file@percent }
 \citation{hersche2023nvsa}
 \citation{rahimi2017hd}
 \citation{kleyko2022vsa}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.11}Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{12}{subsection.2.11}\protected@file@percent }
-\newlabel{sec:related_nvsa}{{2.11}{12}{Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{subsection.2.11}{}}
-\newlabel{sec:related_nvsa@cref}{{[subsection][11][2]2.11}{[1][12][]12}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{HD Computing as a Hardware Paradigm.}{12}{section*.27}\protected@file@percent }
+\citation{kanerva2009hyperdimensional}
+\@writefile{toc}{\contentsline {paragraph}{Relationship to Noncommutative Algebra.}{23}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.16}Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{23}{subsection.2.16}\protected@file@percent }
+\newlabel{sec:related_nvsa}{{2.16}{23}{Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{subsection.2.16}{}}
+\newlabel{sec:related_nvsa@cref}{{[subsection][16][2]2.16}{[1][23][]23}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{The NVSA Bridge.}{23}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{HD Computing as a Hardware Paradigm.}{23}{section*.35}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{VSA on Emerging Hardware.}{23}{section*.36}\protected@file@percent }
 \citation{belkin2003laplacian}
-\citation{knill2013dirac}
+\citation{kauffman1969metabolic}
 \citation{horn2022togl}
-\@writefile{toc}{\contentsline {paragraph}{VSA on Emerging Hardware.}{13}{section*.28}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.12}Spectral Embedding and Toroidal Manifold Discovery}{13}{subsection.2.12}\protected@file@percent }
-\newlabel{sec:related_spectral_embedding}{{2.12}{13}{Spectral Embedding and Toroidal Manifold Discovery}{subsection.2.12}{}}
-\newlabel{sec:related_spectral_embedding@cref}{{[subsection][12][2]2.12}{[1][13][]13}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Laplacian Eigenmaps and Manifold Learning.}{13}{section*.29}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{The Dirac Operator and Geodesic Computation.}{13}{section*.30}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Why the Torus Emerges.}{13}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.17}Topological Boolean Networks and Manifold Structure}{24}{subsection.2.17}\protected@file@percent }
+\newlabel{sec:related_topological_boolean}{{2.17}{24}{Topological Boolean Networks and Manifold Structure}{subsection.2.17}{}}
+\newlabel{sec:related_topological_boolean@cref}{{[subsection][17][2]2.17}{[1][23][]24}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Hyperdimensional Computing and Binding.}{24}{section*.37}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Active Topological Graphs via Affinity Masks.}{24}{section*.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Localized Boolean Networks and In-Place Evolution.}{24}{section*.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.18}Topological Methods and Higher-Order Structure}{24}{subsection.2.18}\protected@file@percent }
+\newlabel{sec:related_topological_nn}{{2.18}{24}{Topological Methods and Higher-Order Structure}{subsection.2.18}{}}
+\newlabel{sec:related_topological_nn@cref}{{[subsection][18][2]2.18}{[1][24][]24}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Topological Graph Neural Networks.}{24}{section*.40}\protected@file@percent }
 \citation{papillon2024tdl}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.13}Topological Neural Networks and the Symbolic$\leftrightarrow $Neuro Frontier}{14}{subsection.2.13}\protected@file@percent }
-\newlabel{sec:related_topological_nn}{{2.13}{14}{Topological Neural Networks and the Symbolic$\leftrightarrow $Neuro Frontier}{subsection.2.13}{}}
-\newlabel{sec:related_topological_nn@cref}{{[subsection][13][2]2.13}{[1][13][]14}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Topological Graph Neural Networks.}{14}{section*.32}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Topological Deep Learning as the New Frontier.}{14}{section*.33}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{The Symbolic$\leftrightarrow $Neuro$\leftrightarrow $Symbolic Pipeline.}{14}{section*.34}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.14}Topological Sequencing and Boundary Analysis}{15}{subsection.2.14}\protected@file@percent }
-\newlabel{sec:topological_sequencing}{{2.14}{15}{Topological Sequencing and Boundary Analysis}{subsection.2.14}{}}
-\newlabel{sec:topological_sequencing@cref}{{[subsection][14][2]2.14}{[1][14][]15}{}{}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.14.1}MDL Boundary Detection and Buffering}{15}{subsubsection.2.14.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.14.2}Structural Z-Scores and Affine Transitions}{15}{subsubsection.2.14.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Classification}{16}{section.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Confusion matrix showing predicted vs. true class assignments for Text Classification.}}{16}{figure.caption.35}\protected@file@percent }
-\newlabel{fig:text_classification_confusion}{{1}{16}{Confusion matrix showing predicted vs. true class assignments for Text Classification}{figure.caption.35}{}}
-\newlabel{fig:text_classification_confusion@cref}{{[figure][1][]1}{[1][16][]16}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Text Classification}{16}{subsection.3.1}\protected@file@percent }
-\newlabel{sec:text_classification}{{3.1}{16}{Text Classification}{subsection.3.1}{}}
-\newlabel{sec:text_classification@cref}{{[subsection][1][3]3.1}{[1][16][]16}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Task Description.}{16}{section*.36}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Results.}{16}{section*.37}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Assessment.}{16}{section*.38}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Text Classification --- summary metrics.}}{17}{table.caption.39}\protected@file@percent }
-\newlabel{tab:text_classification_metrics}{{2}{17}{Text Classification --- summary metrics}{table.caption.39}{}}
-\newlabel{tab:text_classification_metrics@cref}{{[table][2][]2}{[1][16][]17}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Text Classification — standardised result summary (N=200).}}{17}{table.caption.40}\protected@file@percent }
-\newlabel{tab:text_classification_summary}{{3}{17}{Text Classification — standardised result summary (N=200)}{table.caption.40}{}}
-\newlabel{tab:text_classification_summary@cref}{{[table][3][]3}{[1][16][]17}{}{}{}}
-\citation{muennighoff2023octopack}
-\@writefile{toc}{\contentsline {section}{\numberline {4}Codegen}{18}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Code Generation: Multi-Language Coverage}{18}{subsection.4.1}\protected@file@percent }
-\newlabel{sec:codegen_languages}{{4.1}{18}{Code Generation: Multi-Language Coverage}{subsection.4.1}{}}
-\newlabel{sec:codegen_languages@cref}{{[subsection][1][4]4.1}{[1][18][]18}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Task Description.}{18}{section*.41}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Results.}{18}{section*.42}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Assessment.}{18}{section*.43}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Languages — standardised result summary (N=600).}}{18}{table.caption.44}\protected@file@percent }
-\newlabel{tab:languages_summary}{{4}{18}{Languages — standardised result summary (N=600)}{table.caption.44}{}}
-\newlabel{tab:languages_summary@cref}{{[table][4][]4}{[1][18][]18}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5}Imagegen}{19}{section.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Mean scores vs holdout \% across 0 images and 9 occlusion levels.}}{19}{figure.caption.45}\protected@file@percent }
-\newlabel{fig:reconstruction_scaling}{{2}{19}{Mean scores vs holdout \% across 0 images and 9 occlusion levels}{figure.caption.45}{}}
-\newlabel{fig:reconstruction_scaling@cref}{{[figure][2][]2}{[1][19][]19}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Image Reconstruction (CIFAR-10)}{19}{subsection.5.1}\protected@file@percent }
-\newlabel{sec:reconstruction}{{5.1}{19}{Image Reconstruction (CIFAR-10)}{subsection.5.1}{}}
-\newlabel{sec:reconstruction@cref}{{[subsection][1][5]5.1}{[1][19][]19}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Task Description.}{19}{section*.46}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Results.}{19}{section*.47}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Assessment.}{19}{section*.48}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Original / Prompt / Reconstructed / Error Heatmap at 50\% holdout. N=0 images.}}{20}{figure.caption.49}\protected@file@percent }
-\newlabel{fig:reconstruction_strip}{{3}{20}{Original / Prompt / Reconstructed / Error Heatmap at 50\% holdout. N=0 images}{figure.caption.49}{}}
-\newlabel{fig:reconstruction_strip@cref}{{[figure][3][]3}{[1][19][]20}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces reconstruction — standardised result summary (N=200).}}{20}{table.caption.50}\protected@file@percent }
-\newlabel{tab:reconstruction_summary}{{5}{20}{reconstruction — standardised result summary (N=200)}{table.caption.50}{}}
-\newlabel{tab:reconstruction_summary@cref}{{[table][5][]5}{[1][19][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Topological Deep Learning.}{25}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The Symbolic--Geometric--Symbolic Pipeline.}{25}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Classification}{26}{section.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Confusion matrix showing predicted vs. true class assignments for Text Classification.}}{26}{figure.caption.43}\protected@file@percent }
+\newlabel{fig:text_classification_confusion}{{1}{26}{Confusion matrix showing predicted vs. true class assignments for Text Classification}{figure.caption.43}{}}
+\newlabel{fig:text_classification_confusion@cref}{{[figure][1][]1}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Text Classification}{26}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:text_classification}{{3.1}{26}{Text Classification}{subsection.3.1}{}}
+\newlabel{sec:text_classification@cref}{{[subsection][1][3]3.1}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{26}{section*.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{26}{section*.45}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{26}{section*.46}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Text Classification --- summary metrics.}}{27}{table.caption.47}\protected@file@percent }
+\newlabel{tab:text_classification_metrics}{{6}{27}{Text Classification --- summary metrics}{table.caption.47}{}}
+\newlabel{tab:text_classification_metrics@cref}{{[table][6][]6}{[1][26][]27}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Text Classification — standardised result summary (N=100).}}{27}{table.caption.48}\protected@file@percent }
+\newlabel{tab:text_classification_summary}{{7}{27}{Text Classification — standardised result summary (N=100)}{table.caption.48}{}}
+\newlabel{tab:text_classification_summary@cref}{{[table][7][]7}{[1][26][]27}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Codegen}{28}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Imagegen}{29}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Logic}{30}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Misc}{31}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Phasedial}{32}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Scaling}{33}{section.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Substrate query scaling — standardised result summary (N=50).}}{33}{table.caption.49}\protected@file@percent }
+\newlabel{tab:substrate_query_scaling_summary}{{8}{33}{Substrate query scaling — standardised result summary (N=50)}{table.caption.49}{}}
+\newlabel{tab:substrate_query_scaling_summary@cref}{{[table][8][]8}{[1][33][]33}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Textgen}{34}{section.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Discussion}{35}{section.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1}What Current Evidence Supports}{35}{subsection.11.1}\protected@file@percent }
+\newlabel{sec:evidence_supports}{{11.1}{35}{What Current Evidence Supports}{subsection.11.1}{}}
+\newlabel{sec:evidence_supports@cref}{{[subsection][1][11]11.1}{[1][35][]35}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2}Known Limitations}{35}{subsection.11.2}\protected@file@percent }
+\newlabel{sec:limitations}{{11.2}{35}{Known Limitations}{subsection.11.2}{}}
+\newlabel{sec:limitations@cref}{{[subsection][2][11]11.2}{[1][35][]35}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3}Directions for Future Work}{36}{subsection.11.3}\protected@file@percent }
+\newlabel{sec:future_work}{{11.3}{36}{Directions for Future Work}{subsection.11.3}{}}
+\newlabel{sec:future_work@cref}{{[subsection][3][11]11.3}{[1][36][]36}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Ablation Studies.}{36}{section*.50}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scaling Experiments.}{36}{section*.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Field Dynamics.}{36}{section*.52}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Structured Retrieval.}{36}{section*.53}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Geometric Kernel Measurement.}{36}{section*.54}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12}Conclusion}{36}{section.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13}Related Work}{37}{section.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Hyperdimensional Computing and VSAs.}{37}{section*.55}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Discrete and Continuous Symmetry in Machine Learning.}{37}{section*.56}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Geometric Algebra and Procrustes Alignment.}{37}{section*.57}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Content-Addressable Memory and Attention.}{37}{section*.58}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Surprise and Predictive Coding.}{38}{section*.59}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Byte-Level Models.}{38}{section*.60}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Distributed Hash Tables and Peer-to-Peer Learning.}{38}{section*.61}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Non-Autoregressive Generation.}{38}{section*.62}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Self-Modifying Code.}{38}{section*.63}\protected@file@percent }
+\gdef \@abspage@last{38}

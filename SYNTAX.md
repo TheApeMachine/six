@@ -24,24 +24,24 @@ Six source code targets **symbolic regions** (e.g., `program`, `tokens`, `proper
 ### Properties (Words 56-71)
 Canonical **1024-bit** region for discrete tags, forward-transition statistics, and scalar witnesses.
 
-| Word (abs) | Region offset | Symbolic Name | Notes |
-|---|---|---|---|
-| 56 | 0 | **labels** | 4 × 16-bit slots packed low-to-high. |
-| 57 | 1 | **confidence** | Overall confidence calculated from algorithm artifacts. |
-| 58 | 2 | **epoch** | +1 for any algorithm run. |
-| 59 | 3 | **TTL** | Time-to-live for ephemeral Values. 0 means dissolve. |
-| 60 | 4 | **temperature** | The scaler that determines generative "creativity". |
-| 61 | 5 | **status** | Value status enum (e.g., PENDING, READY, DONE). |
-| 62 | 6 | **probe window** | Window size for causal probes. |
-| 63 | 7 | **probe depth** | Re-stabilisation depth for causal hub probes. |
-| 64 | 8 | **community** | Stable `mesh.Field` ID stamped onto the visitor. |
-| 65 | 9 | **target** | ValueID of an addressable target. |
-| 66 | 10 | **role** | In-band `ValueRole`. |
-| 67 | 11 | **reference** | ValueID to encounter before the target. |
-| 68 | 12 | **surprisal** | Scalar reduction of the prediction error gap. |
-| 69 | 13 | **falsified** | Witness register for Popperian hypothesis testing. |
-| 70 | 14 | **stuck** | Triggers autonomous reprogramming based on stagnation. |
-| 71 | 15 | **continuation** | The ValueID to schedule next. Writing `id` (Word 122) here creates a recursive loop. Writing another ValueID creates a branch or sequence. Halts if 0. Replaces the old word 117. |
+| Word (abs) | Region offset | Symbolic Name    | Notes                                                                                                                                                                             |
+|------------|---------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 56         | 0             | **labels**       | 4 × 16-bit slots packed low-to-high.                                                                                                                                              |
+| 57         | 1             | **confidence**   | Overall confidence calculated from algorithm artifacts.                                                                                                                           |
+| 58         | 2             | **epoch**        | +1 for any algorithm run.                                                                                                                                                         |
+| 59         | 3             | **TTL**          | Time-to-live for ephemeral Values. 0 means dissolve.                                                                                                                              |
+| 60         | 4             | **temperature**  | The scaler that determines generative "creativity".                                                                                                                               |
+| 61         | 5             | **status**       | Value status enum (e.g., PENDING, READY, DONE).                                                                                                                                   |
+| 62         | 6             | **probe window** | Window size for causal probes.                                                                                                                                                    |
+| 63         | 7             | **probe depth**  | Re-stabilisation depth for causal hub probes.                                                                                                                                     |
+| 64         | 8             | **community**    | Stable `mesh.Field` ID stamped onto the visitor.                                                                                                                                  |
+| 65         | 9             | **target**       | ValueID of an addressable target.                                                                                                                                                 |
+| 66         | 10            | **role**         | In-band `ValueRole`.                                                                                                                                                              |
+| 67         | 11            | **reference**    | ValueID to encounter before the target.                                                                                                                                           |
+| 68         | 12            | **surprisal**    | Scalar reduction of the prediction error gap.                                                                                                                                     |
+| 69         | 13            | **falsified**    | Witness register for Popperian hypothesis testing.                                                                                                                                |
+| 70         | 14            | **stuck**        | Triggers autonomous reprogramming based on stagnation.                                                                                                                            |
+| 71         | 15            | **continuation** | The ValueID to schedule next. Writing `id` (Word 122) here creates a recursive loop. Writing another ValueID creates a branch or sequence. Halts if 0. Replaces the old word 117. |
 
 ---
 
@@ -70,12 +70,12 @@ Every instruction in Six follows an explicit data flow pipeline:
 
 The routing keyword inside the Target block eliminates the need for Go-side orchestrators to move data.
 
-| Keyword | Topology | Behavior |
-|---------|----------|----------|
-| `self` | Local | The ALU writes the result into the same `Value` that executed the instruction. |
-| `next` | Ring | The ALU shifts the result to the adjacent `Value` in the community ($i \to i+1 \pmod N$). |
-| `fold` | Hypercube | The ALU runs the $O(\log_2 N)$ hypercube routing fold across the entire community, and writes the global consensus into the target. |
-| `spawn` | Scatter | Allocates a new `Value` frame in the community and writes the result into it. |
+| Keyword | Topology  | Behavior                                                                                                                            |
+|---------|-----------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `self`  | Local     | The ALU writes the result into the same `Value` that executed the instruction.                                                      |
+| `next`  | Ring      | The ALU shifts the result to the adjacent `Value` in the community ($i \to i+1 \pmod N$).                                           |
+| `fold`  | Hypercube | The ALU runs the $O(\log_2 N)$ hypercube routing fold across the entire community, and writes the global consensus into the target. |
+| `spawn` | Scatter   | Allocates a new `Value` frame in the community and writes the result into it.                                                       |
 
 ### Note on `fold` Semantics and Synchronization
 `fold` requires an implicit **synchronization barrier** (Tick/Tock double-buffer or `__syncthreads()`). Furthermore, `fold` **must only be used with associative and commutative operators** (like `^`, `|`, `&`, `popcnt`) to guarantee deterministic convergence, unless strict ordered butterfly semantics are explicitly desired.
@@ -90,24 +90,24 @@ For example, `16..24` targets 8 words starting at index 16 up to 23 (words 16, 1
 
 These define the 4-bit truth tables applied by the Universal Bitwise kernel.
 
-| Operator | Concept | Description |
-|----------|---------|-------------|
-| `0` | `false` | Writes physical zeroes. |
-| `&` | `and` | Intersection. |
-| `\` | `aandnotb`| Novelty. Acts as an eraser. |
-| `A` | `a` | Passthrough A. |
-| `/` | `notandb` | Reverse Novelty. |
-| `B` | `b` | Passthrough B. |
-| `^` | `xor` | Difference. Finds parity or structural gaps. |
-| `\|` | `or` | Union. Combines knowledge. |
-| `~\|` | `nor` | Neither A nor B. |
-| `==` | `xnor` | Strict Equality. |
-| `~B` | `notb` | Inverts Operand B. |
-| `<-` | `ifbthena`| Superset. |
-| `~A` | `nota` | Inverts Operand A. |
-| `->` | `ifathenb`| Subset/Implies. Produces 1s where the rule is obeyed. |
-| `~&` | `nand` | Inverted intersection. |
-| `1` | `true` | Writes physical ones (`0xFF...`). |
+| Operator | Concept    | Description                                           |
+|----------|------------|-------------------------------------------------------|
+| `0`      | `false`    | Writes physical zeroes.                               |
+| `&`      | `and`      | Intersection.                                         |
+| `\`      | `aandnotb` | Novelty. Acts as an eraser.                           |
+| `A`      | `a`        | Passthrough A.                                        |
+| `/`      | `notandb`  | Reverse Novelty.                                      |
+| `B`      | `b`        | Passthrough B.                                        |
+| `^`      | `xor`      | Difference. Finds parity or structural gaps.          |
+| `\|`     | `or`       | Union. Combines knowledge.                            |
+| `~\|`    | `nor`      | Neither A nor B.                                      |
+| `==`     | `xnor`     | Strict Equality.                                      |
+| `~B`     | `notb`     | Inverts Operand B.                                    |
+| `<-`     | `ifbthena` | Superset.                                             |
+| `~A`     | `nota`     | Inverts Operand A.                                    |
+| `->`     | `ifathenb` | Subset/Implies. Produces 1s where the rule is obeyed. |
+| `~&`     | `nand`     | Inverted intersection.                                |
+| `1`      | `true`     | Writes physical ones (`0xFF...`).                     |
 
 ---
 
@@ -115,11 +115,11 @@ These define the 4-bit truth tables applied by the Universal Bitwise kernel.
 
 Intelligence relies on collapsing wide bit-vectors (like a 512-bit `signals` region) into scalar "witnesses" (like a surprisal score) to trigger state transitions. Truth-table operators alone cannot do this. Six includes explicit reduction intrinsics:
 
-| Intrinsic | Behavior |
-|-----------|----------|
-| `popcnt(A)` | Returns the total number of set bits (1s) in region A. |
-| `any_zero(A)`| Returns 1 if *any* bit in region A is 0. (Useful for checking if `A -> B` implication failed). |
-| `all_ones(A)`| Returns 1 if *all* bits in region A are 1. |
+| Intrinsic     | Behavior                                                                                       |
+|---------------|------------------------------------------------------------------------------------------------|
+| `popcnt(A)`   | Returns the total number of set bits (1s) in region A.                                         |
+| `any_zero(A)` | Returns 1 if *any* bit in region A is 0. (Useful for checking if `A -> B` implication failed). |
+| `all_ones(A)` | Returns 1 if *all* bits in region A are 1.                                                     |
 
 **Example:**
 ```text
@@ -140,6 +140,16 @@ When a predicated instruction uses a global topology like `fold`, the predicate 
 [ (gradient fold) <= (scratch ^ context) ? (properties.falsified != 0) <= community ]
 ```
 **Reads as:** "Perform a community-wide fold of `scratch ^ context`. Then, *only* Values where `falsified != 0` will overwrite their own `gradient` with the result."
+
+Predicate conditions may also reduce a region with `popcnt` and compare it
+against an immediate threshold using `| N`. In predicate position this means
+"at most N set bits"; it is not the bitwise OR operator.
+
+```text
+[ (properties.community next) <= (id[0,1]) ? (popcnt(affinity[0,5]) | 120) <= community ]
+```
+**Reads as:** "Write this Value's ID into the routed peer's community word only
+while this Value's affinity region has no more than 120 set bits."
 
 ---
 
@@ -251,3 +261,37 @@ By implementing this syntax inside an AST that lowers directly to 64-bit Kernel 
 4. **Dynamic Addressing (`*`)** replaces Go-side variable management.
 
 Go is reduced to a bootloader. It compiles the `SYNTAX.md`, allocates the RAM arena, hands it to the GPU/SIMD engine, and stops executing. The Substrate becomes the entire computer.
+
+### Notation (authoring grammar)
+
+The **bracket pipeline** in §2 is how programs are spelled in `config.yml` and tests today. The table below is the same algebra in the composable surface form (pipe / operation / feed).
+
+```text
+[ ]     **pipe**       build something to be realized
+{ }     **operation**  Reverse Polish notation over regions and ops
+<=>     **feed**       take what this *is* (realize) and move in direction; the
+                       bond is two-way. In bracket sources the feed is the `<=` token
+                       (one arrow per site in the current scanner).
+!       **is not**     when something is not
+?       **gate**       must open or the buck stops here
+A       **value**      the program runner
+B       **values**     hypercube gossip operands; implicit map over B
+< >     **emit**       continuation / return
+
+; a simple example
+[(B popcnt)] <= [(A B ^)] ; stages A to XOR with each B, materialize result
+                          ; and get popcount of each *(implicit map)* B value
+
+; recruit communities
+<[{ A clear }]> [
+    { A(affinity) B(affinity) ^ }
+] <= [
+    { A(status) done ^ }
+] <= [
+    { A(id) B(community) ^ }
+] <= [
+    { { A(affinity) popcnt } 120 ? }
+] <= [
+    { { A(affinity) B(affinity) ^ } 64 | }
+]
+```

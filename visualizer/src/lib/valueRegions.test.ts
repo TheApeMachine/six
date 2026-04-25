@@ -48,8 +48,10 @@ function encodeInstruction(opts: {
 	predCond?: number;
 	aInd?: number;
 	bType?: number;
+	scope?: number;
 }): bigint {
 	const f = (v: number) => BigInt(v) & 0x7fn;
+	const s = (v: number) => BigInt(v) & 0x3fn;
 	const op = BigInt(opts.opcode ?? 0) & 0xfn;
 	const mode = BigInt(opts.mode ?? 0) & 0x7n;
 	const topology = BigInt(opts.topology ?? 0) & 0x3n;
@@ -57,21 +59,23 @@ function encodeInstruction(opts: {
 	const predCond = BigInt(opts.predCond ?? 0) & 0x3n;
 	const aInd = BigInt(opts.aInd ?? 0) & 0x1n;
 	const bType = BigInt(opts.bType ?? 0) & 0x3n;
+	const scope = BigInt(opts.scope ?? 0) & 0xfn;
 
 	return (
-		f((opts.dstSpan ?? 1) - 1) |
-		(f(opts.dstStart ?? 0) << 7n) |
-		(f((opts.aSpan ?? 1) - 1) << 14n) |
-		(f(opts.aStart ?? 0) << 21n) |
-		(f((opts.bSpan ?? 1) - 1) << 28n) |
-		(f(opts.bStart ?? 0) << 35n) |
-		(op << 42n) |
-		(mode << 46n) |
-		(topology << 49n) |
-		(predStart << 51n) |
-		(predCond << 58n) |
-		(aInd << 60n) |
-		(bType << 61n)
+		s((opts.dstSpan ?? 1) - 1) |
+		(f(opts.dstStart ?? 0) << 6n) |
+		(s((opts.aSpan ?? 1) - 1) << 13n) |
+		(f(opts.aStart ?? 0) << 19n) |
+		(s((opts.bSpan ?? 1) - 1) << 26n) |
+		(f(opts.bStart ?? 0) << 32n) |
+		(op << 39n) |
+		(mode << 43n) |
+		(topology << 46n) |
+		(predStart << 48n) |
+		(predCond << 55n) |
+		(aInd << 57n) |
+		(bType << 58n) |
+		(scope << 62n)
 	);
 }
 
@@ -90,6 +94,7 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		predCond: 0,
 		aInd: 0,
 		bType: 0,
+		scope: 0,
 	});
 
 	const decoded = decodeInstructionWord(word);
@@ -108,6 +113,7 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		predCond: 0,
 		aInd: 0,
 		bType: 0,
+		scope: 0,
 	});
 });
 

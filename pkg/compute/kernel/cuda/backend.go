@@ -9,16 +9,27 @@ int cuda_device_count();
 void cleanup_cuda_pools();
 
 int nearest_affinity_cuda(int device_id, void* query_host, void* candidates_host, uint32_t count, uint64_t* best_packed_result_host);
+
+int hypercube_gossip_cuda(
+    int       device_id,
+    uint64_t* value_frames_host,
+    uint32_t  value_count,
+    uint32_t  d_max,
+    uint32_t  fold_op
+);
+
+int geometric_cuda(
+    int device_id,
+    void* a_host,
+    uint32_t num_values
+);
 */
 import "C"
 import (
 	"context"
 	"sync"
-	"sync/atomic"
-	"time"
+	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -35,8 +46,6 @@ type Backend struct {
 	deviceIdx   int
 	ctx         context.Context
 	cancel      context.CancelFunc
-	inflight    atomic.Int64
-	emaNs       atomic.Uint64
 }
 
 type backendOption func(*Backend)
@@ -58,12 +67,13 @@ func NewBackend(idx int, opts ...backendOption) *Backend {
 
 func (backend *Backend) Name() string { return "cuda" }
 
-func (backend *Backend) Close() {
+func (backend *Backend) Close() error {
 	if backend.cancel != nil {
 		backend.cancel()
 	}
 
 	C.cleanup_cuda_pools()
+	return nil
 }
 
 func (backend *Backend) init() {
@@ -85,76 +95,41 @@ func Available() int {
 
 const cudaCommunityBreakEven = 16
 
-func (backend *Backend) Pressure() (inflight int64, emaNs uint64) {
-	return backend.inflight.Load(), backend.emaNs.Load()
-}
-
-func (backend *Backend) CanProfit(kind kernel.JobKind, size int) bool {
-	backend.init()
-	if backend.deviceCount == 0 {
-		return false
-	}
-	switch kind {
-	case kernel.JobKindCommunity:
-		return size >= cudaCommunityBreakEven
-	default:
-		return false
-	}
-}
-
-func (backend *Backend) recordService(start time.Time) {
-	elapsed := uint64(time.Since(start).Nanoseconds())
-	for {
-		old := backend.emaNs.Load()
-		next := old - (old >> 3) + (elapsed >> 3)
-		if old == 0 {
-			next = elapsed
-		}
-		if backend.emaNs.CompareAndSwap(old, next) {
-			return
-		}
-	}
-}
-
-func (backend *Backend) UniversalBitwise(a, b, dst *primitive.Value) {
-	backend.inflight.Add(1)
-	start := time.Now()
-	defer func() {
-		backend.inflight.Add(-1)
-		backend.recordService(start)
-	}()
-	kernel.RunUniversalBitwise(a, b, dst)
-}
-
-func (backend *Backend) AssignFirstFit(
-	communityORs [][primitive.AffinityWords]uint64,
-	valueAffinities [][primitive.AffinityWords]uint64,
-	hammingBudget uint32,
-	saturationCap uint32,
-) []int32 {
-	backend.inflight.Add(1)
-	start := time.Now()
-	defer func() {
-		backend.inflight.Add(-1)
-		backend.recordService(start)
-	}()
-	out, err := backend.BatchFirstFit(communityORs, valueAffinities, hammingBudget, saturationCap)
-	if err != nil {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) []*primitive.Value {
+	n := len(community)
+	if n == 0 {
 		return nil
 	}
-	return out
+
+	frames := make([]primitive.Value, n)
+	for i, v := range community {
+		frames[i] = *v
+	}
+
+	dMax := uint32(0)
+	if n > 1 {
+		// Calculate log2 of (n - 1)
+		for v := uint32(n - 1); v > 0; v >>= 1 {
+			dMax++
+		}
+	}
+
+	C.hypercube_gossip_cuda(
+		C.int(backend.deviceIdx),
+		(*C.uint64_t)(unsafe.Pointer(&frames[0])),
+		C.uint32_t(n),
+		C.uint32_t(dMax),
+		1, // fold_op = XOR
+	)
+
+	for i, v := range community {
+		*v = frames[i]
+	}
+
+	return nil
 }
 
-func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
-	if len(community) == 0 {
-		return nil
-	}
-	backend.inflight.Add(1)
-	start := time.Now()
-	defer func() {
-		backend.inflight.Add(-1)
-		backend.recordService(start)
-	}()
-
-	return cpu.ExecuteCommunity(community)
+func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
+	res := C.geometric_cuda(C.int(backend.deviceIdx), value, 1)
+	return res == 0
 }

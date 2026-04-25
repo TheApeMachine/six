@@ -3,22 +3,18 @@ package cpu
 import (
 	"context"
 	"runtime"
-	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
-Backend is the CPU substrate. It implements the unified ExecuteCommunity
+Backend is the CPU substrate. It implements the unified HypercubeGossip
 kernel for population-vectored AST execution.
 */
 type Backend struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	err      error
-	inflight atomic.Int64
-	emaNs    atomic.Uint64
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func NewBackend(ctx context.Context) *Backend {
@@ -29,15 +25,24 @@ func NewBackend(ctx context.Context) *Backend {
 	}
 }
 
-func Available() int                   { return runtime.NumCPU() }
-func (backend *Backend) Shutdown()     { backend.cancel() }
-func (backend *Backend) Name() string  { return "cpu" }
-func (backend *Backend) Error() string { return backend.err.Error() }
+func Available() int { return runtime.NumCPU() }
 
-// ExecuteCommunity applies the resident program of the first Value
-// (which acts as the SIMD program) across all Values in the community.
-func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
-	return ExecuteCommunity(community)
+func (backend *Backend) Name() string { return "cpu" }
+
+func (backend *Backend) Close() error {
+	backend.cancel()
+	return nil
+}
+
+/*
+HypercubeGossip diffuses the values across the community using a hypercube.
+This unifies the execution, and the networking across values, effectively
+allowing data exchange as a first-class citizen in the programming model.
+*/
+func (backend *Backend) HypercubeGossip(
+	value *primitive.Value, values []*primitive.Value,
+) []*primitive.Value {
+	return HypercubeGossip(value, values)
 }
 
 // GeometricFrame applies PGA rotations/translations to the continuous

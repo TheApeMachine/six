@@ -1463,6 +1463,73 @@ export class FieldRenderer {
 			this.instanceData[off + 0] = anchor.posX + ox;
 			this.instanceData[off + 1] = anchor.posY + oy;
 		}
+
+		// Orphans — values not bound to any anchor — get laid out along their
+		// prev/next chain order instead of random hash positions, so adjacent
+		// values in the linked list end up adjacent in space and edges become
+		// short local segments instead of full-canvas diagonals.
+		this.layoutOrphansAlongChains();
+	}
+
+	/*
+	Walk every chain head (prevIdx < 0) forward and place its values on a
+	serpentine grid: each row alternates direction so the end of one row sits
+	right above the start of the next. Disconnected singletons are appended
+	last on their own row. The grid is sized to roughly square the visible
+	footprint regardless of population.
+	*/
+	private layoutOrphansAlongChains(): void {
+		const SPACING = 32;
+		const orphans: number[] = [];
+
+		for (let idx = 0; idx < this.highWater; idx++) {
+			if (this.idByIndex[idx] === "") continue;
+			if (this.fieldId[idx] >= 0) continue;
+			orphans.push(idx);
+		}
+		if (orphans.length === 0) return;
+
+		const placed = new Uint8Array(this.highWater);
+		const order: number[] = [];
+
+		for (const idx of orphans) {
+			if (this.prevIdx[idx] >= 0) continue;
+			let cur = idx;
+			let guard = 0;
+			while (cur >= 0 && !placed[cur] && guard++ < this.highWater) {
+				placed[cur] = 1;
+				order.push(cur);
+				cur = this.nextIdx[cur];
+			}
+		}
+		// Catch cycles or any orphan we missed.
+		for (const idx of orphans) {
+			if (placed[idx]) continue;
+			let cur = idx;
+			let guard = 0;
+			while (cur >= 0 && !placed[cur] && guard++ < this.highWater) {
+				placed[cur] = 1;
+				order.push(cur);
+				cur = this.nextIdx[cur];
+			}
+		}
+
+		const cols = Math.max(8, Math.ceil(Math.sqrt(order.length)));
+		const halfW = ((cols - 1) * SPACING) / 2;
+		const rows = Math.ceil(order.length / cols);
+		const halfH = ((rows - 1) * SPACING) / 2;
+
+		for (let i = 0; i < order.length; i++) {
+			const idx = order[i];
+			const row = Math.floor(i / cols);
+			const colInRow = i % cols;
+			// Serpentine: even rows left→right, odd rows right→left, so the
+			// chain step from end-of-row to start-of-next-row is one cell down.
+			const col = row % 2 === 0 ? colInRow : cols - 1 - colInRow;
+			const off = idx * STRIDE_F;
+			this.instanceData[off + 0] = col * SPACING - halfW;
+			this.instanceData[off + 1] = row * SPACING - halfH;
+		}
 	}
 
 	private uploadAnchors(): void {
@@ -1529,31 +1596,38 @@ export class FieldRenderer {
 		if (startIdx === undefined) return;
 
 		const verts: number[] = [];
-		const MAX_EDGES = 256;
+		// Cycle guard: a Value cannot appear twice in a single chain walk, so
+		// highWater is an absolute upper bound on chain length. Using it as
+		// the iteration cap means the full chain always renders (no
+		// artificial truncation) while still terminating on cycles.
+		const visited = new Uint8Array(this.highWater);
 
 		let cur = startIdx;
-		for (let i = 0; i < MAX_EDGES; i++) {
+		visited[cur] = 1;
+		while (true) {
 			const nx = this.nextIdx[cur];
-			if (nx < 0 || nx === cur) break;
+			if (nx < 0 || nx === cur || visited[nx]) break;
 			verts.push(
 				this.instanceData[cur * STRIDE_F + 0],
 				this.instanceData[cur * STRIDE_F + 1],
 				this.instanceData[nx * STRIDE_F + 0],
 				this.instanceData[nx * STRIDE_F + 1],
 			);
+			visited[nx] = 1;
 			cur = nx;
 		}
 
 		cur = startIdx;
-		while (verts.length / 4 < MAX_EDGES) {
+		while (true) {
 			const pv = this.prevIdx[cur];
-			if (pv < 0 || pv === cur) break;
+			if (pv < 0 || pv === cur || visited[pv]) break;
 			verts.push(
 				this.instanceData[pv * STRIDE_F + 0],
 				this.instanceData[pv * STRIDE_F + 1],
 				this.instanceData[cur * STRIDE_F + 0],
 				this.instanceData[cur * STRIDE_F + 1],
 			);
+			visited[pv] = 1;
 			cur = pv;
 		}
 

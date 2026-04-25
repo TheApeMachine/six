@@ -190,7 +190,7 @@ Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its
 
 ### Signals
 
-When a Value's token region is split in two equal parts, and compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.
+When a Value's token region is split in two equal parts, or the token regions between two or more Values, and compared using bitwise operations. The results are never written back. They are treated purely as **signal**. The signal dictates which new Values get emitted.
 
 Two operations produce two kinds of signal:
 

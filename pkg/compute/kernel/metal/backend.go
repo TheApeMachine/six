@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -61,16 +60,14 @@ func ensureMetalArena() error {
 Backend runs the in-band Value kernels on Apple Silicon (shared memory).
 It satisfies the full kernel.Substrate contract — the per-Value
 optimizer path runs on CPU (single-Value GPU dispatch is wasteful), but
-ExecuteCommunity / AssignFirstFit dispatch to the GPU pipelines built
+HypercubeGossip / AssignFirstFit dispatch to the GPU pipelines built
 on init.
 
 Pressure tracks inflight dispatches plus an EMA over per-job service
 time (ns) so compute.Backend can pick the lowest-loaded substrate.
 */
 type Backend struct {
-	idx      int
-	inflight atomic.Int64
-	emaNs    atomic.Uint64
+	idx int
 }
 
 type backendOption func(*Backend)
@@ -90,8 +87,9 @@ func NewBackend(idx int, opts ...backendOption) *Backend {
 	return backend
 }
 
-func (backend *Backend) Close() {
+func (backend *Backend) Close() error {
 	cleanupMetalPools()
+	return nil
 }
 
 /*
@@ -102,16 +100,57 @@ func Available() int {
 	return int(C.count_metal_devices())
 }
 
-/*
-Pressure reports inflight dispatches plus an EMA of per-job service
-time in nanoseconds.
-*/
-func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
-	return cpu.ExecuteCommunity(community)
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) []*primitive.Value {
+	n := len(community)
+	if n == 0 {
+		return nil
+	}
+
+	if err := ensureMetalArena(); err != nil {
+		return nil
+	}
+
+	indices := make([]uint32, 0, n)
+	for _, v := range community {
+		if idx, ok := primitive.ArenaIndex(v); ok {
+			indices = append(indices, idx)
+		}
+	}
+
+	if len(indices) == 0 {
+		return nil
+	}
+
+	dMax := uint32(0)
+	if len(indices) > 1 {
+		// Calculate log2 of (len - 1)
+		for v := uint32(len(indices) - 1); v > 0; v >>= 1 {
+			dMax++
+		}
+	}
+
+	C.hypercube_gossip_metal_indices(
+		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
+		C.uint32_t(len(indices)),
+		C.uint32_t(dMax),
+		1, // fold_op = XOR
+	)
+
+	return nil
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
-	return false
+	if err := ensureMetalArena(); err != nil {
+		return false
+	}
+
+	idx, ok := primitive.ArenaIndex((*primitive.Value)(value))
+	if !ok {
+		return false
+	}
+
+	res := C.geometric_metal_indices((*C.uint32_t)(unsafe.Pointer(&idx)), 1)
+	return res == 0
 }
 
 func init() {

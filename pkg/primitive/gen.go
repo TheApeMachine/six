@@ -528,6 +528,9 @@ func writeProgramsTS(programs []compiledProgram) error {
 	fmt.Fprintf(&b, "export const INSTR_PRED_COND_SHIFT = %d;\n", program.InstrPredCondShift)
 	fmt.Fprintf(&b, "export const INSTR_A_IND_SHIFT     = %d;\n", program.InstrAIndirectShift)
 	fmt.Fprintf(&b, "export const INSTR_B_TYPE_SHIFT    = %d;\n", program.InstrBTypeShift)
+	fmt.Fprintf(&b, "export const INSTR_SCOPE_SHIFT     = %d;\n", program.InstrScopeShift)
+	fmt.Fprintf(&b, "export const INSTR_SPAN_MASK       = 0x%xn;\n", program.InstrSpanMask)
+	fmt.Fprintf(&b, "export const INSTR_START_MASK      = 0x%xn;\n", program.InstrStartMask)
 
 	b.WriteString("export interface DecodedInstruction {\n")
 	b.WriteString("\taStart: number;\n")
@@ -558,10 +561,10 @@ func writeProgramsTS(programs []compiledProgram) error {
 	for _, p := range programs {
 		fmt.Fprintf(&b, "\t{\n\t\tname: %q,\n\t\tinstructions: [\n", p.name)
 		for _, w := range p.words {
-			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType, scope := program.DecodeInstruction(w)
+			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType := program.DecodeInstruction(w)
 			fmt.Fprintf(&b,
-				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, topology: %d, predStart: %d, predCond: %d, aInd: %d, bType: %d, scope: %d },\n",
-				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType, scope,
+				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, topology: %d, predStart: %d, predCond: %d, aInd: %d, bType: %d },\n",
+				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType,
 			)
 		}
 		b.WriteString("\t\t],\n\t},\n")

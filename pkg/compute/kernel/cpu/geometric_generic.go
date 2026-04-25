@@ -6,41 +6,41 @@ import (
 )
 
 /*
-geometricFrame is the scalar fallback for architectures without a dedicated
-PGA assembly lane. AMD64 and ARM64 use native assembly to match the existing
-CPU backend's AVX2 / NEON posture.
+geometricFrameGeneric is the scalar reference for the PGA lane. AMD64 and
+ARM64 route through architecture-specific assembly, and tests compare both
+paths against this implementation byte-for-byte.
 
-Frame layout (matching geometric_amd64.s / geometric_arm64.s):
-  - bytes 192..255 → output multivector (8 × float64)
-  - bytes 256..319 → left  operand     (8 × float64)
-  - bytes 320..383 → right operand     (8 × float64)
+Frame layout:
+  - Signals  word 32, byte 256: output multivector
+  - Context  word 40, byte 320: left operand
+  - Gradient word 48, byte 384: right operand
 
 Opcode high nibble selects the operation:
   - 0x10 compose:  out = left * right
   - 0x20 sandwich: out = (left * right) * reverse(right)
   - 0x30 reverse:  out = reverse(left)
 */
-func GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
+func geometricFrameGeneric(value unsafe.Pointer, opcode uint64) bool {
 	base := (*uint64)(value)
 	switch opcode & 0xF0 {
 	case 0x10:
-		left := lanesAt(base, 256)
-		right := lanesAt(base, 320)
+		left := lanesAt(base, 320)
+		right := lanesAt(base, 384)
 		out := geometricProduct(left, right)
-		storeLanes(base, 192, out)
+		storeLanes(base, 256, out)
 		return true
 	case 0x20:
-		left := lanesAt(base, 256)
-		right := lanesAt(base, 320)
+		left := lanesAt(base, 320)
+		right := lanesAt(base, 384)
 		tmp := geometricProduct(left, right)
 		rev := reverseLanes(right)
 		out := geometricProduct(tmp, rev)
-		storeLanes(base, 192, out)
+		storeLanes(base, 256, out)
 		return true
 	case 0x30:
-		left := lanesAt(base, 256)
+		left := lanesAt(base, 320)
 		out := reverseLanes(left)
-		storeLanes(base, 192, out)
+		storeLanes(base, 256, out)
 		return true
 	default:
 		return false

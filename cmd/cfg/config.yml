@@ -24,7 +24,7 @@ system:
   shannonLimit: 0.47
   resonanceThreshold: 0.6
   beliefEpsilon: 0.05
-  routeBudget: 64
+  routeBudget: 128
   maxMembersPerField: 256
   quiescenceTimeout: 100ms
   drainTimeout: 100ms
@@ -120,206 +120,148 @@ value:
     - RESOLVED
     - ERROR
 programs:
-  link: '[ (prev[0,1] self) <= (asset[0,1] | asset[0,1]) <= community ]
-
-    [ (next[0,1] self) <= (asset[1,1] | asset[1,1]) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
-  affinity: '[ (affinity[0,5] self) <= (tokens[0,16] ^ tokens[0,16]) <= community
-    ]
-
-    '
+  link: |
+    [ { A(prev) A(asset[0,1]) | } ]
+    [ { A(next) A(asset[1,1]) | } ]
+    [ { A(continuation) A(id) | } ]
+  affinity: |
+    [ { A(affinity[0,5]) A(tokens[0,16]) ^ } ]
   structural_component: |
-    [ (signals[0,8] self) <= (tokens[0,8] ^ tokens[8,8]) <= community ]
-    [ (properties.continuation self) <= (properties.continuation B 2) ? (properties.role != 0) <= community ]
-    [ (properties.role self) <= (properties.role B 3) <= community ]
-  popcount: '[ (affinity[4,1] self) <= popcnt(affinity[0,5]) <= community
+    <[
+      { B(prev) B(id) ^ }
+      { B(next) B(id) ^ }
+    ] <= [
+      { A(status) done ^ }
+      { B(tokens) signals[0, 1] ^ }
+      { B(tokens) signals[1, 1] ^ }
+      { B(tokens) signals[2, 1] ^ }
+    ]> [
+        { B(signals) }
+    ] <= [
+        { B(tokens[0,16]) B(tokens[0,16]) & }
+        { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }
     ]
-
-    '
-  coupling: '[ (signals[0,1] self) <= popcnt(tokens[0,16] & affinity[0,5]) <= community
-    ]
-
-    [ (signals[1,1] self) <= popcnt(tokens[0,16] | affinity[0,5]) <= community ]
-
-    '
-  beam_swarm_step: '[ (context[0,8] self) <= (tokens[0,8] ^ gradient[0,8]) <= community
-    ]
-
-    [ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
-
-    [ (properties.falsified self) <= popcnt(signals[0,8]) <= community
-    ]
-
-    [ (properties.falsified self) <= (properties.falsified | properties.confidence) <= community
-    ]
-
-    [ (affinity[0,5] self) <= (properties.falsified ^ affinity[0,5]) <= community ]
-
-    [ (gradient[0,8] self) <= (signals[0,8] ^ gradient[0,8]) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
-  surprisal: '[ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
-
-    [ (properties.falsified self) <= popcnt(signals[0,8]) <= community
-    ]
-
-    [ (gradient[0,8] self) <= (signals[0,8] ^ gradient[0,8]) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
-  hypothesis: '[ (signals[0,8] self) <= (context[0,8] ^ gradient[0,8]) <= community
-    ]
-
-    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
-
-    [ (properties.confidence self) <= (id[0,1] | id[0,1]) <= community ]
-
-    '
+  popcount: |
+    [ { A(affinity[4,1]) A(affinity[0,5]) popcnt } ]
+  coupling: |
+    [ { A(tokens[0,16]) A(affinity[0,5]) & } ]
+    [ { A(signals[0,1]) A(signals[0,1]) popcnt } ]
+    [ { A(tokens[0,16]) A(affinity[0,5]) | } ]
+    [ { A(signals[1,1]) A(signals[1,1]) popcnt } ]
+  beam_swarm_step: |
+    [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
+    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
+    [ { A(falsified) A(signals[0,8]) popcnt } ]
+    [ { A(falsified) A(confidence) | } ]
+    [ { A(affinity[0,5]) A(falsified) ^ } ]
+    [ { A(gradient[0,8]) A(signals[0,8]) ^ } ]
+    [ { A(continuation) A(id) | } ]
+  surprisal: |
+    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
+    [ { A(falsified) A(signals[0,8]) popcnt } ]
+    [ { A(gradient[0,8]) A(signals[0,8]) ^ } ]
+    [ { A(continuation) A(id) | } ]
+  hypothesis: |
+    [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
+    [ { A(confidence) A(signals[0,8]) popcnt } ]
+    [ { A(confidence) A(id) | } ]
   memory_prune: |
-    [ (properties.confidence self) <= (properties.confidence | 1) ? (properties.status != 0) <= community ]
-    [ (properties.confidence self) <= (properties.confidence \ 1) ? (properties.falsified != 0) <= community ]
-    
-    [ (properties.ttl self) <= (properties.ttl \ 1) ? (properties.confidence == 0) <= community ]
-    
-    [ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
-    [ (properties.continuation self) <= (id[0,1]) ? (properties.ttl != 0) <= community ]
+    [ { A(confidence) 1 | } ] <= [ { { A(status) 0 != } ? } ]
+    [ { A(confidence) 1 \ } ] <= [ { { A(falsified) 0 != } ? } ]
+    [ { A(ttl) 1 \ } ] <= [ { { A(confidence) 0 == } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
+    [ { A(continuation) A(id) } ] <= [ { { A(ttl) 0 != } ? } ]
   temperature: |
-    [ (affinity[0,5] self) <= (properties.temperature ^ affinity[0,5]) <= community ]
-    
-    [ (properties.temperature self) <= (properties.temperature | 1) ? (properties.delta_surprisal == 0) <= community ]
-    [ (properties.ttl self) <= (properties.ttl \ 1) ? (properties.temperature != 0) <= community ]
-    
-    [ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
-    [ (properties.continuation self) <= (id[0,1]) ? (properties.ttl != 0) <= community ]
+    [ { A(affinity[0,5]) A(temperature) ^ } ]
+    [ { A(temperature) 1 | } ] <= [ { { A(delta_surprisal) 0 == } ? } ]
+    [ { A(ttl) 1 \ } ] <= [ { { A(temperature) 0 != } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
+    [ { A(continuation) A(id) } ] <= [ { { A(ttl) 0 != } ? } ]
   active_inference: |
-    [ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community ]
-    [ (properties.prev_surprisal self) <= (properties.surprisal | 0) <= community ]
-    [ (properties.surprisal self) <= popcnt(signals[0,8]) <= community ]
-    
-    [ (properties.delta_surprisal self) <= (properties.prev_surprisal ^ properties.surprisal) <= community ]
-    
-    [ (context[0,8] self) <= (context[0,8] ^ gradient[0,8]) <= community ]
-
-    [ (properties.stuck_count self) <= (properties.stuck_count | 1) ? (properties.delta_surprisal == 0) <= community ]
-    [ (properties.stuck_count self) <= (0) ? (properties.delta_surprisal != 0) <= community ]
-    
-    [ (properties.stuck self) <= (1) ? (properties.stuck_count != 0) <= community ]
-
-    [ (properties.continuation self) <= (0) ? (properties.surprisal == 0) <= community ]
-    [ (properties.status self) <= (properties.status B 5) ? (properties.surprisal == 0) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) ? (properties.surprisal != 0) <= community ]
+    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
+    [ { A(prev_surprisal) A(surprisal) | } ]
+    [ { A(surprisal) A(signals[0,8]) popcnt } ]
+    [ { A(delta_surprisal) A(prev_surprisal) ^ } ]
+    [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
+    [ { A(stuck_count) 1 | } ] <= [ { { A(delta_surprisal) 0 == } ? } ]
+    [ { A(stuck_count) 0 } ] <= [ { { A(delta_surprisal) 0 != } ? } ]
+    [ { A(stuck) 1 } ] <= [ { { A(stuck_count) 0 != } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(surprisal) 0 == } ? } ]
+    [ { A(status) 5 B } ] <= [ { { A(surprisal) 0 == } ? } ]
+    [ { A(continuation) A(id) } ] <= [ { { A(surprisal) 0 != } ? } ]
   causal_explore: |
-    [ (signals[0,8] self) <= (tokens[0,8] -> context[0,8]) <= community ]
-    [ (properties.falsified self) <= any_zero(signals[0,8]) <= community ]
-    [ (gradient[0,8] fold) <= (gradient[0,8] ^ context[0,8]) ? (properties.falsified != 0) <= community ]
-    [ (properties.status self) <= (properties.status B 5) <= community ]
-    [ (properties.continuation self) <= (0) <= community ]
-  causal_hub: '[ (signals[0,8] self) <= (tokens[0,8] ^ context[0,8]) <= community
+    [ { A(tokens[0,8]) A(context[0,8]) -> } ]
+    [ { A(falsified) A(signals[0,8]) any_zero } ]
+    [ { A(gradient[0,8]) A(context[0,8]) ^ } ] <= [ { { A(falsified) 0 != } ? } ]
+    [ { A(status) 4 B } ] <= [ { { A(falsified) 0 == } ? } ]
+    [ { A(continuation) 0 } ]
+  recruit_community: |
+    <[{ A clear }]> [
+        { A(affinity) B(affinity) ^ }
+    ] <= [
+        { A(status) done }
+    ] <= [
+        { A(id) B(community) ^ }
+    ] <= [
+        { { A(affinity) popcnt } 120 ? }
+    ] <= [
+        { { A(affinity) B(affinity) ^ } 64 | }
     ]
-
-    [ (asset[40,8] self) <= (gradient[0,8] ^ context[0,8]) <= community ]
-
-    [ (properties.falsified self) <= popcnt(signals[0,8]) <= community
-    ]
-
-    [ (properties.falsified self) <= (properties.falsified | properties.epoch) <= community
-    ]
-
-    [ (gradient[0,8] self) <= (asset[40,8] ^ gradient[0,8]) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) <= community ]
-
-    '
+  causal_hub: |
+    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
+    [ { A(gradient[0,8]) A(context[0,8]) ^ } ]
+    [ { A(falsified) A(signals[0,8]) popcnt } ]
+    [ { A(falsified) A(epoch) | } ]
+    [ { A(gradient[0,8]) A(asset[40,8]) ^ } ]
+    [ { A(continuation) A(id) | } ]
   open_ended_generation: |
-    ; 1. THE AFFINE ROTATION: Rotate the current token vectors toward the prompt's context.
-    [ (tokens[0,16] self) <= (tokens[0,16] ^ asset[8,16]) <= community ]
-
-    ; 2. THE BOOLEAN FILTER: Check if the mutated tokens break structural rules in Context.
-    [ (properties.falsified self) <= any_zero(tokens[0,8] -> context[0,8]) <= community ]
-
-    ; 3. THE CULLING: Halt the Value if it violates causal logic (falsified).
-    [ (properties.continuation self) <= (0) ? (properties.falsified != 0) <= community ]
-
-    ; 4. THE EMISSION: If the novel coordinate survived falsification, spawn it into the persistent sequence.
-    [ (properties.target spawn) <= (0) ? (properties.falsified == 0) <= community ]
+    [ { A(tokens[0,16]) A(asset[8,16]) ^ } ]
+    [ { A(tokens[0,8]) A(context[0,8]) -> } ]
+    [ { A(falsified) A(signals[0,8]) any_zero } ]
+    [ { A(continuation) 0 } ] <= [ { { A(falsified) 0 != } ? } ]
+    <[{ A clear }]> <= [ { { A(falsified) 0 == } ? } ]
   survey_community: |
-    [ (context[7,1] self) <= (context[6,1]) <= community ]
-    [ (context[6,1] self) <= (context[5,1]) <= community ]
-    [ (context[5,1] self) <= (context[4,1]) <= community ]
-    [ (context[4,1] self) <= (context[3,1]) <= community ]
-    [ (context[3,1] self) <= (context[2,1]) <= community ]
-    [ (context[2,1] self) <= (context[1,1]) <= community ]
-    [ (context[1,1] self) <= (context[0,1]) <= community ]
-    [ (context[0,1] self) <= (asset[24,1]) <= community ]
-
-    [ (properties.labels self) <= popcnt(context[0,8]) <= community ]
-
-    [ (properties.status self) <= (properties.labels B 5) ? (properties.labels != 0) <= community ]
-
-    [ (properties.continuation self) <= (0) ? (properties.labels != 0) <= community ]
-    [ (properties.continuation self) <= (id[0,1]) ? (properties.labels == 0) <= community ]
+    [ { A(context[7,1]) A(context[6,1]) } ]
+    [ { A(context[6,1]) A(context[5,1]) } ]
+    [ { A(context[5,1]) A(context[4,1]) } ]
+    [ { A(context[4,1]) A(context[3,1]) } ]
+    [ { A(context[3,1]) A(context[2,1]) } ]
+    [ { A(context[2,1]) A(context[1,1]) } ]
+    [ { A(context[1,1]) A(context[0,1]) } ]
+    [ { A(context[0,1]) A(asset[24,1]) } ]
+    [ { A(labels) A(context[0,8]) popcnt } ]
+    [ { A(status) 5 B } ] <= [ { { A(labels) 0 != } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(labels) 0 != } ? } ]
+    [ { A(continuation) A(id) } ] <= [ { { A(labels) 0 == } ? } ]
   meta_controller: |
-    [ (properties.continuation self) <= (properties.continuation B 4) ? (properties.falsified != 0) <= community ]
-    [ (properties.continuation self) <= (properties.continuation B 5) ? (properties.stuck != 0) <= community ]
-    [ (properties.continuation self) <= (properties.continuation B 6) ? (properties.surprisal == 0) <= community ]
-    [ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
-    
-    [ (properties.continuation self) <= (properties.continuation B 7) ? (properties.surprisal != 0) <= community ]
-  classify_readout: '[ (signals[0,1] self) <= (properties.labels | properties.labels)
-    <= community ]
-
-    '
-  episodic_replay: '[ (signals[0,8] self) <= (context[0,8] ^ asset[8,8]) <= community
-    ]
-
-    [ (properties.confidence self) <= popcnt(signals[0,8]) <= community ]
-
-    '
-  intervene: '[ (signals[0,8] self) <= (context[0,8] ^ asset[16,8]) <= community ]
-
-    [ (properties.falsified self) <= popcnt(signals[0,8] | signals[0,8]) <= community
-    ]
-
-    [ (gradient[0,8] self) <= (asset[16,8] ^ gradient[0,8]) <= community ]
-
-    '
+    [ { A(continuation) 4 B } ] <= [ { { A(falsified) 0 != } ? } ]
+    [ { A(continuation) 5 B } ] <= [ { { A(stuck) 0 != } ? } ]
+    [ { A(continuation) 6 B } ] <= [ { { A(surprisal) 0 == } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
+    [ { A(continuation) 7 B } ] <= [ { { A(surprisal) 0 != } ? } ]
+  classify_readout: |
+    [ { A(labels) A(asset[24,1]) } ] <= [ { { A(labels) 0 == } ? } ]
+    [ { A(labels) A(labels) | } ]
+    [ { A(status) 5 B } ] <= [ { { A(labels) 0 != } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(labels) 0 != } ? } ]
+    [ { A(continuation) A(id) } ] <= [ { { A(labels) 0 == } ? } ]
+  episodic_replay: |
+    [ { A(context[0,8]) A(asset[8,8]) ^ } ]
+    [ { A(confidence) A(signals[0,8]) popcnt } ]
+  intervene: |
+    [ { A(context[0,8]) A(asset[16,8]) ^ } ]
+    [ { A(falsified) A(signals[0,8]) | } ]
+    [ { A(falsified) A(falsified) popcnt } ]
+    [ { A(gradient[0,8]) A(asset[16,8]) ^ } ]
   vote_swarm: |
-    [ (context[0,8] self) <= (asset[0,8] ^ context[0,8]) <= community ]
-
-    # 1. Copy peer label to host label if host label is 0
-    # If hostLabel != 0, zero out the staged peerLabel
-    [ (asset[24,1] self) <= (0) ? (properties.labels != 0) <= community ]
-    # If peerLabel is still != 0, adopt it
-    [ (properties.labels self) <= (asset[24,1] A 0) ? (asset[24,1] != 0) <= community ]
-
-    # 2. If hostLabel != 0 AND ROLE == Prompt (5), promote to Readout
-    # signals[1] = hostLabel
-    [ (signals[1,1] self) <= (properties.labels) <= community ]
-    # signals[2] = ROLE ^ 5 (0 if Prompt)
-    [ (signals[2,1] self) <= (properties.role ^ 5) <= community ]
-    # If ROLE != 5, zero out signals[1]
-    [ (signals[1,1] self) <= (0) ? (signals[2,1] != 0) <= community ]
-
-    # Now signals[1] is non-zero ONLY IF (hostLabel != 0 AND ROLE == 5)
-    # Prepare constants and conditionally apply them
-
-    # ROLE = 3 (Readout)
-    [ (properties.role self) <= (properties.labels B 3) ? (signals[1,1] != 0) <= community ]
-
-    # STATUS = 5 (RESOLVED)
-    [ (properties.status self) <= (properties.labels B 5) ? (signals[1,1] != 0) <= community ]
-
-    # EMIT = 1
-    [ (properties.surprisal self) <= (properties.labels B 1) ? (signals[1,1] != 0) <= community ]
-
-    # Stop looping by zeroing properties.continuation
-    [ (properties.continuation self) <= (0) ? (signals[1,1] != 0) <= community ]
-
-    [ (properties.continuation self) <= (id[0,1]) ? (signals[1,1] == 0) <= community ]
+    [ { A(context[0,8]) A(asset[0,8]) ^ } ]
+    [ { A(asset[24,1]) 0 } ] <= [ { { A(labels) 0 != } ? } ]
+    [ { A(labels) A(asset[24,1]) | } ] <= [ { { A(asset[24,1]) 0 != } ? } ]
+    [ { A(signals[1,1]) A(labels) } ]
+    [ { A(signals[2,1]) A(role) 5 ^ } ]
+    [ { A(signals[1,1]) 0 } ] <= [ { { A(signals[2,1]) 0 != } ? } ]
+    [ { A(role) 3 B } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
+    [ { A(status) 5 B } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
+    [ { A(surprisal) 1 B } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
+    [ { A(continuation) 0 } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
+    [ { A(continuation) A(id) } ] <= [ { { A(signals[1,1]) 0 == } ? } ]

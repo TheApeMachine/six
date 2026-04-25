@@ -3,20 +3,21 @@
 // lowered by pkg/compute/program.Compile against the runtime layout.
 
 export const INSTR_DST_SPAN_SHIFT  = 0;
-export const INSTR_DST_START_SHIFT = 7;
-export const INSTR_A_SPAN_SHIFT    = 14;
-export const INSTR_A_START_SHIFT   = 21;
-export const INSTR_B_SPAN_SHIFT    = 28;
-export const INSTR_B_START_SHIFT   = 35;
-export const INSTR_OPCODE_SHIFT    = 42;
-export const INSTR_MODE_SHIFT      = 46;
-export const INSTR_TOPOLOGY_SHIFT  = 49;
-export const INSTR_PRED_START_SHIFT= 51;
-export const INSTR_PRED_COND_SHIFT = 58;
-export const INSTR_A_IND_SHIFT     = 60;
-export const INSTR_B_TYPE_SHIFT    = 61;
-export const INSTR_FIELD_MASK   = 0x7fn;
-
+export const INSTR_DST_START_SHIFT = 6;
+export const INSTR_A_SPAN_SHIFT    = 13;
+export const INSTR_A_START_SHIFT   = 19;
+export const INSTR_B_SPAN_SHIFT    = 26;
+export const INSTR_B_START_SHIFT   = 32;
+export const INSTR_OPCODE_SHIFT    = 39;
+export const INSTR_MODE_SHIFT      = 43;
+export const INSTR_TOPOLOGY_SHIFT  = 46;
+export const INSTR_PRED_START_SHIFT= 48;
+export const INSTR_PRED_COND_SHIFT = 55;
+export const INSTR_A_IND_SHIFT     = 57;
+export const INSTR_B_TYPE_SHIFT    = 58;
+export const INSTR_SCOPE_SHIFT     = 60;
+export const INSTR_SPAN_MASK       = 0x3fn;
+export const INSTR_START_MASK      = 0x7fn;
 export interface DecodedInstruction {
 	aStart: number;
 	aSpan: number;
@@ -46,193 +47,219 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 	{
 		name: "active_inference",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 68, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 68, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 69, aSpan: 1, bStart: 68, bSpan: 1, dstStart: 70, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 71, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 70, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 73, dstSpan: 1, opcode: 0xf, mode: 0, topology: 0, predStart: 71, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 1, aInd: 0, bType: 0 },
 			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 68, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 73, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 73, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 71, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 71, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 70, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 71, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 70, aSpan: 1, bStart: 69, bSpan: 1, dstStart: 70, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 68, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 68, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 69, aSpan: 1, bStart: 68, bSpan: 1, dstStart: 69, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "affinity",
 		instructions: [
-			{ aStart: 0, aSpan: 16, bStart: 0, bSpan: 16, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 123, aSpan: 5, bStart: 0, bSpan: 16, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "beam_swarm_step",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 72, aSpan: 1, bStart: 57, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 72, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 123, aSpan: 5, bStart: 72, bSpan: 1, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "causal_explore",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0xd, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 2, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 2, predStart: 72, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 61, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 72, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0xd, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "causal_hub",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 112, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 			{ aStart: 72, aSpan: 1, bStart: 58, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 112, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 112, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "classify_readout",
 		instructions: [
-			{ aStart: 56, aSpan: 1, bStart: 56, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 56, aSpan: 1, bStart: 56, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 96, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 2, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "coupling",
 		instructions: [
-			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 32, dstSpan: 1, opcode: 0x1, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 33, dstSpan: 1, opcode: 0x7, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 36, dstSpan: 4, opcode: 0x1, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 1, bStart: 32, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 123, bSpan: 5, dstStart: 32, dstSpan: 4, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 33, aSpan: 1, bStart: 33, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "episodic_replay",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 57, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "hypothesis",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 57, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 57, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 57, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "intervene",
 		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 88, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 40, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 72, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 88, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "link",
 		instructions: [
-			{ aStart: 72, aSpan: 1, bStart: 72, bSpan: 1, dstStart: 120, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 73, aSpan: 1, bStart: 73, bSpan: 1, dstStart: 121, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 120, aSpan: 1, bStart: 72, bSpan: 1, dstStart: 120, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 121, aSpan: 1, bStart: 73, bSpan: 1, dstStart: 121, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "memory_prune",
 		instructions: [
-			{ aStart: 57, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 61, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 57, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 2 },
 			{ aStart: 59, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 57, predCond: 2, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 57, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 57, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 61, predCond: 1, aInd: 0, bType: 2 },
 		],
 	},
 	{
 		name: "meta_controller",
 		instructions: [
-			{ aStart: 74, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 74, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 73, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 74, aSpan: 1, bStart: 6, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 0 },
 			{ aStart: 74, aSpan: 1, bStart: 7, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 6, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 73, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
+		],
+	},
+	{
+		name: "open_ended_generation",
+		instructions: [
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 32, dstSpan: 8, opcode: 0x5, mode: 5, topology: 3, predStart: 72, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 72, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 72, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0xd, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 80, bSpan: 16, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "popcount",
 		instructions: [
-			{ aStart: 123, aSpan: 5, bStart: 0, bSpan: 1, dstStart: 127, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 127, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 127, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+		],
+	},
+	{
+		name: "recruit_community",
+		instructions: [
+			{ aStart: 123, aSpan: 5, bStart: 123, bSpan: 5, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 64, bSpan: 1, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 1, predCond: 3, aInd: 0, bType: 0 },
+			{ aStart: 61, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 123, aSpan: 5, bStart: 123, bSpan: 5, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 32, dstSpan: 8, opcode: 0x5, mode: 5, topology: 3, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
 		],
 	},
 	{
 		name: "structural_component",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 8, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 74, aSpan: 1, bStart: 2, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 66, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 66, aSpan: 1, bStart: 3, bSpan: 1, dstStart: 66, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 0, aSpan: 16, bStart: 0, bSpan: 16, dstStart: 36, dstSpan: 4, opcode: 0x1, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 8, bSpan: 8, dstStart: 36, dstSpan: 4, opcode: 0x1, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 32, dstSpan: 8, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 61, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 0, aSpan: 16, bStart: 32, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 33, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 16, bStart: 34, bSpan: 1, dstStart: 34, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 120, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 120, dstSpan: 1, opcode: 0x6, mode: 5, topology: 3, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 121, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 121, dstSpan: 1, opcode: 0x6, mode: 5, topology: 3, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "surprisal",
 		instructions: [
-			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 72, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 48, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 0, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 32, dstSpan: 4, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 72, aSpan: 1, bStart: 32, bSpan: 8, dstStart: 72, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 48, aSpan: 8, bStart: 32, bSpan: 8, dstStart: 48, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "survey_community",
 		instructions: [
-			{ aStart: 46, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 47, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 45, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 46, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 44, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 45, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 43, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 44, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 42, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 43, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 41, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 42, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 40, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 41, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 96, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 40, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 40, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 56, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 56, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 56, aSpan: 1, bStart: 40, bSpan: 8, dstStart: 56, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 40, aSpan: 1, bStart: 96, bSpan: 1, dstStart: 40, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 41, aSpan: 1, bStart: 40, bSpan: 1, dstStart: 41, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 42, aSpan: 1, bStart: 41, bSpan: 1, dstStart: 42, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 43, aSpan: 1, bStart: 42, bSpan: 1, dstStart: 43, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 44, aSpan: 1, bStart: 43, bSpan: 1, dstStart: 44, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 45, aSpan: 1, bStart: 44, bSpan: 1, dstStart: 45, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 46, aSpan: 1, bStart: 45, bSpan: 1, dstStart: 46, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 47, aSpan: 1, bStart: 46, bSpan: 1, dstStart: 47, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "temperature",
 		instructions: [
-			{ aStart: 60, aSpan: 1, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 60, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 60, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 2 },
 			{ aStart: 59, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 59, dstSpan: 1, opcode: 0x2, mode: 0, topology: 0, predStart: 60, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 59, predCond: 2, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 0 },
-		],
-	},
-	{
-		name: "unsupervised_learn",
-		instructions: [
-			{ aStart: 40, aSpan: 8, bStart: 80, bSpan: 8, dstStart: 32, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 32, aSpan: 8, bStart: 0, bSpan: 1, dstStart: 57, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 60, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 60, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 123, aSpan: 5, bStart: 60, bSpan: 1, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 	{
 		name: "vote_swarm",
 		instructions: [
-			{ aStart: 72, aSpan: 8, bStart: 40, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 96, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 96, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 96, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 56, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
-			{ aStart: 66, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 34, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 34, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 56, aSpan: 1, bStart: 3, bSpan: 1, dstStart: 66, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 56, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 56, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 68, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
-			{ aStart: 0, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 33, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 68, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 68, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 61, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 66, aSpan: 1, bStart: 3, bSpan: 1, dstStart: 66, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 33, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 33, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 34, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 34, aSpan: 1, bStart: 66, bSpan: 1, dstStart: 34, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 33, aSpan: 1, bStart: 56, bSpan: 1, dstStart: 33, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 56, aSpan: 1, bStart: 96, bSpan: 1, dstStart: 56, dstSpan: 1, opcode: 0x7, mode: 0, topology: 0, predStart: 96, predCond: 1, aInd: 0, bType: 0 },
+			{ aStart: 96, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 96, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 40, aSpan: 8, bStart: 72, bSpan: 8, dstStart: 40, dstSpan: 8, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
 		],
 	},
 ] as const;

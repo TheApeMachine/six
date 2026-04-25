@@ -6,6 +6,11 @@ import (
 	"unsafe"
 )
 
+type Task interface {
+	Workload() func()
+	Optimize()
+}
+
 // a single slot for a worker in Pool
 type slot struct {
 	threadPtr unsafe.Pointer

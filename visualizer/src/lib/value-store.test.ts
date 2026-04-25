@@ -106,7 +106,7 @@ function makeValueFrame(init?: {
 	}
 
 	if (init?.noise !== undefined) {
-		writeWord(frame, PROPERTIES_NOISE_WORD, init.noise);
+		writeWord(frame, PROPERTY_WORD("FALSIFIED"), init.noise);
 	}
 
 	if (init?.gradientWord !== undefined) {

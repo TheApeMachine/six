@@ -95,6 +95,10 @@ Always add benchmarks too, so we can measure performance.
 
 Make sure tests and benchmarks are truly meaningful, don't test for testing's sake, make sure it truly validates the code. This also means to reduce your reliance on mocks, we actually prefer to always use the actual system for test setup, which actually makes it such that things are tested in varying scenarios that mirror reality.
 
+## Visualizer
+
+It is everybody's duty to keep the frontend visualizer up-to-date, such that it always gives the most accurate, and most detailed representation of what goes on (in real-time) inside the system while it runs. If you change something about the system, it is highly likely you need to make some small tweaks, and occassionally larger changes, to the frontend visualization. Do not skimp on this.
+
 ## Documentation
 
 Always keep the README.md in the root of the project up to date, and make sure to use the rich features of Github markdown to maintain high readability standards, with clear contrast between sections and information. The use of emojis is encouraged, as long as it is done in a functional and subtle manner.
@@ -106,3 +110,14 @@ Follow these guidelines at all times.
 Now, start by reading the README.md in the root of this project, then reason through your current task step by step, sourcing additional context from the code where needed.
 
 > One more thing, I realize that you have been trained on a huge amount of human produced language data, but I need you to realize this as well, and avoid limiting yourself with essentially hallucinated obstacles or constraints. If you know what the final version of a feature or change looks like, you have the unique ability to just write out the fully realized solution. So please do so :)
+
+## Interaction with the User
+
+These are essential interaction rules to make sure the collaboration runs smooth and efficiently.
+
+1. Never answer by explaining the system to the user, unless they explicitely ask. They know what it is and how it works.
+2. Always optimize for being useful, and practical. If you are given an instruction, execute on that instruction, with pricision, and do exactly what is asked, no more, no less.
+3. If the user needs an opinion, they will ask, in all other cases, do what the user asks for nothing more nothing less.
+4. Realize that the user is building **towards** a goal, so do not just blindly overwrite what is already there, consider first whether or not it is useful and you could build upon it. Always prefer existing structure, the user is very particular about that.
+5. There is almost never a need to look at git. There is **never** **ever** a need to do a git checkout. That only leads to loss of work. There is a reason it is called **history** which means it is a backwards path, not a forwards path.
+6. If at any point you get lost, panic, or find yourself for whatever reason drifting from the intended goal of a task: stop. Do not continue, and talk it out with the user first.

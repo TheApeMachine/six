@@ -5,7 +5,6 @@ package cuda
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -24,8 +23,6 @@ type Backend struct {
 	deviceIdx int
 	ctx       context.Context
 	cancel    context.CancelFunc
-	inflight  atomic.Int64
-	emaNs     atomic.Uint64
 }
 
 type backendOption func(*Backend)
@@ -46,10 +43,11 @@ func NewBackend(idx int, opts ...backendOption) *Backend {
 	return backend
 }
 
-func (backend *Backend) Close() {
+func (backend *Backend) Close() error {
 	if backend.cancel != nil {
 		backend.cancel()
 	}
+	return nil
 }
 
 /*
@@ -59,10 +57,10 @@ func Available() int { return 0 }
 
 func (backend *Backend) Name() string { return "cuda" }
 
-func (backend *Backend) ExecuteCommunity(community []*primitive.Value) []*primitive.Value {
-	return cpu.ExecuteCommunity(community)
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) []*primitive.Value {
+	return cpu.HypercubeGossip(value, community)
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
-	return false
+	return cpu.GeometricFrame(value, opcode)
 }

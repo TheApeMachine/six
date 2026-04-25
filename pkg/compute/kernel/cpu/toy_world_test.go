@@ -62,9 +62,9 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 	frame[32] = 0
 
 	// Tick 1: evaluate falsification, decay TTL, and halt!
-	// Because ExecuteCommunity now properly syncs after EACH instruction,
+	// Because HypercubeGossip now properly syncs after EACH instruction,
 	// the second instruction observes falsified=1, and the third observes TTL=0.
-	ExecuteCommunity([]*primitive.Value{v1})
+	HypercubeGossip(nil, []*primitive.Value{v1})
 	if frame[69] != 1 {
 		t.Fatalf("expected falsified=1 after tick 1, got %d", frame[69])
 	}
@@ -114,10 +114,10 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 	frame[59] = 10 // TTL
 
 	// Tick 1: evaluates falsification
-	ExecuteCommunity([]*primitive.Value{v1})
+	HypercubeGossip(nil, []*primitive.Value{v1})
 
 	// Tick 2: falsified is 1, so spawn happens
-	spawned := ExecuteCommunity([]*primitive.Value{v1})
+	spawned := HypercubeGossip(nil, []*primitive.Value{v1})
 	if len(spawned) != 1 {
 		t.Fatalf("expected 1 spawned value, got %d", len(spawned))
 	}
@@ -128,5 +128,70 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 	}
 	if sFrame[59] != 10 {
 		t.Fatalf("expected spawned value to inherit TTL 10, got %d", sFrame[59])
+	}
+}
+
+func TestStructuralComponentEmitsThroughProgram(t *testing.T) {
+	owner := primitive.Emit()
+	defer owner.Close()
+	candidate := primitive.Emit()
+	defer candidate.Close()
+
+	compiled, err := program.Compile(`
+	<[
+	  { B(prev) B(id) ^ }
+	  { B(next) B(id) ^ }
+	] <= [
+	  { B(tokens) signals[0,1] ^ }
+	  { B(tokens) signals[1,1] ^ }
+	  { B(tokens) signals[2,1] ^ }
+	]> [
+	  { B(signals) }
+	] <= [
+	  { B(tokens[0,16]) B(tokens[0,16]) & }
+	  { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }
+	]
+	`, program.Layout{
+		Regions: map[string]program.RegionExtent{
+			"tokens":  {Start: primitive.TokensStartWord, Words: primitive.TokensWords},
+			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
+			"prev":    {Start: primitive.PrevStartWord, Words: 1},
+			"next":    {Start: primitive.NextStartWord, Words: 1},
+			"id":      {Start: primitive.IDStartWord, Words: 1},
+		},
+		Opcodes: program.Opcodes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !owner.InstallProgram(compiled.Words) {
+		t.Fatal("install structural_component failed")
+	}
+
+	ownerFrame := (*[128]uint64)(unsafe.Pointer(owner))
+	candidateFrame := (*[128]uint64)(unsafe.Pointer(candidate))
+	ownerFrame[primitive.TokensStartWord] = 0b1010
+	candidateFrame[primitive.TokensStartWord] = 0b1110
+	ownerFrame[primitive.TokensStartWord+8] = ^uint64(0)
+	candidateFrame[primitive.TokensStartWord+8] = ^uint64(0)
+
+	spawned := HypercubeGossip(owner, []*primitive.Value{owner, candidate})
+	defer primitive.CloseAll(spawned)
+
+	if len(spawned) == 0 {
+		t.Fatalf("expected structural_component emit sites to spawn values")
+	}
+
+	frame := (*[128]uint64)(unsafe.Pointer(spawned[0]))
+	if frame[primitive.IDStartWord] == 0 || frame[primitive.IDStartWord] == candidate.ID() {
+		t.Fatalf("expected emitted value to receive a fresh id")
+	}
+
+	if frame[primitive.PrevStartWord] == 0 {
+		t.Fatalf("expected emitted value prev to be set by the program")
+	}
+	if frame[primitive.NextStartWord] == 0 {
+		t.Fatalf("expected emitted value next to be set by the program")
 	}
 }
