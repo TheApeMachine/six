@@ -148,6 +148,29 @@ func TestBridge_Read(t *testing.T) {
 	})
 }
 
+func TestBridgeFingerprintCache(t *testing.T) {
+	t.Parallel()
+
+	Convey("Add evicts the oldest fingerprint once capacity is reached", t, func() {
+		cache := newBridgeFingerprintCache(2)
+
+		cache.Add(1, 10)
+		cache.Add(2, 20)
+		cache.Add(3, 30)
+
+		_, ok := cache.Get(1)
+		So(ok, ShouldBeFalse)
+
+		hash, ok := cache.Get(2)
+		So(ok, ShouldBeTrue)
+		So(hash, ShouldEqual, 20)
+
+		hash, ok = cache.Get(3)
+		So(ok, ShouldBeTrue)
+		So(hash, ShouldEqual, 30)
+	})
+}
+
 func BenchmarkBridge_Write(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -204,9 +227,8 @@ func readBridgeTestMessage(t *testing.T, messages <-chan int) int {
 		return length
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for bridge message")
+		return 0
 	}
-
-	return 0
 }
 
 func noBridgeTestMessage(messages <-chan int) bool {

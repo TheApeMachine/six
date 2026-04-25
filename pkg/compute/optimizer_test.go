@@ -96,23 +96,26 @@ func TestOptimizerWorkloadSchedulesReadyProgramOwnerOnly(t *testing.T) {
 	}
 
 	for _, status := range []primitive.StatusType{primitive.PENDING, primitive.BUSY, primitive.DONE} {
-		owner := primitive.Emit()
-		candidate := primitive.Emit()
-		candidateFrame := (*[primitive.WordCount]uint64)(unsafe.Pointer(candidate))
+		func(status primitive.StatusType) {
+			owner := primitive.Emit()
+			defer owner.Close()
 
-		if !owner.InstallProgram(compiled.Words) {
-			t.Fatal("install program failed")
-		}
-		owner.SetStatus(status)
+			candidate := primitive.Emit()
+			defer candidate.Close()
 
-		NewOptimizer(context.Background(), []*primitive.Value{owner, candidate}).Workload()()
+			candidateFrame := (*[primitive.WordCount]uint64)(unsafe.Pointer(candidate))
 
-		if candidateFrame[primitive.SignalsStartWord] != 0 {
-			t.Fatalf("status %d candidate out = %d, want idle", status, candidateFrame[primitive.SignalsStartWord])
-		}
+			if !owner.InstallProgram(compiled.Words) {
+				t.Fatal("install program failed")
+			}
+			owner.SetStatus(status)
 
-		owner.Close()
-		candidate.Close()
+			NewOptimizer(context.Background(), []*primitive.Value{owner, candidate}).Workload()()
+
+			if candidateFrame[primitive.SignalsStartWord] != 0 {
+				t.Fatalf("status %d candidate out = %d, want idle", status, candidateFrame[primitive.SignalsStartWord])
+			}
+		}(status)
 	}
 }
 

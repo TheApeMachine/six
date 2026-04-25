@@ -20,6 +20,7 @@ const bridgeMaxBackoff = 5 * time.Second
 const bridgeInitialBackoff = 200 * time.Millisecond
 const bridgeHashOffset64 uint64 = 14695981039346656037
 const bridgeHashPrime64 uint64 = 1099511628211
+const bridgeSentCacheCapacity = 1 << 16
 
 /*
 Bridge is the runtime uplink for raw primitive.Value wire frames.
@@ -44,12 +45,19 @@ type Bridge struct {
 	conn    *websocket.Conn
 	cool    time.Time
 	backoff time.Duration
-	sent    map[uint64]uint64
+	sent    bridgeFingerprintCache
 }
 
 type bridgeFrameFingerprint struct {
 	key  uint64
 	hash uint64
+}
+
+type bridgeFingerprintCache struct {
+	hashes map[uint64]uint64
+	order  []uint64
+	next   int
+	max    int
 }
 
 func NewBridge(ctx context.Context, url string) (*Bridge, error) {
@@ -62,8 +70,82 @@ func NewBridge(ctx context.Context, url string) (*Bridge, error) {
 		cancel:  cancel,
 		url:     trimmed,
 		backoff: bridgeInitialBackoff,
-		sent:    make(map[uint64]uint64),
+		sent:    newBridgeFingerprintCache(bridgeSentCacheCapacity),
 	}, nil
+}
+
+func newBridgeFingerprintCache(max int) bridgeFingerprintCache {
+	if max <= 0 {
+		max = bridgeSentCacheCapacity
+	}
+
+	return bridgeFingerprintCache{
+		hashes: make(map[uint64]uint64, max),
+		order:  make([]uint64, 0, max),
+		max:    max,
+	}
+}
+
+func (cache *bridgeFingerprintCache) Get(key uint64) (uint64, bool) {
+	if cache == nil || cache.hashes == nil {
+		return 0, false
+	}
+
+	hash, ok := cache.hashes[key]
+
+	return hash, ok
+}
+
+func (cache *bridgeFingerprintCache) Add(key, hash uint64) {
+	if cache == nil {
+		return
+	}
+
+	cache.ensure()
+
+	if _, ok := cache.hashes[key]; ok {
+		cache.hashes[key] = hash
+
+		return
+	}
+
+	if len(cache.order) < cache.max {
+		cache.order = append(cache.order, key)
+		cache.hashes[key] = hash
+
+		return
+	}
+
+	evicted := cache.order[cache.next]
+	delete(cache.hashes, evicted)
+
+	cache.order[cache.next] = key
+	cache.hashes[key] = hash
+	cache.next = (cache.next + 1) % cache.max
+}
+
+func (cache *bridgeFingerprintCache) Reset() {
+	if cache == nil || cache.hashes == nil {
+		return
+	}
+
+	clear(cache.hashes)
+	cache.order = cache.order[:0]
+	cache.next = 0
+}
+
+func (cache *bridgeFingerprintCache) ensure() {
+	if cache.max <= 0 {
+		cache.max = bridgeSentCacheCapacity
+	}
+
+	if cache.hashes == nil {
+		cache.hashes = make(map[uint64]uint64, cache.max)
+	}
+
+	if cache.order == nil {
+		cache.order = make([]uint64, 0, cache.max)
+	}
 }
 
 /*
@@ -121,6 +203,7 @@ func (bridge *Bridge) Connect() error {
 		bridge.conn = conn
 		bridge.cool = time.Time{}
 		bridge.backoff = bridgeInitialBackoff
+		bridge.sent.Reset()
 		bridge.connMu.Unlock()
 
 		return nil
@@ -140,6 +223,7 @@ func (bridge *Bridge) connectLocked() error {
 	bridge.conn = conn
 	bridge.cool = time.Time{}
 	bridge.backoff = bridgeInitialBackoff
+	bridge.sent.Reset()
 
 	return nil
 }
@@ -177,6 +261,10 @@ func (bridge *Bridge) Write(p []byte) (int, error) {
 	bridge.connMu.Lock()
 	defer bridge.connMu.Unlock()
 
+	if bridge.url != "" && bridge.conn == nil {
+		bridge.sent.Reset()
+	}
+
 	buf, fingerprints := bridge.changedPayloadLocked(p)
 	if len(fingerprints) == 0 {
 		return len(p), nil
@@ -212,6 +300,7 @@ func (bridge *Bridge) Write(p []byte) (int, error) {
 	if err := bridge.conn.SetWriteDeadline(deadline); err != nil {
 		_ = bridge.conn.Close()
 		bridge.conn = nil
+		bridge.sent.Reset()
 		bridge.scheduleBackoffAfterFailure(now)
 
 		return len(p), nil
@@ -220,6 +309,7 @@ func (bridge *Bridge) Write(p []byte) (int, error) {
 	if err := bridge.conn.WriteMessage(websocket.BinaryMessage, buf); err != nil {
 		_ = bridge.conn.Close()
 		bridge.conn = nil
+		bridge.sent.Reset()
 		bridge.scheduleBackoffAfterFailure(now)
 
 		return len(p), nil
@@ -240,7 +330,7 @@ func (bridge *Bridge) changedPayloadLocked(p []byte) ([]byte, []bridgeFrameFinge
 	}
 
 	fingerprint := bridge.fingerprint(p)
-	if bridge.sent[fingerprint.key] == fingerprint.hash {
+	if hash, ok := bridge.sent.Get(fingerprint.key); ok && hash == fingerprint.hash {
 		return nil, nil
 	}
 
@@ -257,7 +347,7 @@ func (bridge *Bridge) changedFramesLocked(p []byte) ([]byte, []bridgeFrameFinger
 	for start := 0; start < len(p); start += primitive.FrameByteLength {
 		frame := p[start : start+primitive.FrameByteLength]
 		fingerprint := bridge.fingerprint(frame)
-		if bridge.sent[fingerprint.key] == fingerprint.hash {
+		if hash, ok := bridge.sent.Get(fingerprint.key); ok && hash == fingerprint.hash {
 			continue
 		}
 
@@ -286,12 +376,8 @@ func (bridge *Bridge) fingerprint(p []byte) bridgeFrameFingerprint {
 }
 
 func (bridge *Bridge) commitFingerprintsLocked(fingerprints []bridgeFrameFingerprint) {
-	if bridge.sent == nil {
-		bridge.sent = make(map[uint64]uint64)
-	}
-
 	for _, fingerprint := range fingerprints {
-		bridge.sent[fingerprint.key] = fingerprint.hash
+		bridge.sent.Add(fingerprint.key, fingerprint.hash)
 	}
 }
 

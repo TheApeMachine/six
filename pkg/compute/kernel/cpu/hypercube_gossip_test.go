@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -15,6 +16,9 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
 )
+
+const hypercubeGossipConfigEnv = "CONFIG_PATH"
+const DefaultConfigPath = "cmd/cfg/config.yml"
 
 var hypercubeGossipConfigOnce sync.Once
 var hypercubeGossipConfigErr error
@@ -211,11 +215,7 @@ func loadHypercubeGossipConfig(t *testing.T) {
 			return
 		}
 
-		configPath := filepath.Clean(filepath.Join(
-			filepath.Dir(file),
-			"..", "..", "..", "..",
-			"cmd", "cfg", "config.yml",
-		))
+		configPath := hypercubeGossipConfigPath(file)
 
 		viper.SetConfigFile(configPath)
 		hypercubeGossipConfigErr = viper.ReadInConfig()
@@ -229,6 +229,26 @@ func loadHypercubeGossipConfig(t *testing.T) {
 	if hypercubeGossipConfigErr != nil {
 		t.Fatalf("load hypercube gossip config: %v", hypercubeGossipConfigErr)
 	}
+}
+
+func hypercubeGossipConfigPath(file string) string {
+	if configured := os.Getenv(hypercubeGossipConfigEnv); configured != "" {
+		return filepath.Clean(configured)
+	}
+
+	if filepath.IsAbs(DefaultConfigPath) {
+		return filepath.Clean(DefaultConfigPath)
+	}
+
+	if _, err := os.Stat(DefaultConfigPath); err == nil {
+		return filepath.Clean(DefaultConfigPath)
+	}
+
+	return filepath.Clean(filepath.Join(
+		filepath.Dir(file),
+		"..", "..", "..", "..",
+		"cmd", "cfg", "config.yml",
+	))
 }
 
 func BenchmarkPopcntWords(b *testing.B) {

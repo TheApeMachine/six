@@ -251,7 +251,7 @@ func readMachineTelemetryMessage(t *testing.T, messages <-chan int) int {
 	case length := <-messages:
 		return length
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for telemetry message")
+		t.Fatalf("timed out waiting for telemetry message")
 	}
 
 	return 0

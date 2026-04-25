@@ -185,7 +185,8 @@ func (machine *Machine) publishTelemetry(values []*primitive.Value) error {
 	frame := stackFrame[:]
 	if core.Cfg.Value.Bytes > len(stackFrame) {
 		frame = make([]byte, core.Cfg.Value.Bytes)
-	} else {
+	}
+	if len(frame) != core.Cfg.Value.Bytes {
 		frame = stackFrame[:core.Cfg.Value.Bytes]
 	}
 
@@ -221,7 +222,8 @@ func (machine *Machine) stageEncounters() error {
 	frame := stackFrame[:]
 	if core.Cfg.Value.Bytes > len(stackFrame) {
 		frame = make([]byte, core.Cfg.Value.Bytes)
-	} else {
+	}
+	if len(frame) != core.Cfg.Value.Bytes {
 		frame = stackFrame[:core.Cfg.Value.Bytes]
 	}
 
