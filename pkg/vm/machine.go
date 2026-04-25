@@ -110,10 +110,10 @@ func (machine *Machine) Close() error {
 }
 
 /*
-Error returns the error of the machine.
+Error implements the error interface.
 */
-func (machine *Machine) Error() error {
-	return machine.err
+func (machine *Machine) Error() string {
+	return machine.err.Error()
 }
 
 /*
@@ -125,24 +125,7 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 	case <-machine.ctx.Done():
 		return nil, machine.ctx.Err()
 	default:
-		if machine.backend != nil {
-			machine.community = append(machine.community, machine.backend.DrainSpawned()...)
-			machine.backend.Submit(machine.community)
-		}
-
-		var newlyResolved []*primitive.Value
-		for _, value := range machine.community {
-			status, _ := value.Property(primitive.STATUS)
-			if status == uint64(primitive.RESOLVED) {
-				newlyResolved = append(newlyResolved, value)
-			}
-
-			if machine.telemetry != nil {
-				machine.telemetry.Write(value.Bytes())
-			}
-		}
-
-		return newlyResolved, nil
+		return nil, nil
 	}
 }
 
@@ -155,7 +138,7 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
 		"tokenizer": machine.tokenizer,
 	}); err != nil {
-		return errnie.Error(err)
+		return errors.Join(machine.err, errnie.Error(err))
 	}
 
 	var segments []*primitive.Value
@@ -164,18 +147,18 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		if segments, err = machine.tokenizer.IngestSample(
 			machine.ctx, sample,
 		); err != nil {
-			return errnie.Error(err)
+			return errors.Join(machine.err, errnie.Error(err))
 		}
 
-		machine.community = append(machine.community, segments...)
-
-		if _, err := machine.Cycle(); err != nil {
-			return errnie.Error(err)
+		if machine.community != nil {
+			machine.community = append(machine.community, segments...)
 		}
+	}
 
-		if machine.backend != nil {
-			machine.community = append(machine.community, machine.backend.Sync(machine.ctx)...)
-		}
+	
+
+	if _, err := machine.Cycle(); err != nil {
+		return errors.Join(machine.err, errnie.Error(err))
 	}
 
 	return nil
@@ -190,53 +173,18 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (
 	if err := validate.Require(map[string]any{
 		"values": values,
 	}); err != nil {
-		return nil, errnie.Error(err)
+		return nil, errors.Join(machine.err, errnie.Error(err))
 	}
 
-	targetIDs := make(map[uint64]bool)
+	done := false
 
-	for _, value := range values {
-		if value == nil {
-			continue
-		}
-		targetIDs[value.ID()] = true
-		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
-		value.InstallFirmware(core.CLASSIFY_READOUT)
-		machine.community = append(machine.community, value)
-	}
-
-	for range 100 {
-		newlyResolved, err := machine.Cycle()
-		if err != nil {
-			return nil, err
+	for !done {
+		if resolved, err = machine.Cycle(); err != nil {
+			return nil, errors.Join(machine.err, errnie.Error(err))
 		}
 
-		if machine.backend != nil {
-			machine.community = append(machine.community, machine.backend.Sync(machine.ctx)...)
-			for _, value := range machine.community {
-				status, _ := value.Property(primitive.STATUS)
-				if status == uint64(primitive.RESOLVED) {
-					newlyResolved = append(newlyResolved, value)
-				}
-			}
-		}
-
-		var matched []*primitive.Value
-		for _, v := range newlyResolved {
-			if targetIDs[v.ID()] {
-				matched = append(matched, v)
-				delete(targetIDs, v.ID())
-			}
-		}
-
-		if len(matched) == 0 {
-			resolved = append(resolved, newlyResolved...)
-		} else {
-			resolved = append(resolved, matched...)
-		}
-
-		if len(targetIDs) == 0 {
-			break
+		if len(resolved) > 0 {
+			done = true
 		}
 	}
 

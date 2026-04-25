@@ -284,63 +284,32 @@ When `Coverage >= crystallizationFloor` across all communities, no carriers are 
 
 ### Firmware Programs
 
-The following named programs are defined under `programs:` in `config.yml`. Programs that manipulate full 64-bit words cleanly (LSH fingerprinting, signal accumulation, reductions) are implemented as firmware. Operations that require word-level writes outside the LSH sweep (label injection) stay in-band on the learner Value or in Go helpers — see the ALU constraint above.
+The named programs under `programs:` in `config.yml` are being collapsed into a smaller resident-behavior set. They use the bracket/feed/RPN syntax directly over canonical regions and property words; there are no aliases such as `value`, `rom.*`, or `asset.pressure`. Each behavior leaves its own witness in the frame (`signals`, `target`, `reference`, `confidence`, `noise`, `surprisal`, `delta_surprisal`, `gradient`, `continuation`) so the Value remains its own readout.
 
-#### `affinity`
+Current firmware families:
 
-Computes the 5-word LSH fingerprint over the token region and XOR-accumulates the universal-bitwise signature into the affinity words. This is the routing primitive — the affinity fingerprint determines which community a Value joins.
+| Program | Role |
+|---------|------|
+| `link`, `affinity` | Bootstrap mechanics; Values are already stamped with links and affinity at mint time, but firmware forms remain available. |
+| `structural_component` | Signal-driven merge/cancel primitive described in **Signals**; emits structural Values and links residues. |
+| `beam_swarm_step` | Candidate generation: witnesses local token/context gap, updates gradient, and spawns candidate frames. |
+| `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
+| `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
+| `episodic_replay`, `memory_prune` | Memory pressure: compare staged peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
+| `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure using staged peer properties in `asset[24,1]`. |
+| `open_ended_generation` | Experimental generation path: mutate token coordinates by gradient and spawn only frames that survive the structural witness. |
 
-```
-tokens[0,16] tokens[0,16] affinity[0,5] xor accumulate
-```
-
-#### `unsupervised_learn`
-
-Peer-similarity readout. The peer under comparison is delivered into the learner through the gossip substrate: `io.Copy` from the peer into a `gossip.Conn` that bundles the learner as its receiver. `Conn.Write` invokes `StageAssetFrom`, which copies the peer's contiguous Signals+Context+Gradient+Properties block into the learner's `asset[0,32]`:
-
-```text
-asset[0,8]   ← peer.signals
-asset[8,8]   ← peer.context
-asset[16,8]  ← peer.gradient
-asset[24,8]  ← peer.properties (canonical 8-word band)
-```
-
-The program XORs the learner's own context against the peer's context (`asset[8,8]`) and OR-reduces the 64-byte signature into `properties[1,1]` as the in-band similarity metric. Shared structure surfaces as a long zero-run; divergence as a long one-run.
-
-```
-context[0,8] asset[8,8]   signals[0,8]    xor accumulate
-signals[0,8] signals[0,8] properties[1,1] or  reduce
-```
-
-#### `episodic_replay`
-
-Same primitive as `unsupervised_learn`, different routing convention: the carrier is the sequence predecessor (chosen by `PrevID` residency) rather than an unrelated community member. The chain delta — how this Value diverges from the one that preceded it — is the XOR of local context against the predecessor's staged context, reduced into `properties[1,1]`. No recursive loop: one observation per delivered predecessor; multi-hop walks are chains of deliveries through the gossip substrate, not program loops.
-
-#### `intervene` (Pearl L2 `do(X)`)
-
-Counterfactual perturbation. A carrier from a foreign community is written into this Value with no `PrevID` stamp, severing causal history. `StageAssetFrom` delivers the foreign S+C+G+P into `asset[0,32]`, and the program XORs local context against the injected gradient (`asset[16,8]`) — the direction the do-operation is pushing the receiver relative to the attractor it was already converging on. Reduced signature lands in `properties[0,1]` as the intervention witness.
-
-#### `classify_readout`
-
-Tiny label readout. When a Value carries a dataset label in properties slot 0 (word 48), the `classify` rule fires this single OR line to broadcast the label into `signals[0,1]` so downstream observers can see the class without mutating the source Value.
-
-#### `measure_field`
-
-Permanent community resident. See **Field Crystallization** above.
-
-#### `inject_labels` (not implemented)
-
-Unsupervised learning does not inject labels back into source Values from Go. Settled learner results stay in-band on the learner itself. A future ALU extension for word-level writes would let label slots 1–3 be written by firmware; until then, labels flow only through emitted carrier Values.
+Reducer operations use the direct RPN contract: `{ A(surprisal) A(signals) popcnt }` means "store `popcnt(A(signals))` in `A(surprisal)`." If a backend/lowerer drifts from that meaning, the compiler is wrong, not the source language.
 
 ### How Programs See Peer Data — the Gossip Substrate
 
 The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data reaches a program by being **written into that Value** through an `io.ReadWriter` composition:
 
 ```text
-peer Value   ──io.Copy──▶   gossip.Conn   ──Write──▶   receiver.asset[0,32]
+peer Value   ──io.Copy──▶   gossip.Conn   ──Write──▶   receiver.asset[0,40] + receiver.asset[40,5]
 ```
 
-`Value`, `gossip.Conn`, and **`mesh.Field`** all implement `io.ReadWriteCloser`, so `io.MultiWriter`, `io.MultiReader`, and `io.TeeReader` express fan-out, fan-in, and fast paths without any custom routing layer. `Conn.Write` invokes `StageAssetFrom` on every bundled receiver, copying the source's Signals+Context+Gradient+Properties (48 words) into `asset[0,48]`. The ALU then runs with peer state already in-band. No Go-side registry. No per-program staging path. Selection of who writes to whom is the field's job, expressed by which `io.ReadWriteCloser` ends up wired to which.
+`Value`, `gossip.Conn`, and **`mesh.Field`** all implement `io.ReadWriteCloser`, so `io.MultiWriter`, `io.MultiReader`, and `io.TeeReader` express fan-out, fan-in, and fast paths without any custom routing layer. `Conn.Write` stages the peer's Signals, Context, Gradient, and Properties into `asset[0,40]`, then stages peer Affinity into `asset[40,5]`. The ALU then runs with peer state already in-band. No Go-side registry. No per-program staging path. Selection of who writes to whom is the field's job, expressed by which `io.ReadWriteCloser` ends up wired to which.
 
 ---
 
@@ -433,12 +402,13 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 
 **Causal modelling is a system behaviour, not an inference call.** The rule engine in `cmd/cfg/config.yml` drives every Value through the causal cycle autonomously — no Go-side orchestration ever asks "should this Value now form a hypothesis?" The rules observe region state and fire firmware, in this order once the bootstrap `link → affinity → explore` cascade has settled:
 
-1. **`hypothesize`** — affinity routed, `context[0,8]` and `gradient[0,8]` carry a live belief, `properties[0,1]` holds the reduced surprisal, and `properties[1,1]` (the refutation target) is still empty. The `hypothesis` program XORs context against gradient into `signals[0,8]`, reduces that signature into `properties[1,1]`, and folds the Value's own `id[0,1]` to guarantee a non-zero target. **This is the "what if" question being asked autonomously.**
-2. **`falsify`** — a target is armed. The existing `falsification` program runs the Popperian test: XOR tokens against context, reduce back into `properties[1,1]`. The kernel's `ApplyRefutationProbe` runs post-ALU — when signals have a ≥48-bit one-run it stamps `FalsifiedBitNoiseWord` into `properties[4,1]`, clears the heartbeat, and clears `properties[1,1]`. No Go-side classifier reads signals; the refutation test lives in the kernel.
-3. **`iterate_causal`** — `properties[4,1]` is stamped. `causal_hub` loops via `properties.continuation`, drifting gradient through stacked `asset[40,8]` residuals. Each heartbeat advances the belief along the counterfactual the refutation revealed — this is the "what would be different if that claim weren't true" question being answered in-band.
-4. **`do_intervention`** — a foreign carrier with severed history (`prev[0,1]: false`) lands via `Conn.Write` with its gradient staged in `asset[16,8]`. The `intervene` program folds the foreign gradient into local gradient and reduces the scalar witness into `properties[0,1]`. The rule is placed before `peer_gap` so severed-history carriers take the do-operation path instead of the unsupervised similarity path — the semantics diverge even though both observe a staged peer.
+1. **`hypothesis`** — `context[0,8]` and `gradient[0,8]` carry the live belief. The program writes `context ^ gradient` into `signals[0,8]`, reduces that signature into `target`, ORs in the Value's own `id` so the target cannot collapse to zero, stamps `reference = id`, and emits an ephemeral child carrying `context`, `gradient`, `target`, `reference`, `prev`, and `ttl`. **This is the "what if" question being asked autonomously.**
+2. **`falsification`** — a target is armed. The program compares the predicted-absent local context against the staged downstream peer context in `asset[8,8]`, writes the XOR into `signals[0,8]`, reduces the scalar refutation witness into `noise`, and folds the staged peer target from `asset[33,1]` into `reference`. The wide `signals` lane remains intact for the long-run probe; no Go-side classifier reads the result.
+3. **`causal_explore`** — the ephemeral lineage carries the armed `target` and `reference`, drifts `context` by `gradient` while `surprisal` remains non-zero, emits descendants while `ttl` is live, and stops by clearing `continuation` when the TTL lane expires.
+4. **`causal_hub`** — a refutation witness in `noise` lets the hub absorb the residual `context ^ asset[8,8]`: `confidence` and `surprisal` witness the residual strength, `delta_surprisal` witnesses motion, and `gradient` changes only when the Value is carrying a real refutation. When the residual stabilises, `noise`, `target`, and `continuation` clear.
+5. **`intervene`** — a severed-history carrier (`prev == 0`) with a foreign gradient staged in `asset[16,8]` takes the `do()` path. The program folds that gradient into local `gradient`, reduces the intervention witness into `surprisal`, stamps `target/reference`, and emits an observation lineage so downstream drift is measured in-band.
 
-Agency is the rule engine's first-match-wins traversal over the Value's own region state. Hypotheses are generated because the shape of the regions after `beam_swarm_step` is exactly the shape `hypothesize` matches. Refutations cascade into counterfactuals because `ApplyRefutationProbe` stamps a witness that `iterate_causal` reads. Nothing in the Go code decides when to ask "what if"; the substrate asks.
+Agency is the resident program chain's traversal over the Value's own region state. Hypotheses are generated because the shape of the regions after `beam_swarm_step` is exactly the shape `hypothesis` consumes. Refutations cascade into counterfactuals because `falsification` stamps `noise`, and `causal_hub` consumes that witness. Nothing in Go decides when to ask "what if"; the substrate asks.
 
 | Concept                         | Substrate mechanism                                                |
 |---------------------------------|--------------------------------------------------------------------|
@@ -448,7 +418,7 @@ Agency is the rule engine's first-match-wins traversal over the Value's own regi
 | World update                    | Mode shifts as the new Value joins the cluster                     |
 | Multiple perspectives / what-if | Phase-rotated attractor Values, one population race per rotation   |
 | Counterfactual                  | Ephemeral Value with low TTL, cascade self-terminates after N hops |
-| Falsification                   | `XOR` against predicted-absent pattern, long one-run = claim held  |
+| Falsification                   | `XOR` against predicted-absent pattern, `noise` plus long-run signal |
 | Causal edge                     | `PrevID` → `NextID` residency in the live population               |
 | Causal discovery                | Emission lineage of cancel / merge signals                         |
 | Intervention                    | Publishing a Value and observing downstream drift                  |

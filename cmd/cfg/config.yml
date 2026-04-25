@@ -144,57 +144,173 @@ programs:
         { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 96 bits applying AND
         { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 112 bits applying AND
     ]
-  popcount: |
-    [ { A(affinity[4,1]) A(affinity[0,5]) popcnt } ]
-  coupling: |
-    [ { A(tokens[0,16]) A(affinity[0,5]) & } ]
-    [ { A(signals[0,1]) A(signals[0,1]) popcnt } ]
-    [ { A(tokens[0,16]) A(affinity[0,5]) | } ]
-    [ { A(signals[1,1]) A(signals[1,1]) popcnt } ]
   beam_swarm_step: |
-    [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
-    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
-    [ { A(signals[7,1]) A(signals[0,8]) popcnt } ]
-    [ { A(signals[7,1]) A(confidence) | } ]
-    [ { A(affinity[0,5]) A(signals[7,1]) ^ } ]
-    [ { A(gradient[0,8]) A(signals[0,8]) ^ } ]
-    [ { A(continuation) A(id) | } ]
+    <[
+      { B(context[0,8]) A(context[0,8]) ^ }
+      { B(gradient[0,8]) A(gradient[0,8]) ^ }
+      { B(prev) A(id) B }
+      { B(continuation) B(id) B }
+    ]> [
+      { A(confidence) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(gradient[0,8]) A(signals[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(tokens[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) clear B }
+    ]
   surprisal: |
-    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
-    [ { A(signals[7,1]) A(signals[0,8]) popcnt } ]
-    [ { A(gradient[0,8]) A(signals[0,8]) ^ } ]
-    [ { A(continuation) A(id) | } ]
+    [ { A(continuation) A(id) B } ] <= [
+      { A(delta_surprisal) A(surprisal) ^ }
+    ] <= [
+      { A(delta_surprisal) A(prev_surprisal) ^ }
+    ] <= [
+      { A(delta_surprisal) clear B }
+    ] <= [
+      { A(surprisal) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(gradient[0,8]) A(signals[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(tokens[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) clear B }
+    ] <= [
+      { A(prev_surprisal) A(surprisal) B }
+    ]
   hypothesis: |
-    [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
-    [ { A(confidence) A(signals[0,8]) popcnt } ]
-    [ { A(confidence) A(id) | } ]
+    <[
+      { B(context[0,8]) A(context[0,8]) B }
+      { B(gradient[0,8]) A(gradient[0,8]) B }
+      { B(target) A(target) B }
+      { B(reference) A(reference) B }
+      { B(prev) A(id) B }
+      { B(ttl) A(ttl) B }
+      { B(continuation) A(id) B }
+    ]> [
+      { { A(target) 0 != } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(target) 0 != } ? }
+    ] <= [
+      { A(reference) A(id) B }
+    ] <= [
+      { A(target) A(id) | }
+    ] <= [
+      { A(target) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(signals[0,8]) A(gradient[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ] <= [
+      { A(noise) clear B }
+    ]
+  falsification: |
+    [ { A(continuation) clear B } ] <= [
+      { { A(noise) 0 == } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(noise) 0 != } ? }
+    ] <= [
+      { A(reference) A(asset[33,1]) | }
+    ] <= [
+      { { A(noise) 0 != } ? }
+    ] <= [
+      { A(noise) A(signals[0,8]) any_zero }
+    ] <= [
+      { A(signals[0,8]) A(asset[8,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ] <= [
+      { A(noise) clear B }
+    ]
   memory_prune: |
-    [ { A(confidence) 1 | } ] <= [ { { A(status) 0 != } ? } ]
-    [ { A(confidence) 1 \ } ] <= [ { { A(signals[7,1]) 0 != } ? } ]
-    [ { A(ttl) 1 \ } ] <= [ { { A(confidence) 0 == } ? } ]
-    [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
-    [ { A(continuation) A(id) } ] <= [ { { A(ttl) 0 != } ? } ]
-  temperature: |
-    [ { A(affinity[0,5]) A(temperature) ^ } ]
-    [ { A(temperature) 1 | } ] <= [ { { A(delta_surprisal) 0 == } ? } ]
-    [ { A(ttl) 1 \ } ] <= [ { { A(temperature) 0 != } ? } ]
-    [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
-    [ { A(continuation) A(id) } ] <= [ { { A(ttl) 0 != } ? } ]
+    [ { A(continuation) clear B } ] <= [
+      { { A(ttl) 0 == } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(ttl) 0 != } ? }
+    ] <= [
+      { A(confidence) A(signals[0,1]) | }
+    ] <= [
+      { { A(noise) 0 == } ? }
+    ] <= [
+      { A(confidence) A(noise) \ }
+    ] <= [
+      { { A(noise) 0 != } ? }
+    ]
   active_inference: |
-    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
-    [ { A(prev_surprisal) A(surprisal) | } ]
-    [ { A(surprisal) A(signals[0,8]) popcnt } ]
-    [ { A(delta_surprisal) A(prev_surprisal) ^ } ]
-    [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
-    [ { A(continuation) 0 } ] <= [ { { A(surprisal) 0 == } ? } ]
-    [ { A(status) 5 B } ] <= [ { { A(surprisal) 0 == } ? } ]
-    [ { A(continuation) A(id) } ] <= [ { { A(surprisal) 0 != } ? } ]
+    [ { A(continuation) clear B } ] <= [
+      { { A(surprisal) 0 == } ? }
+    ] <= [
+      { A(status) 5 B }
+    ] <= [
+      { { A(surprisal) 0 == } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(surprisal) 0 != } ? }
+    ] <= [
+      { A(context[0,8]) A(gradient[0,8]) ^ }
+    ] <= [
+      { { A(surprisal) 0 != } ? }
+    ] <= [
+      { A(delta_surprisal) A(surprisal) ^ }
+    ] <= [
+      { A(delta_surprisal) A(prev_surprisal) ^ }
+    ] <= [
+      { A(delta_surprisal) clear B }
+    ] <= [
+      { A(surprisal) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(gradient[0,8]) A(signals[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(tokens[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) clear B }
+    ] <= [
+      { A(prev_surprisal) A(surprisal) B }
+    ]
   causal_explore: |
-    [ { A(tokens[0,8]) A(context[0,8]) -> } ]
-    [ { A(signals[7,1]) A(signals[0,8]) any_zero } ]
-    [ { A(gradient[0,8]) A(context[0,8]) ^ } ] <= [ { { A(signals[7,1]) 0 != } ? } ]
-    [ { A(status) 4 B } ] <= [ { { A(signals[7,1]) 0 == } ? } ]
-    [ { A(continuation) 0 } ]
+    <[
+      { B(context[0,8]) A(context[0,8]) B }
+      { B(gradient[0,8]) A(gradient[0,8]) B }
+      { B(target) A(target) B }
+      { B(reference) A(reference) B }
+      { B(prev) A(id) B }
+      { B(ttl) A(ttl) B }
+      { B(continuation) A(id) B }
+    ]> [
+      { { A(ttl) 0 != } ? }
+    ] <= [
+      { A(continuation) clear B }
+    ] <= [
+      { { A(ttl) 0 == } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(ttl) 0 != } ? }
+    ] <= [
+      { A(context[0,8]) A(gradient[0,8]) ^ }
+    ] <= [
+      { { A(surprisal) 0 != } ? }
+    ] <= [
+      { A(noise) A(signals[0,8]) any_zero }
+    ] <= [
+      { A(surprisal) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(signals[0,8]) A(gradient[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ]
   recruit_community: |
     <[{ A clear }]> [
         { A(affinity) B(affinity) ^ }
@@ -208,58 +324,151 @@ programs:
         { { A(affinity) B(affinity) ^ } 64 | }
     ]
   causal_hub: |
-    [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
-    [ { A(gradient[0,8]) A(context[0,8]) ^ } ]
-    [ { A(signals[7,1]) A(signals[0,8]) popcnt } ]
-    [ { A(signals[7,1]) A(epoch) | } ]
-    [ { A(gradient[0,8]) A(asset[40,8]) ^ } ]
-    [ { A(continuation) A(id) | } ]
+    [ { A(continuation) clear B } ] <= [
+      { { A(delta_surprisal) 0 == } ? }
+    ] <= [
+      { A(noise) clear B }
+    ] <= [
+      { { A(delta_surprisal) 0 == } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(delta_surprisal) 0 != } ? }
+    ] <= [
+      { A(target) clear B }
+    ] <= [
+      { { A(noise) 0 != } ? }
+    ] <= [
+      { A(gradient[0,8]) A(signals[0,8]) ^ }
+    ] <= [
+      { { A(noise) 0 != } ? }
+    ] <= [
+      { A(delta_surprisal) A(surprisal) ^ }
+    ] <= [
+      { A(delta_surprisal) A(prev_surprisal) ^ }
+    ] <= [
+      { A(delta_surprisal) clear B }
+    ] <= [
+      { A(surprisal) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(confidence) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(signals[0,8]) A(asset[8,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ] <= [
+      { A(prev_surprisal) A(surprisal) B }
+    ]
   open_ended_generation: |
-    [ { A(tokens[0,16]) A(asset[8,16]) ^ } ]
-    [ { A(tokens[0,8]) A(context[0,8]) -> } ]
-    [ { A(signals[7,1]) A(signals[0,8]) any_zero } ]
-    [ { A(continuation) 0 } ] <= [ { { A(signals[7,1]) 0 != } ? } ]
-    <[{ A clear }]> <= [ { { A(signals[7,1]) 0 == } ? } ]
+    <[
+      { B(tokens[0,16]) A(tokens[0,16]) B }
+      { B(context[0,8]) A(context[0,8]) B }
+      { B(prev) A(id) B }
+    ]> [
+      { A(continuation) clear B }
+    ] <= [
+      { { A(noise) 0 != } ? }
+    ] <= [
+      { A(noise) A(signals[0,8]) any_zero }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) -> }
+    ] <= [
+      { A(tokens[0,8]) A(gradient[0,8]) ^ }
+    ]
   survey_community: |
-    [ { A(context[7,1]) A(context[6,1]) } ]
-    [ { A(context[6,1]) A(context[5,1]) } ]
-    [ { A(context[5,1]) A(context[4,1]) } ]
-    [ { A(context[4,1]) A(context[3,1]) } ]
-    [ { A(context[3,1]) A(context[2,1]) } ]
-    [ { A(context[2,1]) A(context[1,1]) } ]
-    [ { A(context[1,1]) A(context[0,1]) } ]
-    [ { A(context[0,1]) A(asset[24,1]) } ]
-    [ { A(labels) A(context[0,8]) popcnt } ]
-    [ { A(status) 5 B } ] <= [ { { A(labels) 0 != } ? } ]
-    [ { A(continuation) 0 } ] <= [ { { A(labels) 0 != } ? } ]
-    [ { A(continuation) A(id) } ] <= [ { { A(labels) 0 == } ? } ]
-  meta_controller: |
-    [ { A(continuation) 6 B } ] <= [ { { A(surprisal) 0 == } ? } ]
-    [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
-    [ { A(continuation) 7 B } ] <= [ { { A(surprisal) 0 != } ? } ]
+    [ { A(continuation) clear B } ] <= [
+      { { A(labels) 0 != } ? }
+    ] <= [
+      { A(status) 5 B }
+    ] <= [
+      { { A(labels) 0 != } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(labels) 0 == } ? }
+    ] <= [
+      { A(labels) A(asset[24,1]) | }
+    ] <= [
+      { { A(asset[24,1]) 0 != } ? }
+    ] <= [
+      { A(confidence) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(signals[0,8]) A(asset[8,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ]
   classify_readout: |
-    [ { A(labels) A(asset[24,1]) } ] <= [ { { A(labels) 0 == } ? } ]
-    [ { A(labels) A(labels) | } ]
-    [ { A(status) 5 B } ] <= [ { { A(labels) 0 != } ? } ]
-    [ { A(continuation) 0 } ] <= [ { { A(labels) 0 != } ? } ]
-    [ { A(continuation) A(id) } ] <= [ { { A(labels) 0 == } ? } ]
+    [ { A(continuation) clear B } ] <= [
+      { { A(labels) 0 != } ? }
+    ] <= [
+      { A(status) 5 B }
+    ] <= [
+      { { A(labels) 0 != } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(labels) 0 == } ? }
+    ] <= [
+      { A(labels) A(asset[24,1]) | }
+    ] <= [
+      { { A(asset[24,1]) 0 != } ? }
+    ]
   episodic_replay: |
-    [ { A(context[0,8]) A(asset[8,8]) ^ } ]
-    [ { A(confidence) A(signals[0,8]) popcnt } ]
+    [ { A(confidence) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(gradient[0,8]) A(signals[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(asset[8,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ]
   intervene: |
-    [ { A(context[0,8]) A(asset[16,8]) ^ } ]
-    [ { A(signals[7,1]) A(signals[0,8]) | } ]
-    [ { A(signals[7,1]) A(signals[7,1]) popcnt } ]
-    [ { A(gradient[0,8]) A(asset[16,8]) ^ } ]
+    <[
+      { B(context[0,8]) A(context[0,8]) B }
+      { B(gradient[0,8]) A(gradient[0,8]) B }
+      { B(target) A(target) B }
+      { B(reference) A(reference) B }
+      { B(prev) A(id) B }
+      { B(ttl) A(ttl) B }
+      { B(continuation) A(id) B }
+    ]> [
+      { { A(prev) 0 == } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(prev) 0 == } ? }
+    ] <= [
+      { A(reference) A(id) B }
+    ] <= [
+      { A(target) A(id) | }
+    ] <= [
+      { A(gradient[0,8]) A(asset[16,8]) ^ }
+    ] <= [
+      { A(surprisal) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(signals[0,8]) A(asset[16,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ]
   vote_swarm: |
-    [ { A(context[0,8]) A(asset[0,8]) ^ } ]
-    [ { A(asset[24,1]) 0 } ] <= [ { { A(labels) 0 != } ? } ]
-    [ { A(labels) A(asset[24,1]) | } ] <= [ { { A(asset[24,1]) 0 != } ? } ]
-    [ { A(signals[1,1]) A(labels) } ]
-    [ { A(signals[2,1]) A(role) 5 ^ } ]
-    [ { A(signals[1,1]) 0 } ] <= [ { { A(signals[2,1]) 0 != } ? } ]
-    [ { A(role) 3 B } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
-    [ { A(status) 5 B } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
-    [ { A(surprisal) 1 B } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
-    [ { A(continuation) 0 } ] <= [ { { A(signals[1,1]) 0 != } ? } ]
-    [ { A(continuation) A(id) } ] <= [ { { A(signals[1,1]) 0 == } ? } ]
+    [ { A(continuation) clear B } ] <= [
+      { { A(labels) 0 != } ? }
+    ] <= [
+      { A(status) 5 B }
+    ] <= [
+      { { A(labels) 0 != } ? }
+    ] <= [
+      { A(continuation) A(id) B }
+    ] <= [
+      { { A(labels) 0 == } ? }
+    ] <= [
+      { A(labels) A(asset[24,1]) | }
+    ] <= [
+      { { A(asset[24,1]) 0 != } ? }
+    ] <= [
+      { A(confidence) A(signals[0,8]) popcnt }
+    ] <= [
+      { A(signals[0,8]) A(asset[0,8]) ^ }
+    ] <= [
+      { A(signals[0,8]) A(context[0,8]) B }
+    ]

@@ -86,6 +86,27 @@ func TestFeedExampleProgramMatchesContract(t *testing.T) {
 	}
 }
 
+func TestFeedReducerStoreMatchesContract(t *testing.T) {
+	t.Parallel()
+
+	lay := layoutLikeConfigViper()
+	out, err := Compile(`[ { A(surprisal) A(signals[0,8]) popcnt } ]`, lay)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(out.Words) != 1 {
+		t.Fatalf("expected 1 word, got %d", len(out.Words))
+	}
+
+	aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
+	if aStart != 68 || aSpan != 1 || bStart != 32 || bSpan != 8 || dstStart != 68 || dstSpan != 1 {
+		t.Fatalf("unexpected spans: a=%d/%d b=%d/%d dst=%d/%d", aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
+	}
+	if opcode != Opcodes["B"] || mode != ModePopcnt || bType != InstrBTypeDirect {
+		t.Fatalf("unexpected reducer lowering: opcode=0x%x mode=%d bType=%d", opcode, mode, bType)
+	}
+}
+
 func TestCompiler(t *testing.T) {
 	lay := Layout{
 		Regions: map[string]RegionExtent{

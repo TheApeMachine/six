@@ -688,7 +688,7 @@ func parseFeedExpr(parts []string) (feedExpr, error) {
 	}
 
 	if len(stack) == 2 {
-		return feedExpr{left: stack[0].left, right: stack[1].left, op: "B", mode: ModeTruth}, nil
+		return feedExpr{left: stack[0].left, right: stack[1].left, op: "B", mode: stack[1].mode}, nil
 	}
 
 	return feedExpr{}, fmt.Errorf("operation leaves %d stack values: %v", len(stack), parts)
