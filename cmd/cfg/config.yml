@@ -279,6 +279,70 @@ programs:
     ] <= [
       { A(prev_surprisal) A(surprisal) B }
     ]
+  program_select: |
+    [ { B(continuation) id B } ] <= [
+      { { B(program_id) 0 != } ? }
+    ] <= [
+      { B(program_id) 10 B }
+    ] <= [
+      { { B(labels) 0 != } ? }
+    ] <= [
+      { B(program_id) 9 B }
+    ] <= [
+      { { B(asset[24,1]) 0 != } ? }
+    ] <= [
+      { B(program_id) 7 B }
+    ] <= [
+      { { B(asset[16,1]) 0 != } ? }
+    ] <= [
+      { B(program_id) 6 B }
+    ] <= [
+      { { B(noise) 0 != } ? }
+    ] <= [
+      { B(program_id) 4 B }
+    ] <= [
+      { { B(target) 0 != } ? }
+    ] <= [
+      { B(program_id) clear B }
+    ] <= [
+      { { B(surprisal) 0 == } ? }
+    ] <= [
+      { B(program_id) 3 B }
+    ] <= [
+      { { B(delta_surprisal) 0 == } ? }
+    ] <= [
+      { B(program_id) 2 B }
+    ] <= [
+      { { B(delta_surprisal) 0 != } ? }
+    ] <= [
+      { B(program_id) 1 B }
+    ] <= [
+      { { B(surprisal) 0 != } ? }
+    ] <= [
+      { B(program_id) 5 B }
+    ] <= [
+      { { B(ttl) 0 != } ? }
+    ] <= [
+      { B(program_id) clear B }
+    ] <= [
+      { B(continuation) clear B }
+    ]
+  program_carrier: |
+    [ { B(program[0,16]) A(asset[0,16]) B } ] <= [
+      { { B(signals[0,1]) 0 == } ? }
+    ] <= [
+      { B(status) 1 B }
+    ] <= [
+      { { B(signals[0,1]) 0 == } ? }
+    ] <= [
+      { B(continuation) id B }
+    ] <= [
+      { { B(signals[0,1]) 0 == } ? }
+    ] <= [
+      { B(signals[0,1]) A(program_id) ^ }
+    ] <= [
+      { B(signals[0,1]) program_id B }
+    ]
   causal_explore: |
     <[
       { B(context[0,8]) A(context[0,8]) B }

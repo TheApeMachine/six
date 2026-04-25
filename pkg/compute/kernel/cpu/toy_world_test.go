@@ -127,6 +127,15 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 	if sFrame[59] != 10 {
 		t.Fatalf("expected spawned value to inherit TTL 10, got %d", sFrame[59])
 	}
+	if spawned[0].HasProgram() {
+		t.Fatalf("expected spawned value to start without an inherited program")
+	}
+	if spawned[0].SchedulingNext() != 0 {
+		t.Fatalf("expected spawned value to start without an inherited continuation")
+	}
+	if spawned[0].Status() != primitive.PENDING {
+		t.Fatalf("expected spawned value to start pending, got %d", spawned[0].Status())
+	}
 }
 
 func TestStructuralComponentEmitsThroughProgram(t *testing.T) {

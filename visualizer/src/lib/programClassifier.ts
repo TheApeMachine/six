@@ -152,7 +152,7 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			label: "resident",
 			color: [0, 200, 255],
 			shape: "ring",
-			description: "measure_field — field-level resident",
+			description: "resident selector / carrier / field program",
 		},
 		util: {
 			category: "util",
@@ -194,6 +194,8 @@ const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	causal_hub: "gap_probe",
 	falsification: "gap_probe",
 	hypothesis: "gap_probe",
+	program_select: "resident",
+	program_carrier: "resident",
 	measure_field: "resident",
 	popcount: "util",
 	coupling: "util",

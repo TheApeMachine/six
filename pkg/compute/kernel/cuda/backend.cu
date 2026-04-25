@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "../shared/primitives.h"
+#include "../shared/postexec_layout.h"
 
 #define OPCODE_GEOMETRIC_MASK 0xF0
 #define OPCODE_GEOMETRIC_COMPOSE 0x10
@@ -531,6 +532,9 @@ __global__ void hypercube_ast_kernel(
                         if (spawn_active[lid] == 0) {
                             for (uint32_t word = 0; word < WORDS; word++) spawned[word] = source[word];
                             spawned[ID_START_WORD] = spawn_ids[lid];
+                            for (uint32_t word = 0; word < PROGRAM_WORDS; word++) spawned[PROGRAM_START_WORD + word] = 0;
+                            spawned[SCHEDULING_NEXT_PROGRAM_WORD] = 0;
+                            spawned[PROPERTIES_STATUS_WORD] = STATUS_PENDING;
                             spawn_active[lid] = 1;
                         }
 

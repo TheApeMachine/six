@@ -53,12 +53,17 @@ Workload returns the workload to be executed.
 */
 func (optimizer *Optimizer) Workload() func() {
 	return func() {
-		owner := optimizer.programOwner()
-		if owner == nil {
-			optimizer.spawned = cpu.HypercubeGossip(nil, optimizer.values)
+		ownerIdx := scheduledProgramOwner(optimizer.values)
+		if ownerIdx < 0 {
 			return
 		}
+
+		owner := optimizer.values[ownerIdx]
+		programBefore := snapshotProgram(owner)
+		ttlBefore := owner.TTL()
+		owner.SetStatus(primitive.BUSY)
 		optimizer.spawned = cpu.HypercubeGossip(owner, optimizer.values)
+		finalizeProgramOwner(owner, programBefore, ttlBefore)
 	}
 }
 
@@ -69,13 +74,4 @@ func (optimizer *Optimizer) Optimize() {}
 
 func (optimizer *Optimizer) Spawned() []*primitive.Value {
 	return optimizer.spawned
-}
-
-func (optimizer *Optimizer) programOwner() *primitive.Value {
-	for _, value := range optimizer.values {
-		if value != nil && value.HasProgram() {
-			return value
-		}
-	}
-	return nil
 }

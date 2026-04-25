@@ -8,7 +8,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -361,8 +360,6 @@ single-shot delimiter — stream assemblers that keep pulling frames
 end of the byte source.
 */
 func (value *Value) Read(p []byte) (int, error) {
-	errnie.Trace("primitive.Value.Read", "ID", value.ID())
-
 	if len(p) < core.Cfg.Value.Bytes {
 		return 0, io.ErrShortBuffer
 	}
@@ -405,16 +402,13 @@ func (value *Value) Write(p []byte) (int, error) {
 	tmpVal := AllocValue()
 	valueFrom(p, tmpVal)
 
-	errnie.Trace(
-		"primitive.Value.Write", "ID", value.ID(), "tmpValID", tmpVal.ID(),
-	)
-
 	copy(
 		(*value)[assetStart:assetStart+stageWords],
 		(*tmpVal)[signalsStart:signalsStart+stageWords],
 	)
 
 	affinityStart, affinityWords := AffinityRegion.WordExtent()
+
 	copy(
 		(*value)[assetStart+stageWords:assetStart+stageWords+affinityWords],
 		(*tmpVal)[affinityStart:affinityStart+affinityWords],

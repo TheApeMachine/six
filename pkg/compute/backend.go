@@ -22,6 +22,8 @@ const (
 	QueueTypePriority
 )
 
+const ttlExpiredSentinel = uint64(1) << 63
+
 /*
 Backend is a small load balancer over compute substrates (CUDA, Metal, CPU).
 It picks the lowest-pressure candidate using inflight × EMA service time.
@@ -84,6 +86,10 @@ Submit schedules in-value execution over a community.
 */
 func (backend *Backend) Submit(community []*primitive.Value) bool {
 	if backend == nil || len(community) == 0 {
+		return false
+	}
+
+	if scheduledProgramOwner(community) < 0 {
 		return false
 	}
 
@@ -167,7 +173,18 @@ func (backend *Backend) runHypercubeGossip(community []*primitive.Value) {
 		return
 	}
 
-	spawned, err := substrate.HypercubeGossip(programOwner(community), community)
+	ownerIdx := scheduledProgramOwner(community)
+	if ownerIdx < 0 {
+		return
+	}
+
+	owner := community[ownerIdx]
+	programBefore := snapshotProgram(owner)
+	ttlBefore := owner.TTL()
+	owner.SetStatus(primitive.BUSY)
+
+	spawned, err := substrate.HypercubeGossip(owner, community)
+	finalizeProgramOwner(owner, programBefore, ttlBefore)
 	if err != nil {
 		errnie.Error(err)
 
@@ -193,14 +210,80 @@ func (backend *Backend) nextSubstrate() kernel.Substrate {
 	return backend.substrates[int(idx%uint64(len(backend.substrates)))]
 }
 
-func programOwner(values []*primitive.Value) *primitive.Value {
-	for _, value := range values {
-		if value != nil && value.HasProgram() {
-			return value
+func scheduledProgramOwner(values []*primitive.Value) int {
+	for idx, value := range values {
+		if value != nil && value.ReadyForALU() {
+			return idx
 		}
 	}
 
-	return nil
+	return -1
+}
+
+func finalizeProgramOwner(value *primitive.Value, programBefore [primitive.ProgramWords]uint64, ttlBefore uint64) {
+	if value == nil {
+		return
+	}
+
+	ttlExpired := ttlExpiredAfterTick(value, ttlBefore)
+
+	if !ttlExpired && value.Status() == primitive.READY && programChanged(value, programBefore) && value.SchedulingNext() != 0 {
+		return
+	}
+
+	value.ClearProgram()
+	value.SetSchedulingNext(0)
+	value.SetStatus(primitive.DONE)
+}
+
+func ttlExpiredAfterTick(value *primitive.Value, before uint64) bool {
+	ttl := value.TTL()
+	if ttl == ^uint64(0) {
+		return false
+	}
+	if ttl&ttlExpiredSentinel != 0 {
+		value.SetProperty(primitive.TTL, 0)
+		return true
+	}
+	if ttl != before {
+		return ttl == 0 && before != 0 && before != ^uint64(0)
+	}
+	if ttl == 0 {
+		return false
+	}
+
+	return value.DecTTL() == 0
+}
+
+func snapshotProgram(value *primitive.Value) [primitive.ProgramWords]uint64 {
+	var snapshot [primitive.ProgramWords]uint64
+
+	if value == nil {
+		return snapshot
+	}
+
+	copy(snapshot[:], value.Get(primitive.ProgramRegion))
+
+	return snapshot
+}
+
+func programChanged(value *primitive.Value, before [primitive.ProgramWords]uint64) bool {
+	if value == nil {
+		return false
+	}
+
+	after := value.Get(primitive.ProgramRegion)
+	if len(after) != primitive.ProgramWords {
+		return true
+	}
+
+	for idx, word := range after {
+		if word != before[idx] {
+			return true
+		}
+	}
+
+	return false
 }
 
 /*

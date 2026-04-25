@@ -878,7 +878,32 @@ func parseFeedAtom(raw string) (feedAtom, error) {
 		return feedAtom{ref: raw}, nil
 	}
 
+	if isBareFeedRef(raw) {
+		return feedAtom{ref: raw}, nil
+	}
+
 	return feedAtom{}, fmt.Errorf("operand %q must be A(region), B(region), region, clear, done, or a number", raw)
+}
+
+func isBareFeedRef(raw string) bool {
+	for idx, char := range raw {
+		if char >= 'a' && char <= 'z' {
+			continue
+		}
+		if char >= 'A' && char <= 'Z' {
+			continue
+		}
+		if char >= '0' && char <= '9' && idx > 0 {
+			continue
+		}
+		if char == '_' || char == '.' {
+			continue
+		}
+
+		return false
+	}
+
+	return raw != ""
 }
 
 func parseFeedAtomRef(raw string) (string, error) {

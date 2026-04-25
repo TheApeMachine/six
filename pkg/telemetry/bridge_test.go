@@ -2,10 +2,17 @@ package telemetry
 
 import (
 	"context"
+	"encoding/binary"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestBridge_Write(t *testing.T) {
@@ -23,6 +30,69 @@ func TestBridge_Write(t *testing.T) {
 
 		So(writeErr, ShouldBeNil)
 		So(n, ShouldEqual, len(payload))
+	})
+
+	Convey("Write sends a Value frame only when its bytes changed", t, func() {
+		url, messages, closeServer := newBridgeTestServer(t)
+		defer closeServer()
+
+		bridge, err := NewBridge(context.Background(), url)
+
+		So(err, ShouldBeNil)
+		So(bridge, ShouldNotBeNil)
+		defer bridge.Close()
+
+		frame := make([]byte, primitive.FrameByteLength)
+		binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 42)
+
+		n, writeErr := bridge.Write(frame)
+
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+
+		n, writeErr = bridge.Write(frame)
+
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(noBridgeTestMessage(messages), ShouldBeTrue)
+
+		frame[0] = 7
+		n, writeErr = bridge.Write(frame)
+
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+	})
+
+	Convey("Write filters unchanged frames inside a batch", t, func() {
+		url, messages, closeServer := newBridgeTestServer(t)
+		defer closeServer()
+
+		bridge, err := NewBridge(context.Background(), url)
+
+		So(err, ShouldBeNil)
+		So(bridge, ShouldNotBeNil)
+		defer bridge.Close()
+
+		batch := make([]byte, primitive.FrameByteLength*2)
+		first := batch[:primitive.FrameByteLength]
+		second := batch[primitive.FrameByteLength:]
+		binary.LittleEndian.PutUint64(first[primitive.IDStartWord*8:], 101)
+		binary.LittleEndian.PutUint64(second[primitive.IDStartWord*8:], 202)
+
+		n, writeErr := bridge.Write(batch)
+
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(batch))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, len(batch))
+
+		second[0] = 9
+		n, writeErr = bridge.Write(batch)
+
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(batch))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
 	})
 }
 
@@ -95,5 +165,55 @@ func BenchmarkBridge_Write(b *testing.B) {
 
 	for range b.N {
 		_, _ = bridge.Write(payload)
+	}
+}
+
+func newBridgeTestServer(t *testing.T) (string, <-chan int, func()) {
+	t.Helper()
+
+	messages := make(chan int, 8)
+	upgrader := websocket.Upgrader{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, payload, readErr := conn.ReadMessage()
+			if readErr != nil {
+				return
+			}
+
+			messages <- len(payload)
+		}
+	}))
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	return url, messages, server.Close
+}
+
+func readBridgeTestMessage(t *testing.T, messages <-chan int) int {
+	t.Helper()
+
+	select {
+	case length := <-messages:
+		return length
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for bridge message")
+	}
+
+	return 0
+}
+
+func noBridgeTestMessage(messages <-chan int) bool {
+	select {
+	case <-messages:
+		return false
+	case <-time.After(50 * time.Millisecond):
+		return true
 	}
 }

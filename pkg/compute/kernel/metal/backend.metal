@@ -622,6 +622,11 @@ static inline void ast_initialize_spawn(
         spawned[word] = source[word];
     }
     spawned[ID_START_WORD] = spawn_ids[source_idx];
+    for (uint word = 0; word < PROGRAM_WORDS; word++) {
+        spawned[PROGRAM_START_WORD + word] = 0UL;
+    }
+    spawned[SCHEDULING_NEXT_PROGRAM_WORD] = 0UL;
+    spawned[PROPERTIES_STATUS_WORD] = STATUS_PENDING;
     spawn_active[source_idx] = 1;
 }
 

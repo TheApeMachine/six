@@ -17,6 +17,25 @@ func (value *Value) HasProgram() bool {
 	return false
 }
 
+func (value *Value) ClearProgram() {
+	if value == nil {
+		return
+	}
+
+	start, n := core.Cfg.Value.Region.Program.WordExtent()
+	for idx := 0; idx < n; idx++ {
+		value.Set(start+idx, 0)
+	}
+}
+
+func (value *Value) ReadyForALU() bool {
+	if value == nil || value.Status() != READY || value.SchedulingNext() == 0 {
+		return false
+	}
+
+	return value.HasProgram()
+}
+
 // InstallProgram installs a packed instruction buffer directly into the Value's
 // program region and sets its status to READY.
 func (value *Value) InstallProgram(words []uint64) bool {

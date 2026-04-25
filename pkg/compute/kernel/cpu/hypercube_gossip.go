@@ -283,6 +283,9 @@ func HypercubeGossip(
 						copy(spawnFrame[:], sourceFrame[:])
 					}
 					newVal.StampID()
+					newVal.ClearProgram()
+					newVal.SetSchedulingNext(0)
+					newVal.SetStatus(primitive.PENDING)
 					spawnedBySource[w.sourceIdx] = newVal
 					spawned = append(spawned, newVal)
 				}

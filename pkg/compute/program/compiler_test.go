@@ -107,6 +107,30 @@ func TestFeedReducerStoreMatchesContract(t *testing.T) {
 	}
 }
 
+func TestFeedBarePropertyMatchesContract(t *testing.T) {
+	t.Parallel()
+
+	lay := layoutLikeConfigViper()
+	out, err := Compile(`[ { B(signals[0,1]) program_id B } ]`, lay)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(out.Words) != 1 {
+		t.Fatalf("expected 1 word, got %d", len(out.Words))
+	}
+
+	_, _, bStart, bSpan, dstStart, dstSpan, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
+	if bStart != 63 || bSpan != 1 || dstStart != 32 || dstSpan != 1 {
+		t.Fatalf("unexpected property lowering: b=%d/%d dst=%d/%d", bStart, bSpan, dstStart, dstSpan)
+	}
+	if opcode != Opcodes["B"] || mode != ModeTruth || bType != InstrBTypeDirect {
+		t.Fatalf("unexpected direct property read: opcode=0x%x mode=%d bType=%d", opcode, mode, bType)
+	}
+	if out.Words[0]&InstrFlagTargetB == 0 || out.Words[0]&InstrFlagAFromB == 0 {
+		t.Fatalf("expected B target/source flags, got 0x%x", out.Words[0]>>60)
+	}
+}
+
 func TestCompiler(t *testing.T) {
 	lay := Layout{
 		Regions: map[string]RegionExtent{

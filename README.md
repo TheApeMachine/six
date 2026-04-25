@@ -76,11 +76,12 @@ This is the actual end-to-end path the code implements today:
 1. **Byte stream arrives** — `vm.Machine.Load` feeds a `data.Provider` into a `transport.Pipeline`.
 2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
 3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
-4. **Program installed** — `compute.Backend.Dispatch` runs the firmware rule chain (`firmware.NewExecutable`, …), lowering compiled frames into each Value's program region — not raw hand-written words.
-5. **Published to Queue** — Each minted Value is published to the `pool.Queue` (for backend execution). *(Orchestrator routing is currently deprecated in favor of in-band CONTINUATION scheduling).*
-6. **Backend executes** — `compute.Backend` dispatches the Value's program to CPU, Metal, or CUDA. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
-7. **In-Band Scheduling** — If `properties.continuation` (word 71) is non-zero after execution, `vm.Machine.Cycle` re-publishes that Value for another pass. This is driven entirely in-band by the AST execution writing to its own continuation property.
+4. **Firmware precompiled** — `core.NewConfig` lowers the `programs:` block through `pkg/compute/program`; Values install named firmware by copying packed instruction words into their own `program` region.
+5. **Published to Queue** — Values whose `properties.status` is `READY`, whose `program` region is non-empty, and whose `properties.continuation` is non-zero are eligible for backend execution. *(Orchestrator routing is currently deprecated in favor of in-band CONTINUATION scheduling).*
+6. **Backend executes** — `compute.Backend` marks the selected resident `BUSY`, dispatches its program to CPU, Metal, or CUDA, then finalizes it after the ALU tick. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
+7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. Otherwise the backend clears `program`, clears `continuation`, and stamps `DONE`, so firmware cannot linger accidentally.
 8. **Encounter / Staging** — `vm.Machine.Cycle` pairs active Values with peers from the community, staging peer context and gradient into the active Value's asset region before execution.
+9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send.
 
 *(Gossip and Mesh routing mechanisms are currently marked as **specified but not implemented** in the active snapshot, as the architecture transitions to pure in-band routing via `next`, `fold`, and `spawn`).*
 
@@ -119,13 +120,26 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 - **Token region**: Raw input data, packed into 16-bit Morton slots. Each slot couples the payload byte with a geometry-derived position code, so the same substrate can ingest any source that can be projected onto an N-dimensional lattice.
 - **Affinity region**: A 257-bit locality-sensitive hash (5 independent SimHash projections, with the final word masked to one bit) that fingerprints the content. This determines which community the Value joins.
-- **Program region**: Packed bits the compute kernels interpret for the **universal bitwise** path: the **low nibble** of the first program word selects the 4-input truth-table opcode; the kernel **broadcasts** that nibble across all 16 internal rotation slots (one schedule—no separate rotation-table word). The next word is **mode** (`accumulate` vs `reduce`); **operand references** occupy the following configured words (`srcA`, `srcB`, `dst` — see `pkg/compute/kernel/layout.go` and `core.Cfg.Value.Region.Program`). **Authoring** does not hand-edit raw words: you write lines of source (see below), `pkg/compute/firmware` **`Compiler`** fills this region from a compiled **`Frame`**. When Values encounter each other, their programs run — no external interpreter needed.
+- **Program region**: Packed 64-bit instructions the compute kernels interpret for the **universal bitwise** path. **Authoring** does not hand-edit raw words: programs are written as bracket/feed source under `cmd/cfg/config.yml`, lowered by `pkg/compute/program`, and copied into this region by `primitive.Value.InstallFirmware`. When Values encounter each other, their programs run — no external interpreter needed.
 - **Properties region** (words 56–71): 1024-bit **canonical property band** — discrete tags, forward-transition statistics, and related state (for example eigenmode / Markov phases over property symbols). Fixed slots (TTL, noise, probe ABI, community id, firmware status) use the same word indices as `pkg/compute/kernel/layout.go` and `pkg/primitive/properties.go`.
 - **Asset region** (words 72–119): 3072-bit scratch and bundled payload (the space that remains before Prev/Next/ID/Affinity); kernel frame metadata at words 118–119 live in this span.
 - **Context / Gradient / Signals**: 64-byte execution lanes. Boolean code treats them as words; geometric code treats them as 8-lane PGA multivectors.
 - **Prev/Next**: Linked-list pointers for chaining **segments** of a multi-segment Value (long payloads) and for maintaining sequence order across tokenizer chunks. Values always know their original ordering.
 - **ID**: 64-bit unique identifier, assigned by atomic counter at mint time.
-- **Continuation** (`properties.continuation`): Word 71, scheduling hop natively driven by the in-band ALU AST. Zero means settled. Writing `id` means re-enter the Queue for another pass (recursion). Writing another Value's ID means branching/sequencing.
+- **Continuation** (`properties.continuation`): Word 71, scheduling hop natively driven by the in-band ALU AST. Zero means settled. Writing `id` means the Value has a possible next pass, but the backend only schedules it when `properties.status = READY` and the `program` region is non-empty.
+
+### Value Lifecycle
+
+`properties.status` is the execution latch:
+
+| Status | Meaning |
+|--------|---------|
+| `PENDING` | Resident state exists but is not eligible for ALU scheduling. |
+| `READY` | The Value has executable firmware and can be placed on the backend queue. |
+| `BUSY` | The backend has selected the Value and the ALU is currently processing it. |
+| `DONE` | The ALU pass has completed and the resident program was cleared. |
+
+After each ALU pass, the backend makes the executable state single-use by default. A program survives only when the resident program region changed during the tick, the resident status is `READY`, and `continuation` is still non-zero. Spawned Values keep lineage data such as TTL, `prev`, and `next`, but they do not inherit the source program, continuation, or `BUSY` state unless the emitting program explicitly writes those lanes into the spawned frame.
 
 ### Properties
 
@@ -150,18 +164,18 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 | 70              | 14            | **delta_surprisal**                        | Reduced difference between surprisal ticks.                                                                                          |
 | 71              | 15            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
 
-### Program Authoring (`pkg/compute/firmware` — config-time DSL only)
+### Program Authoring (`pkg/compute/program` — config-time DSL only)
 
-Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes that text; **`NewProgram(nameOrSource)`** resolves a string against that map when the key exists, otherwise treats the string as full source.
+Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes both the source text and the packed instruction words for each named firmware block.
 
 Pipeline in order:
 
-1. **`Program.Load()`** — splits non-blank lines and **`strings.Fields`** each line into columns.
-2. **`Parser.Parse()`** — returns **`([]Token, error)`**. Operation lines use the new AST syntax: **`[ (Target Topology) <= (Expr) ? (Predicate) <= Scope ]`**. For example: `[ (16..24 self) <= (0..8 ^ 8..16) <= (0..n) ]`. This unified syntax completely replaces the old 5-column source and explicitly defines math, routing, reductions, dynamic addressing, and branchless predicates natively on the 1KB Value.
-3. **`NewCompiler()`** — reads tokens; **`Compile()`** lowers the AST into a compact 64-bit Instruction array and returns **`[]Frame`**. Each **`Frame`** carries a **`Program [64]uint64`**; **`Frame.writeIntoProgramRegion`** copies the configured program word span into a **`primitive.Value`**.
-4. **`Executable`** — optional **`WithInputs([]*Value)`** copies **`inputs[0]`**'s full wire into each emitted Value before the frame overwrites the program region. After minting one Value per frame, **`Execute`** resolves the AST. Non-final Values in a batch point their `properties.continuation` to the following emitted Value's ID (implicit chain).
+1. **`program.Compile()`** lowers the bracket/feed source into compact 64-bit Instructions. Operation sites use direct region/property names (`signals`, `gradient[0,8]`, `program_id`) and optional owner markers (`A(...)`, `B(...)`).
+2. **`core.precompile()`** runs once during config load and stores packed instruction words in `core.Cfg.Programs`.
+3. **`primitive.Value.InstallFirmware()`** copies a named program into the Value's `program` region and stamps `properties.continuation = id`.
+4. **The ALU** executes the packed words directly; each instruction can write local `A(...)`, peer/candidate `B(...)`, spawned Values, or fold outputs depending on its topology.
 
-So: **one compiled frame → one program region on one Value**; **N frames → N Values**. Chaining is natively expressed by setting the `continuation` property word in the AST.
+So: **one compiled firmware stream → one program region on one Value**. Chaining is natively expressed by setting the `continuation` property word in the AST.
 
 ### The ALU
 
@@ -183,7 +197,7 @@ The Boolean ALU keeps the low 4-bit truth-table opcodes exactly as-is. The high 
 
 `Context`, `Gradient`, and `Signals` are each 512-bit regions, so each holds one `pkg/core/numeric/geometry.Multivector` without changing the 1024-byte `Value` stride. The kernel dispatch preserves the full opcode byte before falling back to the Boolean low nibble, so geometric opcodes cannot collapse to `FALSE`. CPU, Metal, and CUDA now all expose the same PGA lane; the native kernels read the high nibble in-band and write their 8-lane result back into `Signals`. CPU uses hand-written ARM64 and AMD64 assembly for the PGA product, CUDA executes the lane as native `float64`, and Metal preserves the 64-bit frame ABI while converting to native `float32` arithmetic at the GPU boundary because Apple Metal does not expose double precision in shader code.
 
-Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its payload and writes it into `Context`. Boolean code can still inspect the same lanes through `ContextVector`, but the geometric path treats the region as a continuous coordinate. The firmware compiler can now emit first-class `GeometricIntent` operands, so a `Value` can carry its rotor and target into the compute substrate instead of relying on an external interpreter.
+Each newly minted `Value` derives a stable `primitive.FrameMultivector` from its payload and writes it into `Context`. Boolean code can still inspect the same lanes through `ContextVector`, but the geometric path treats the region as a continuous coordinate. The program compiler can emit geometric opcodes directly, so a `Value` can carry its rotor and target into the compute substrate instead of relying on an external interpreter.
 
 ### Signals
 
@@ -234,7 +248,7 @@ In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{
 
 ## Firmware
 
-> The "programmable Value" story has weight only if the system's autonomous behaviors — self-labeling, community crystallization, unsupervised learning — are expressed as **programs that run inside Values**, not as Go code that operates on Values from outside. The programs here are authored in the same five-column source that any user program uses, compiled by `pkg/compute/firmware`, and executed on the same ALU. Where the ALU's **signature-sweep** contract (byte-packed LSH output) makes a computation inexpressible as firmware (see "ALU constraint" note below), higher-level code keeps results in-band on `signals`/`properties` — that is honesty about what the sweep engine can and cannot encode.
+> The "programmable Value" story has weight only if the system's autonomous behaviors — self-labeling, community crystallization, unsupervised learning — are expressed as **programs that run inside Values**, not as Go code that operates on Values from outside. The programs here are authored in the same bracket/feed source as user programs, compiled by `pkg/compute/program`, and executed on the same ALU. Where the ALU's **signature-sweep** contract (byte-packed LSH output) makes a computation inexpressible as firmware (see "ALU constraint" note below), higher-level code keeps results in-band on `signals`/`properties` — that is honesty about what the sweep engine can and cannot encode.
 
 ### Label Packing (w56)
 
@@ -295,11 +309,36 @@ Current firmware families:
 | `beam_swarm_step` | Candidate generation: witnesses local token/context gap, updates gradient, and spawns candidate frames. |
 | `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
 | `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
+| `program_select`, `program_carrier` | In-value program selection: selectors write the desired `program_id`; carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
 | `episodic_replay`, `memory_prune` | Memory pressure: compare staged peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
 | `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure using staged peer properties in `asset[24,1]`. |
 | `open_ended_generation` | Experimental generation path: mutate token coordinates by gradient and spawn only frames that survive the structural witness. |
 
 Reducer operations use the direct RPN contract: `{ A(surprisal) A(signals) popcnt }` means "store `popcnt(A(signals))` in `A(surprisal)`." If a backend/lowerer drifts from that meaning, the compiler is wrong, not the source language.
+
+### Program Selection
+
+Program selection is a two-stage in-value handshake, not a Go dispatcher:
+
+1. **`program_select`** is a resident selector. It clears each candidate's `continuation`, scans the candidate's own witness words, and writes only `B(program_id)` plus `B(continuation)` when a behavior is selected. The current ladder is:
+
+| `program_id` | Selected behavior | Witness |
+|--------------|-------------------|---------|
+| 1 | `beam_swarm_step` | `surprisal != 0` |
+| 2 | `active_inference` | `delta_surprisal != 0` |
+| 3 | `hypothesis` | `delta_surprisal == 0` while `surprisal != 0` |
+| 4 | `falsification` | `target != 0` |
+| 5 | `causal_explore` | `ttl != 0` |
+| 6 | `causal_hub` | `noise != 0` |
+| 7 | `intervene` | `asset[16,1] != 0` |
+| 9 | `survey_community` | `asset[24,1] != 0` |
+| 10 | `classify_readout` | `labels != 0` |
+
+2. **`program_carrier`** is a resident installer. A carrier carries one program payload in `asset[0,16]` and its own `program_id`. During gossip it compares that ID with each candidate's `program_id`; on equality it writes `B(program[0,16]) = A(asset[0,16])` and stamps `B(continuation) = B(id)`.
+
+The selector never knows program bytes, and the carrier never decides what should run. The Value's own witnesses choose a `program_id`; matching carriers make that choice executable.
+
+Only Values with both a non-empty `program` region and non-zero `continuation` are eligible as resident program owners. A settled resident can keep its firmware bytes without monopolizing the next gossip pass.
 
 ### How Programs See Peer Data — the Gossip Substrate
 
@@ -408,7 +447,7 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 4. **`causal_hub`** — a refutation witness in `noise` lets the hub absorb the residual `context ^ asset[8,8]`: `confidence` and `surprisal` witness the residual strength, `delta_surprisal` witnesses motion, and `gradient` changes only when the Value is carrying a real refutation. When the residual stabilises, `noise`, `target`, and `continuation` clear.
 5. **`intervene`** — a severed-history carrier (`prev == 0`) with a foreign gradient staged in `asset[16,8]` takes the `do()` path. The program folds that gradient into local `gradient`, reduces the intervention witness into `surprisal`, stamps `target/reference`, and emits an observation lineage so downstream drift is measured in-band.
 
-Agency is the resident program chain's traversal over the Value's own region state. Hypotheses are generated because the shape of the regions after `beam_swarm_step` is exactly the shape `hypothesis` consumes. Refutations cascade into counterfactuals because `falsification` stamps `noise`, and `causal_hub` consumes that witness. Nothing in Go decides when to ask "what if"; the substrate asks.
+Agency is the resident selector's traversal over the Value's own region state. `program_select` turns witnesses into `program_id`, and matching `program_carrier` Values install the selected firmware in-band. Hypotheses are generated because the shape of the regions after `beam_swarm_step` is exactly the shape `hypothesis` consumes. Refutations cascade into counterfactuals because `falsification` stamps `noise`, and `causal_hub` consumes that witness. Nothing in Go decides when to ask "what if"; the substrate asks.
 
 | Concept                         | Substrate mechanism                                                |
 |---------------------------------|--------------------------------------------------------------------|
@@ -425,7 +464,7 @@ Agency is the resident program chain's traversal over the Value's own region sta
 
 ### Ephemerality and TTL
 
-Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every explore step; when it reaches zero the program zeros `properties.continuation` and terminates. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values are born with a saturated TTL and are never decremented — they persist until the field prunes them. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
+Ephemeral Values are the mechanism that lets Six ask questions without polluting state. A **`ttl` lane** lives in the **`properties`** region (historically the same word span as the old `meta` band). It is decremented on every ALU step; when it reaches zero the backend clears `properties.continuation`, clears the resident program, stamps `DONE`, and `vm.Machine` removes the expired ephemeral Value from the live community. Emissions inherit the parent's TTL through `PrevID`, so an ephemeral lineage dies out within a bounded horizon. Real (non-ephemeral) Values use `ttl = 0` or saturated TTL and are not pruned by the ephemeral tracker. Counterfactual and falsification queries are just ephemeral Values; the machinery is identical to a normal query, the only difference is the starting TTL.
 
 Because a hypothesis query and a real observation share the same substrate, Six can interleave the two freely. A stream of real observations updates the field. In-between, ephemeral queries probe the field without disturbing it. The field itself cannot tell a query from an observation until the query dies — which means the same dynamics that handle real-world inference handle hypothetical reasoning for free.
 
@@ -541,7 +580,7 @@ value:
     affinity:   { start: 123, bits: 257 }
 ```
 
-**`programs:`** blocks hold **DSL source** (the five-column line format above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/firmware`**, so substrate behavior can be tuned without rebuilding the binary. Lowering from tokens to frames is still evolving alongside the kernels.
+**`programs:`** blocks hold **DSL source** (the bracket/feed syntax above), loaded into `core.Cfg.Programs` and parsed by **`pkg/compute/program`**, so substrate behavior can be tuned without rebuilding the binary. Lowering source into packed instruction words happens once at config load.
 
 **`finalizers:`** blocks hold generic post-ALU orchestration rules. They do not define new Go-side algorithms. Instead they specify when the runtime should either **reprogram the current Value** with an existing named program or **emit an ephemeral clone** of the current Value, optionally copying already-written in-band regions (for example `value.signals` or `field.affinity`) into another region before the next ALU pass.
 
@@ -622,8 +661,7 @@ Prompt — forwards to orchestrator.Cycle (see vm/machine.go). Returned
 Values are the field snapshot after that cycle; cancel the context to bound work.
 */
 segments, _ := primitive.NewValue([]byte("the cat sat on the"))
-// Production uses value.rules + queue dispatch; this is illustrative:
-// backend.Dispatch(firmware.NewExecutable(seg, "beam_swarm_step")) per segment.
+// Production uses in-band continuation plus backend.Submit over the active community.
 resolved, err := machine.Prompt(segments...)
 _ = resolved
 _ = err
@@ -640,7 +678,7 @@ six/
 ├── pkg/
 │   ├── primitive/           # Value type, Morton coding, affinity LSH
 │   ├── compute/             # Multi-substrate load balancer
-│   │   ├── firmware/       # Config-time DSL → tokens → frames (not the in-band programmer Value)
+│   │   ├── program/        # Config-time DSL → packed ALU instructions
 │   │   └── kernel/
 │   │       ├── cpu/         # SIMD-optimized bitwise executor + ARM64/AMD64 asm
 │   │       ├── cuda/        # NVIDIA GPU kernels

@@ -56,6 +56,8 @@ const (
 	INTERVENTION       FirmwareType = "intervene"
 	HYPOTHESIS         FirmwareType = "hypothesis"
 	FALSIFICATION      FirmwareType = "falsification"
+	PROGRAM_SELECT     FirmwareType = "program_select"
+	PROGRAM_CARRIER    FirmwareType = "program_carrier"
 	CAUSAL_EXPLORE     FirmwareType = "causal_explore"
 	CAUSAL_HUB         FirmwareType = "causal_hub"
 	RECRUIT_COMMUNITY  FirmwareType = "recruit_community"

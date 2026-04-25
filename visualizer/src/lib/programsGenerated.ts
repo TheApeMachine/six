@@ -216,6 +216,34 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 		],
 	},
 	{
+		name: "program_carrier",
+		instructions: [
+			{ aStart: 32, aSpan: 1, bStart: 63, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 32, aSpan: 1, bStart: 63, bSpan: 1, dstStart: 32, dstSpan: 1, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },
+			{ aStart: 71, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 32, predCond: 2, aInd: 0, bType: 0 },
+			{ aStart: 61, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 32, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 16, aSpan: 16, bStart: 72, bSpan: 16, dstStart: 16, dstSpan: 16, opcode: 0x5, mode: 0, topology: 0, predStart: 32, predCond: 2, aInd: 0, bType: 0 },
+		],
+	},
+	{
+		name: "program_select",
+		instructions: [
+			{ aStart: 71, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 5, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 59, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 1, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 2, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 70, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 3, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 70, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 0, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 68, predCond: 2, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 4, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 65, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 6, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 62, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 7, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 88, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 9, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 96, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 63, aSpan: 1, bStart: 10, bSpan: 1, dstStart: 63, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 56, predCond: 1, aInd: 0, bType: 2 },
+			{ aStart: 71, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x5, mode: 0, topology: 0, predStart: 63, predCond: 1, aInd: 0, bType: 0 },
+		],
+	},
+	{
 		name: "recruit_community",
 		instructions: [
 			{ aStart: 123, aSpan: 5, bStart: 123, bSpan: 5, dstStart: 123, dstSpan: 5, opcode: 0x6, mode: 0, topology: 0, predStart: 0, predCond: 0, aInd: 0, bType: 0 },

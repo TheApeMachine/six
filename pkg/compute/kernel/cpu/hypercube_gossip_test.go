@@ -1,14 +1,23 @@
 package cpu
 
 import (
+	"errors"
+	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/program"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 )
+
+var hypercubeGossipConfigOnce sync.Once
+var hypercubeGossipConfigErr error
 
 func TestHypercubeGossip(t *testing.T) {
 	Convey("Given a fold topology instruction", t, func() {
@@ -120,6 +129,106 @@ func TestHypercubeGossip(t *testing.T) {
 			So(actualFrame[primitive.SignalsStartWord+lane], ShouldEqual, 0)
 		}
 	})
+
+	Convey("Given program_select running as a resident selector", t, func() {
+		loadHypercubeGossipConfig(t)
+
+		selector := primitive.Emit(primitive.WithFirmware(core.PROGRAM_SELECT))
+		defer selector.Close()
+
+		candidate := primitive.Emit()
+		defer candidate.Close()
+
+		candidate.SetProperty(primitive.SURPRISAL, 512)
+
+		HypercubeGossip(selector, []*primitive.Value{selector, candidate})
+
+		programID, err := candidate.Property(primitive.PROGRAM_ID)
+
+		So(err, ShouldBeNil)
+		So(programID, ShouldEqual, 3)
+		So(candidate.SchedulingNext(), ShouldEqual, candidate.ID())
+		So(selector.SchedulingNext(), ShouldEqual, 0)
+	})
+
+	Convey("Given a refuted Value", t, func() {
+		loadHypercubeGossipConfig(t)
+
+		selector := primitive.Emit(primitive.WithFirmware(core.PROGRAM_SELECT))
+		defer selector.Close()
+
+		candidate := primitive.Emit()
+		defer candidate.Close()
+
+		candidate.SetProperty(primitive.SURPRISAL, 512)
+		candidate.SetProperty(primitive.NOISE, 1)
+
+		HypercubeGossip(selector, []*primitive.Value{selector, candidate})
+
+		programID, err := candidate.Property(primitive.PROGRAM_ID)
+
+		So(err, ShouldBeNil)
+		So(programID, ShouldEqual, 6)
+	})
+
+	Convey("Given a matching program carrier", t, func() {
+		loadHypercubeGossipConfig(t)
+
+		carrier := primitive.Emit(
+			primitive.WithFirmware(core.PROGRAM_CARRIER),
+			primitive.WithProgramID(6),
+		)
+		defer carrier.Close()
+
+		candidate := primitive.Emit()
+		defer candidate.Close()
+		candidate.SetProperty(primitive.PROGRAM_ID, 6)
+
+		payload := core.Cfg.Programs[core.CAUSAL_HUB].Compiled()
+		for idx, word := range payload {
+			carrier.Set(primitive.AssetStartWord+idx, word)
+		}
+
+		HypercubeGossip(carrier, []*primitive.Value{carrier, candidate})
+
+		got := candidate.Get(primitive.ProgramRegion)
+
+		for idx, word := range payload {
+			So(got[idx], ShouldEqual, word)
+		}
+		So(candidate.SchedulingNext(), ShouldEqual, candidate.ID())
+		So(candidate.Status(), ShouldEqual, primitive.READY)
+	})
+}
+
+func loadHypercubeGossipConfig(t *testing.T) {
+	t.Helper()
+
+	hypercubeGossipConfigOnce.Do(func() {
+		_, file, _, ok := runtime.Caller(0)
+		if !ok {
+			hypercubeGossipConfigErr = errors.New("cannot resolve cpu test file")
+			return
+		}
+
+		configPath := filepath.Clean(filepath.Join(
+			filepath.Dir(file),
+			"..", "..", "..", "..",
+			"cmd", "cfg", "config.yml",
+		))
+
+		viper.SetConfigFile(configPath)
+		hypercubeGossipConfigErr = viper.ReadInConfig()
+		if hypercubeGossipConfigErr != nil {
+			return
+		}
+
+		core.Cfg = core.NewConfig()
+	})
+
+	if hypercubeGossipConfigErr != nil {
+		t.Fatalf("load hypercube gossip config: %v", hypercubeGossipConfigErr)
+	}
 }
 
 func BenchmarkPopcntWords(b *testing.B) {
