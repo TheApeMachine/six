@@ -12,6 +12,7 @@ import {
 	ID_START_WORD,
 	NEXT_START_WORD,
 	PREV_START_WORD,
+	SIGNALS_START_WORD,
 	VALUE_WORD_COUNT,
 } from "./layoutGenerated";
 import {
@@ -62,15 +63,13 @@ been armed.
 const PROPERTIES_COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
 const PROPERTIES_ROLE_WORD = PROPERTY_WORD("ROLE");
 const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTY_WORD("TARGET");
-const PROPERTIES_NOISE_WORD = PROPERTY_WORD("NOISE");
 const VALUE_ROLE_PROMPT_WORD = BigInt(VALUE_ROLE.Prompt);
 
 /*
-FalsifiedBit and the asset/context spans come from
-pkg/compute/kernel/layout.go. They aren't yet covered by a generator,
-so the matching test in value-store.test.ts still tracks them.
+The resident ALU writes scalar falsification witnesses into signals[7].
+Asset/context spans come from the generated Value layout.
 */
-const FALSIFIED_BIT = 1n << 62n;
+const SIGNALS_FALSIFIED_WORD = SIGNALS_START_WORD + 7;
 const ASSET_GRADIENT_WORD = ASSET_START_WORD + 16;
 const ASSET_GRADIENT_SPAN = 8;
 const CONTEXT_SPAN = 8;
@@ -118,8 +117,6 @@ function blankCausalState(): CausalState {
 		intervening: false,
 		surprisal: 0,
 		delta_surprisal: 0,
-		stuck_count: 0,
-		stuck: false,
 		ttl: 0,
 		temperature: 0,
 	};
@@ -131,11 +128,9 @@ readCausalState pulls causal residues and scalar witnesses straight off the wire
 function readCausalState(words: bigint[]): CausalState {
 	const hypothesizing = words[PROPERTIES_REFUTATION_TARGET_WORD] !== 0n;
 
-	const falsified = words[PROPERTY_WORD("FALSIFIED")] !== 0n;
+	const falsified = words[SIGNALS_FALSIFIED_WORD] !== 0n;
 	const surprisal = Number(words[PROPERTY_WORD("SURPRISAL")] ?? 0n);
 	const delta_surprisal = Number(words[PROPERTY_WORD("DELTA_SURPRISAL")] ?? 0n);
-	const stuck_count = Number(words[PROPERTY_WORD("STUCK_COUNT")] ?? 0n);
-	const stuck = words[PROPERTY_WORD("STUCK")] !== 0n;
 	const ttl = Number(words[PROPERTY_WORD("TTL")] ?? 0n);
 	const temperature = Number(words[PROPERTY_WORD("TEMPERATURE")] ?? 0n);
 
@@ -162,8 +157,6 @@ function readCausalState(words: bigint[]): CausalState {
 		intervening,
 		surprisal,
 		delta_surprisal,
-		stuck_count,
-		stuck,
 		ttl,
 		temperature,
 	};
@@ -507,7 +500,7 @@ export class ValueStore {
 		/*
 		Causal residues are recomputed on every frame because any of the
 		three can flip within a single tick (the do_intervention rule
-		fires, an ApplyRefutationProbe stamps the falsified bit, …). The
+		fires, a resident program writes signals[7], …). The
 		read is a handful of BigInt ORs over already-decoded words so the
 		overhead per frame is negligible.
 		*/

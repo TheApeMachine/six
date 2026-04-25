@@ -25,7 +25,7 @@ Substrates mutate in place and do not retain pointers after return.
 */
 type Substrate interface {
 	Name() string
-	HypercubeGossip(value *primitive.Value, values []*primitive.Value) []*primitive.Value
+	HypercubeGossip(value *primitive.Value, values []*primitive.Value) ([]*primitive.Value, error)
 	GeometricFrame(value unsafe.Pointer, opcode uint64) bool
 	Close() error
 }

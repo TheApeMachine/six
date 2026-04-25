@@ -4,6 +4,7 @@ import {
 	ID_START_WORD,
 	NEXT_START_WORD,
 	PREV_START_WORD,
+	SIGNALS_START_WORD,
 	VALUE_FRAME_BYTE_LENGTH,
 	VALUE_WORD_COUNT,
 } from "./layoutGenerated";
@@ -21,10 +22,9 @@ table instead of silently passing.
 */
 const PROPERTIES_COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
 const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTY_WORD("TARGET");
-const PROPERTIES_NOISE_WORD = PROPERTY_WORD("NOISE");
+const SIGNALS_FALSIFIED_WORD = SIGNALS_START_WORD + 7;
 const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
 const CONTEXT_START_WORD = 40;
-const FALSIFIED_BIT = 1n << 62n;
 
 function writeWord(frame: Uint8Array, wordIndex: number, word: bigint) {
 	const offset = wordIndex * 8;
@@ -75,7 +75,7 @@ function makeValueFrame(init?: {
 	content?: string;
 	communityId?: bigint;
 	refutationTarget?: bigint;
-	noise?: bigint;
+	falsified?: bigint;
 	gradientWord?: bigint;
 	contextWord?: bigint;
 }) {
@@ -105,8 +105,8 @@ function makeValueFrame(init?: {
 		writeWord(frame, PROPERTIES_REFUTATION_TARGET_WORD, init.refutationTarget);
 	}
 
-	if (init?.noise !== undefined) {
-		writeWord(frame, PROPERTY_WORD("FALSIFIED"), init.noise);
+	if (init?.falsified !== undefined) {
+		writeWord(frame, SIGNALS_FALSIFIED_WORD, init.falsified);
 	}
 
 	if (init?.gradientWord !== undefined) {
@@ -245,7 +245,7 @@ test("readCausalState surfaces hypothesizing when refutation target is armed", (
 	assert.equal(stored?.causal.intervening, false);
 });
 
-test("readCausalState surfaces falsified when FalsifiedBit is set in the noise word", () => {
+test("readCausalState surfaces falsified when signals[7] carries a witness", () => {
 	const store = new ValueStore();
 
 	store.ensure("0000000000000011");
@@ -254,7 +254,7 @@ test("readCausalState surfaces falsified when FalsifiedBit is set in the noise w
 		makeValueFrame({
 			id: 0x11n,
 			communityId: 3n,
-			noise: FALSIFIED_BIT | 0x123n,
+			falsified: 0x123n,
 		}),
 	);
 

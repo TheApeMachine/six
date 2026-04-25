@@ -9,14 +9,30 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+const csaPopcntThreshold = 15
+
 // pendingWrite forms our Write-Ahead Log (WAL).
 // This guarantees perfect lock-step execution without copying Megabytes of memory.
 type pendingWrite struct {
 	sourceIdx int
 	valueIdx  int
 	dstIdx    int
-	mode      uint64
 	payload   uint64
+}
+
+type foldKey struct {
+	opcode uint64
+	dstIdx int
+}
+
+type foldWrite struct {
+	pendingWrite
+	opcode uint64
+}
+
+type foldAggregate struct {
+	key     foldKey
+	payload uint64
 }
 
 /*
@@ -28,8 +44,16 @@ func HypercubeGossip(
 	value *primitive.Value, values []*primitive.Value,
 ) []*primitive.Value {
 	n := len(values)
+	if n == 0 {
+		return nil
+	}
+
 	var spawned []*primitive.Value
-	spawnedBySource := make(map[int]*primitive.Value)
+	spawnedBySource := make([]*primitive.Value, n)
+	writes := make([]pendingWrite, 0, n*primitive.SignalsWords)
+	foldWrites := make([]foldWrite, 0, n*primitive.SignalsWords)
+	foldGroups := make(map[foldKey]int, primitive.SignalsWords)
+	foldAggregates := make([]foldAggregate, 0, primitive.SignalsWords)
 	ownerIdx := -1
 	var ownerFrame *[128]uint64
 
@@ -45,14 +69,21 @@ func HypercubeGossip(
 
 	// PC Loop: strictly 16 clock cycles.
 	for pc := 0; pc < primitive.ProgramWords; pc++ {
-		var writes []pendingWrite
+		writes = writes[:0]
+		foldWrites = foldWrites[:0]
 		anyExecuted := false
 
-		// ---------------------------------------------------------
-		// PHASE 1: EXECUTION (Strictly Read-Only)
-		// ---------------------------------------------------------
 		for i, v := range values {
+			if v == nil {
+				continue
+			}
+
 			frame := (*[128]uint64)(unsafe.Pointer(v))
+			nextFrame := (*[128]uint64)(nil)
+			if i+1 < n && values[i+1] != nil {
+				nextFrame = (*[128]uint64)(unsafe.Pointer(values[i+1]))
+			}
+
 			execFrame := frame
 			aFrame := frame
 			bFrame := frame
@@ -60,7 +91,10 @@ func HypercubeGossip(
 			if ownerFrame != nil {
 				execFrame = ownerFrame
 				aFrame = ownerFrame
-				bFrame = frame
+
+				if instrUsesBSource(execFrame[16+pc]) {
+					aFrame = frame
+				}
 			}
 
 			// Direct read. Values run whatever program they hold concurrently.
@@ -73,8 +107,16 @@ func HypercubeGossip(
 			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType := program.DecodeInstruction(instr)
 			targetB := instr&program.InstrFlagTargetB != 0
 			targetOwner := instr&program.InstrFlagTargetOwner != 0
+			if ownerFrame != nil && instr&program.InstrFlagAFromB != 0 {
+				aFrame = frame
+			}
+			if ownerFrame != nil && instr&program.InstrFlagBFromA != 0 {
+				bFrame = ownerFrame
+			}
+			if bType == program.InstrBTypeNext {
+				bFrame = nextFrame
+			}
 
-			// Safety checks to prevent divide-by-zero panics
 			if aSpan == 0 {
 				aSpan = 1
 			}
@@ -85,10 +127,9 @@ func HypercubeGossip(
 				dstSpan = 1
 			}
 
-			// 1. Evaluate Predicate (Write Masking)
 			writeMask := ^uint64(0)
 			if predCond != 0 {
-				if !program.PredicateAllows(bFrame, predStart, predCond) {
+				if bFrame == nil || !program.PredicateAllows(bFrame, predStart, predCond) {
 					writeMask = 0
 				}
 			}
@@ -97,41 +138,43 @@ func HypercubeGossip(
 				continue // Short-circuit if completely masked and local
 			}
 
-			// 3. Resolve Pointer Indirection
+			targetIdx := routeTarget(i, n, pc, topology, targetOwner, targetB, ownerIdx)
+			if mode == program.ModeGeometric || program.IsGeometricOpcode(opcode) {
+				var tmp primitive.Value
+				stageGeometricOperands(&tmp, aFrame, bFrame, aStart, aSpan, bStart, bSpan)
+				if GeometricFrame(unsafe.Pointer(&tmp), opcode) && writeMask != 0 {
+					tmpFrame := (*[128]uint64)(unsafe.Pointer(&tmp))
+					for lane := 0; lane < min(dstSpan, primitive.SignalsWords); lane++ {
+						writes = append(writes, pendingWrite{
+							sourceIdx: i,
+							valueIdx:  targetIdx,
+							dstIdx:    dstStart + lane,
+							payload:   tmpFrame[primitive.SignalsStartWord+lane],
+						})
+					}
+				}
+
+				continue
+			}
+
 			curAStart, curBStart := aStart, bStart
 			if aInd == 1 {
 				curAStart = int(aFrame[curAStart] & 0x7F)
 			}
-			if bType == 1 {
+			if bType == program.InstrBTypeIndirect && bFrame != nil {
 				curBStart = int(bFrame[curBStart] & 0x7F)
 			}
 			var bImm uint64
-			if bType == 2 {
+			if bType == program.InstrBTypeImmediate {
 				bImm = uint64(bStart) | (uint64(bSpan-1) << 7)
 			}
 
-			// 4. Compute Truth Table Masks
-			m0, m1, m2, m3 := uint64(0), uint64(0), uint64(0), uint64(0)
-			if opcode&1 != 0 {
-				m0 = ^uint64(0)
-			}
-			if opcode&2 != 0 {
-				m1 = ^uint64(0)
-			}
-			if opcode&4 != 0 {
-				m2 = ^uint64(0)
-			}
-			if opcode&8 != 0 {
-				m3 = ^uint64(0)
-			}
-
-			// 5. Execute ALU lanes
 			lanesToExec := dstSpan
-			if mode != program.ModeTruth {
+			if mode != program.ModeTruth && mode != program.ModeEmit {
 				lanesToExec = max(bSpan, aSpan)
 			}
 
-			truthRes := make([]uint64, lanesToExec)
+			var truthRes [64]uint64
 			for lane := 0; lane < lanesToExec; lane++ {
 				var a, b uint64
 
@@ -140,91 +183,80 @@ func HypercubeGossip(
 					a = aFrame[aIdx]
 				}
 
-				if bType == 2 {
+				if bType == program.InstrBTypeImmediate {
 					b = bImm
 				} else {
 					bIdx := curBStart + (lane % bSpan)
-					if bIdx < 128 {
+					if bFrame != nil && bIdx < 128 {
 						b = bFrame[bIdx]
 					}
 				}
 
-				truthRes[lane] = (a & b & m0) | (a & ^b & m1) | (^a & b & m2) | (^a & ^b & m3)
+				truthRes[lane] = truthWord(opcode, a, b)
 			}
 
-			// 6. Collapse Mode
-			var finalRes []uint64
+			var finalRes [64]uint64
+			finalLen := lanesToExec
 			switch mode {
 			case program.ModeTruth:
-				finalRes = truthRes
+				copy(finalRes[:], truthRes[:lanesToExec])
 			case program.ModePopcnt:
-				finalRes = []uint64{popcntWords(truthRes)}
+				finalRes[0] = popcntWords(truthRes[:lanesToExec])
+				finalLen = 1
 			case program.ModeAnyZero:
 				witness := uint64(0)
-				for _, w := range truthRes {
+				for _, w := range truthRes[:lanesToExec] {
 					if w != ^uint64(0) {
 						witness = 1
 						break
 					}
 				}
-				finalRes = []uint64{witness}
+				finalRes[0] = witness
+				finalLen = 1
 			case program.ModeAllOnes:
 				witness := uint64(1)
-				for _, w := range truthRes {
+				for _, w := range truthRes[:lanesToExec] {
 					if w != ^uint64(0) {
 						witness = 0
 						break
 					}
 				}
-				finalRes = []uint64{witness}
+				finalRes[0] = witness
+				finalLen = 1
 			case program.ModeEmit:
-				finalRes = truthRes
+				copy(finalRes[:], truthRes[:lanesToExec])
 			}
 
 			if writeMask == 0 {
 				continue
 			}
 
-			// 7. Route the Signal (Physics / Topology)
-			targetIdx := i
-			if targetOwner && ownerIdx >= 0 {
-				targetIdx = ownerIdx
-			}
-			if targetB {
-				targetIdx = i
-			}
-			switch topology {
-			case program.TopologyNext:
-				// True Hypercube Diffusion
-				if n > 1 {
-					dim := pc % bits.Len(uint(n-1))
-					targetIdx = i ^ (1 << dim)
-					if targetIdx >= n {
-						targetIdx = i // Bounce back if void
-					}
-				}
-			case program.TopologySpawn:
-				targetIdx = -1 // Spawn signal
-			}
-
-			// 8. Append to Write-Ahead Log
 			for lane := 0; lane < dstSpan; lane++ {
 				dstIdx := dstStart + lane
 				if dstIdx < 128 {
 					val := uint64(0)
-					if len(finalRes) == 1 {
+					if finalLen == 1 {
 						val = finalRes[0]
-					} else if lane < len(finalRes) {
+					} else if lane < finalLen {
 						val = finalRes[lane]
 					}
 
-					writes = append(writes, pendingWrite{
+					write := pendingWrite{
 						sourceIdx: i,
 						valueIdx:  targetIdx,
 						dstIdx:    dstIdx,
-						mode:      mode,
 						payload:   val,
-					})
+					}
+
+					if topology == program.TopologyFold {
+						foldWrites = append(foldWrites, foldWrite{
+							pendingWrite: write,
+							opcode:       opcode,
+						})
+						continue
+					}
+
+					writes = append(writes, write)
 				}
 			}
 		}
@@ -233,9 +265,10 @@ func HypercubeGossip(
 			break
 		}
 
-		// ---------------------------------------------------------
-		// PHASE 2: COMMIT (Global State Sync)
-		// ---------------------------------------------------------
+		if len(foldWrites) > 0 {
+			writes = appendFoldWrites(writes, foldWrites, foldGroups, &foldAggregates)
+		}
+
 		for _, w := range writes {
 			if w.valueIdx == -1 {
 				newVal := spawnedBySource[w.sourceIdx]
@@ -258,7 +291,9 @@ func HypercubeGossip(
 					spawnFrame[w.dstIdx] = w.payload
 				}
 			} else {
-				// Apply physical write to memory
+				if w.valueIdx < 0 || w.valueIdx >= len(values) || values[w.valueIdx] == nil {
+					continue
+				}
 				frame := (*[128]uint64)(unsafe.Pointer(values[w.valueIdx]))
 				frame[w.dstIdx] = w.payload
 			}
@@ -268,19 +303,152 @@ func HypercubeGossip(
 	return spawned
 }
 
+func stageGeometricOperands(
+	tmp *primitive.Value,
+	aFrame, bFrame *[128]uint64,
+	aStart, aSpan, bStart, bSpan int,
+) {
+	tmpFrame := (*[128]uint64)(unsafe.Pointer(tmp))
+
+	for lane := 0; lane < min(aSpan, primitive.ContextWords); lane++ {
+		srcIdx := aStart + lane
+		if srcIdx < 128 {
+			tmpFrame[primitive.ContextStartWord+lane] = aFrame[srcIdx]
+		}
+	}
+
+	if bFrame == nil {
+		return
+	}
+
+	for lane := 0; lane < min(bSpan, primitive.GradientWords); lane++ {
+		srcIdx := bStart + lane
+		if srcIdx < 128 {
+			tmpFrame[primitive.GradientStartWord+lane] = bFrame[srcIdx]
+		}
+	}
+}
+
+func appendFoldWrites(
+	writes []pendingWrite,
+	foldWrites []foldWrite,
+	foldGroups map[foldKey]int,
+	foldAggregates *[]foldAggregate,
+) []pendingWrite {
+	clear(foldGroups)
+	aggregates := (*foldAggregates)[:0]
+
+	for _, write := range foldWrites {
+		key := foldKey{
+			opcode: write.opcode,
+			dstIdx: write.dstIdx,
+		}
+		groupIdx, ok := foldGroups[key]
+		if !ok {
+			foldGroups[key] = len(aggregates)
+			aggregates = append(aggregates, foldAggregate{
+				key:     key,
+				payload: write.payload,
+			})
+			continue
+		}
+
+		aggregates[groupIdx].payload = truthWord(key.opcode, aggregates[groupIdx].payload, write.payload)
+	}
+
+	for _, write := range foldWrites {
+		key := foldKey{
+			opcode: write.opcode,
+			dstIdx: write.dstIdx,
+		}
+		groupIdx, ok := foldGroups[key]
+		if !ok {
+			continue
+		}
+
+		write.payload = aggregates[groupIdx].payload
+		writes = append(writes, write.pendingWrite)
+	}
+
+	*foldAggregates = aggregates
+
+	return writes
+}
+
+func routeTarget(
+	sourceIdx, valueCount, pc int,
+	topology uint64,
+	targetOwner bool,
+	targetB bool,
+	ownerIdx int,
+) int {
+	targetIdx := sourceIdx
+	if targetOwner && ownerIdx >= 0 {
+		targetIdx = ownerIdx
+	}
+	if targetB {
+		targetIdx = sourceIdx
+	}
+
+	switch topology {
+	case program.TopologyNext:
+		if valueCount > 1 {
+			dim := pc % bits.Len(uint(valueCount-1))
+			targetIdx = sourceIdx ^ (1 << dim)
+			if targetIdx >= valueCount {
+				targetIdx = sourceIdx
+			}
+		}
+	case program.TopologySpawn:
+		targetIdx = -1
+	}
+
+	return targetIdx
+}
+
+func truthWord(opcode, a, b uint64) uint64 {
+	m0, m1, m2, m3 := uint64(0), uint64(0), uint64(0), uint64(0)
+	if opcode&1 != 0 {
+		m0 = ^uint64(0)
+	}
+	if opcode&2 != 0 {
+		m1 = ^uint64(0)
+	}
+	if opcode&4 != 0 {
+		m2 = ^uint64(0)
+	}
+	if opcode&8 != 0 {
+		m3 = ^uint64(0)
+	}
+
+	return (a & b & m0) | (a & ^b & m1) | (^a & b & m2) | (^a & ^b & m3)
+}
+
 /*
-popcntWords routes scalar witness reductions through the active CSA popcount
-backend. On AMD64 this is AVX2/SSE2, on ARM64 it is NEON, and other targets
-fall back to the same carry-save algorithm in Go.
+popcntWords is the scalar witness path used by resident AST reductions.
+Small program spans are faster as direct word popcounts than positional CSA.
 */
 func popcntWords(words []uint64) uint64 {
-	var counts [64]int
-	pospop.Count64(&counts, words)
+	if len(words) >= csaPopcntThreshold {
+		total := 0
+		var counts [64]int
+
+		pospop.Count64(&counts, words)
+		for _, count := range counts {
+			total += count
+		}
+
+		return uint64(total)
+	}
 
 	total := 0
-	for _, count := range counts {
-		total += count
+	for _, word := range words {
+		total += bits.OnesCount64(word)
 	}
 
 	return uint64(total)
+}
+
+func instrUsesBSource(instr uint64) bool {
+	return instr&program.InstrFlagAFromB != 0
 }

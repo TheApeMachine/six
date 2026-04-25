@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -34,6 +35,7 @@ type Backend struct {
 	substrates []kernel.Substrate
 	popped     atomic.Int64
 	nextSub    atomic.Uint64
+	pending    atomic.Int64
 	completed  chan []*primitive.Value
 }
 
@@ -90,9 +92,16 @@ func (backend *Backend) Submit(community []*primitive.Value) bool {
 		return false
 	}
 
-	return queue.Schedule(backend.ctx, func() {
+	backend.pending.Add(1)
+	if queue.Schedule(backend.ctx, func() {
+		defer backend.pending.Add(-1)
 		backend.runHypercubeGossip(community)
-	})
+	}) {
+		return true
+	}
+
+	backend.pending.Add(-1)
+	return false
 }
 
 /*
@@ -114,6 +123,32 @@ func (backend *Backend) DrainSpawned() []*primitive.Value {
 	}
 }
 
+/*
+Sync waits for queued compute work to quiesce and then drains emitted Values.
+The normal cycle path still submits asynchronously; prompt/readout callers use
+this when they need an observed tick before deciding whether anything resolved.
+*/
+func (backend *Backend) Sync(ctx context.Context) []*primitive.Value {
+	if backend == nil {
+		return nil
+	}
+
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
+	for backend.pending.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return backend.DrainSpawned()
+		case <-backend.ctx.Done():
+			return backend.DrainSpawned()
+		case <-ticker.C:
+		}
+	}
+
+	return backend.DrainSpawned()
+}
+
 func (backend *Backend) dispatch(queue *Queue) {
 	for {
 		select {
@@ -132,7 +167,12 @@ func (backend *Backend) runHypercubeGossip(community []*primitive.Value) {
 		return
 	}
 
-	spawned := substrate.HypercubeGossip(programOwner(community), community)
+	spawned, err := substrate.HypercubeGossip(programOwner(community), community)
+	if err != nil {
+		errnie.Error(err)
+
+		return
+	}
 	if len(spawned) == 0 {
 		return
 	}
@@ -147,12 +187,6 @@ func (backend *Backend) runHypercubeGossip(community []*primitive.Value) {
 func (backend *Backend) nextSubstrate() kernel.Substrate {
 	if backend == nil || len(backend.substrates) == 0 {
 		return nil
-	}
-
-	for _, substrate := range backend.substrates {
-		if substrate.Name() == "cpu" {
-			return substrate
-		}
 	}
 
 	idx := backend.nextSub.Add(1) - 1

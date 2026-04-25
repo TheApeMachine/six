@@ -528,7 +528,6 @@ func writeProgramsTS(programs []compiledProgram) error {
 	fmt.Fprintf(&b, "export const INSTR_PRED_COND_SHIFT = %d;\n", program.InstrPredCondShift)
 	fmt.Fprintf(&b, "export const INSTR_A_IND_SHIFT     = %d;\n", program.InstrAIndirectShift)
 	fmt.Fprintf(&b, "export const INSTR_B_TYPE_SHIFT    = %d;\n", program.InstrBTypeShift)
-	fmt.Fprintf(&b, "export const INSTR_SCOPE_SHIFT     = %d;\n", program.InstrScopeShift)
 	fmt.Fprintf(&b, "export const INSTR_SPAN_MASK       = 0x%xn;\n", program.InstrSpanMask)
 	fmt.Fprintf(&b, "export const INSTR_START_MASK      = 0x%xn;\n", program.InstrStartMask)
 

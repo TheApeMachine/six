@@ -97,7 +97,7 @@ figure-deps:
 # run `make figure-deps` once before `make paper` to install matplotlib + numpy.
 paper:
 	go test $(LDFLAGS) -tags=exp_pipeline -v ./experiment/task/
-	go run main.go paper
+	go run $(LDFLAGS) main.go paper
 	cd paper && pdflatex -interaction=nonstopmode main.tex
 	cd paper && pdflatex -interaction=nonstopmode main.tex
 
@@ -112,4 +112,3 @@ pprof:
 pprof-mem:
 	go test $(LDFLAGS) -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
 	go tool pprof -http=:6060 paper/profiles/$(shell echo $(EXP) | tr '[:upper:]' '[:lower:]' | tr ' ' '_')_mem.pprof
-

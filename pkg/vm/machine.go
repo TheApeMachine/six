@@ -172,6 +172,10 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		if _, err := machine.Cycle(); err != nil {
 			return errnie.Error(err)
 		}
+
+		if machine.backend != nil {
+			machine.community = append(machine.community, machine.backend.Sync(machine.ctx)...)
+		}
 	}
 
 	return nil
@@ -207,6 +211,16 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (
 			return nil, err
 		}
 
+		if machine.backend != nil {
+			machine.community = append(machine.community, machine.backend.Sync(machine.ctx)...)
+			for _, value := range machine.community {
+				status, _ := value.Property(primitive.STATUS)
+				if status == uint64(primitive.RESOLVED) {
+					newlyResolved = append(newlyResolved, value)
+				}
+			}
+		}
+
 		var matched []*primitive.Value
 		for _, v := range newlyResolved {
 			if targetIDs[v.ID()] {
@@ -215,7 +229,11 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (
 			}
 		}
 
-		resolved = append(resolved, matched...)
+		if len(matched) == 0 {
+			resolved = append(resolved, newlyResolved...)
+		} else {
+			resolved = append(resolved, matched...)
+		}
 
 		if len(targetIDs) == 0 {
 			break

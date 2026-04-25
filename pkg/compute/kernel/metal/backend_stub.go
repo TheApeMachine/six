@@ -48,13 +48,12 @@ func Available() int { return 0 }
 
 func (backend *Backend) Name() string { return "metal" }
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) []*primitive.Value {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
 	if len(community) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	// Just fallback to CPU for now
-	return cpu.HypercubeGossip(value, community)
+	return cpu.HypercubeGossip(value, community), nil
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {

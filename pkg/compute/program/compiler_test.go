@@ -22,7 +22,7 @@ func layoutLikeConfigViper() Layout {
 		Properties: map[string]int{
 			"labels": 0, "confidence": 1, "epoch": 2, "ttl": 3, "temperature": 4, "status": 5, "noise": 6, "program_id": 7,
 			"community": 8, "target": 9, "role": 10, "reference": 11, "surprisal": 12, "prev_surprisal": 13, "delta_surprisal": 14,
-			"stuck_count": 15, "falsified": 16, "stuck": 17, "continuation": 18,
+			"continuation": 15,
 		},
 	}
 }
@@ -52,15 +52,25 @@ func TestStructuralComponentProgramMatchesContract(t *testing.T) {
 	if len(out.Words) != 8 {
 		t.Fatalf("expected 8 words, got %d", len(out.Words))
 	}
-	var cancel, merge, emit bool
-	for _, word := range out.Words {
-		_, _, _, _, dst, _, opcode, mode, _, _, _, _, _ := DecodeInstruction(word)
-		cancel = cancel || dst == 32 && opcode == Opcodes["^"]
-		merge = merge || dst >= 36 && dst < 40 && opcode == Opcodes["&"]
-		emit = emit || mode == ModeEmit
+
+	_, _, _, _, dst, _, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
+	if dst != 0 || opcode != Opcodes["&"] || mode != ModeTruth || bType != InstrBTypeNext || out.Words[0]&InstrFlagAFromB == 0 {
+		t.Fatalf("rightmost pipe word 0 = dst %d opcode 0x%x mode %d bType %d flags 0x%x", dst, opcode, mode, bType, out.Words[0]>>60)
 	}
-	if !cancel || !merge || !emit {
-		t.Fatalf("expected structural component to compile cancel, merge, and emit instructions")
+
+	_, _, _, _, dst, _, _, mode, topology, _, _, _, _ := DecodeInstruction(out.Words[2])
+	if dst != 32 || mode != ModeTruth || topology != TopologySelf || out.Words[2]&InstrFlagAFromB == 0 {
+		t.Fatalf("materialize pipe word = dst %d mode %d topology %d flags 0x%x", dst, mode, topology, out.Words[2]>>60)
+	}
+
+	_, _, bStart, _, dst, _, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[3])
+	if dst != 0 || bStart != 32 || opcode != Opcodes["^"] || mode != ModeEmit || bType != InstrBTypeDirect || out.Words[3]&InstrFlagTargetB == 0 {
+		t.Fatalf("middle pipe word = dst %d bStart %d opcode 0x%x mode %d bType %d flags 0x%x", dst, bStart, opcode, mode, bType, out.Words[3]>>60)
+	}
+
+	_, _, _, _, dst, _, opcode, mode, _, _, _, _, bType = DecodeInstruction(out.Words[6])
+	if dst != 120 || opcode != Opcodes["^"] || mode != ModeEmit || bType != InstrBTypeNext || out.Words[6]&InstrFlagTargetB == 0 {
+		t.Fatalf("leftmost pipe word = dst %d opcode 0x%x mode %d bType %d flags 0x%x", dst, opcode, mode, bType, out.Words[6]>>60)
 	}
 }
 
@@ -88,8 +98,7 @@ func TestCompiler(t *testing.T) {
 			"affinity":   {Start: 123, Words: 5},
 		},
 		Properties: map[string]int{
-			"stuck":        14,
-			"falsified":    13,
+			"continuation": 15,
 			"unsupervised": 0,
 		},
 	}
@@ -106,32 +115,47 @@ func TestCompiler(t *testing.T) {
 		},
 		{
 			name:  "Predicated Fold",
-			src:   `[ (gradient fold) <= (0..8 ^ context) ? (properties.falsified != 0) <= community ]`,
+			src:   `[ (gradient fold) <= (0..8 ^ context) ? (signals[7,1] != 0) <= community ]`,
+			valid: true,
+		},
+		{
+			name:  "Fold rejects projection",
+			src:   `[ (gradient fold) <= (context) <= community ]`,
+			valid: false,
+		},
+		{
+			name:  "Fold rejects NAND",
+			src:   `[ (gradient fold) <= (context ~& signals) <= community ]`,
+			valid: false,
+		},
+		{
+			name:  "Fold accepts XNOR",
+			src:   `[ (gradient fold) <= (context == signals) <= community ]`,
 			valid: true,
 		},
 		{
 			name:  "Reduction",
-			src:   `[ (properties.falsified self) <= any_zero(16..24 -> context) <= community ]`,
+			src:   `[ (signals[7,1] self) <= any_zero(16..24 -> context) <= community ]`,
 			valid: true,
 		},
 		{
 			name:  "Immediate with predicate",
-			src:   `[ (program self) <= (rom.unsupervised | 0) ? (properties.stuck != 0) <= community ]`,
+			src:   `[ (program self) <= (rom.unsupervised | 0) ? (signals[7,1] != 0) <= community ]`,
 			valid: true,
 		},
 		{
 			name:  "Popcnt threshold predicate",
-			src:   `[ (properties.falsified self) <= (1) ? (popcnt(affinity[0,5]) | 120) <= community ]`,
+			src:   `[ (signals[7,1] self) <= (1) ? (popcnt(affinity[0,5]) | 120) <= community ]`,
 			valid: true,
 		},
 		{
 			name:  "Bare A expression (must not eat closing bracket)",
-			src:   `[ (properties.stuck self) <= A <= community ]`,
+			src:   `[ (signals[7,1] self) <= A <= community ]`,
 			valid: true,
 		},
 		{
 			name:  "Saturates is not a language intrinsic",
-			src:   `[ (properties.falsified self) <= saturates(affinity[0,5]) <= community ]`,
+			src:   `[ (signals[7,1] self) <= saturates(affinity[0,5]) <= community ]`,
 			valid: false,
 		},
 	}

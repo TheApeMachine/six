@@ -30,7 +30,10 @@ var paperCmd = &cobra.Command{
 		// Read preamble from manuscript.tex
 		manuscriptFile, err := os.Open(manuscriptPath)
 		if err != nil {
-			return fmt.Errorf("failed to open manuscript.tex: %w", err)
+			manuscriptFile, err = os.Open(mainTexPath)
+			if err != nil {
+				return fmt.Errorf("failed to open manuscript.tex or main.tex: %w", err)
+			}
 		}
 		defer manuscriptFile.Close()
 

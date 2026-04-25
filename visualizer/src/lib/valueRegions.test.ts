@@ -48,7 +48,6 @@ function encodeInstruction(opts: {
 	predCond?: number;
 	aInd?: number;
 	bType?: number;
-	scope?: number;
 }): bigint {
 	const f = (v: number) => BigInt(v) & 0x7fn;
 	const s = (v: number) => BigInt(v) & 0x3fn;
@@ -59,7 +58,6 @@ function encodeInstruction(opts: {
 	const predCond = BigInt(opts.predCond ?? 0) & 0x3n;
 	const aInd = BigInt(opts.aInd ?? 0) & 0x1n;
 	const bType = BigInt(opts.bType ?? 0) & 0x3n;
-	const scope = BigInt(opts.scope ?? 0) & 0xfn;
 
 	return (
 		s((opts.dstSpan ?? 1) - 1) |
@@ -74,8 +72,7 @@ function encodeInstruction(opts: {
 		(predStart << 48n) |
 		(predCond << 55n) |
 		(aInd << 57n) |
-		(bType << 58n) |
-		(scope << 62n)
+		(bType << 58n)
 	);
 }
 
@@ -94,7 +91,6 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		predCond: 0,
 		aInd: 0,
 		bType: 0,
-		scope: 0,
 	});
 
 	const decoded = decodeInstructionWord(word);
@@ -113,7 +109,6 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		predCond: 0,
 		aInd: 0,
 		bType: 0,
-		scope: 0,
 	});
 });
 

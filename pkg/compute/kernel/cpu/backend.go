@@ -41,8 +41,8 @@ allowing data exchange as a first-class citizen in the programming model.
 */
 func (backend *Backend) HypercubeGossip(
 	value *primitive.Value, values []*primitive.Value,
-) []*primitive.Value {
-	return HypercubeGossip(value, values)
+) ([]*primitive.Value, error) {
+	return HypercubeGossip(value, values), nil
 }
 
 // GeometricFrame applies PGA rotations/translations to the continuous

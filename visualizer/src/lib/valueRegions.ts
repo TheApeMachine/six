@@ -36,7 +36,6 @@ import {
 	INSTR_OPCODE_SHIFT,
 	INSTR_PRED_COND_SHIFT,
 	INSTR_PRED_START_SHIFT,
-	INSTR_SCOPE_SHIFT,
 	INSTR_SPAN_MASK,
 	INSTR_START_MASK,
 	INSTR_TOPOLOGY_SHIFT,
@@ -136,7 +135,6 @@ export function decodeInstructionWord(word: bigint): DecodedInstruction {
 		predCond: Number((word >> BigInt(INSTR_PRED_COND_SHIFT)) & 0x3n),
 		aInd: Number((word >> BigInt(INSTR_A_IND_SHIFT)) & 0x1n),
 		bType: Number((word >> BigInt(INSTR_B_TYPE_SHIFT)) & 0x3n),
-		scope: Number((word >> BigInt(INSTR_SCOPE_SHIFT)) & 0xfn),
 	};
 }
 

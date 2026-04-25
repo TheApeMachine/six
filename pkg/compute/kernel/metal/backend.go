@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/program"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -30,16 +31,15 @@ var backendMetallib []byte
 var metalReady atomic.Bool
 
 var metalArenaInit sync.Once
+var metalArenaErr error
 
 func ensureMetalArena() error {
-	var initErr error
-
 	metalArenaInit.Do(func() {
 		primitive.EnsureArenaPinnedForGPU()
 
 		base, byteLen := primitive.ArenaBasePointer()
 		if base == nil || byteLen == 0 {
-			initErr = errors.New("metal: empty value arena")
+			metalArenaErr = errors.New("metal: empty value arena")
 
 			return
 		}
@@ -49,19 +49,17 @@ func ensureMetalArena() error {
 			C.size_t(byteLen),
 			(*C.uint32_t)(unsafe.Pointer(primitive.ArenaLinearNextPtr())),
 		) != 0 {
-			initErr = errors.New("metal: init_metal_arena failed")
+			metalArenaErr = errors.New("metal: init_metal_arena failed")
 		}
 	})
 
-	return initErr
+	return metalArenaErr
 }
 
 /*
 Backend runs the in-band Value kernels on Apple Silicon (shared memory).
-It satisfies the full kernel.Substrate contract — the per-Value
-optimizer path runs on CPU (single-Value GPU dispatch is wasteful), but
-HypercubeGossip / AssignFirstFit dispatch to the GPU pipelines built
-on init.
+It satisfies the full kernel.Substrate contract by executing resident packed
+AST programs directly against the pinned Value arena.
 
 Pressure tracks inflight dispatches plus an EMA over per-job service
 time (ns) so compute.Backend can pick the lowest-loaded substrate.
@@ -97,46 +95,83 @@ Available returns the number of Metal-capable GPUs present on this system,
 or an error if the Metal runtime failed to initialize.
 */
 func Available() int {
+	if !metalReady.Load() {
+		return 0
+	}
+
 	return int(C.count_metal_devices())
 }
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) []*primitive.Value {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
 	n := len(community)
 	if n == 0 {
-		return nil
+		return nil, nil
 	}
 
 	if err := ensureMetalArena(); err != nil {
-		return nil
+		return nil, err
 	}
 
-	indices := make([]uint32, 0, n)
-	for _, v := range community {
-		if idx, ok := primitive.ArenaIndex(v); ok {
-			indices = append(indices, idx)
+	const invalidIndex = ^uint32(0)
+
+	indices := make([]uint32, n)
+	for idx := range indices {
+		indices[idx] = invalidIndex
+	}
+
+	for idx, v := range community {
+		if v == nil {
+			continue
+		}
+
+		if slot, ok := primitive.ArenaIndex(v); ok {
+			indices[idx] = slot
+			continue
+		}
+
+		return nil, fmt.Errorf("metal: value at community index %d is outside the arena", idx)
+	}
+
+	ownerIndex := invalidIndex
+	if value != nil {
+		for idx, candidate := range community {
+			if candidate == value {
+				ownerIndex = uint32(idx)
+				break
+			}
 		}
 	}
 
-	if len(indices) == 0 {
-		return nil
-	}
+	spawnValues, spawnIndices, spawnIDs := metalSpawnBuffers(value, community)
+	spawnActive := make([]uint8, n)
+	predicateSpecs := program.PredicateDeviceSpecs()
 
-	dMax := uint32(0)
-	if len(indices) > 1 {
-		// Calculate log2 of (len - 1)
-		for v := uint32(len(indices) - 1); v > 0; v >>= 1 {
-			dMax++
+	active := false
+	for _, idx := range indices {
+		if idx != invalidIndex {
+			active = true
+			break
 		}
 	}
+	if !active {
+		return nil, nil
+	}
 
-	C.hypercube_gossip_metal_indices(
+	res := C.hypercube_gossip_metal_indices(
 		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
-		C.uint32_t(len(indices)),
-		C.uint32_t(dMax),
-		1, // fold_op = XOR
+		C.uint32_t(n),
+		C.uint32_t(ownerIndex),
+		(*C.predicate_device_spec_t)(unsafe.Pointer(&predicateSpecs[0])),
+		(*C.uint32_t)(unsafe.Pointer(&spawnIndices[0])),
+		(*C.uint64_t)(unsafe.Pointer(&spawnIDs[0])),
+		(*C.uint8_t)(unsafe.Pointer(&spawnActive[0])),
 	)
+	if res != 0 {
+		primitive.CloseAll(spawnValues)
+		return nil, fmt.Errorf("metal: hypercube_gossip_metal_indices failed with code %d", int(res))
+	}
 
-	return nil
+	return collectActiveSpawned(spawnValues, spawnActive), nil
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
@@ -144,7 +179,15 @@ func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool
 		return false
 	}
 
-	idx, ok := primitive.ArenaIndex((*primitive.Value)(value))
+	target := (*primitive.Value)(value)
+	frame := (*[128]uint64)(value)
+	prev := frame[16]
+	frame[16] = opcode
+	defer func() {
+		frame[16] = prev
+	}()
+
+	idx, ok := primitive.ArenaIndex(target)
 	if !ok {
 		return false
 	}
@@ -201,3 +244,97 @@ func reportInitError(err error) {
 }
 
 func (backend *Backend) Name() string { return "metal" }
+
+func metalSpawnBuffers(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []uint32, []uint64) {
+	const invalidIndex = ^uint32(0)
+
+	spawnIndices := make([]uint32, len(community))
+	spawnIDs := make([]uint64, len(community))
+	for idx := range spawnIndices {
+		spawnIndices[idx] = invalidIndex
+	}
+
+	if !communityMaySpawn(value, community) {
+		return nil, spawnIndices, spawnIDs
+	}
+
+	spawnValues := make([]*primitive.Value, len(community))
+	for idx, source := range community {
+		if source == nil {
+			continue
+		}
+
+		spawn := primitive.AllocValue()
+		if spawn == nil {
+			continue
+		}
+		spawn.StampID()
+		slot, ok := primitive.ArenaIndex(spawn)
+		if !ok {
+			spawn.Close()
+			continue
+		}
+
+		spawnValues[idx] = spawn
+		spawnIndices[idx] = slot
+		spawnIDs[idx] = spawn.ID()
+	}
+
+	return spawnValues, spawnIndices, spawnIDs
+}
+
+func communityMaySpawn(value *primitive.Value, community []*primitive.Value) bool {
+	if value != nil {
+		return valueMaySpawn(value)
+	}
+
+	for _, candidate := range community {
+		if valueMaySpawn(candidate) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func valueMaySpawn(value *primitive.Value) bool {
+	if value == nil {
+		return false
+	}
+
+	frame := (*[primitive.WordCount]uint64)(unsafe.Pointer(value))
+	for pc := 0; pc < primitive.ProgramWords; pc++ {
+		instr := frame[primitive.ProgramStartWord+pc]
+		if instr == 0 {
+			continue
+		}
+
+		_, _, _, _, _, _, _, _, topology, _, _, _, _ := program.DecodeInstruction(instr)
+		if topology == program.TopologySpawn {
+			return true
+		}
+	}
+
+	return false
+}
+
+func collectActiveSpawned(spawnValues []*primitive.Value, spawnActive []uint8) []*primitive.Value {
+	if len(spawnValues) == 0 {
+		return nil
+	}
+
+	spawned := make([]*primitive.Value, 0, len(spawnValues))
+	for idx, spawn := range spawnValues {
+		if spawn == nil {
+			continue
+		}
+		if idx < len(spawnActive) && spawnActive[idx] != 0 {
+			spawned = append(spawned, spawn)
+			continue
+		}
+
+		spawn.Close()
+	}
+
+	return spawned
+}

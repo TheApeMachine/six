@@ -3,8 +3,6 @@
 #include <stdio.h>
 #include "../shared/primitives.h"
 
-#define CONTEXT_START_WORD 32
-#define GRADIENT_START_WORD 40
 #define OPCODE_GEOMETRIC_MASK 0xF0
 #define OPCODE_GEOMETRIC_COMPOSE 0x10
 #define OPCODE_GEOMETRIC_SANDWICH 0x20
@@ -73,8 +71,8 @@ static __device__ __forceinline__ Multivector reverse(Multivector mv) {
     return out;
 }
 
-static __device__ __forceinline__ Multivector sandwich(Multivector motor, Multivector target) {
-    return geometric_product(geometric_product(motor, target), reverse(motor));
+static __device__ __forceinline__ Multivector sandwich(Multivector left, Multivector right) {
+    return geometric_product(geometric_product(left, right), reverse(right));
 }
 
 static __device__ __forceinline__ void unpack_region_ref(uint64_t word, int* start, int* span) {
@@ -130,221 +128,6 @@ static __device__ __forceinline__ void exact_binary_device(
     }
 }
 
-/*
-hypercube_gossip_kernel diffuses each Value's S+C+G+P band across the
-community using an XOR-routed hypercube. Parity: kernel.HypercubeGossipRef
-(Metal) — missing neighbors use neutral 0, not self (XORing self^self=0
-would corrupt the band). A full 256-Value field uses __shfl_xor_sync for
-dimensions 0..4 (in-warp) and shared mem for 5..7, matching the Metal split.
-
-A single block of value_count threads is launched per community.
-*/
-#define GOSSIP_BAND_START_WORD_CUDA   SIGNALS_START_WORD
-#define GOSSIP_BAND_TARGET_WORD_CUDA  ASSET_START_WORD
-#define GOSSIP_BAND_WORDS_CUDA        (SIGNALS_WORDS + CONTEXT_WORDS + GRADIENT_WORDS + PROPERTIES_WORDS)
-#define GOSSIP_K_PER_CHUNK_CUDA       8
-#define GOSSIP_FULL_HYPERCUBE_CUDA    256u
-
-__device__ __forceinline__ uint64_t gossip_fold_ull(uint64_t a, uint64_t b, uint32_t fold_op) {
-    return (fold_op == 0u) ? (a | b) : (a ^ b);
-}
-
-__device__ __forceinline__ uint64_t shfl_xor_ull(uint64_t v, int lane_mask) {
-    unsigned int lo = (unsigned int)(v & 0xFFFFFFFFu);
-    unsigned int hi = (unsigned int)(v >> 32);
-    lo = __shfl_xor_sync(0xFFFFFFFFu, (int)lo, lane_mask, 32);
-    hi = __shfl_xor_sync(0xFFFFFFFFu, (int)hi, lane_mask, 32);
-    return (((uint64_t)hi) << 32) | (uint64_t)lo;
-}
-
-__global__ void hypercube_gossip_kernel(
-    uint64_t*       arena,
-    const uint32_t* indices,
-    uint32_t        value_count,
-    uint32_t        d_max,
-    uint32_t        fold_op
-) {
-    extern __shared__ uint64_t shared[];
-
-    uint32_t lid = threadIdx.x;
-    bool active = lid < value_count;
-    uint64_t* frame = nullptr;
-
-    if (active) {
-        frame = arena + (uint64_t)indices[lid] * (uint64_t)WORDS;
-
-        for (uint32_t w = 0; w < GOSSIP_BAND_WORDS_CUDA; w++) {
-            frame[GOSSIP_BAND_TARGET_WORD_CUDA + w] = frame[GOSSIP_BAND_START_WORD_CUDA + w];
-        }
-    }
-
-    __syncthreads();
-
-    for (uint32_t chunkBase = 0; chunkBase < GOSSIP_BAND_WORDS_CUDA; chunkBase += GOSSIP_K_PER_CHUNK_CUDA) {
-        uint32_t chunkSize = GOSSIP_K_PER_CHUNK_CUDA;
-        if (chunkBase + chunkSize > GOSSIP_BAND_WORDS_CUDA) {
-            chunkSize = GOSSIP_BAND_WORDS_CUDA - chunkBase;
-        }
-
-        if (active && frame && value_count == GOSSIP_FULL_HYPERCUBE_CUDA) {
-            uint64_t my_chunk[GOSSIP_K_PER_CHUNK_CUDA];
-            for (uint32_t w = 0; w < chunkSize; w++) {
-                my_chunk[w] = frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w];
-            }
-            for (uint32_t d = 0; d < d_max && d < 5u; d++) {
-                int sh = (1 << (int)d);
-                for (uint32_t w = 0; w < chunkSize; w++) {
-                    uint64_t peer = shfl_xor_ull(my_chunk[w], sh);
-                    my_chunk[w] = gossip_fold_ull(my_chunk[w], peer, fold_op);
-                }
-            }
-            for (uint32_t d = 5; d < d_max; d++) {
-                uint32_t dmask = 1u << d;
-                for (uint32_t w = 0; w < chunkSize; w++) {
-                    shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w] = my_chunk[w];
-                }
-                __syncthreads();
-                for (uint32_t w = 0; w < chunkSize; w++) {
-                    uint32_t nbr = lid ^ dmask;
-                    uint64_t peer = shared[(uint64_t)nbr * GOSSIP_K_PER_CHUNK_CUDA + w];
-                    my_chunk[w] = gossip_fold_ull(my_chunk[w], peer, fold_op);
-                }
-                __syncthreads();
-            }
-            for (uint32_t w = 0; w < chunkSize; w++) {
-                frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w] = my_chunk[w];
-            }
-        } else {
-            if (active) {
-                for (uint32_t w = 0; w < chunkSize; w++) {
-                    shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w] =
-                        frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w];
-                }
-            }
-            __syncthreads();
-
-            for (uint32_t d = 0; d < d_max; d++) {
-                uint32_t mask = 1u << d;
-                uint64_t nbr_chunk[GOSSIP_K_PER_CHUNK_CUDA];
-
-                if (active) {
-                    uint32_t nbr = lid ^ mask;
-                    bool nbr_valid = nbr < value_count;
-                    for (uint32_t w = 0; w < chunkSize; w++) {
-                        nbr_chunk[w] = nbr_valid
-                            ? shared[(uint64_t)nbr * GOSSIP_K_PER_CHUNK_CUDA + w]
-                            : 0uLL;
-                    }
-                }
-
-                __syncthreads();
-
-                if (active) {
-                    for (uint32_t w = 0; w < chunkSize; w++) {
-                        uint64_t self_w = shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w];
-                        uint64_t fl = gossip_fold_ull(self_w, nbr_chunk[w], fold_op);
-                        shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w] = fl;
-                    }
-                }
-
-                __syncthreads();
-            }
-
-            if (active) {
-                for (uint32_t w = 0; w < chunkSize; w++) {
-                    frame[GOSSIP_BAND_TARGET_WORD_CUDA + chunkBase + w] =
-                        shared[(uint64_t)lid * GOSSIP_K_PER_CHUNK_CUDA + w];
-                }
-            }
-        }
-        __syncthreads();
-    }
-}
-
-// Padded affinity-row stride matches kernel/cpu/affinity_distances.go's
-// affinityDistanceVectorWords (8 × uint64). The Go caller pre-packs the
-// host buffer to this layout so all three backends (CPU, Metal, CUDA)
-// consume identical memory.
-#define AFFINITY_ROW_WORDS 8
-
-__global__ void batch_first_fit_kernel(
-    const uint64_t* community_ors,
-    const uint64_t* value_affinities,
-    int32_t*        out,
-    uint32_t        community_count,
-    uint32_t        value_count,
-    uint32_t        hamming_budget,
-    uint32_t        saturation_cap
-) {
-    uint32_t vid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (vid >= value_count) return;
-
-    // Hold the value's 257 bits in registers across the entire community
-    // sweep — never reload them inside the inner loop.
-    uint32_t v_base = vid * AFFINITY_ROW_WORDS;
-    uint64_t v0 = value_affinities[v_base + 0];
-    uint64_t v1 = value_affinities[v_base + 1];
-    uint64_t v2 = value_affinities[v_base + 2];
-    uint64_t v3 = value_affinities[v_base + 3];
-    uint64_t v4 = value_affinities[v_base + 4] & 1ULL;
-
-    int32_t hit = -1;
-
-    for (uint32_t c = 0; c < community_count; c++) {
-        uint32_t c_base = c * AFFINITY_ROW_WORDS;
-        uint64_t c0 = community_ors[c_base + 0];
-        uint64_t c1 = community_ors[c_base + 1];
-        uint64_t c2 = community_ors[c_base + 2];
-        uint64_t c3 = community_ors[c_base + 3];
-        uint64_t c4 = community_ors[c_base + 4] & 1ULL;
-
-        uint32_t hamming =
-            (uint32_t)__popcll(v0 ^ c0) +
-            (uint32_t)__popcll(v1 ^ c1) +
-            (uint32_t)__popcll(v2 ^ c2) +
-            (uint32_t)__popcll(v3 ^ c3) +
-            (uint32_t)(v4 ^ c4);
-
-        if (hamming > hamming_budget) continue;
-
-        uint32_t unionc =
-            (uint32_t)__popcll(v0 | c0) +
-            (uint32_t)__popcll(v1 | c1) +
-            (uint32_t)__popcll(v2 | c2) +
-            (uint32_t)__popcll(v3 | c3) +
-            (uint32_t)(v4 | c4);
-
-        if (unionc > saturation_cap) continue;
-
-        hit = (int32_t)c;
-        break;
-    }
-
-    out[vid] = hit;
-}
-
-__global__ void nearest_affinity_kernel(
-    const uint64_t* candidates,
-    const uint64_t* query,
-    uint64_t*       best_packed_result,
-    uint32_t        count
-) {
-    uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= count) return;
-
-    uint32_t base = id * AFFINITY_WORDS;
-    uint32_t dist_sq = 0;
-
-    for (int w = 0; w < AFFINITY_WORDS; w++) {
-        dist_sq += __popcll(candidates[base + w] ^ query[w]);
-    }
-
-    uint32_t inverted_dist = 131072 - dist_sq;
-    uint64_t packed_result = ((uint64_t)inverted_dist << 32) | (uint64_t)id;
-
-    atomicMax((unsigned long long*)best_packed_result, (unsigned long long)packed_result);
-}
-
 __global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_values) return;
@@ -378,6 +161,404 @@ __global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
     }
 }
 
+#define AST_INVALID_INDEX          0xFFFFFFFFu
+#define AST_DST_SPAN_SHIFT         0u
+#define AST_DST_START_SHIFT        6u
+#define AST_A_SPAN_SHIFT           13u
+#define AST_A_START_SHIFT          19u
+#define AST_B_SPAN_SHIFT           26u
+#define AST_B_START_SHIFT          32u
+#define AST_OPCODE_SHIFT           39u
+#define AST_MODE_SHIFT             43u
+#define AST_TOPOLOGY_SHIFT         46u
+#define AST_PRED_START_SHIFT       48u
+#define AST_PRED_COND_SHIFT        55u
+#define AST_A_INDIRECT_SHIFT       57u
+#define AST_B_TYPE_SHIFT           58u
+#define AST_SPAN_MASK              0x3Fu
+#define AST_START_MASK             0x7Fu
+#define AST_FLAG_TARGET_B          (1ULL << 60)
+#define AST_FLAG_TARGET_OWNER      (1ULL << 61)
+#define AST_FLAG_A_FROM_B          (1ULL << 62)
+#define AST_FLAG_B_FROM_A          (1ULL << 63)
+#define AST_MODE_TRUTH             0u
+#define AST_MODE_POPCNT            1u
+#define AST_MODE_ANY_ZERO          2u
+#define AST_MODE_ALL_ONES          3u
+#define AST_MODE_GEOMETRIC         4u
+#define AST_MODE_EMIT              5u
+#define AST_TOPOLOGY_SELF          0u
+#define AST_TOPOLOGY_NEXT          1u
+#define AST_TOPOLOGY_FOLD          2u
+#define AST_TOPOLOGY_SPAWN         3u
+#define AST_B_TYPE_DIRECT          0u
+#define AST_B_TYPE_INDIRECT        1u
+#define AST_B_TYPE_IMMEDIATE       2u
+#define AST_B_TYPE_NEXT            3u
+#define AST_PRED_KIND_POPCNT_LTE   1u
+
+typedef struct {
+    uint32_t kind;
+    uint32_t start;
+    uint32_t span;
+    uint64_t threshold;
+} predicate_device_spec_t;
+
+typedef struct {
+    int a_start;
+    int a_span;
+    int b_start;
+    int b_span;
+    int dst_start;
+    int dst_span;
+    uint64_t opcode;
+    uint64_t mode;
+    uint64_t topology;
+    uint64_t pred_start;
+    uint64_t pred_cond;
+    uint64_t a_ind;
+    uint64_t b_type;
+} ast_decoded_instr;
+
+typedef struct {
+    uint64_t* exec;
+    uint64_t* a;
+    uint64_t* b;
+} ast_context;
+
+static __device__ __forceinline__ uint64_t ast_truth_word(uint64_t opcode, uint64_t a, uint64_t b) {
+    uint64_t m0 = (opcode & 1ULL) ? ~0ULL : 0ULL;
+    uint64_t m1 = (opcode & 2ULL) ? ~0ULL : 0ULL;
+    uint64_t m2 = (opcode & 4ULL) ? ~0ULL : 0ULL;
+    uint64_t m3 = (opcode & 8ULL) ? ~0ULL : 0ULL;
+    return (a & b & m0) | (a & ~b & m1) | (~a & b & m2) | (~a & ~b & m3);
+}
+
+static __device__ __forceinline__ ast_decoded_instr ast_decode(uint64_t instr) {
+    ast_decoded_instr out;
+    out.dst_span = (int)((instr >> AST_DST_SPAN_SHIFT) & AST_SPAN_MASK) + 1;
+    out.dst_start = (int)((instr >> AST_DST_START_SHIFT) & AST_START_MASK);
+    out.a_span = (int)((instr >> AST_A_SPAN_SHIFT) & AST_SPAN_MASK) + 1;
+    out.a_start = (int)((instr >> AST_A_START_SHIFT) & AST_START_MASK);
+    out.b_span = (int)((instr >> AST_B_SPAN_SHIFT) & AST_SPAN_MASK) + 1;
+    out.b_start = (int)((instr >> AST_B_START_SHIFT) & AST_START_MASK);
+    out.opcode = (instr >> AST_OPCODE_SHIFT) & 0xFULL;
+    out.mode = (instr >> AST_MODE_SHIFT) & 0x7ULL;
+    if (out.mode == AST_MODE_GEOMETRIC) out.opcode <<= 4;
+    out.topology = (instr >> AST_TOPOLOGY_SHIFT) & 0x3ULL;
+    out.pred_start = (instr >> AST_PRED_START_SHIFT) & AST_START_MASK;
+    out.pred_cond = (instr >> AST_PRED_COND_SHIFT) & 0x3ULL;
+    out.a_ind = (instr >> AST_A_INDIRECT_SHIFT) & 0x1ULL;
+    out.b_type = (instr >> AST_B_TYPE_SHIFT) & 0x3ULL;
+    return out;
+}
+
+static __device__ __forceinline__ uint32_t ast_bits_len(uint32_t value) {
+    uint32_t out = 0;
+    while (value != 0) {
+        out++;
+        value >>= 1;
+    }
+    return out;
+}
+
+static __device__ __forceinline__ uint64_t* ast_frame(uint64_t* frames, uint32_t idx) {
+    return frames + (uint64_t)idx * (uint64_t)WORDS;
+}
+
+static __device__ __forceinline__ bool ast_active(const uint8_t* active, uint32_t count, uint32_t idx) {
+    return idx < count && active[idx] != 0;
+}
+
+static __device__ __forceinline__ int ast_route(uint32_t source_idx, uint32_t value_count, uint32_t owner_index, uint32_t pc, ast_decoded_instr instr, uint64_t raw) {
+    int target = (int)source_idx;
+
+    if ((raw & AST_FLAG_TARGET_OWNER) != 0 && owner_index != AST_INVALID_INDEX) target = (int)owner_index;
+    if ((raw & AST_FLAG_TARGET_B) != 0) target = (int)source_idx;
+
+    if (instr.topology == AST_TOPOLOGY_NEXT && value_count > 1) {
+        uint32_t max_dim = ast_bits_len(value_count - 1u);
+        uint32_t routed = source_idx ^ (1u << (pc % max_dim));
+        if (routed < value_count) target = (int)routed;
+    }
+    if (instr.topology == AST_TOPOLOGY_SPAWN) return -1;
+
+    return target;
+}
+
+static __device__ __forceinline__ ast_context ast_make_context(
+    uint64_t* frames,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t owner_index,
+    uint32_t source_idx,
+    uint32_t pc,
+    uint64_t raw,
+    ast_decoded_instr instr
+) {
+    uint64_t* source = ast_frame(frames, source_idx);
+    uint64_t* owner = owner_index == AST_INVALID_INDEX ? nullptr : ast_frame(frames, owner_index);
+
+    ast_context ctx;
+    ctx.exec = owner == nullptr ? source : owner;
+    ctx.a = owner == nullptr ? source : owner;
+    ctx.b = source;
+
+    if (owner != nullptr && (ctx.exec[PROGRAM_START_WORD + pc] & AST_FLAG_A_FROM_B) != 0) ctx.a = source;
+    if (owner != nullptr && (raw & AST_FLAG_A_FROM_B) != 0) ctx.a = source;
+    if (owner != nullptr && (raw & AST_FLAG_B_FROM_A) != 0) ctx.b = owner;
+    if (instr.b_type == AST_B_TYPE_NEXT) {
+        uint32_t next = source_idx + 1u;
+        ctx.b = ast_active(active, value_count, next) ? ast_frame(frames, next) : nullptr;
+    }
+
+    return ctx;
+}
+
+static __device__ __forceinline__ bool ast_predicate_allows(uint64_t* frame, ast_decoded_instr instr, const predicate_device_spec_t* specs) {
+    if (instr.pred_cond == 0) return true;
+    if (frame == nullptr) return false;
+    if (instr.pred_cond == 1) return frame[instr.pred_start] != 0;
+    if (instr.pred_cond == 2) return frame[instr.pred_start] == 0;
+
+    predicate_device_spec_t spec = specs[instr.pred_start];
+    if (spec.kind != AST_PRED_KIND_POPCNT_LTE) return frame[instr.pred_start] > 0;
+
+    uint32_t count = 0;
+    for (uint32_t lane = 0; lane < spec.span && spec.start + lane < WORDS; lane++) {
+        count += (uint32_t)__popcll((unsigned long long)frame[spec.start + lane]);
+    }
+
+    return (uint64_t)count <= spec.threshold;
+}
+
+static __device__ __forceinline__ void ast_geometric(ast_decoded_instr instr, uint64_t* a_frame, uint64_t* b_frame, uint64_t final_res[64]) {
+    uint64_t tmp[WORDS];
+    #pragma unroll
+    for (int lane = 0; lane < WORDS; lane++) tmp[lane] = 0;
+
+    for (int lane = 0; lane < instr.a_span && lane < CONTEXT_WORDS; lane++) {
+        int idx = instr.a_start + lane;
+        if (idx < WORDS) tmp[CONTEXT_START_WORD + lane] = a_frame[idx];
+    }
+    if (b_frame != nullptr) {
+        for (int lane = 0; lane < instr.b_span && lane < GRADIENT_WORDS; lane++) {
+            int idx = instr.b_start + lane;
+            if (idx < WORDS) tmp[GRADIENT_START_WORD + lane] = b_frame[idx];
+        }
+    }
+
+    Multivector left = load_multivector(tmp, CONTEXT_START_WORD);
+    Multivector right = load_multivector(tmp, GRADIENT_START_WORD);
+    Multivector mv;
+    if (instr.opcode == OPCODE_GEOMETRIC_COMPOSE) {
+        mv = geometric_product(left, right);
+    } else if (instr.opcode == OPCODE_GEOMETRIC_SANDWICH) {
+        mv = sandwich(left, right);
+    } else {
+        mv = reverse(left);
+    }
+    for (int lane = 0; lane < SIGNALS_WORDS; lane++) {
+        final_res[lane] = double_to_word(mv.v[lane]);
+    }
+}
+
+static __device__ __forceinline__ int ast_payloads(ast_decoded_instr instr, ast_context ctx, uint64_t final_res[64]) {
+    if (instr.a_ind == 1 && ctx.a != nullptr) instr.a_start = (int)(ctx.a[instr.a_start] & 0x7FULL);
+    if (instr.b_type == AST_B_TYPE_INDIRECT && ctx.b != nullptr) instr.b_start = (int)(ctx.b[instr.b_start] & 0x7FULL);
+
+    if (instr.mode == AST_MODE_GEOMETRIC || (instr.opcode & 0xF0ULL) != 0) {
+        ast_geometric(instr, ctx.a, ctx.b, final_res);
+        return instr.dst_span < SIGNALS_WORDS ? instr.dst_span : SIGNALS_WORDS;
+    }
+
+    uint64_t b_imm = (uint64_t)instr.b_start | ((uint64_t)(instr.b_span - 1) << 7);
+    int lanes = instr.dst_span;
+    if (instr.mode != AST_MODE_TRUTH && instr.mode != AST_MODE_EMIT) {
+        lanes = instr.a_span > instr.b_span ? instr.a_span : instr.b_span;
+    }
+
+    uint64_t truth[64];
+    for (int lane = 0; lane < lanes; lane++) {
+        uint64_t a = 0;
+        uint64_t b = 0;
+        int a_idx = instr.a_start + (lane % instr.a_span);
+        if (ctx.a != nullptr && a_idx < WORDS) a = ctx.a[a_idx];
+        if (instr.b_type == AST_B_TYPE_IMMEDIATE) {
+            b = b_imm;
+        } else {
+            int b_idx = instr.b_start + (lane % instr.b_span);
+            if (ctx.b != nullptr && b_idx < WORDS) b = ctx.b[b_idx];
+        }
+        truth[lane] = ast_truth_word(instr.opcode, a, b);
+    }
+
+    if (instr.mode == AST_MODE_POPCNT) {
+        uint32_t total = 0;
+        for (int lane = 0; lane < lanes; lane++) total += (uint32_t)__popcll((unsigned long long)truth[lane]);
+        final_res[0] = total;
+        return 1;
+    }
+    if (instr.mode == AST_MODE_ANY_ZERO) {
+        uint64_t witness = 0;
+        for (int lane = 0; lane < lanes; lane++) {
+            if (truth[lane] != ~0ULL) witness = 1;
+        }
+        final_res[0] = witness;
+        return 1;
+    }
+    if (instr.mode == AST_MODE_ALL_ONES) {
+        uint64_t witness = 1;
+        for (int lane = 0; lane < lanes; lane++) {
+            if (truth[lane] != ~0ULL) witness = 0;
+        }
+        final_res[0] = witness;
+        return 1;
+    }
+
+    for (int lane = 0; lane < lanes; lane++) final_res[lane] = truth[lane];
+    return lanes;
+}
+
+static __device__ __forceinline__ uint64_t ast_fold_payload(
+    uint64_t* frames,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t owner_index,
+    const predicate_device_spec_t* specs,
+    uint32_t pc,
+    uint64_t opcode,
+    int dst_idx
+) {
+    bool seeded = false;
+    uint64_t aggregate = 0;
+
+    for (uint32_t source = 0; source < value_count; source++) {
+        if (!ast_active(active, value_count, source)) continue;
+
+        uint64_t* exec = owner_index == AST_INVALID_INDEX ? ast_frame(frames, source) : ast_frame(frames, owner_index);
+        uint64_t raw = exec[PROGRAM_START_WORD + pc];
+        if (raw == 0) continue;
+
+        ast_decoded_instr instr = ast_decode(raw);
+        if (instr.topology != AST_TOPOLOGY_FOLD || instr.opcode != opcode || dst_idx < instr.dst_start || dst_idx >= instr.dst_start + instr.dst_span) continue;
+
+        ast_context ctx = ast_make_context(frames, active, value_count, owner_index, source, pc, raw, instr);
+        if (!ast_predicate_allows(ctx.b, instr, specs)) continue;
+
+        uint64_t final_res[64];
+        int final_len = ast_payloads(instr, ctx, final_res);
+        uint64_t payload = final_len == 1 ? final_res[0] : final_res[dst_idx - instr.dst_start];
+
+        if (!seeded) {
+            aggregate = payload;
+            seeded = true;
+        } else {
+            aggregate = ast_truth_word(opcode, aggregate, payload);
+        }
+    }
+
+    return aggregate;
+}
+
+__global__ void hypercube_ast_kernel(
+    uint64_t* frames,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t owner_index,
+    const predicate_device_spec_t* specs,
+    uint64_t* post,
+    uint64_t* spawn_frames,
+    const uint64_t* spawn_ids,
+    uint8_t* spawn_active
+) {
+    uint32_t lid = threadIdx.x;
+    if (lid >= value_count) return;
+
+    bool target_active = active[lid] != 0;
+    uint64_t* target_frame = ast_frame(frames, lid);
+    uint64_t* target_post = post + (uint64_t)lid * (uint64_t)WORDS;
+
+    for (uint32_t pc = 0; pc < PROGRAM_WORDS; pc++) {
+        for (uint32_t word = 0; word < WORDS; word++) {
+            target_post[word] = target_active ? target_frame[word] : 0;
+        }
+
+        __syncthreads();
+
+        if (target_active) {
+            for (uint32_t source = 0; source < value_count; source++) {
+                if (!ast_active(active, value_count, source)) continue;
+
+                uint64_t* exec = owner_index == AST_INVALID_INDEX ? ast_frame(frames, source) : ast_frame(frames, owner_index);
+                uint64_t raw = exec[PROGRAM_START_WORD + pc];
+                if (raw == 0) continue;
+
+                ast_decoded_instr instr = ast_decode(raw);
+                if (instr.topology == AST_TOPOLOGY_SPAWN) continue;
+
+                ast_context ctx = ast_make_context(frames, active, value_count, owner_index, source, pc, raw, instr);
+                if (!ast_predicate_allows(ctx.b, instr, specs)) continue;
+
+                int route = ast_route(source, value_count, owner_index, pc, instr, raw);
+                if (route != (int)lid) continue;
+
+                uint64_t final_res[64];
+                int final_len = ast_payloads(instr, ctx, final_res);
+                for (int lane = 0; lane < instr.dst_span; lane++) {
+                    int dst = instr.dst_start + lane;
+                    if (dst >= WORDS) continue;
+
+                    uint64_t payload = final_len == 1 ? final_res[0] : (lane < final_len ? final_res[lane] : 0);
+                    if (instr.topology == AST_TOPOLOGY_FOLD) {
+                        payload = ast_fold_payload(frames, active, value_count, owner_index, specs, pc, instr.opcode, dst);
+                    }
+                    target_post[dst] = payload;
+                }
+            }
+        }
+
+        if (target_active && spawn_frames != nullptr && spawn_ids[lid] != 0) {
+            uint64_t* source = target_frame;
+            uint64_t* exec = owner_index == AST_INVALID_INDEX ? source : ast_frame(frames, owner_index);
+            uint64_t raw = exec[PROGRAM_START_WORD + pc];
+            if (raw != 0) {
+                ast_decoded_instr instr = ast_decode(raw);
+                if (instr.topology == AST_TOPOLOGY_SPAWN) {
+                    ast_context ctx = ast_make_context(frames, active, value_count, owner_index, lid, pc, raw, instr);
+                    if (ast_predicate_allows(ctx.b, instr, specs)) {
+                        uint64_t* spawned = spawn_frames + (uint64_t)lid * (uint64_t)WORDS;
+                        if (spawn_active[lid] == 0) {
+                            for (uint32_t word = 0; word < WORDS; word++) spawned[word] = source[word];
+                            spawned[ID_START_WORD] = spawn_ids[lid];
+                            spawn_active[lid] = 1;
+                        }
+
+                        uint64_t final_res[64];
+                        int final_len = ast_payloads(instr, ctx, final_res);
+                        for (int lane = 0; lane < instr.dst_span; lane++) {
+                            int dst = instr.dst_start + lane;
+                            if (dst < WORDS) {
+                                spawned[dst] = final_len == 1 ? final_res[0] : (lane < final_len ? final_res[lane] : 0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        __syncthreads();
+
+        if (target_active) {
+            for (uint32_t word = 0; word < WORDS; word++) {
+                target_frame[word] = target_post[word];
+            }
+        }
+
+        __syncthreads();
+    }
+}
+
 static uint64_t* d_pool_A = nullptr;
 static uint32_t pool_capacity = 0;
 
@@ -396,49 +577,21 @@ static int ensure_pool(uint32_t num_values) {
     return 0;
 }
 
-static uint64_t*  d_aff_candidates = nullptr;
-static uint64_t*  d_aff_query      = nullptr;
-static uint32_t*  d_aff_distances  = nullptr;
-static uint32_t   aff_pool_cap     = 0;
-
-static int ensure_aff_pool(uint32_t count) {
-    if (aff_pool_cap >= count) return 0;
-
-    if (d_aff_candidates) { cudaFree(d_aff_candidates); d_aff_candidates = nullptr; }
-    if (d_aff_query)      { cudaFree(d_aff_query);      d_aff_query      = nullptr; }
-    if (d_aff_distances)  { cudaFree(d_aff_distances);   d_aff_distances  = nullptr; }
-
-    uint32_t cap = count * 2;
-    if (cap < 256) cap = 256;
-
-    size_t cand_bytes = (size_t)cap * AFFINITY_WORDS * sizeof(uint64_t);
-    size_t dist_bytes = (size_t)cap * sizeof(uint32_t);
-    size_t q_bytes    = AFFINITY_WORDS * sizeof(uint64_t);
-
-    if (cudaMalloc((void**)&d_aff_candidates, cand_bytes) != cudaSuccess) return -1;
-    if (cudaMalloc((void**)&d_aff_query,      q_bytes)    != cudaSuccess) return -1;
-    if (cudaMalloc((void**)&d_aff_distances,  dist_bytes) != cudaSuccess) return -1;
-
-    aff_pool_cap = cap;
-    return 0;
-}
-
-// Device-side staging buffers for batch_first_fit. Sized in 8-word padded
-// rows. Capacity grows monotonically and is freed by cleanup_cuda_pools.
-static uint64_t* d_bff_communities = nullptr;
-static uint64_t* d_bff_values      = nullptr;
-static int32_t*  d_bff_out         = nullptr;
-static uint32_t  bff_comm_cap      = 0;
-static uint32_t  bff_val_cap       = 0;
-
 // Pinned arena state for the gossip kernel.
 // CUDA does not have Apple Silicon's unified shared memory; we allocate
 // a device-resident arena and stream Value frames in/out per dispatch.
 // gossip_arena_cap counts Value frames (not bytes) of headroom.
 static uint64_t* d_gossip_arena   = nullptr;
-static uint32_t* d_gossip_indices = nullptr;
+static uint8_t*  d_gossip_active  = nullptr;
+static uint64_t* d_ast_post       = nullptr;
+static predicate_device_spec_t* d_ast_predicates = nullptr;
+static uint64_t* d_spawn_frames   = nullptr;
+static uint64_t* d_spawn_ids      = nullptr;
+static uint8_t*  d_spawn_active   = nullptr;
 static uint32_t  gossip_arena_cap = 0;
-static uint32_t  gossip_idx_cap   = 0;
+static uint32_t  gossip_active_cap = 0;
+static uint32_t  ast_post_cap     = 0;
+static uint32_t  spawn_cap        = 0;
 
 static int ensure_gossip_pool(uint32_t value_count) {
     if (value_count > gossip_arena_cap) {
@@ -449,39 +602,34 @@ static int ensure_gossip_pool(uint32_t value_count) {
         if (cudaMalloc((void**)&d_gossip_arena, bytes) != cudaSuccess) return -1;
         gossip_arena_cap = cap;
     }
-    if (value_count > gossip_idx_cap) {
-        if (d_gossip_indices) { cudaFree(d_gossip_indices); d_gossip_indices = nullptr; }
+    if (value_count > gossip_active_cap) {
+        if (d_gossip_active) { cudaFree(d_gossip_active); d_gossip_active = nullptr; }
         uint32_t cap = value_count * 2;
         if (cap < 256) cap = 256;
-        size_t bytes = (size_t)cap * sizeof(uint32_t);
-        if (cudaMalloc((void**)&d_gossip_indices, bytes) != cudaSuccess) return -1;
-        gossip_idx_cap = cap;
+        if (cudaMalloc((void**)&d_gossip_active, (size_t)cap * sizeof(uint8_t)) != cudaSuccess) return -1;
+        gossip_active_cap = cap;
     }
-    return 0;
-}
-
-static int ensure_bff_pool(uint32_t community_count, uint32_t value_count) {
-    if (community_count > bff_comm_cap) {
-        if (d_bff_communities) { cudaFree(d_bff_communities); d_bff_communities = nullptr; }
-        uint32_t cap = community_count * 2;
-        if (cap < 64) cap = 64;
-        size_t bytes = (size_t)cap * AFFINITY_ROW_WORDS * sizeof(uint64_t);
-        if (cudaMalloc((void**)&d_bff_communities, bytes) != cudaSuccess) return -1;
-        bff_comm_cap = cap;
-    }
-
-    if (value_count > bff_val_cap) {
-        if (d_bff_values) { cudaFree(d_bff_values); d_bff_values = nullptr; }
-        if (d_bff_out)    { cudaFree(d_bff_out);    d_bff_out    = nullptr; }
+    if (value_count > ast_post_cap) {
+        if (d_ast_post) { cudaFree(d_ast_post); d_ast_post = nullptr; }
         uint32_t cap = value_count * 2;
         if (cap < 256) cap = 256;
-        size_t val_bytes = (size_t)cap * AFFINITY_ROW_WORDS * sizeof(uint64_t);
-        size_t out_bytes = (size_t)cap * sizeof(int32_t);
-        if (cudaMalloc((void**)&d_bff_values, val_bytes) != cudaSuccess) return -1;
-        if (cudaMalloc((void**)&d_bff_out,    out_bytes) != cudaSuccess) return -1;
-        bff_val_cap = cap;
+        if (cudaMalloc((void**)&d_ast_post, (size_t)cap * WORDS * sizeof(uint64_t)) != cudaSuccess) return -1;
+        ast_post_cap = cap;
     }
-
+    if (!d_ast_predicates) {
+        if (cudaMalloc((void**)&d_ast_predicates, 128 * sizeof(predicate_device_spec_t)) != cudaSuccess) return -1;
+    }
+    if (value_count > spawn_cap) {
+        if (d_spawn_frames) { cudaFree(d_spawn_frames); d_spawn_frames = nullptr; }
+        if (d_spawn_ids) { cudaFree(d_spawn_ids); d_spawn_ids = nullptr; }
+        if (d_spawn_active) { cudaFree(d_spawn_active); d_spawn_active = nullptr; }
+        uint32_t cap = value_count * 2;
+        if (cap < 256) cap = 256;
+        if (cudaMalloc((void**)&d_spawn_frames, (size_t)cap * WORDS * sizeof(uint64_t)) != cudaSuccess) return -1;
+        if (cudaMalloc((void**)&d_spawn_ids, (size_t)cap * sizeof(uint64_t)) != cudaSuccess) return -1;
+        if (cudaMalloc((void**)&d_spawn_active, (size_t)cap * sizeof(uint8_t)) != cudaSuccess) return -1;
+        spawn_cap = cap;
+    }
     return 0;
 }
 
@@ -495,150 +643,70 @@ extern "C" {
 
     void cleanup_cuda_pools() {
         if (d_pool_A)          { cudaFree(d_pool_A);          d_pool_A          = nullptr; }
-        if (d_aff_candidates)  { cudaFree(d_aff_candidates);  d_aff_candidates  = nullptr; }
-        if (d_aff_query)       { cudaFree(d_aff_query);       d_aff_query       = nullptr; }
-        if (d_aff_distances)   { cudaFree(d_aff_distances);   d_aff_distances   = nullptr; }
-        if (d_bff_communities) { cudaFree(d_bff_communities); d_bff_communities = nullptr; }
-        if (d_bff_values)      { cudaFree(d_bff_values);      d_bff_values      = nullptr; }
-        if (d_bff_out)         { cudaFree(d_bff_out);         d_bff_out         = nullptr; }
         if (d_gossip_arena)    { cudaFree(d_gossip_arena);    d_gossip_arena    = nullptr; }
-        if (d_gossip_indices)  { cudaFree(d_gossip_indices);  d_gossip_indices  = nullptr; }
+        if (d_gossip_active)   { cudaFree(d_gossip_active);   d_gossip_active   = nullptr; }
+        if (d_ast_post)        { cudaFree(d_ast_post);        d_ast_post        = nullptr; }
+        if (d_ast_predicates)  { cudaFree(d_ast_predicates);  d_ast_predicates  = nullptr; }
+        if (d_spawn_frames)    { cudaFree(d_spawn_frames);    d_spawn_frames    = nullptr; }
+        if (d_spawn_ids)       { cudaFree(d_spawn_ids);       d_spawn_ids       = nullptr; }
+        if (d_spawn_active)    { cudaFree(d_spawn_active);    d_spawn_active    = nullptr; }
         pool_capacity   = 0;
-        aff_pool_cap    = 0;
-        bff_comm_cap    = 0;
-        bff_val_cap     = 0;
         gossip_arena_cap = 0;
-        gossip_idx_cap   = 0;
+        gossip_active_cap = 0;
+        ast_post_cap = 0;
+        spawn_cap = 0;
     }
 
     /*
-    hypercube_gossip_cuda runs the per-community gossip pipeline on
-    CUDA. The host packs the resident community's Value frames
-    contiguously starting at value_frames[0] and provides indices
-    [0..value_count) corresponding to those packed slots. The kernel
-    publishes the S+C+G+P band into asset and runs d_max XOR-routed
-    fold steps with the chosen fold_op (0 = OR, 1 = XOR). After the
-    kernel the host reads back the modified frames.
+    hypercube_gossip_cuda runs the resident packed AST over a contiguous
+    community frame array. active preserves nil community positions so
+    topology routing matches the caller's slice indices. spawn_* buffers are
+    value_count entries; the kernel fills at most one spawned frame per source.
     */
     int hypercube_gossip_cuda(
-        int       device_id,
-        uint64_t* value_frames_host,
-        uint32_t  value_count,
-        uint32_t  d_max,
-        uint32_t  fold_op
+        int                         device_id,
+        uint64_t*                   value_frames_host,
+        uint8_t*                    active_host,
+        uint32_t                    value_count,
+        uint32_t                    owner_index,
+        predicate_device_spec_t*    predicates_host,
+        uint64_t*                   spawn_frames_host,
+        uint64_t*                   spawn_ids_host,
+        uint8_t*                    spawn_active_host
     ) {
-        if (!value_frames_host || value_count == 0) return -1;
+        if (!value_frames_host || !active_host || !predicates_host || !spawn_frames_host || !spawn_ids_host || !spawn_active_host || value_count == 0) return -1;
         if (cudaSetDevice(device_id) != cudaSuccess) return -1;
         if (ensure_gossip_pool(value_count) != 0)    return -1;
 
-        size_t frames_bytes  = (size_t)value_count * WORDS * sizeof(uint64_t);
-        size_t indices_bytes = (size_t)value_count * sizeof(uint32_t);
+        if (value_count > 1024) return -6;
+
+        size_t frames_bytes = (size_t)value_count * WORDS * sizeof(uint64_t);
+        size_t active_bytes = (size_t)value_count * sizeof(uint8_t);
+        size_t spawn_ids_bytes = (size_t)value_count * sizeof(uint64_t);
 
         if (cudaMemcpy(d_gossip_arena, value_frames_host, frames_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemcpy(d_gossip_active, active_host, active_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemcpy(d_ast_predicates, predicates_host, 128 * sizeof(predicate_device_spec_t), cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemcpy(d_spawn_ids, spawn_ids_host, spawn_ids_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemset(d_spawn_active, 0, active_bytes) != cudaSuccess) return -2;
 
-        uint32_t* host_indices = (uint32_t*)malloc(indices_bytes);
-        if (!host_indices) return -2;
-        for (uint32_t i = 0; i < value_count; i++) host_indices[i] = i;
-
-        cudaError_t cpy_idx = cudaMemcpy(d_gossip_indices, host_indices, indices_bytes, cudaMemcpyHostToDevice);
-        free(host_indices);
-        if (cpy_idx != cudaSuccess) return -2;
-
-        size_t shared_bytes =
-            (size_t)value_count * GOSSIP_K_PER_CHUNK_CUDA * sizeof(uint64_t);
-
-        hypercube_gossip_kernel<<<1, value_count, shared_bytes>>>(
-            d_gossip_arena, d_gossip_indices, value_count, d_max, fold_op
+        hypercube_ast_kernel<<<1, value_count>>>(
+            d_gossip_arena,
+            d_gossip_active,
+            value_count,
+            owner_index,
+            d_ast_predicates,
+            d_ast_post,
+            d_spawn_frames,
+            d_spawn_ids,
+            d_spawn_active
         );
 
         if (cudaGetLastError()      != cudaSuccess) return -3;
         if (cudaDeviceSynchronize() != cudaSuccess) return -4;
         if (cudaMemcpy(value_frames_host, d_gossip_arena, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
-
-        return 0;
-    }
-
-    /*
-    batch_first_fit_cuda runs the fused dual-gate first-fit routing
-    kernel on the GPU. Inputs are 8-word padded rows (matching CPU and
-    Metal). out_host receives one int32 per value: the first community
-    index that satisfies the dual gate, or -1 when no community fits.
-    */
-    int batch_first_fit_cuda(
-        int             device_id,
-        const uint64_t* community_ors_host,
-        uint32_t        community_count,
-        const uint64_t* value_affinities_host,
-        uint32_t        value_count,
-        uint32_t        hamming_budget,
-        uint32_t        saturation_cap,
-        int32_t*        out_host
-    ) {
-        if (!out_host || value_count == 0) return -1;
-        if (community_count > 0 && (!community_ors_host || !value_affinities_host)) return -1;
-        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-        if (ensure_bff_pool(community_count, value_count) != 0) return -1;
-
-        size_t comm_bytes = (size_t)community_count * AFFINITY_ROW_WORDS * sizeof(uint64_t);
-        size_t val_bytes  = (size_t)value_count     * AFFINITY_ROW_WORDS * sizeof(uint64_t);
-        size_t out_bytes  = (size_t)value_count     * sizeof(int32_t);
-
-        if (comm_bytes > 0) {
-            if (cudaMemcpy(d_bff_communities, community_ors_host, comm_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
-        }
-        if (cudaMemcpy(d_bff_values, value_affinities_host, val_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
-
-        const int tpb = 256;
-        int blocks = (int)((value_count + tpb - 1) / tpb);
-        if (blocks < 1) blocks = 1;
-
-        batch_first_fit_kernel<<<blocks, tpb>>>(
-            d_bff_communities,
-            d_bff_values,
-            d_bff_out,
-            community_count,
-            value_count,
-            hamming_budget,
-            saturation_cap
-        );
-
-        if (cudaGetLastError()      != cudaSuccess) return -3;
-        if (cudaDeviceSynchronize() != cudaSuccess) return -4;
-        if (cudaMemcpy(out_host, d_bff_out, out_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
-
-        return 0;
-    }
-
-    int nearest_affinity_cuda(
-        int device_id,
-        void* query_host,
-        void* candidates_host,
-        uint32_t count,
-        uint64_t* best_packed_result_host
-    ) {
-        if (!query_host || !candidates_host || !best_packed_result_host || count == 0) return -1;
-        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-        if (ensure_aff_pool(count) != 0) return -1;
-
-        size_t q_bytes    = AFFINITY_WORDS * sizeof(uint64_t);
-        size_t cand_bytes = (size_t)count * AFFINITY_WORDS * sizeof(uint64_t);
-        size_t res_bytes  = sizeof(uint64_t);
-
-        if (cudaMemcpy(d_aff_query,      query_host,      q_bytes,    cudaMemcpyHostToDevice) != cudaSuccess) return -2;
-        if (cudaMemcpy(d_aff_candidates,  candidates_host, cand_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
-
-        // Initialize best_packed_result to 0
-        if (cudaMemset(d_aff_distances, 0, res_bytes) != cudaSuccess) return -2;
-
-        const int tpb = 256;
-        int blocks = (int)((count + tpb - 1) / tpb);
-        if (blocks < 1) blocks = 1;
-
-        nearest_affinity_kernel<<<blocks, tpb>>>(d_aff_candidates, d_aff_query, (uint64_t*)d_aff_distances, count);
-
-        if (cudaGetLastError()        != cudaSuccess) return -3;
-        if (cudaDeviceSynchronize()   != cudaSuccess) return -4;
-        if (cudaMemcpy(best_packed_result_host, d_aff_distances, res_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(spawn_frames_host, d_spawn_frames, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(spawn_active_host, d_spawn_active, active_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
 
         return 0;
     }
@@ -691,4 +759,3 @@ extern "C" {
         return 0;
     }
 }
-

@@ -59,7 +59,7 @@ static inline void apply_refutation_probe(device ulong* frame) {
     if (longest_one_run_signals(frame) < REFUTATION_ONE_RUN_THRESHOLD) {
         return;
     }
-    frame[PROPERTIES_NOISE_WORD] |= FALSIFIED_BIT_NOISE_WORD;
+    frame[SIGNALS_FALSIFIED_WORD] = FALSIFIED_SIGNAL_SENTINEL;
     frame[SCHEDULING_NEXT_PROGRAM_WORD] = 0UL;
     frame[PROPERTIES_REFUTATION_TARGET_WORD] = 0UL;
 }
@@ -70,5 +70,4 @@ static inline void finish_frame_post_alu_device(device ulong* frame) {
 }
 
 #endif
-
 

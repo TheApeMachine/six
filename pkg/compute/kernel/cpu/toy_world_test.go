@@ -19,7 +19,6 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 		},
 		Properties: map[string]int{
 			"ttl":          3,
-			"falsified":    13,
 			"continuation": 15,
 		},
 		Opcodes: program.Opcodes,
@@ -31,10 +30,10 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 
 	src := `
 	; Check if expectation (context) matches reality (signals)
-	[ (properties.falsified self) <= any_zero(context -> signals) <= community ]
+	[ (signals[7,1] self) <= any_zero(context -> signals) <= community ]
 	
 	; If falsified, decay TTL
-	[ (properties.ttl self) <= (properties.ttl \ 1) ? (properties.falsified != 0) <= community ]
+	[ (properties.ttl self) <= (properties.ttl \ 1) ? (signals[7,1] != 0) <= community ]
 	
 	; If TTL hits 0, halt
 	[ (properties.continuation self) <= (0) ? (properties.ttl == 0) <= community ]
@@ -63,10 +62,10 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 
 	// Tick 1: evaluate falsification, decay TTL, and halt!
 	// Because HypercubeGossip now properly syncs after EACH instruction,
-	// the second instruction observes falsified=1, and the third observes TTL=0.
+	// the second instruction observes signals[7]=1, and the third observes TTL=0.
 	HypercubeGossip(nil, []*primitive.Value{v1})
-	if frame[69] != 1 {
-		t.Fatalf("expected falsified=1 after tick 1, got %d", frame[69])
+	if frame[39] != 1 {
+		t.Fatalf("expected signals[7]=1 after tick 1, got %d", frame[39])
 	}
 	if frame[59] != 0 {
 		t.Fatalf("expected TTL 0 to decay in same tick, got %d", frame[59])
@@ -87,7 +86,6 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 		},
 		Properties: map[string]int{
 			"ttl":          3,
-			"falsified":    13,
 			"continuation": 15,
 		},
 		Opcodes: program.Opcodes,
@@ -95,8 +93,8 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 
 	// Spawn a new Value when falsified.
 	src := `
-	[ (properties.falsified self) <= any_zero(context -> signals) <= community ]
-	[ (context spawn) <= (0) ? (properties.falsified != 0) <= community ]
+	[ (signals[7,1] self) <= any_zero(context -> signals) <= community ]
+	[ (context spawn) <= (0) ? (signals[7,1] != 0) <= community ]
 	`
 
 	comp, err := program.Compile(src, lay)

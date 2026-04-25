@@ -13,10 +13,10 @@ import (
 const recruitProgramForMachineTest = `
 [ (signals[0,5] self) <= (context[0,5] ^ asset[40,5]) <= community ]
 [ (properties.noise self) <= popcnt(signals[0,5]) <= community ]
-[ (properties.falsified self) <= (0) <= community ]
-[ (properties.falsified self) <= (1) ? (popcnt(signals[0,5]) | 120) <= community ]
-[ (properties.community next) <= (properties.community) ? (properties.falsified != 0) <= community ]
-[ (context[0,5] self) <= (signals[0,5]) ? (properties.falsified != 0) <= community ]
+[ (signals[7,1] self) <= (0) <= community ]
+[ (signals[7,1] self) <= (1) ? (popcnt(signals[0,5]) | 120) <= community ]
+[ (properties.community next) <= (properties.community) ? (signals[7,1] != 0) <= community ]
+[ (context[0,5] self) <= (signals[0,5]) ? (signals[7,1] != 0) <= community ]
 `
 
 func installMachineTestRecruitProgram(t *testing.T, value *primitive.Value) {
@@ -32,7 +32,6 @@ func installMachineTestRecruitProgram(t *testing.T, value *primitive.Value) {
 		Properties: map[string]int{
 			"noise":     int(primitive.NOISE),
 			"community": int(primitive.COMMUNITY),
-			"falsified": int(primitive.FALSIFIED),
 		},
 	})
 	if err != nil {

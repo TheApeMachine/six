@@ -3,13 +3,13 @@
 #include "textflag.h"
 
 // =========================================================================
-// geometricFrame: AMD64 SSE2 scalar-FP PGA lane.
+// geometricFrame: AMD64 SSE2 PGA lane.
 //
 // func geometricFrame(value *uint64, opcode uint64) bool
 //
 // The Boolean CPU backend already targets AVX2 for bitwise hot loops. The
-// PGA lane is a sparse 8x8 float64 product, so scalar SSE2 instructions keep
-// the dependency graph explicit while avoiding Go call overhead.
+// PGA product is sparse enough that scalar SSE2 keeps the dependency graph
+// explicit; reverse/sign-flip phases use packed SSE2 lanes.
 // =========================================================================
 TEXT ·geometricFrame(SB), NOSPLIT, $128-17
 	MOVQ	value+0(FP), DI
@@ -43,38 +43,30 @@ geom_sandwich:
 	LEAQ	tmp-128(SP), R8
 	CALL	·geometricProductStore(SB)
 
-	MOVQ	$0x8000000000000000, R9
 	LEAQ	rev-64(SP), DX
+	MOVQ	$0x8000000000000000, R9
+	PXOR	X8, X8
+	MOVQ	R9, X9
+	PUNPCKLQDQ X9, X9
+	PXOR	X10, X10
+	MOVQ	R9, X11
+	PUNPCKLQDQ X11, X10
+	PXOR	X12, X12
+	MOVQ	R9, X13
+	PUNPCKLQDQ X12, X13
 
-	MOVQ	384(DI), AX
-	MOVQ	AX, 0(DX)
-
-	MOVQ	392(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 8(DX)
-
-	MOVQ	400(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 16(DX)
-
-	MOVQ	408(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 24(DX)
-
-	MOVQ	416(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 32(DX)
-
-	MOVQ	424(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 40(DX)
-
-	MOVQ	432(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 48(DX)
-
-	MOVQ	440(DI), AX
-	MOVQ	AX, 56(DX)
+	MOVOU	384(DI), X0
+	PXOR	X10, X0
+	MOVOU	X0, 0(DX)
+	MOVOU	400(DI), X0
+	PXOR	X9, X0
+	MOVOU	X0, 16(DX)
+	MOVOU	416(DI), X0
+	PXOR	X9, X0
+	MOVOU	X0, 32(DX)
+	MOVOU	432(DI), X0
+	PXOR	X13, X0
+	MOVOU	X0, 48(DX)
 
 	LEAQ	tmp-128(SP), SI
 	LEAQ	256(DI), R8
@@ -85,36 +77,28 @@ geom_sandwich:
 
 geom_reverse:
 	MOVQ	$0x8000000000000000, R9
+	PXOR	X8, X8
+	MOVQ	R9, X9
+	PUNPCKLQDQ X9, X9
+	PXOR	X10, X10
+	MOVQ	R9, X11
+	PUNPCKLQDQ X11, X10
+	PXOR	X12, X12
+	MOVQ	R9, X13
+	PUNPCKLQDQ X12, X13
 
-	MOVQ	320(DI), AX
-	MOVQ	AX, 256(DI)
-
-	MOVQ	328(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 264(DI)
-
-	MOVQ	336(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 272(DI)
-
-	MOVQ	344(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 280(DI)
-
-	MOVQ	352(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 288(DI)
-
-	MOVQ	360(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 296(DI)
-
-	MOVQ	368(DI), AX
-	XORQ	R9, AX
-	MOVQ	AX, 304(DI)
-
-	MOVQ	376(DI), AX
-	MOVQ	AX, 312(DI)
+	MOVOU	320(DI), X0
+	PXOR	X10, X0
+	MOVOU	X0, 256(DI)
+	MOVOU	336(DI), X0
+	PXOR	X9, X0
+	MOVOU	X0, 272(DI)
+	MOVOU	352(DI), X0
+	PXOR	X9, X0
+	MOVOU	X0, 288(DI)
+	MOVOU	368(DI), X0
+	PXOR	X13, X0
+	MOVOU	X0, 304(DI)
 
 	MOVB	$1, ret+16(FP)
 	RET

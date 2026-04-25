@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -13,8 +14,8 @@ type Task interface {
 
 // a single slot for a worker in Pool
 type slot struct {
-	threadPtr unsafe.Pointer
-	task      func()
+	sema uint32
+	task func()
 }
 
 // Pool represents the thread-pool for performing any kind of task ( type -> func() {} )
@@ -44,7 +45,7 @@ func (self *Pool) Submit(task func()) {
 	for {
 		if s = self.pop(); s != nil {
 			s.task = task
-			safe_ready(s.threadPtr)
+			runtime_Semrelease(&s.sema, false, 0)
 			return
 		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
 			s = &slot{task: task}
@@ -52,22 +53,20 @@ func (self *Pool) Submit(task func()) {
 			return
 		} else {
 			atomic.AddUint64(&self.currSize, uint64SubtractionConstant)
-			mcall(gosched_m)
+			runtime.Gosched()
 		}
 	}
 }
 
 // loopQ is the looping function for every worker goroutine
 func (self *Pool) loopQ(s *slot) {
-	// store self goroutine pointer
-	s.threadPtr = GetG()
 	for {
 		// exec task
 		s.task()
 		// notify availability by pushing self reference into stack
 		self.push(s)
 		// park and wait for call
-		mcall(fast_park)
+		runtime_Semacquire(&s.sema)
 	}
 }
 

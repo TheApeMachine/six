@@ -3,7 +3,7 @@
 #include "textflag.h"
 
 // ============================================================================
-// geometricFrame: ARM64 scalar-FP/NEON-register PGA lane.
+// geometricFrame: ARM64 NEON-register PGA lane.
 //
 // func geometricFrame(value *uint64, opcode uint64) bool
 //
@@ -12,9 +12,8 @@
 //   Context  word 40, byte 320: left motor / operand
 //   Gradient word 48, byte 384: right target / operand
 //
-// The implementation keeps operands in FP/SIMD registers. Sandwich writes the
-// first product into Signals, reloads it, and overwrites Signals with the final
-// product so the function can stay NOFRAME on ARM64.
+// The sparse product keeps scalar FP dependency order inside SIMD registers.
+// Reverse/sign-flip phases use packed NEON XOR lanes.
 // ============================================================================
 TEXT ·geometricFrame(SB), NOSPLIT|NOFRAME, $0-17
 	MOVD	value+0(FP), R0
@@ -120,35 +119,39 @@ geom_sandwich:
 	RET
 
 geom_reverse:
-	FMOVD	320(R0), F16
-	FMOVD	F16, 256(R0)
+	MOVD	$0x8000000000000000, R2
+	MOVD	$0, R3
+	VMOV	R3, V30.D[0]
+	VMOV	R2, V30.D[1]
+	VMOV	R2, V31.D[0]
+	VMOV	R2, V31.D[1]
+	VMOV	R2, V29.D[0]
+	VMOV	R3, V29.D[1]
 
-	FMOVD	328(R0), F16
-	FNEGD	F16, F16
-	FMOVD	F16, 264(R0)
+	ADD	$320, R0, R4
+	ADD	$256, R0, R5
 
-	FMOVD	336(R0), F16
-	FNEGD	F16, F16
-	FMOVD	F16, 272(R0)
+	VLD1	(R4), [V16.D2]
+	VEOR	V30.B16, V16.B16, V16.B16
+	VST1	[V16.D2], (R5)
 
-	FMOVD	344(R0), F16
-	FNEGD	F16, F16
-	FMOVD	F16, 280(R0)
+	ADD	$16, R4, R4
+	ADD	$16, R5, R5
+	VLD1	(R4), [V16.D2]
+	VEOR	V31.B16, V16.B16, V16.B16
+	VST1	[V16.D2], (R5)
 
-	FMOVD	352(R0), F16
-	FNEGD	F16, F16
-	FMOVD	F16, 288(R0)
+	ADD	$16, R4, R4
+	ADD	$16, R5, R5
+	VLD1	(R4), [V16.D2]
+	VEOR	V31.B16, V16.B16, V16.B16
+	VST1	[V16.D2], (R5)
 
-	FMOVD	360(R0), F16
-	FNEGD	F16, F16
-	FMOVD	F16, 296(R0)
-
-	FMOVD	368(R0), F16
-	FNEGD	F16, F16
-	FMOVD	F16, 304(R0)
-
-	FMOVD	376(R0), F16
-	FMOVD	F16, 312(R0)
+	ADD	$16, R4, R4
+	ADD	$16, R5, R5
+	VLD1	(R4), [V16.D2]
+	VEOR	V29.B16, V16.B16, V16.B16
+	VST1	[V16.D2], (R5)
 
 	MOVD	$1, R1
 	MOVB	R1, ret+16(FP)

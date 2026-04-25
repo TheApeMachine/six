@@ -44,8 +44,7 @@ test("every generated program matches a signature with the same instruction stre
 						instr.bStart === o.bStart &&
 						instr.bSpan === o.bSpan &&
 						instr.dstStart === o.dstStart &&
-						instr.dstSpan === o.dstSpan &&
-						instr.scope === o.scope
+						instr.dstSpan === o.dstSpan
 					);
 				}),
 		).map((s) => s.name);
@@ -87,7 +86,6 @@ test("classifyInstructionStream falls through to unknown for an unrecognised tup
 			predCond: 0,
 			aInd: 0,
 			bType: 0,
-			scope: 0,
 		},
 	]);
 

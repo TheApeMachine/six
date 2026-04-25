@@ -100,9 +100,6 @@ value:
     - SURPRISAL
     - PREV_SURPRISAL
     - DELTA_SURPRISAL
-    - STUCK_COUNT
-    - FALSIFIED
-    - STUCK
     - CONTINUATION
   roles:
     - None
@@ -128,18 +125,24 @@ programs:
     [ { A(affinity[0,5]) A(tokens[0,16]) ^ } ]
   structural_component: |
     <[
-      { B(prev) B(id) ^ }
-      { B(next) B(id) ^ }
+      { B(prev) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write Bn+1 id to prev region
+      { B(next) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write Bn+1 id to next region
     ] <= [
-      { A(status) done ^ }
-      { B(tokens) signals[0, 1] ^ }
-      { B(tokens) signals[1, 1] ^ }
-      { B(tokens) signals[2, 1] ^ }
-    ]> [
-        { B(signals) }
+      { A(status) done ^ }                               ; set status of A to done
+      { B(tokens) signals[0, 1] ^ }                      ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
+      { B(tokens) signals[1, 1] ^ }                      ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
+      { B(tokens) signals[2, 1] ^ }                      ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
+    ]> [                                                 ; emit new values to the substrate
+        { B(signals) }                                   ; map over Bn ([]*primitive.Value) and write results of previous pipe to signals region
     ] <= [
-        { B(tokens[0,16]) B(tokens[0,16]) & }
-        { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }
+        { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 16 bits applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 32 bits applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 48 bits applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 64 bits applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 80 bits applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 96 bits applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 112 bits applying AND
     ]
   popcount: |
     [ { A(affinity[4,1]) A(affinity[0,5]) popcnt } ]
@@ -151,14 +154,14 @@ programs:
   beam_swarm_step: |
     [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
     [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
-    [ { A(falsified) A(signals[0,8]) popcnt } ]
-    [ { A(falsified) A(confidence) | } ]
-    [ { A(affinity[0,5]) A(falsified) ^ } ]
+    [ { A(signals[7,1]) A(signals[0,8]) popcnt } ]
+    [ { A(signals[7,1]) A(confidence) | } ]
+    [ { A(affinity[0,5]) A(signals[7,1]) ^ } ]
     [ { A(gradient[0,8]) A(signals[0,8]) ^ } ]
     [ { A(continuation) A(id) | } ]
   surprisal: |
     [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
-    [ { A(falsified) A(signals[0,8]) popcnt } ]
+    [ { A(signals[7,1]) A(signals[0,8]) popcnt } ]
     [ { A(gradient[0,8]) A(signals[0,8]) ^ } ]
     [ { A(continuation) A(id) | } ]
   hypothesis: |
@@ -167,7 +170,7 @@ programs:
     [ { A(confidence) A(id) | } ]
   memory_prune: |
     [ { A(confidence) 1 | } ] <= [ { { A(status) 0 != } ? } ]
-    [ { A(confidence) 1 \ } ] <= [ { { A(falsified) 0 != } ? } ]
+    [ { A(confidence) 1 \ } ] <= [ { { A(signals[7,1]) 0 != } ? } ]
     [ { A(ttl) 1 \ } ] <= [ { { A(confidence) 0 == } ? } ]
     [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
     [ { A(continuation) A(id) } ] <= [ { { A(ttl) 0 != } ? } ]
@@ -183,17 +186,14 @@ programs:
     [ { A(surprisal) A(signals[0,8]) popcnt } ]
     [ { A(delta_surprisal) A(prev_surprisal) ^ } ]
     [ { A(context[0,8]) A(gradient[0,8]) ^ } ]
-    [ { A(stuck_count) 1 | } ] <= [ { { A(delta_surprisal) 0 == } ? } ]
-    [ { A(stuck_count) 0 } ] <= [ { { A(delta_surprisal) 0 != } ? } ]
-    [ { A(stuck) 1 } ] <= [ { { A(stuck_count) 0 != } ? } ]
     [ { A(continuation) 0 } ] <= [ { { A(surprisal) 0 == } ? } ]
     [ { A(status) 5 B } ] <= [ { { A(surprisal) 0 == } ? } ]
     [ { A(continuation) A(id) } ] <= [ { { A(surprisal) 0 != } ? } ]
   causal_explore: |
     [ { A(tokens[0,8]) A(context[0,8]) -> } ]
-    [ { A(falsified) A(signals[0,8]) any_zero } ]
-    [ { A(gradient[0,8]) A(context[0,8]) ^ } ] <= [ { { A(falsified) 0 != } ? } ]
-    [ { A(status) 4 B } ] <= [ { { A(falsified) 0 == } ? } ]
+    [ { A(signals[7,1]) A(signals[0,8]) any_zero } ]
+    [ { A(gradient[0,8]) A(context[0,8]) ^ } ] <= [ { { A(signals[7,1]) 0 != } ? } ]
+    [ { A(status) 4 B } ] <= [ { { A(signals[7,1]) 0 == } ? } ]
     [ { A(continuation) 0 } ]
   recruit_community: |
     <[{ A clear }]> [
@@ -210,16 +210,16 @@ programs:
   causal_hub: |
     [ { A(tokens[0,8]) A(context[0,8]) ^ } ]
     [ { A(gradient[0,8]) A(context[0,8]) ^ } ]
-    [ { A(falsified) A(signals[0,8]) popcnt } ]
-    [ { A(falsified) A(epoch) | } ]
+    [ { A(signals[7,1]) A(signals[0,8]) popcnt } ]
+    [ { A(signals[7,1]) A(epoch) | } ]
     [ { A(gradient[0,8]) A(asset[40,8]) ^ } ]
     [ { A(continuation) A(id) | } ]
   open_ended_generation: |
     [ { A(tokens[0,16]) A(asset[8,16]) ^ } ]
     [ { A(tokens[0,8]) A(context[0,8]) -> } ]
-    [ { A(falsified) A(signals[0,8]) any_zero } ]
-    [ { A(continuation) 0 } ] <= [ { { A(falsified) 0 != } ? } ]
-    <[{ A clear }]> <= [ { { A(falsified) 0 == } ? } ]
+    [ { A(signals[7,1]) A(signals[0,8]) any_zero } ]
+    [ { A(continuation) 0 } ] <= [ { { A(signals[7,1]) 0 != } ? } ]
+    <[{ A clear }]> <= [ { { A(signals[7,1]) 0 == } ? } ]
   survey_community: |
     [ { A(context[7,1]) A(context[6,1]) } ]
     [ { A(context[6,1]) A(context[5,1]) } ]
@@ -234,8 +234,6 @@ programs:
     [ { A(continuation) 0 } ] <= [ { { A(labels) 0 != } ? } ]
     [ { A(continuation) A(id) } ] <= [ { { A(labels) 0 == } ? } ]
   meta_controller: |
-    [ { A(continuation) 4 B } ] <= [ { { A(falsified) 0 != } ? } ]
-    [ { A(continuation) 5 B } ] <= [ { { A(stuck) 0 != } ? } ]
     [ { A(continuation) 6 B } ] <= [ { { A(surprisal) 0 == } ? } ]
     [ { A(continuation) 0 } ] <= [ { { A(ttl) 0 == } ? } ]
     [ { A(continuation) 7 B } ] <= [ { { A(surprisal) 0 != } ? } ]
@@ -250,8 +248,8 @@ programs:
     [ { A(confidence) A(signals[0,8]) popcnt } ]
   intervene: |
     [ { A(context[0,8]) A(asset[16,8]) ^ } ]
-    [ { A(falsified) A(signals[0,8]) | } ]
-    [ { A(falsified) A(falsified) popcnt } ]
+    [ { A(signals[7,1]) A(signals[0,8]) | } ]
+    [ { A(signals[7,1]) A(signals[7,1]) popcnt } ]
     [ { A(gradient[0,8]) A(asset[16,8]) ^ } ]
   vote_swarm: |
     [ { A(context[0,8]) A(asset[0,8]) ^ } ]

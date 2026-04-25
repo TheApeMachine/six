@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -9,8 +10,8 @@ import (
 type (
 	// a single slot for a worker in PoolWithFunc
 	slotFunc[T any] struct {
-		threadPtr unsafe.Pointer
-		data      T
+		sema uint32
+		data T
 	}
 
 	// PoolWithFunc is used for spawning workers for a single pre-defined function with myriad inputs
@@ -44,7 +45,7 @@ func (self *PoolWithFunc[T]) Invoke(value T) {
 	for {
 		if s = self.pop(); s != nil {
 			s.data = value
-			safe_ready(s.threadPtr)
+			runtime_Semrelease(&s.sema, false, 0)
 			return
 		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
 			s = &slotFunc[T]{data: value}
@@ -52,18 +53,17 @@ func (self *PoolWithFunc[T]) Invoke(value T) {
 			return
 		} else {
 			atomic.AddUint64(&self.currSize, uint64SubtractionConstant)
-			mcall(gosched_m)
+			runtime.Gosched()
 		}
 	}
 }
 
 // represents the infinite loop for a worker goroutine
 func (self *PoolWithFunc[T]) loopQ(d *slotFunc[T]) {
-	d.threadPtr = GetG()
 	for {
 		self.task(d.data)
 		self.push(d)
-		mcall(fast_park)
+		runtime_Semacquire(&d.sema)
 	}
 }
 

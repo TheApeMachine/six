@@ -267,17 +267,22 @@ Go is reduced to a bootloader. It compiles the `SYNTAX.md`, allocates the RAM ar
 The **bracket pipeline** in §2 is how programs are spelled in `config.yml` and tests today. The table below is the same algebra in the composable surface form (pipe / operation / feed).
 
 ```text
+ ;      **comment**    ignored/stripped by compiler
 [ ]     **pipe**       build something to be realized
 { }     **operation**  Reverse Polish notation over regions and ops
 <=>     **feed**       take what this *is* (realize) and move in direction; the
                        bond is two-way. In bracket sources the feed is the `<=` token
                        (one arrow per site in the current scanner).
-!       **is not**     when something is not
-?       **gate**       must open or the buck stops here
-A       **value**      the program runner
-B       **values**     hypercube gossip operands; implicit map over B
+ !      **is not**     when something is not
+ ?      **gate**       must open or the buck stops here
+ A      **value**      the program runner
+ B      **values**     hypercube gossip operands; implicit map over B
 < >     **emit**       continuation / return
+```
 
+## Examples
+
+```
 ; a simple example
 [(B popcnt)] <= [(A B ^)] ; stages A to XOR with each B, materialize result
                           ; and get popcount of each *(implicit map)* B value
@@ -294,4 +299,58 @@ B       **values**     hypercube gossip operands; implicit map over B
 ] <= [
     { { A(affinity) B(affinity) ^ } 64 | }
 ]
+
+; structural compose
+<[
+    { B(prev) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write Bn+1 id to prev region
+    { B(next) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write Bn+1 id to next region
+] <= [
+    { A(status) done ^ }                             ; set status of A to done
+    { B(tokens) signals[0, 1] ^ }                    ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
+    { B(tokens) signals[1, 1] ^ }                    ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
+    { B(tokens) signals[2, 1] ^ }                    ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
+]> [                                                 ; emit new values to the substrate
+    { B(signals) }                                   ; map over Bn ([]*primitive.Value) and write results of previous pipe to signals region
+] <= [
+    { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }   ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 8 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 16 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 24 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 24 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 32 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 40 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 40 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 48 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 56 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 56 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 64 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 72 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 72 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 80 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 88 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 88 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 96 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 104 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 104 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 112 bits applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 120 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 120 bits applying AND
+]
 ```
+
+## Specification
+
+- A program is read/interpreted from bottom to top
+- A program is a sequence of `pipe` objects
+- A program can have an optional `emit` stage
+
+### Pipe `[ ]`
+
+- A pipe is a staging area for work that is to be realized
+- A pipe is materialized once it is given a direction to materialize to (`<=` `=>`)
+- A pipe is read/interpreted from right to left
+
+### Operation `{ }`
+
+- An operation is the staging primitive inside of a pipe
+- It uses Reverse Polish Notation, where the first element is `dst` and the last element is `op`
+- An operation can have an optional `data`/`src` element in between `dst` ans `op`
+- Multiple operations at the same nesting level implies potential concurency, with fan-in at the next `<=`
+- An operation is read/interpreted from left to right
+
+### Emit `< >`
+
+- An emit stage is a sequence of `pipe` objects

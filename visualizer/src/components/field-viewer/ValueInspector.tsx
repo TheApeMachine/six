@@ -88,14 +88,6 @@ const FIRMWARE_STATUS_LABELS: Record<number, string> = {
 	6: "error",
 };
 
-/*
-FALSIFIED_BIT is the high bit (1<<62) the ALU ORs into the noise word when a
-Popper-style refutation streak fires. Surfacing it separately from the raw hex
-means an operator can see at a glance that the frame has been refuted without
-decoding bytes mentally.
-*/
-const FALSIFIED_BIT = 1n << 62n;
-
 function regionWords(start: number, words: number, bits: number): string {
 	if (words <= 1) return `w${start} · ${bits}b`;
 	return `${start}–${start + words - 1} · ${bits}b`;
@@ -301,23 +293,6 @@ function decodeFirmwareStatus(wordHex: string | null): string | null {
 }
 
 /*
-decodeNoiseFalsified reports whether the kernel's refutation sentinel bit has
-been OR-ed into the noise word. Returns null if the word is unreadable so the
-UI can stay silent instead of lying.
-*/
-function decodeNoiseFalsified(wordHex: string | null): boolean | null {
-	if (!wordHex) return null;
-
-	try {
-		const word = BigInt(`0x${wordHex}`);
-
-		return (word & FALSIFIED_BIT) !== 0n;
-	} catch {
-		return null;
-	}
-}
-
-/*
 formatFrameAge compresses "how long since the last wire frame for this Value"
 into a compact label. Zero and negative deltas render "just now" so the UI
 doesn't flicker between 0ms / 1ms readouts between rerenders.
@@ -425,20 +400,21 @@ export function ValueInspector({
 	const propertiesW57Confidence = wordAt(57);
 	const propertiesW58Epoch = wordAt(58);
 	const propertiesW59Ttl = wordAt(59);
-	const propertiesW60Noise = wordAt(60);
+	const propertiesW60Temperature = wordAt(60);
 	const propertiesW61Status = wordAt(61);
-	const propertiesW62Window = wordAt(62);
-	const propertiesW63Depth = wordAt(63);
+	const propertiesW62Noise = wordAt(62);
+	const propertiesW63Program = wordAt(63);
 	const propertiesW64Community = wordAt(64);
 	const propertiesW65Target = wordAt(65);
 	const propertiesW66Role = wordAt(66);
 	const propertiesW67Reference = wordAt(67);
-	const propertiesW68Emit = wordAt(68);
+	const propertiesW68Surprisal = wordAt(68);
+	const propertiesW69PrevSurprisal = wordAt(69);
+	const propertiesW70DeltaSurprisal = wordAt(70);
+	const propertiesW71Continuation = wordAt(71);
 
 	const probeStatus = decodeProbeStatus(propertiesW61Status);
 	const firmwareStatus = decodeFirmwareStatus(propertiesW61Status);
-	const noiseFalsified = decodeNoiseFalsified(propertiesW60Noise);
-	const probeWindow = decodeRegionRef(propertiesW62Window);
 	const ttlExpired =
 		propertiesW59Ttl !== null &&
 		((): boolean => {
@@ -557,8 +533,8 @@ export function ValueInspector({
 						{/*
 						Causal residues are three independent booleans the wire
 						carries for every Value: the hypothesis bit means a
-						refutation target is staged in properties[1]; falsified
-						means the kernel stamped FalsifiedBit into the noise word;
+						refutation target is staged in properties.target; falsified
+						means the resident program left a witness in signals[7];
 						intervening means the do_intervention rule severed causal
 						history and injected a foreign gradient. Exposing all
 						three as colour-coded badges lets the operator see the
@@ -568,7 +544,7 @@ export function ValueInspector({
 							<Badge
 								variant="outline"
 								className="border-yellow-500/40 bg-yellow-500/20 text-yellow-200"
-								title="Refutation target staged (properties[1] non-zero)"
+								title="Refutation target staged (properties.target non-zero)"
 							>
 								HYPOTHESIS
 							</Badge>
@@ -577,7 +553,7 @@ export function ValueInspector({
 							<Badge
 								variant="outline"
 								className="border-red-500/40 bg-red-500/20 text-red-200"
-								title="Falsified bit set in noise word (properties[4])"
+								title="Falsification witness in signals[7]"
 							>
 								FALSIFIED
 							</Badge>
@@ -591,15 +567,6 @@ export function ValueInspector({
 								INTERVENING
 							</Badge>
 						)}
-						{snap.causal.stuck && (
-							<Badge
-								variant="outline"
-								className="border-orange-500/40 bg-orange-500/20 text-orange-200"
-								title="Value is stuck (delta_surprisal == 0)"
-							>
-								STUCK
-							</Badge>
-						)}
 					</div>
 
 					<div className="flex flex-wrap gap-2 text-xs font-mono mb-2">
@@ -610,7 +577,6 @@ export function ValueInspector({
 						<span title="Delta Surprisal gap">
 							Δ: {snap.causal.delta_surprisal}
 						</span>
-						<span title="Ticks stuck">STUCK: {snap.causal.stuck_count}</span>
 						<span title="Exploration temperature">
 							TEMP: {snap.causal.temperature}
 						</span>
@@ -903,13 +869,8 @@ export function ValueInspector({
 						vClass={ttlExpired ? "text-red-300" : undefined}
 					/>
 					<KV
-						k="w60 noise"
-						v={
-							noiseFalsified === true
-								? `${hexOrDash(propertiesW60Noise)} · falsified`
-								: hexOrDash(propertiesW60Noise)
-						}
-						vClass={noiseFalsified === true ? "text-red-300" : undefined}
+						k="w60 temp"
+						v={hexOrDash(propertiesW60Temperature)}
 					/>
 					<KV
 						k="w61 status"
@@ -927,14 +888,10 @@ export function ValueInspector({
 						}
 					/>
 					<KV
-						k="w62 window"
-						v={
-							probeWindow
-								? `${hexOrDash(propertiesW62Window)} · ${probeWindow}`
-								: hexOrDash(propertiesW62Window)
-						}
+						k="w62 noise"
+						v={hexOrDash(propertiesW62Noise)}
 					/>
-					<KV k="w63 depth" v={hexOrDash(propertiesW63Depth)} />
+					<KV k="w63 program" v={hexOrDash(propertiesW63Program)} />
 					<KV
 						k="w64 community"
 						v={
@@ -955,16 +912,10 @@ export function ValueInspector({
 					/>
 					<KV k="w66 role" v={hexOrDash(propertiesW66Role)} />
 					<KV k="w67 ref" v={hexOrDash(propertiesW67Reference)} />
-					<KV k="w68 emit" v={hexOrDash(propertiesW68Emit)} />
-
-					<div className="mt-1 border-t border-amber-500/25 pt-1 text-[7px] uppercase tracking-wide text-amber-200/35">
-						extended w69–w71
-					</div>
-					{frameOk ? (
-						<WordHexRows from={69} to={71} wordAt={wordAt} />
-					) : (
-						<Dim>no frame</Dim>
-					)}
+					<KV k="w68 surprisal" v={hexOrDash(propertiesW68Surprisal)} />
+					<KV k="w69 prev_surprisal" v={hexOrDash(propertiesW69PrevSurprisal)} />
+					<KV k="w70 delta" v={hexOrDash(propertiesW70DeltaSurprisal)} />
+					<KV k="w71 continuation" v={hexOrDash(propertiesW71Continuation)} />
 					{confidence !== null ? (
 						<KV
 							k="bus.conf"

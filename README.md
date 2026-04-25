@@ -129,7 +129,7 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 
 ### Properties
 
-Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.properties` in `cmd/cfg/config.yml`). Word offsets below come from `pkg/primitive/properties.go` (the `PropertyType` enum); absolute word = `PropertiesStartWord (56) + offset`. Offsets **13–15** are reserved for forward-compatible extensions.
+Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.properties` in `cmd/cfg/config.yml`). Word offsets below come from `pkg/primitive/properties_generated.go` (the `PropertyType` enum); absolute word = `PropertiesStartWord (56) + offset`. Word **72** is the first asset word, not a property word.
 
 | Word (absolute) | Region offset | Name                                       | Notes                                                                                                                                |
 |-----------------|---------------|--------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
@@ -148,10 +148,7 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 | 68              | 12            | **surprisal**                              | Scalar reduction of the prediction error gap                                                                                         |
 | 69              | 13            | **prev_surprisal**                         | Prior step gap, used to compute delta.                                                                                               |
 | 70              | 14            | **delta_surprisal**                        | Reduced difference between surprisal ticks.                                                                                          |
-| 71              | 15            | **stuck_count**                            | The number of ticks where delta_surprisal == 0.                                                                                      |
-| 72              | 16            | **falsified**                              | Witness register for Popperian hypothesis testing                                                                                    |
-| 73              | 17            | **stuck**                                  | Triggers autonomous reprogramming based on stagnation                                                                                |
-| 74              | 18            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
+| 71              | 15            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
 
 ### Program Authoring (`pkg/compute/firmware` — config-time DSL only)
 
@@ -239,9 +236,9 @@ In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{
 
 > The "programmable Value" story has weight only if the system's autonomous behaviors — self-labeling, community crystallization, unsupervised learning — are expressed as **programs that run inside Values**, not as Go code that operates on Values from outside. The programs here are authored in the same five-column source that any user program uses, compiled by `pkg/compute/firmware`, and executed on the same ALU. Where the ALU's **signature-sweep** contract (byte-packed LSH output) makes a computation inexpressible as firmware (see "ALU constraint" note below), higher-level code keeps results in-band on `signals`/`properties` — that is honesty about what the sweep engine can and cannot encode.
 
-### Label Packing (w48)
+### Label Packing (w56)
 
-Word 48 of the Properties region is the **label word**. It holds four 16-bit label slots packed into a single `uint64`:
+Word **56** (properties offset **0**) is the **label word**. It holds four 16-bit label slots packed into a single `uint64`:
 
 ```text
 ┌─────────────────┬─────────────────┬─────────────────┬─────────────────┐

@@ -28,7 +28,7 @@ const (
 	InstrPredCondShift  = 55 // 2 bits: 0=Always, 1=NotZero (!=0), 2=IsZero (==0), 3=GreaterThan (>)
 
 	InstrAIndirectShift = 57 // 1 bit
-	InstrBTypeShift     = 58 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate
+	InstrBTypeShift     = 58 // 2 bits: 0=Direct, 1=Indirect, 2=Immediate, 3=Next
 
 	InstrSpanMask  uint64 = 0x3F // 6 bits for spans (up to 64 words)
 	InstrStartMask uint64 = 0x7F // 7 bits for starts (up to 128 words)
@@ -37,6 +37,15 @@ const (
 const (
 	InstrFlagTargetB     uint64 = 1 << 60
 	InstrFlagTargetOwner uint64 = 1 << 61
+	InstrFlagAFromB      uint64 = 1 << 62
+	InstrFlagBFromA      uint64 = 1 << 63
+)
+
+const (
+	InstrBTypeDirect uint64 = iota
+	InstrBTypeIndirect
+	InstrBTypeImmediate
+	InstrBTypeNext
 )
 
 const predExtended = 3
@@ -50,6 +59,17 @@ type predicateSpec struct {
 	start     int
 	span      int
 	threshold uint64
+}
+
+/*
+PredicateDeviceSpec is the compact predicate table entry copied into native
+GPU kernels so extended predicates keep the same meaning as the CPU map.
+*/
+type PredicateDeviceSpec struct {
+	Kind      uint32
+	Start     uint32
+	Span      uint32
+	Threshold uint64
 }
 
 var predicates = struct {
@@ -73,11 +93,12 @@ const (
 
 // Modes
 const (
-	ModeTruth   = 0
-	ModePopcnt  = 1
-	ModeAnyZero = 2
-	ModeAllOnes = 3
-	ModeEmit    = 5
+	ModeTruth     = 0
+	ModePopcnt    = 1
+	ModeAnyZero   = 2
+	ModeAllOnes   = 3
+	ModeGeometric = 4
+	ModeEmit      = 5
 )
 
 var Opcodes = map[string]uint64{
@@ -97,6 +118,10 @@ var Opcodes = map[string]uint64{
 	"->": 0b1101,
 	"~&": 0b1110,
 	"1":  0b1111,
+
+	"compose":  0x10,
+	"sandwich": 0x20,
+	"reverse":  0x30,
 }
 
 var Topologies = map[string]uint64{
@@ -178,13 +203,16 @@ type feedAtom struct {
 }
 
 type feedExpr struct {
-	left  feedAtom
-	right feedAtom
-	op    string
-	mode  uint64
+	left     feedAtom
+	right    feedAtom
+	op       string
+	mode     uint64
+	implicit bool
 }
 
 func compileFeedSource(source string, lay Layout) ([]uint64, error) {
+	source = stripFeedComments(source)
+
 	sites, err := parseFeedSites(source)
 	if err != nil {
 		return nil, err
@@ -194,6 +222,7 @@ func compileFeedSource(source string, lay Layout) ([]uint64, error) {
 
 	if !strings.Contains(source, "<=") {
 		var pendingPredStart, pendingPredCond uint64
+		var incoming []feedAtom
 		for site := 0; site < len(sites); site++ {
 			if predStart, predCond, ok, err := feedSiteGate(sites[site], lay); err != nil {
 				return nil, fmt.Errorf("site %d: %w", site+1, err)
@@ -203,12 +232,13 @@ func compileFeedSource(source string, lay Layout) ([]uint64, error) {
 				continue
 			}
 
-			words, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, lay)
+			words, result, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, incoming, lay)
 			if err != nil {
 				return nil, fmt.Errorf("site %d: %w", site+1, err)
 			}
 			if ok {
 				out = append(out, words...)
+				incoming = result
 				pendingPredStart = 0
 				pendingPredCond = 0
 			}
@@ -218,6 +248,7 @@ func compileFeedSource(source string, lay Layout) ([]uint64, error) {
 	}
 
 	var pendingPredStart, pendingPredCond uint64
+	var incoming []feedAtom
 	for site := len(sites) - 1; site >= 0; site-- {
 		if predStart, predCond, ok, err := feedSiteGate(sites[site], lay); err != nil {
 			return nil, fmt.Errorf("site %d: %w", len(sites)-site, err)
@@ -227,12 +258,13 @@ func compileFeedSource(source string, lay Layout) ([]uint64, error) {
 			continue
 		}
 
-		words, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, lay)
+		words, result, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, incoming, lay)
 		if err != nil {
 			return nil, fmt.Errorf("site %d: %w", len(sites)-site, err)
 		}
 		if ok {
 			out = append(out, words...)
+			incoming = result
 			pendingPredStart = 0
 			pendingPredCond = 0
 		}
@@ -243,13 +275,18 @@ func compileFeedSource(source string, lay Layout) ([]uint64, error) {
 
 func parseFeedSites(source string) ([]feedSite, error) {
 	var sites []feedSite
+	emitActive := false
 
 	for pos := 0; pos < len(source); pos++ {
+		if source[pos] == '<' && nextNonSpace(source, pos+1) == '[' {
+			emitActive = true
+			continue
+		}
+
 		if source[pos] != '[' {
 			continue
 		}
 
-		emit := pos > 0 && source[pos-1] == '<'
 		depth := 1
 		end := pos + 1
 
@@ -261,7 +298,10 @@ func parseFeedSites(source string) ([]feedSite, error) {
 				depth--
 				if depth == 0 {
 					body := strings.TrimSpace(source[pos+1 : end])
-					sites = append(sites, feedSite{emit: emit, body: body})
+					sites = append(sites, feedSite{emit: emitActive, body: body})
+					if nextNonSpace(source, end+1) == '>' {
+						emitActive = false
+					}
 					pos = end
 					goto next
 				}
@@ -280,37 +320,74 @@ func parseFeedSites(source string) ([]feedSite, error) {
 	return sites, nil
 }
 
-func compileFeedSite(site feedSite, inheritedPredStart, inheritedPredCond uint64, lay Layout) ([]uint64, bool, error) {
+func nextNonSpace(source string, after int) byte {
+	for idx := after; idx < len(source); idx++ {
+		switch source[idx] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		default:
+			return source[idx]
+		}
+	}
+
+	return 0
+}
+
+func stripFeedComments(source string) string {
+	var out strings.Builder
+	inComment := false
+
+	for _, char := range source {
+		if inComment {
+			if char == '\n' || char == '\r' {
+				inComment = false
+				out.WriteRune(char)
+			}
+			continue
+		}
+
+		if char == ';' || char == '#' {
+			inComment = true
+			continue
+		}
+
+		out.WriteRune(char)
+	}
+
+	return out.String()
+}
+
+func compileFeedSite(site feedSite, inheritedPredStart, inheritedPredCond uint64, incoming []feedAtom, lay Layout) ([]uint64, []feedAtom, bool, error) {
 	body := strings.TrimSpace(site.body)
 	if !strings.Contains(body, "{") {
 		body = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(body, ")"), "("))
 		parts := strings.Fields(body)
 		if len(parts) == 0 {
-			return nil, false, nil
+			return nil, nil, false, nil
 		}
 		if site.emit {
 			instr, ok, err := compileEmitSite(parts, inheritedPredStart, inheritedPredCond, lay)
 			if !ok || err != nil {
-				return nil, ok, err
+				return nil, nil, ok, err
 			}
 
-			return []uint64{instr}, true, nil
+			return []uint64{instr}, nil, true, nil
 		}
 
-		instr, ok, err := compileOperationSite(parts, inheritedPredStart, inheritedPredCond, lay)
+		instr, ok, err := compileOperationSite(parts, inheritedPredStart, inheritedPredCond, incomingFeedAtom(incoming, 0), lay)
 		if !ok || err != nil {
-			return nil, ok, err
+			return nil, nil, ok, err
 		}
 
-		return []uint64{instr}, true, nil
+		return []uint64{instr}, nil, true, nil
 	}
 
 	blocks, err := bracedBlocks(body)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	if len(blocks) == 0 {
-		return nil, false, fmt.Errorf("missing operation block")
+		return nil, nil, false, fmt.Errorf("missing operation block")
 	}
 
 	var predStart, predCond uint64
@@ -321,29 +398,30 @@ func compileFeedSite(site feedSite, inheritedPredStart, inheritedPredCond uint64
 	if len(blocks) > 1 && strings.Contains(blocks[1], "?") {
 		pred, err := parseFeedPredicate(blocks[1])
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 
 		predStart, predCond, err = compilePredicate(pred, lay)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 
 		blocks = blocks[:1]
 	}
 
 	words := make([]uint64, 0, len(blocks))
-	for _, opBlock := range blocks {
+	result := make([]feedAtom, 0, len(blocks))
+	for opIdx, opBlock := range blocks {
 		if strings.Contains(opBlock, "{") && strings.Contains(opBlock, "?") {
 			continue
 		}
 		if strings.HasPrefix(strings.TrimSpace(opBlock), "{") {
 			nested, err := bracedBlocks(opBlock)
 			if err != nil {
-				return nil, false, err
+				return nil, nil, false, err
 			}
 			if len(nested) == 0 {
-				return nil, false, fmt.Errorf("empty nested operation")
+				return nil, nil, false, fmt.Errorf("empty nested operation")
 			}
 
 			opBlock = nested[0]
@@ -351,25 +429,39 @@ func compileFeedSite(site feedSite, inheritedPredStart, inheritedPredCond uint64
 
 		parts := feedFields(opBlock)
 		if len(parts) == 0 {
-			return nil, false, fmt.Errorf("empty operation")
+			return nil, nil, false, fmt.Errorf("empty operation")
 		}
 
 		var instr uint64
 		var ok bool
 		if site.emit {
-			instr, ok, err = compileEmitOperationSite(parts, predStart, predCond, lay)
+			instr, ok, err = compileEmitOperationSite(parts, predStart, predCond, incomingFeedAtom(incoming, opIdx), lay)
 		} else {
-			instr, ok, err = compileOperationSite(parts, predStart, predCond, lay)
+			instr, ok, err = compileOperationSite(parts, predStart, predCond, incomingFeedAtom(incoming, opIdx), lay)
 		}
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 		if ok {
 			words = append(words, instr)
+			expr, exprErr := parseFeedExpr(parts)
+			if exprErr == nil {
+				result = append(result, feedAtom{ref: expr.left.ref})
+			}
 		}
 	}
 
-	return words, len(words) > 0, nil
+	return words, result, len(words) > 0, nil
+}
+
+func incomingFeedAtom(incoming []feedAtom, idx int) feedAtom {
+	if len(incoming) == 0 {
+		return feedAtom{}
+	}
+	if idx < len(incoming) {
+		return incoming[idx]
+	}
+	return incoming[len(incoming)-1]
 }
 
 func feedFields(raw string) []string {
@@ -518,12 +610,13 @@ func compileEmitSite(parts []string, predStart, predCond uint64, lay Layout) (ui
 	) | InstrFlagTargetOwner, true, nil
 }
 
-func compileEmitOperationSite(parts []string, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+func compileEmitOperationSite(parts []string, predStart, predCond uint64, incoming feedAtom, lay Layout) (uint64, bool, error) {
 	expr, err := parseFeedExpr(parts)
 	if err != nil {
 		return 0, false, err
 	}
 
+	expr = bindImplicitFeed(expr, incoming)
 	expr.mode = ModeEmit
 
 	return compileFeedExprWithTopology(expr, predStart, predCond, TopologySpawn, lay)
@@ -533,11 +626,13 @@ func compileGateSite(predStart, predCond uint64, lay Layout) (uint64, bool, erro
 	return 0, false, nil
 }
 
-func compileOperationSite(parts []string, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
+func compileOperationSite(parts []string, predStart, predCond uint64, incoming feedAtom, lay Layout) (uint64, bool, error) {
 	expr, err := parseFeedExpr(parts)
 	if err != nil {
 		return 0, false, err
 	}
+
+	expr = bindImplicitFeed(expr, incoming)
 
 	return compileFeedExpr(expr, predStart, predCond, lay)
 }
@@ -585,6 +680,10 @@ func parseFeedExpr(parts []string) (feedExpr, error) {
 	}
 
 	if len(stack) == 1 {
+		if len(parts) == 1 {
+			stack[0].implicit = true
+		}
+
 		return stack[0], nil
 	}
 
@@ -593,6 +692,16 @@ func parseFeedExpr(parts []string) (feedExpr, error) {
 	}
 
 	return feedExpr{}, fmt.Errorf("operation leaves %d stack values: %v", len(stack), parts)
+}
+
+func bindImplicitFeed(expr feedExpr, incoming feedAtom) feedExpr {
+	if !expr.implicit || incoming.ref == "" {
+		return expr
+	}
+
+	expr.right = incoming
+	expr.op = "B"
+	return expr
 }
 
 func feedTokenIsOperator(part string, depth int) bool {
@@ -623,7 +732,7 @@ func compileFeedExprWithTopology(expr feedExpr, predStart, predCond, topology ui
 		return 0, false, fmt.Errorf("right: %w", err)
 	}
 
-	dstRef := feedDestination(expr.left, expr.right, expr.op, aSpan)
+	dstRef := feedDestination(expr.left)
 	dstStart, dstSpan, _, err := parseRef(dstRef, lay)
 	if err != nil {
 		return 0, false, fmt.Errorf("target: %w", err)
@@ -633,10 +742,26 @@ func compileFeedExprWithTopology(expr feedExpr, predStart, predCond, topology ui
 	if !ok {
 		return 0, false, fmt.Errorf("unknown operator %q", expr.op)
 	}
+	if IsGeometricOpcode(opcode) {
+		expr.mode = ModeGeometric
+	}
+
+	leftOwner := feedOwner(expr.left, "A")
+	rightOwner := feedOwner(expr.right, leftOwner)
 
 	flags := uint64(0)
-	if strings.EqualFold(expr.left.owner, "B") && strings.EqualFold(dstRef, expr.left.ref) {
+	if leftOwner == "B" {
+		flags |= InstrFlagAFromB
 		flags |= InstrFlagTargetB
+	}
+	if leftOwner == "A" {
+		flags |= InstrFlagTargetOwner
+	}
+	if rightOwner == "A" && bType != InstrBTypeImmediate {
+		flags |= InstrFlagBFromA
+	}
+	if leftOwner == "B" && expr.right.owner == "B" && bType == InstrBTypeDirect {
+		bType = InstrBTypeNext
 	}
 
 	return EncodeInstruction(
@@ -662,25 +787,23 @@ func compileFeedRight(atom feedAtom, lay Layout) (start, span int, bType uint64,
 	return start, span, indirect, nil
 }
 
-func feedDestination(left, right feedAtom, op string, span int) string {
+func feedDestination(left feedAtom) string {
 	if left.ref == "" {
-		return "signals[0,8]"
-	}
-	if right.owner == "" && (strings.EqualFold(right.ref, "signals") || strings.HasPrefix(strings.ToLower(right.ref), "signals[")) {
-		return right.ref
-	}
-	if strings.EqualFold(left.ref, "tokens") || strings.HasPrefix(strings.ToLower(left.ref), "tokens[") {
-		if op == "&" {
-			return fmt.Sprintf("signals[4,%d]", minInt(span, 4))
-		}
-
-		return fmt.Sprintf("signals[0,%d]", minInt(span, 4))
-	}
-	if left.owner != "" && right.owner != "" && !strings.EqualFold(left.owner, right.owner) {
 		return "signals[0,8]"
 	}
 
 	return left.ref
+}
+
+func feedOwner(atom feedAtom, fallback string) string {
+	owner := strings.ToUpper(atom.owner)
+	if owner == "A" || owner == "B" {
+		return owner
+	}
+	if fallback == "B" {
+		return "B"
+	}
+	return "A"
 }
 
 func parseFeedPredicate(raw string) (*PredicateNode, error) {
@@ -962,6 +1085,9 @@ func compileInstruction(node *InstructionNode, lay Layout) (uint64, error) {
 			return 0, fmt.Errorf("unknown operator %q", node.Expr.Op)
 		}
 		opcode = op
+		if IsGeometricOpcode(opcode) {
+			mode = ModeGeometric
+		}
 
 		// B operand could be region or immediate
 		if isNumeric(node.Expr.B) {
@@ -985,12 +1111,7 @@ func compileInstruction(node *InstructionNode, lay Layout) (uint64, error) {
 
 	// 2a. Validate topology & fold semantics
 	if topology == TopologyFold {
-		switch opcode {
-		case Opcodes["0"], Opcodes["1"], Opcodes["A"], Opcodes["B"], Opcodes["nota"], Opcodes["notb"]:
-			// Ok
-		case Opcodes["&"], Opcodes["|"], Opcodes["^"], Opcodes["~&"], Opcodes["~|"], Opcodes["=="]:
-			// Ok (associative/commutative)
-		default:
+		if !isFoldOpcode(opcode) {
 			return 0, fmt.Errorf("fold topology requires associative/commutative operators, got opcode 0x%x", opcode)
 		}
 	}
@@ -1103,6 +1224,33 @@ func PredicateAllows(frame *[128]uint64, predStart, predCond uint64) bool {
 	}
 }
 
+/*
+PredicateDeviceSpecs snapshots the extended predicate registry for native
+substrates. IDs are direct table indices because predStart stores the registry
+ID when predCond is the extended predicate mode.
+*/
+func PredicateDeviceSpecs() [128]PredicateDeviceSpec {
+	var out [128]PredicateDeviceSpec
+
+	predicates.RLock()
+	defer predicates.RUnlock()
+
+	for id, spec := range predicates.specs {
+		if id >= uint64(len(out)) {
+			continue
+		}
+
+		out[id] = PredicateDeviceSpec{
+			Kind:      uint32(spec.kind),
+			Start:     uint32(spec.start),
+			Span:      uint32(spec.span),
+			Threshold: spec.threshold,
+		}
+	}
+
+	return out
+}
+
 func isNumeric(s string) bool {
 	if s == "" {
 		return false
@@ -1113,6 +1261,15 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+func IsGeometricOpcode(opcode uint64) bool {
+	switch opcode & 0xF0 {
+	case 0x10, 0x20, 0x30:
+		return true
+	default:
+		return false
+	}
 }
 
 func parseRef(token string, lay Layout) (start, span int, indirect uint64, err error) {
@@ -1193,6 +1350,15 @@ func parseRef(token string, lay Layout) (start, span int, indirect uint64, err e
 	return 0, 0, 0, fmt.Errorf("unknown region alias %q", token)
 }
 
+func isFoldOpcode(opcode uint64) bool {
+	switch opcode {
+	case Opcodes["0"], Opcodes["1"], Opcodes["&"], Opcodes["|"], Opcodes["^"], Opcodes["=="]:
+		return true
+	default:
+		return false
+	}
+}
+
 func EncodeInstruction(
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
 	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
@@ -1207,13 +1373,19 @@ func EncodeInstruction(
 		dstSpan = 1
 	}
 
+	encodedOpcode := opcode
+	if IsGeometricOpcode(opcode) {
+		mode = ModeGeometric
+		encodedOpcode = opcode >> 4
+	}
+
 	return ((uint64(dstSpan-1) & InstrSpanMask) << InstrDstSpanShift) |
 		((uint64(dstStart) & InstrStartMask) << InstrDstStartShift) |
 		((uint64(aSpan-1) & InstrSpanMask) << InstrASpanShift) |
 		((uint64(aStart) & InstrStartMask) << InstrAStartShift) |
 		((uint64(bSpan-1) & InstrSpanMask) << InstrBSpanShift) |
 		((uint64(bStart) & InstrStartMask) << InstrBStartShift) |
-		((opcode & 0xF) << InstrOpcodeShift) |
+		((encodedOpcode & 0xF) << InstrOpcodeShift) |
 		((mode & 0x7) << InstrModeShift) |
 		((topology & 0x3) << InstrTopologyShift) |
 		((predStart & InstrStartMask) << InstrPredStartShift) |
@@ -1234,6 +1406,9 @@ func DecodeInstruction(instr uint64) (
 	bStart = int((instr >> InstrBStartShift) & InstrStartMask)
 	opcode = (instr >> InstrOpcodeShift) & 0xF
 	mode = (instr >> InstrModeShift) & 0x7
+	if mode == ModeGeometric {
+		opcode <<= 4
+	}
 	topology = (instr >> InstrTopologyShift) & 0x3
 	predStart = (instr >> InstrPredStartShift) & InstrStartMask
 	predCond = (instr >> InstrPredCondShift) & 0x3

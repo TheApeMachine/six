@@ -20,9 +20,6 @@ export type PropertyName =
 	| "SURPRISAL"
 	| "PREV_SURPRISAL"
 	| "DELTA_SURPRISAL"
-	| "STUCK_COUNT"
-	| "FALSIFIED"
-	| "STUCK"
 	| "CONTINUATION";
 
 // PROPERTY_OFFSET maps a PropertyName to its slot inside the properties
@@ -43,10 +40,7 @@ export const PROPERTY_OFFSET: Record<PropertyName, number> = {
 	SURPRISAL: 12,
 	PREV_SURPRISAL: 13,
 	DELTA_SURPRISAL: 14,
-	STUCK_COUNT: 15,
-	FALSIFIED: 16,
-	STUCK: 17,
-	CONTINUATION: 18,
+	CONTINUATION: 15,
 };
 
 export const PROPERTY_WORD = (name: PropertyName): number =>

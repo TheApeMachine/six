@@ -57,8 +57,8 @@ func Available() int { return 0 }
 
 func (backend *Backend) Name() string { return "cuda" }
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) []*primitive.Value {
-	return cpu.HypercubeGossip(value, community)
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
+	return cpu.HypercubeGossip(value, community), nil
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
