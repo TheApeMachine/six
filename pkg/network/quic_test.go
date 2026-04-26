@@ -175,7 +175,7 @@ func TestQUICWithStream(t *testing.T) {
 		gc.Convey("It should read through the wrapped stream with nil conn and endpoint", func() {
 			gc.So(wrapped.conn, gc.ShouldBeNil)
 			gc.So(wrapped.endpoint, gc.ShouldBeNil)
-			gc.So(wrapped.stream != nil, gc.ShouldBeTrue)
+			gc.So(wrapped.stream, gc.ShouldNotBeNil)
 
 			payload := make([]byte, 1024)
 			payload[0] = 0xBE
@@ -204,9 +204,9 @@ func TestQUICCloseWithResources(t *testing.T) {
 		server, client := setupQUICPair(t)
 
 		gc.Convey("Close should tear down all three layers and cancel the context", func() {
-			gc.So(client.stream != nil, gc.ShouldBeTrue)
-			gc.So(client.conn != nil, gc.ShouldBeTrue)
-			gc.So(client.endpoint != nil, gc.ShouldBeTrue)
+			gc.So(client.stream, gc.ShouldNotBeNil)
+			gc.So(client.conn, gc.ShouldNotBeNil)
+			gc.So(client.endpoint, gc.ShouldNotBeNil)
 			gc.So(client.ctx.Err(), gc.ShouldBeNil)
 
 			client.Close()

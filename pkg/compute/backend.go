@@ -82,28 +82,36 @@ func NewBackend(ctx context.Context) *Backend {
 
 	backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
 
-	normalQueue, err := NewQueue(ctx)
-
-	if err != nil {
-		errnie.Error(err)
+	if !createAndAssignQueue(ctx, backend, QueueTypeNormal) {
 		return nil
 	}
 
-	backend.queues[QueueTypeNormal] = normalQueue
-
-	priorityQueue, err := NewQueue(ctx)
-
-	if err != nil {
-		errnie.Error(err)
+	if !createAndAssignQueue(ctx, backend, QueueTypePriority) {
 		return nil
 	}
-
-	backend.queues[QueueTypePriority] = priorityQueue
 
 	go backend.dispatch(backend.queues[QueueTypePriority])
 	go backend.dispatch(backend.queues[QueueTypeNormal])
 
 	return backend
+}
+
+/*
+createAndAssignQueue builds one scheduler ring and binds it to backend.queues.
+Centralizes the shared NewQueue + errnie.Error path used for normal and priority lanes.
+*/
+func createAndAssignQueue(ctx context.Context, backend *Backend, queueType QueueType) bool {
+	queue, err := NewQueue(ctx)
+
+	if err != nil {
+		errnie.Error(err)
+
+		return false
+	}
+
+	backend.queues[queueType] = queue
+
+	return true
 }
 
 /*
@@ -137,6 +145,9 @@ func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Va
 		defer backend.pending.Add(-1)
 		backend.runHypercubeGossip(owner, community)
 	}); err != nil {
+		backend.pending.Add(-1)
+		owner.SetStatus(primitive.READY)
+
 		return err
 	}
 
@@ -165,7 +176,10 @@ func (backend *Backend) Sync(ctx context.Context) iter.Seq[*primitive.Value] {
 
 		backend.cache.Range(func(key any, value any) bool {
 			if value.(*primitive.Value).Status() != primitive.DONE {
-				yield(value.(*primitive.Value))
+				if !yield(value.(*primitive.Value)) {
+					return false
+				}
+
 				backend.cache.Delete(key)
 			}
 
@@ -252,6 +266,9 @@ func (backend *Backend) finalizeOwner(owner *primitive.Value, before [primitive.
 		}
 	}
 
+	// HypercubeGossip / in-kernel firmware can move the owner back to READY with a
+	// non-zero continuation when the program word region changed, requesting another
+	// scheduling pass without clearing the loaded program here.
 	if programChanged(owner, before) && owner.Status() == primitive.READY && owner.SchedulingNext() != 0 {
 		return
 	}

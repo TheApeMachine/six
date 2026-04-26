@@ -80,23 +80,24 @@ func (queue *Queue) Schedule(
 
 /*
 SchedulePriority enqueues work ahead of normal-priority jobs.
+Returns an error when the queue is full, the queue or task is nil, or a context is done.
 */
 func (queue *Queue) SchedulePriority(
 	ctx context.Context, task func(),
-) bool {
+) (err error) {
 	if queue == nil || task == nil {
-		return false
+		return errors.New("queue is nil or task is nil")
 	}
 
 	select {
 	case <-queue.ctx.Done():
-		return false
+		return errors.New("queue context done")
 	case <-ctx.Done():
-		return false
+		return errors.New("context done")
 	case queue.priority <- task:
-		return true
+		return nil
 	default:
-		return false
+		return errors.New("queue is full")
 	}
 }
 

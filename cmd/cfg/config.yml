@@ -123,6 +123,11 @@ programs:
     [ { A(continuation) A(id) | } ]
   affinity: |
     [ { A(affinity[0,5]) A(tokens[0,16]) ^ } ]
+  query:
+    ; query the community for a sub-set of values, based on matching
+    ; region and word state, and queue the results in the ready buffer.
+    ; This will make sure that the next call to backend.Submit receives
+    ; the values that were found.
   structural_component: |
     <[
       { B(prev) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write the mapped id to prev region

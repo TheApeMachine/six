@@ -37,8 +37,8 @@ func TestQueueNextPrefersPriorityWork(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if !queue.SchedulePriority(context.Background(), func() { order = append(order, "priority") }) {
-		t.Fatal("schedule priority failed")
+	if err := queue.SchedulePriority(context.Background(), func() { order = append(order, "priority") }); err != nil {
+		t.Fatal(err)
 	}
 
 	queue.Next()()

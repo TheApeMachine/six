@@ -40,6 +40,13 @@ func TestNewRing(t *testing.T) {
 			So(ring, ShouldBeNil)
 			So(err, ShouldNotBeNil)
 		})
+
+		Convey("NewRing should reject capacity one", func() {
+			ring, err := NewRing(context.Background(), 1)
+
+			So(ring, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+		})
 	})
 }
 

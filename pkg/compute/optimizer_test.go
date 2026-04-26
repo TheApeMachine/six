@@ -374,6 +374,94 @@ func drainBackendSpawned(t *testing.T, backend *Backend) []*primitive.Value {
 	return nil
 }
 
+func benchmarkCommunityProgramWords(b testing.TB) []uint64 {
+	b.Helper()
+
+	compiled, err := program.Compile(`[ (properties.community B) <= (id[0,1] A) ]`, program.Layout{
+		Regions: map[string]program.RegionExtent{
+			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
+			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},
+		},
+		Properties: map[string]int{
+			"community": int(primitive.COMMUNITY),
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	return compiled.Words
+}
+
+func BenchmarkBackendRunHypercubeGossipSyncCPUFallback(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cpuState := &substrateState{Substrate: cpu.NewBackend(ctx)}
+	defer cpuState.Close()
+
+	backend := &Backend{
+		ctx:          ctx,
+		cancel:       cancel,
+		cpuSubstrate: cpuState,
+		substrates: []*substrateState{
+			{Substrate: failingSubstrate{}},
+			cpuState,
+		},
+	}
+
+	words := benchmarkCommunityProgramWords(b)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		owner := primitive.Emit()
+		accepted := primitive.Emit()
+		if !owner.InstallProgram(words) {
+			b.Fatal("install program failed")
+		}
+
+		backend.runHypercubeGossip(owner, []*primitive.Value{accepted})
+		for range backend.Sync(ctx) {
+		}
+
+		accepted.Close()
+		owner.Close()
+	}
+}
+
+func BenchmarkBackendRunHypercubeGossipSyncFailingSubstrate(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &Backend{
+		ctx:    ctx,
+		cancel: cancel,
+		substrates: []*substrateState{
+			{Substrate: failingSubstrate{}},
+		},
+	}
+
+	words := benchmarkCommunityProgramWords(b)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		owner := primitive.Emit()
+		if !owner.InstallProgram(words) {
+			b.Fatal("install program failed")
+		}
+
+		backend.runHypercubeGossip(owner, []*primitive.Value{owner})
+		for range backend.Sync(ctx) {
+		}
+
+		owner.Close()
+	}
+}
+
 type failingSubstrate struct{}
 
 func (failingSubstrate) Name() string { return "failing" }

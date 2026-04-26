@@ -33,8 +33,6 @@ func WithLabels(labels ...uint64) EmitOptions {
 			}
 
 			value.SetProperty(LABELS, label)
-
-			return
 		}
 	}
 }

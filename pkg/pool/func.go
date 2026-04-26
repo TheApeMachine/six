@@ -62,7 +62,14 @@ func (pool *PoolWithFunc[T]) loop() {
 	for {
 		select {
 		case <-pool.done:
-			return
+			for {
+				select {
+				case value := <-pool.jobs:
+					pool.task(value)
+				default:
+					return
+				}
+			}
 		case value := <-pool.jobs:
 			pool.task(value)
 		}

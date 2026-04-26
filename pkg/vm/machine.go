@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 
-	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
@@ -22,16 +21,17 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	host      *network.Host
-	tokenizer *Tokenizer
-	backend   *compute.Backend
-	telemetry *telemetry.Bridge
-	community []*primitive.Value
-	ready     []*primitive.Value
-	resolved  []*primitive.Value
+	ctx              context.Context
+	cancel           context.CancelFunc
+	err              error
+	host             *network.Host
+	tokenizer        *Tokenizer
+	backend          *compute.Backend
+	telemetry        *telemetry.Bridge
+	telemetryCopyBuf []byte
+	community        []*primitive.Value
+	ready            []*primitive.Value
+	resolved         []*primitive.Value
 }
 
 type machineOpts func(*Machine)
@@ -54,10 +54,11 @@ func NewMachine(
 	}
 
 	machine := &Machine{
-		ctx:       ctx,
-		cancel:    cancel,
-		telemetry: bridge,
-		backend:   compute.NewBackend(ctx),
+		ctx:              ctx,
+		cancel:           cancel,
+		telemetry:        bridge,
+		telemetryCopyBuf: make([]byte, 32*1024),
+		backend:          compute.NewBackend(ctx),
 	}
 
 	for _, opt := range opts {
@@ -170,7 +171,9 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 			continue
 		}
 
-		ringbuffer.New(1024).Copy(machine.telemetry, spawned)
+		if machine.telemetry != nil {
+			_, _ = io.CopyBuffer(machine.telemetry, spawned, machine.telemetryCopyBuf)
+		}
 
 		if spawned.Status() != primitive.READY {
 			machine.ready = append(machine.ready, spawned)
@@ -216,7 +219,9 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 		for _, value := range machine.ready {
 			value.SetStatus(primitive.READY)
-			ringbuffer.New(1024).Copy(machine.telemetry, value)
+			if machine.telemetry != nil {
+				_, _ = io.CopyBuffer(machine.telemetry, value, machine.telemetryCopyBuf)
+			}
 		}
 
 		if _, err := machine.Cycle(); err != nil {
@@ -229,9 +234,11 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 			readers[i] = value
 		}
 
-		ringbuffer.New(1024).Copy(
-			machine.telemetry, io.MultiReader(readers...),
-		)
+		if machine.telemetry != nil {
+			_, _ = io.CopyBuffer(
+				machine.telemetry, io.MultiReader(readers...), machine.telemetryCopyBuf,
+			)
+		}
 	}
 
 	if _, err := machine.Cycle(); err != nil {

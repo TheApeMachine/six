@@ -52,11 +52,12 @@ func LoadDefaultConfig() error {
 	var lastErr error
 	for _, path := range defaultConfigPaths() {
 		viper.SetConfigFile(path)
-		if err := viper.ReadInConfig(); err == nil {
+		err := viper.ReadInConfig()
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
 		}
+
+		lastErr = err
 	}
 
 	return lastErr

@@ -88,7 +88,7 @@ func TestMachineCycleBootstrapsCommunityRecruiter(t *testing.T) {
 }
 
 func TestMachineCycleEmitsNextRecruiterAfterShannonCap(t *testing.T) {
-	Convey("Given an unassigned Value outside the recruiter's Shannon cap", t, func() {
+	Convey("Given an unassigned Value outside the recruiter's Shannon cap (120 low bits vs sibling at 119)", t, func() {
 		loadMachineConfig(t)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -99,7 +99,7 @@ func TestMachineCycleEmitsNextRecruiterAfterShannonCap(t *testing.T) {
 
 		first := primitive.Emit()
 		defer first.Close()
-		setMachineAffinityPrefix(first, 119)
+		setMachineAffinityPrefix(first, 120)
 
 		second := primitive.Emit()
 		defer second.Close()

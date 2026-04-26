@@ -11,13 +11,13 @@ func TestWithLabels(t *testing.T) {
 		value := Emit(WithLabels(0, 42, 99))
 		defer value.Close()
 
-		Convey("It should stamp only the canonical LABELS property", func() {
+		Convey("It should apply each non-zero label to LABELS (last write wins on the single word)", func() {
 			label, err := value.Property(LABELS)
 			confidence, confidenceErr := value.Property(CONFIDENCE)
 
 			So(err, ShouldBeNil)
 			So(confidenceErr, ShouldBeNil)
-			So(label, ShouldEqual, 42)
+			So(label, ShouldEqual, 99)
 			So(confidence, ShouldEqual, 0)
 		})
 	})
