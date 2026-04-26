@@ -2,10 +2,12 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/program"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -215,9 +217,10 @@ func TestBackendSubmitDispatchesHypercubeGossip(t *testing.T) {
 
 	owner.Set(primitive.AffinityStartWord, 0b0001)
 	accepted.Set(primitive.AffinityStartWord, 0b0011)
+	accepted.SetStatus(primitive.READY)
 
-	if !backend.Submit([]*primitive.Value{owner, accepted}) {
-		t.Fatal("submit recruit workload failed")
+	if err := backend.Submit(owner, []*primitive.Value{accepted}); err != nil {
+		t.Fatal(err)
 	}
 
 	spawned := drainBackendSpawned(t, backend)
@@ -246,6 +249,95 @@ func TestBackendSubmitDispatchesHypercubeGossip(t *testing.T) {
 	}
 }
 
+func TestBackendRunHypercubeGossipFallsBackAfterSubstrateError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cpuState := &substrateState{Substrate: cpu.NewBackend(ctx)}
+	defer cpuState.Close()
+
+	backend := &Backend{
+		ctx:          ctx,
+		cancel:       cancel,
+		cpuSubstrate: cpuState,
+		substrates: []*substrateState{
+			{Substrate: failingSubstrate{}},
+			cpuState,
+		},
+	}
+
+	owner := primitive.Emit()
+	defer owner.Close()
+	accepted := primitive.Emit()
+	defer accepted.Close()
+
+	compiled, err := program.Compile(`[ (properties.community B) <= (id[0,1] A) ]`, program.Layout{
+		Regions: map[string]program.RegionExtent{
+			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
+			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},
+		},
+		Properties: map[string]int{
+			"community": int(primitive.COMMUNITY),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owner.InstallProgram(compiled.Words) {
+		t.Fatal("install fallback program failed")
+	}
+
+	backend.runHypercubeGossip(owner, []*primitive.Value{accepted})
+
+	if got, _ := accepted.Property(primitive.COMMUNITY); got != owner.ID() {
+		t.Fatalf("accepted community = %d, want owner id %d", got, owner.ID())
+	}
+	if owner.Status() != primitive.DONE {
+		t.Fatalf("owner status = %d, want DONE after CPU fallback", owner.Status())
+	}
+}
+
+func TestBackendRunHypercubeGossipKeepsProgramAfterSubstrateError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &Backend{
+		ctx:    ctx,
+		cancel: cancel,
+		substrates: []*substrateState{
+			{Substrate: failingSubstrate{}},
+		},
+	}
+
+	owner := primitive.Emit()
+	defer owner.Close()
+
+	compiled, err := program.Compile(`[ (properties.community B) <= (id[0,1] A) ]`, program.Layout{
+		Regions: map[string]program.RegionExtent{
+			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
+			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},
+		},
+		Properties: map[string]int{
+			"community": int(primitive.COMMUNITY),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owner.InstallProgram(compiled.Words) {
+		t.Fatal("install error program failed")
+	}
+
+	backend.runHypercubeGossip(owner, []*primitive.Value{owner})
+
+	if owner.Status() != primitive.ERROR {
+		t.Fatalf("owner status = %d, want ERROR", owner.Status())
+	}
+	if programCleared(owner) {
+		t.Fatal("owner program was cleared after failed substrate execution")
+	}
+}
+
 func programCleared(value *primitive.Value) bool {
 	if value == nil {
 		return true
@@ -265,13 +357,34 @@ func drainBackendSpawned(t *testing.T, backend *Backend) []*primitive.Value {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		spawned := backend.DrainSpawned()
-		if len(spawned) > 0 {
-			return spawned
+		var batch []*primitive.Value
+		for value := range backend.Sync(context.Background()) {
+			if value != nil {
+				batch = append(batch, value)
+			}
+		}
+
+		if len(batch) > 0 {
+			return batch
 		}
 
 		time.Sleep(time.Millisecond)
 	}
 
-	return backend.DrainSpawned()
+	return nil
 }
+
+type failingSubstrate struct{}
+
+func (failingSubstrate) Name() string { return "failing" }
+
+func (failingSubstrate) HypercubeGossip(
+	*primitive.Value,
+	[]*primitive.Value,
+) ([]*primitive.Value, error) {
+	return nil, errors.New("forced substrate failure")
+}
+
+func (failingSubstrate) GeometricFrame(unsafe.Pointer, uint64) bool { return false }
+
+func (failingSubstrate) Close() error { return nil }

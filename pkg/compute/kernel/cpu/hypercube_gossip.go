@@ -9,8 +9,6 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
-const csaPopcntThreshold = 15
-
 // pendingWrite forms our Write-Ahead Log (WAL).
 // This guarantees perfect lock-step execution without copying Megabytes of memory.
 type pendingWrite struct {
@@ -92,13 +90,13 @@ func HypercubeGossip(
 				execFrame = ownerFrame
 				aFrame = ownerFrame
 
-				if instrUsesBSource(execFrame[16+pc]) {
+				if instrUsesBSource(execFrame[primitive.ProgramStartWord+pc]) {
 					aFrame = frame
 				}
 			}
 
 			// Direct read. Values run whatever program they hold concurrently.
-			instr := execFrame[16+pc]
+			instr := execFrame[primitive.ProgramStartWord+pc]
 			if instr == 0 {
 				continue
 			}
@@ -432,11 +430,12 @@ popcntWords is the scalar witness path used by resident AST reductions.
 Small program spans are faster as direct word popcounts than positional CSA.
 */
 func popcntWords(words []uint64) uint64 {
-	if len(words) >= csaPopcntThreshold {
-		total := 0
+	if len(words) >= 15 {
 		var counts [64]int
 
 		pospop.Count64(&counts, words)
+
+		total := 0
 		for _, count := range counts {
 			total += count
 		}

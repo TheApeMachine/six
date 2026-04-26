@@ -24,6 +24,7 @@ type Tokenizer struct {
 	cancel  context.CancelFunc
 	err     error
 	current *primitive.Value
+	sample  int
 }
 
 func NewTokenizer(ctx context.Context) (*Tokenizer, error) {
@@ -55,6 +56,11 @@ func (tokenizer *Tokenizer) IngestSample(
 
 	if len(sample.Text) == 0 {
 		return nil, nil
+	}
+
+	if tokenizer.sample != int(sample.SampleID) {
+		tokenizer.sample = int(sample.SampleID)
+		tokenizer.current = nil
 	}
 
 	segments, err := primitive.NewValue(sample.Text, sample.LabelInt)

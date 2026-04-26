@@ -269,6 +269,7 @@ without allowing GPU write races to decide program semantics.
 #define B_TYPE_NEXT                3u
 #define PRED_EXTENDED              3u
 #define PRED_KIND_POPCNT_LTE       1u
+#define PRED_KIND_POPCNT_LT        2u
 
 struct AstParams {
     uint value_count;
@@ -394,13 +395,17 @@ static inline bool ast_predicate_allows(device ulong* frame, DecodedInstr instr,
     }
 
     PredicateSpec spec = specs[instr.pred_start];
-    if (spec.kind != PRED_KIND_POPCNT_LTE) {
+    if (spec.kind != PRED_KIND_POPCNT_LTE && spec.kind != PRED_KIND_POPCNT_LT) {
         return frame[instr.pred_start] > 0;
     }
 
     uint count = 0;
     for (ulong lane = 0; lane < spec.span && spec.start + lane < WORDS; lane++) {
         count += popcount(frame[uint(spec.start + lane)]);
+    }
+
+    if (spec.kind == PRED_KIND_POPCNT_LT) {
+        return ulong(count) < spec.threshold;
     }
 
     return ulong(count) <= spec.threshold;

@@ -99,11 +99,11 @@ func TestMachineCycleEmitsNextRecruiterAfterShannonCap(t *testing.T) {
 
 		first := primitive.Emit()
 		defer first.Close()
-		setMachineAffinityPrefix(first, 120)
+		setMachineAffinityPrefix(first, 119)
 
 		second := primitive.Emit()
 		defer second.Close()
-		setMachineAffinityBit(second, 120)
+		setMachineAffinityBit(second, 119)
 
 		machine := &Machine{
 			ctx:       ctx,

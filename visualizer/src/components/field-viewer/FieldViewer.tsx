@@ -28,7 +28,7 @@ function formatTimestamp(timestamp: number) {
 
 /*
 CommunityMetricsStrip renders the per-field crystallisation fingerprint the
-orchestrator emits every tick. It is rendered above the ValueInspector when
+telemetry stream emits every tick. It is rendered above the ValueInspector when
 the selected Value lives inside a community so the operator can correlate a
 single Value's causal state with the crystallisation of its home field — the
 only level of the hierarchy the mesh currently publishes metrics for. Kept

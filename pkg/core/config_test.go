@@ -80,17 +80,30 @@ func TestNewConfig(t *testing.T) {
 			So(cfg.TelemetryEnabled, ShouldBeTrue)
 			So(cfg.TelemetryWebSocketURL, ShouldEqual, "ws://127.0.0.1:9191/ws")
 		})
+
+		Convey("It should preserve explicit zero values", func() {
+			Reset(func() {
+				viper.Set("system.maxMembersPerField", 256)
+				NewConfig()
+			})
+
+			viper.Set("system.maxMembersPerField", 0)
+
+			cfg := NewConfig()
+
+			So(cfg.System.MaxMembersPerField, ShouldEqual, 0)
+		})
 	})
 }
 
 func TestValueRegionConfigMaxTokenIngestBytes(t *testing.T) {
 	Convey("Given a ValueRegionConfig", t, func() {
-		Convey("It should compute MaxTokenIngestBytes as the number of token words (minimum 1)", func() {
+		Convey("It should compute MaxTokenIngestBytes as four Morton slots per token word", func() {
 			region := ValueRegionConfig{
 				Tokens: ValueOffsetConfig{Bits: 1024},
 			}
 
-			So(region.MaxTokenIngestBytes(), ShouldEqual, 16)
+			So(region.MaxTokenIngestBytes(), ShouldEqual, 64)
 
 			small := ValueRegionConfig{
 				Tokens: ValueOffsetConfig{Bits: 8},

@@ -208,9 +208,9 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 		n, pos := 0, uint32(0)
 
 		for idx < len(p) && n < maxCodes {
-			// Match geometry.SlotCode and Value.String: the raw byte lives on the Y
-			// axis of EncodeInterleaved8x8 so DecodeInterleaved8x8’s Y recovers it.
-			code := EncodeInterleaved8x8(pos, uint32(p[idx]))
+			// Morton code zero is the empty-slot sentinel. Offset the X axis
+			// so a leading NUL byte still becomes an occupied token.
+			code := EncodeInterleaved8x8(pos+1, uint32(p[idx]))
 			idx++
 			pos++
 
@@ -389,10 +389,9 @@ fold into its own state, what to leave untouched, and what (if
 anything) to emit as new Association Values through the kernel
 post-exec hook.
 
-Status is propagated separately because it lives at properties[STATUS]
-inside the staged block — copying it onto the host's STATUS slot is
-how the orchestrator's lifecycle knows the peer's STATUS without the
-host's program having to reach into asset[].
+The peer's STATUS remains inside the staged Properties block. Host lifecycle
+state is not overwritten by Write; resident programs that care about peer
+status must read it from asset[] explicitly.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) < core.Cfg.Value.Bytes {
@@ -428,9 +427,6 @@ func (value *Value) Close() error {
 		return nil
 	}
 
-	// Wipe the Value, this is important to ensure
-	// that the Value is not leaked to the heap.
-	*value = Value{}
 	FreeValue(value)
 
 	return nil

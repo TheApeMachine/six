@@ -2,6 +2,9 @@ package compute
 
 import (
 	"context"
+	"errors"
+
+	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -21,12 +24,17 @@ NewQueue constructs a Queue with bounded normal and priority buffers.
 */
 func NewQueue(ctx context.Context) (*Queue, error) {
 	ctx, cancel := context.WithCancel(ctx)
+	capacity := 1024
+
+	if core.Cfg != nil && core.Cfg.System.QueueSize > 0 {
+		capacity = core.Cfg.System.QueueSize
+	}
 
 	queue := &Queue{
 		ctx:      ctx,
 		cancel:   cancel,
-		normal:   make(chan func(), 1024),
-		priority: make(chan func(), 1024),
+		normal:   make(chan func(), capacity),
+		priority: make(chan func(), capacity),
 	}
 
 	return queue, nil
@@ -49,24 +57,24 @@ func (queue *Queue) Error() error {
 
 /*
 Schedule enqueues work onto the normal-priority ring buffer.
-Returns false when the ring is full.
+Returns an error when the queue is full, the queue or task is nil, or a context is done.
 */
 func (queue *Queue) Schedule(
 	ctx context.Context, task func(),
-) bool {
+) (err error) {
 	if queue == nil || task == nil {
-		return false
+		return errors.New("queue is nil or task is nil")
 	}
 
 	select {
 	case <-queue.ctx.Done():
-		return false
+		return errors.New("queue context done")
 	case <-ctx.Done():
-		return false
+		return errors.New("context done")
 	case queue.normal <- task:
-		return true
+		return nil
 	default:
-		return false
+		return errors.New("queue is full")
 	}
 }
 

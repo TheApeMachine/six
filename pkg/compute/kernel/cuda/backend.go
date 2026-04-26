@@ -186,10 +186,10 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
 	frame := (*[128]uint64)(value)
-	prev := frame[16]
-	frame[16] = opcode
+	prev := frame[primitive.ProgramStartWord]
+	frame[primitive.ProgramStartWord] = opcode
 	defer func() {
-		frame[16] = prev
+		frame[primitive.ProgramStartWord] = prev
 	}()
 
 	res := C.geometric_cuda(C.int(backend.deviceIdx), value, 1)

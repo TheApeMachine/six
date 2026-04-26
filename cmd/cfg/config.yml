@@ -380,36 +380,38 @@ programs:
       { A(signals[0,8]) A(context[0,8]) B }
     ]
   recruit_community: |
-    [ { A(confidence) A(affinity[0,5]) popcnt } ] <= [
+    [
+      { A(confidence) A(affinity[0,5]) popcnt }
+    ] <= [
       { B(signals[0,5]) clear B }
     ] <= [
       { A(affinity[0,5]) A(signals[0,5]) B }
     ] <= [
       { A(signals[0,5]) B(affinity[0,5]) | fold }
     ] <= [
-      { { B(asset[47,1]) 0 != } ? }
+      { { B(asset[7,1]) 0 != } ? }
     ] <= [
       { B(status) 0 B }
     ] <= [
-      { { B(asset[47,1]) 0 != } ? }
+      { { B(asset[7,1]) 0 != } ? }
     ] <= [
-      { B(community) B(asset[47,1]) B }
+      { B(community) B(asset[7,1]) B }
     ] <= [
       { { B(community) 0 == } ? }
     ] <= [
-      { B(asset[47,1]) B(asset[46,1]) & }
+      { B(asset[7,1]) B(asset[6,1]) & }
     ] <= [
-      { B(asset[47,1]) B(asset[45,1]) B }
+      { B(asset[7,1]) B(asset[5,1]) B }
     ] <= [
-      { B(asset[46,1]) A(id) B }
+      { B(asset[6,1]) A(id) B }
     ] <= [
-      { { B(asset[40,5]) popcnt } 120 ? }
+      { { B(asset[0,5]) popcnt } 120 ? }
     ] <= [
-      { B(asset[45,1]) A(id) B }
+      { B(asset[5,1]) A(id) B }
     ] <= [
-      { { B(signals[0,5]) popcnt } 128 ? }
+      { { B(signals[0,5]) popcnt } {{routeBudget}} ? }
     ] <= [
-      { B(asset[45,3]) clear B }
+      { B(asset[5,3]) clear B }
     ] <= [
       { B(signals[0,5]) B(signals[0,5]) == }
     ] <= [
@@ -417,9 +419,9 @@ programs:
     ] <= [
       { B(signals[0,5]) A(affinity[0,5]) ^ }
     ] <= [
-      { B(asset[40,5]) A(affinity[0,5]) | }
+      { B(asset[0,5]) A(affinity[0,5]) | }
     ] <= [
-      { B(asset[40,5]) B(affinity[0,5]) B }
+      { B(asset[0,5]) B(affinity[0,5]) B }
     ] <= [
       { B(signals[0,5]) B(affinity[0,5]) B }
     ]

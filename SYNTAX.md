@@ -151,6 +151,12 @@ against an immediate threshold using `| N`. In predicate position this means
 **Reads as:** "Write this Value's ID into the routed peer's community word only
 while this Value's affinity region has no more than 120 set bits."
 
+Feed-pipeline gate sites use the RPN form `{ { A(region) popcnt } N ? }`.
+This opens only while the reduced population is below `N`; at `N` or above the
+gated write is skipped for that lane. For example, `{ { B(asset[0,5]) popcnt }
+120 ? }` blocks once the first five asset words reach the Shannon saturation
+threshold.
+
 ---
 
 ## 7. The Non-Negotiable Execution Contract

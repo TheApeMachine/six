@@ -197,6 +197,7 @@ __global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
 #define AST_B_TYPE_IMMEDIATE       2u
 #define AST_B_TYPE_NEXT            3u
 #define AST_PRED_KIND_POPCNT_LTE   1u
+#define AST_PRED_KIND_POPCNT_LT    2u
 
 typedef struct {
     uint64_t kind;
@@ -323,7 +324,7 @@ static __device__ __forceinline__ bool ast_predicate_allows(uint64_t* frame, ast
     if (instr.pred_cond == 2) return frame[instr.pred_start] == 0;
 
     predicate_device_spec_t spec = specs[instr.pred_start];
-    if (spec.kind != AST_PRED_KIND_POPCNT_LTE) return frame[instr.pred_start] > 0;
+    if (spec.kind != AST_PRED_KIND_POPCNT_LTE && spec.kind != AST_PRED_KIND_POPCNT_LT) return frame[instr.pred_start] > 0;
 
     uint32_t count = 0;
     uint32_t start = (uint32_t)spec.start;
@@ -331,6 +332,8 @@ static __device__ __forceinline__ bool ast_predicate_allows(uint64_t* frame, ast
     for (uint32_t lane = 0; lane < span && start + lane < WORDS; lane++) {
         count += (uint32_t)__popcll((unsigned long long)frame[start + lane]);
     }
+
+    if (spec.kind == AST_PRED_KIND_POPCNT_LT) return (uint64_t)count < spec.threshold;
 
     return (uint64_t)count <= spec.threshold;
 }

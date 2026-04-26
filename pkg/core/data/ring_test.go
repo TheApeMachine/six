@@ -25,6 +25,22 @@ func TestNewRing(t *testing.T) {
 			So(ring.Error(), ShouldBeNil)
 		})
 	})
+
+	Convey("Given an invalid capacity", t, func() {
+		Convey("NewRing should reject non-power-of-two sizes", func() {
+			ring, err := NewRing(context.Background(), 3)
+
+			So(ring, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("NewRing should reject zero", func() {
+			ring, err := NewRing(context.Background(), 0)
+
+			So(ring, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+		})
+	})
 }
 
 func TestRingPush(t *testing.T) {

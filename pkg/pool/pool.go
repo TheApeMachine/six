@@ -1,10 +1,7 @@
 package pool
 
 import (
-	"runtime"
 	"sync"
-	"sync/atomic"
-	"unsafe"
 )
 
 type Task interface {
@@ -12,111 +9,84 @@ type Task interface {
 	Optimize()
 }
 
-// a single slot for a worker in Pool
-type slot struct {
-	sema uint32
-	task func()
-}
-
-// Pool represents the thread-pool for performing any kind of task ( type -> func() {} )
+/*
+Pool runs function workloads over a fixed worker set.
+The previous parked-goroutine stack used private runtime semaphores, which
+made race verification impossible for the execution path it was meant to
+protect. The bounded channel keeps backpressure explicit while staying inside
+the public Go memory model.
+*/
 type Pool struct {
-	currSize uint64
-	_p1      [cacheLinePadSize - unsafe.Sizeof(uint64(0))]byte
-	maxSize  uint64
-	_p2      [cacheLinePadSize - unsafe.Sizeof(uint64(0))]byte
-	// using a stack keeps cpu caches warm based on FILO property
-	top atomic.Pointer[node]
-	_p3 [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[node]{})]byte
+	jobs chan func()
+	done chan struct{}
+	once sync.Once
+	wait sync.WaitGroup
 }
 
-// NewPool returns a new thread pool
+/*
+NewPool returns a bounded worker pool.
+*/
 func NewPool(size uint64) *Pool {
-	return &Pool{maxSize: size}
+	if size == 0 {
+		size = 1
+	}
+
+	pool := &Pool{
+		jobs: make(chan func(), size),
+		done: make(chan struct{}),
+	}
+
+	pool.wait.Add(int(size))
+
+	for worker := uint64(0); worker < size; worker++ {
+		go pool.loop()
+	}
+
+	return pool
 }
 
-// Submit submits a new task to the pool
-// it first tries to use already parked goroutines from the stack if any
-// if there are no available worker goroutines, it tries to add a
-// new goroutine to the pool if the pool capacity is not exceeded
-// in case the pool capacity hit its maximum limit, this function yields the processor to other
-// goroutines and loops again for finding available workers
-func (self *Pool) Submit(task func()) {
-	var s *slot
+/*
+Submit queues a task, blocking when all workers are busy.
+*/
+func (pool *Pool) Submit(task func()) {
+	if pool == nil || task == nil {
+		return
+	}
+
+	select {
+	case <-pool.done:
+	case pool.jobs <- task:
+	}
+}
+
+func (pool *Pool) loop() {
+	defer pool.wait.Done()
+
 	for {
-		if s = self.pop(); s != nil {
-			s.task = task
-			runtime_Semrelease(&s.sema, false, 0)
+		select {
+		case <-pool.done:
 			return
-		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
-			s = &slot{task: task}
-			go self.loopQ(s)
-			return
-		} else {
-			atomic.AddUint64(&self.currSize, uint64SubtractionConstant)
-			runtime.Gosched()
+		case task := <-pool.jobs:
+			if task != nil {
+				task()
+			}
 		}
 	}
 }
 
-// loopQ is the looping function for every worker goroutine
-func (self *Pool) loopQ(s *slot) {
-	for {
-		// exec task
-		s.task()
-		// notify availability by pushing self reference into stack
-		self.push(s)
-		// park and wait for call
-		runtime_Semacquire(&s.sema)
+/*
+Close stops workers after their current task.
+*/
+func (pool *Pool) Close() error {
+	if pool == nil {
+		return nil
 	}
-}
 
-// global memory pool for all items used in Pool
-var (
-	itemPool  = sync.Pool{New: func() any { return new(node) }}
-	itemAlloc = itemPool.Get
-	itemFree  = itemPool.Put
-)
+	pool.once.Do(func() {
+		close(pool.done)
+	})
 
-// internal lock-free stack implementation for parking and waking up goroutines
-// Credits -> https://github.com/golang-design/lockfree
+	pool.wait.Wait()
 
-// a single node in this stack
-type node struct {
-	next  atomic.Pointer[node]
-	value *slot
-}
-
-// pop pops value from the top of the stack
-func (self *Pool) pop() (value *slot) {
-	var top, next *node
-	for {
-		top = self.top.Load()
-		if top == nil {
-			return
-		}
-		next = top.next.Load()
-		if self.top.CompareAndSwap(top, next) {
-			value = top.value
-			top.value = nil
-			top.next.Store(nil)
-			itemFree(top)
-			return
-		}
-	}
-}
-
-// push pushes a value on top of the stack
-func (self *Pool) push(v *slot) {
-	var (
-		top  *node
-		item = itemAlloc().(*node)
-	)
-	item.value = v
-	for {
-		top = self.top.Load()
-		item.next.Store(top)
-		if self.top.CompareAndSwap(top, item) {
-			return
-		}
-	}
+	return nil
 }

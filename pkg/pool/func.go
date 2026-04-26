@@ -1,111 +1,87 @@
 package pool
 
 import (
-	"runtime"
 	"sync"
-	"sync/atomic"
-	"unsafe"
 )
 
 type (
-	// a single slot for a worker in PoolWithFunc
-	slotFunc[T any] struct {
-		sema uint32
-		data T
-	}
-
-	// PoolWithFunc is used for spawning workers for a single pre-defined function with myriad inputs
-	// useful for throughput bound cases
-	// has lower memory usage and allocs per op than the default Pool
-	//
-	//	( type -> func(T) {} ) where T is a generic parameter
+	/*
+		PoolWithFunc runs typed inputs over a fixed worker set.
+		It mirrors Pool while avoiding per-call closure allocation when the
+		work function is stable and only the payload changes.
+	*/
 	PoolWithFunc[T any] struct {
-		currSize uint64
-		_p1      [cacheLinePadSize - unsafe.Sizeof(uint64(0))]byte
-		maxSize  uint64
-		alloc    func() any
-		free     func(any)
-		task     func(T)
-		_p2      [cacheLinePadSize - unsafe.Sizeof(uint64(0)) - 3*unsafe.Sizeof(func() {})]byte
-		top      atomic.Pointer[dataItem[T]]
-		_p3      [cacheLinePadSize - unsafe.Sizeof(atomic.Pointer[dataItem[T]]{})]byte
+		jobs chan T
+		done chan struct{}
+		once sync.Once
+		wait sync.WaitGroup
+		task func(T)
 	}
 )
 
-// NewPoolWithFunc returns a new PoolWithFunc
+/*
+NewPoolWithFunc returns a typed bounded worker pool.
+*/
 func NewPoolWithFunc[T any](size uint64, task func(T)) *PoolWithFunc[T] {
-	dataPool := sync.Pool{New: func() any { return new(dataItem[T]) }}
-	return &PoolWithFunc[T]{maxSize: size, task: task, alloc: dataPool.Get, free: dataPool.Put}
+	if size == 0 {
+		size = 1
+	}
+
+	pool := &PoolWithFunc[T]{
+		jobs: make(chan T, size),
+		done: make(chan struct{}),
+		task: task,
+	}
+
+	pool.wait.Add(int(size))
+
+	for worker := uint64(0); worker < size; worker++ {
+		go pool.loop()
+	}
+
+	return pool
 }
 
-// Invoke invokes the pre-defined method in PoolWithFunc by assigning the data to an already existing worker
-// or spawning a new worker given queue size is in limits
-func (self *PoolWithFunc[T]) Invoke(value T) {
-	var s *slotFunc[T]
+/*
+Invoke sends one value to the shared task function.
+*/
+func (pool *PoolWithFunc[T]) Invoke(value T) {
+	if pool == nil || pool.task == nil {
+		return
+	}
+
+	select {
+	case <-pool.done:
+	case pool.jobs <- value:
+	}
+}
+
+func (pool *PoolWithFunc[T]) loop() {
+	defer pool.wait.Done()
+
 	for {
-		if s = self.pop(); s != nil {
-			s.data = value
-			runtime_Semrelease(&s.sema, false, 0)
+		select {
+		case <-pool.done:
 			return
-		} else if atomic.AddUint64(&self.currSize, 1) <= self.maxSize {
-			s = &slotFunc[T]{data: value}
-			go self.loopQ(s)
-			return
-		} else {
-			atomic.AddUint64(&self.currSize, uint64SubtractionConstant)
-			runtime.Gosched()
+		case value := <-pool.jobs:
+			pool.task(value)
 		}
 	}
 }
 
-// represents the infinite loop for a worker goroutine
-func (self *PoolWithFunc[T]) loopQ(d *slotFunc[T]) {
-	for {
-		self.task(d.data)
-		self.push(d)
-		runtime_Semacquire(&d.sema)
+/*
+Close stops workers after their current task.
+*/
+func (pool *PoolWithFunc[T]) Close() error {
+	if pool == nil {
+		return nil
 	}
-}
 
-// Stack implementation below for storing goroutine references
+	pool.once.Do(func() {
+		close(pool.done)
+	})
 
-// a single node in the stack
-type dataItem[T any] struct {
-	next  atomic.Pointer[dataItem[T]]
-	value *slotFunc[T]
-}
+	pool.wait.Wait()
 
-// pop pops value from the top of the stack
-func (self *PoolWithFunc[T]) pop() (value *slotFunc[T]) {
-	var top, next *dataItem[T]
-	for {
-		top = self.top.Load()
-		if top == nil {
-			return
-		}
-		next = top.next.Load()
-		if self.top.CompareAndSwap(top, next) {
-			value = top.value
-			top.value = nil
-			top.next.Store(nil)
-			self.free(top)
-			return
-		}
-	}
-}
-
-// push pushes a value on top of the stack
-func (self *PoolWithFunc[T]) push(v *slotFunc[T]) {
-	var (
-		top  *dataItem[T]
-		item = self.alloc().(*dataItem[T])
-	)
-	item.value = v
-	for {
-		top = self.top.Load()
-		item.next.Store(top)
-		if self.top.CompareAndSwap(top, item) {
-			return
-		}
-	}
+	return nil
 }

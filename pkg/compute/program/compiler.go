@@ -52,7 +52,10 @@ const predExtended = 3
 
 type predicateKind uint8
 
-const predicatePopcntLTE predicateKind = 1
+const (
+	predicatePopcntLTE predicateKind = 1
+	predicatePopcntLT  predicateKind = 2
+)
 
 type predicateSpec struct {
 	kind      predicateKind
@@ -589,7 +592,7 @@ func parseNestedGatePredicate(block, nested string) (*PredicateNode, error) {
 			return &PredicateNode{
 				IsPopcnt:  true,
 				Region:    left.ref,
-				Op:        "|",
+				Op:        "<",
 				Threshold: tail[0],
 			}, nil
 		}
@@ -866,7 +869,7 @@ func parseFeedPredicate(raw string) (*PredicateNode, error) {
 		}, nil
 	}
 
-	if len(parts) == 4 && parts[1] == "popcnt" {
+	if len(parts) == 4 && parts[1] == "popcnt" && parts[3] == "?" {
 		left, err := parseFeedAtom(parts[0])
 		if err != nil {
 			return nil, err
@@ -878,7 +881,7 @@ func parseFeedPredicate(raw string) (*PredicateNode, error) {
 		return &PredicateNode{
 			IsPopcnt:  true,
 			Region:    left.ref,
-			Op:        "|",
+			Op:        "<",
 			Threshold: parts[2],
 		}, nil
 	}
@@ -1206,8 +1209,14 @@ func compileInstruction(node *InstructionNode, lay Layout) (uint64, error) {
 
 func compilePredicate(node *PredicateNode, lay Layout) (uint64, uint64, error) {
 	if node.IsPopcnt {
-		if node.Op != "|" {
-			return 0, 0, fmt.Errorf("popcnt predicate must use '| Threshold'")
+		kind := predicatePopcntLTE
+		switch node.Op {
+		case "|":
+			kind = predicatePopcntLTE
+		case "<":
+			kind = predicatePopcntLT
+		default:
+			return 0, 0, fmt.Errorf("popcnt predicate must use '| Threshold' or feed threshold gate")
 		}
 		threshold, err := strconv.ParseUint(node.Threshold, 10, 64)
 		if err != nil {
@@ -1218,7 +1227,7 @@ func compilePredicate(node *PredicateNode, lay Layout) (uint64, uint64, error) {
 			return 0, 0, fmt.Errorf("popcnt predicate region: %w", err)
 		}
 		id, err := registerPredicate(predicateSpec{
-			kind:      predicatePopcntLTE,
+			kind:      kind,
 			start:     start,
 			span:      span,
 			threshold: threshold,
@@ -1289,6 +1298,16 @@ func PredicateAllows(frame *[128]uint64, predStart, predCond uint64) bool {
 				count += bits.OnesCount64(frame[idx])
 			}
 			return uint64(count) <= spec.threshold
+		case predicatePopcntLT:
+			count := 0
+			for i := 0; i < spec.span; i++ {
+				idx := spec.start + i
+				if idx >= 128 {
+					break
+				}
+				count += bits.OnesCount64(frame[idx])
+			}
+			return uint64(count) < spec.threshold
 		default:
 			return false
 		}

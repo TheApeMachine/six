@@ -37,6 +37,7 @@ const CATEGORY_ORDER: ProgramCategory[] = [
 	"intervene",
 	"inference",
 	"resident",
+	"recruiter",
 	"plumbing",
 	"util",
 	"unknown",
@@ -226,6 +227,28 @@ function Glyph({
 						fill="none"
 						stroke={stroke}
 						strokeWidth={1.2}
+					/>
+				</svg>
+			);
+		case "plus":
+			return (
+				<svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+					<title>plus</title>
+					<line
+						x1={half - 6}
+						y1={half}
+						x2={half + 6}
+						y2={half}
+						stroke={stroke}
+						strokeWidth={1.6}
+					/>
+					<line
+						x1={half}
+						y1={half - 6}
+						x2={half}
+						y2={half + 6}
+						stroke={stroke}
+						strokeWidth={1.6}
 					/>
 				</svg>
 			);

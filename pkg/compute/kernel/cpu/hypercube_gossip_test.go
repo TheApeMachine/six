@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"errors"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -290,11 +291,11 @@ func TestHypercubeGossip(t *testing.T) {
 
 		accepted := primitive.Emit()
 		defer accepted.Close()
-		setAffinityPrefix(accepted, 120)
+		setAffinityPrefix(accepted, 119)
 
 		saturated := primitive.Emit()
 		defer saturated.Close()
-		setAffinityPrefix(saturated, 121)
+		setAffinityPrefix(saturated, 120)
 
 		HypercubeGossip(recruiter, []*primitive.Value{recruiter, accepted, saturated})
 
@@ -308,7 +309,7 @@ func TestHypercubeGossip(t *testing.T) {
 
 		recruiterConfidence, err := recruiter.Property(primitive.CONFIDENCE)
 		So(err, ShouldBeNil)
-		So(recruiterConfidence, ShouldEqual, 120)
+		So(recruiterConfidence, ShouldEqual, 119)
 	})
 
 	Convey("Given a matching program carrier", t, func() {
@@ -399,13 +400,29 @@ func setAffinityPrefix(value *primitive.Value, bitCount int) {
 	value.NormalizeAffinity()
 }
 
+func TestPopcntWords(t *testing.T) {
+	Convey("Given a wide word slice", t, func() {
+		words := make([]uint64, 31)
+		var expected uint64
+
+		for idx := range words {
+			words[idx] = uint64(idx+1) * 0x9E3779B97F4A7C15
+			expected += uint64(bits.OnesCount64(words[idx]))
+		}
+
+		Convey("It should return the same total as the scalar reference", func() {
+			So(popcntWords(words), ShouldEqual, expected)
+		})
+	})
+}
+
 func BenchmarkPopcntWords(b *testing.B) {
 	var words [64]uint64
 	for idx := range words {
 		words[idx] = uint64(idx+1) * 0x9E3779B97F4A7C15
 	}
 
-	b.Run("CSA", func(bb *testing.B) {
+	b.Run("Scalar", func(bb *testing.B) {
 		for iteration := 0; iteration < bb.N; iteration++ {
 			_ = popcntWords(words[:])
 		}

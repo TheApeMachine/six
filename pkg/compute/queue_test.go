@@ -13,8 +13,8 @@ func TestQueueNextReturnsScheduledWork(t *testing.T) {
 	defer queue.Close()
 
 	ran := false
-	if !queue.Schedule(context.Background(), func() { ran = true }) {
-		t.Fatal("schedule failed")
+	if err := queue.Schedule(context.Background(), func() { ran = true }); err != nil {
+		t.Fatal(err)
 	}
 
 	queue.Next()()
@@ -32,8 +32,10 @@ func TestQueueNextPrefersPriorityWork(t *testing.T) {
 	defer queue.Close()
 
 	var order []string
-	if !queue.Schedule(context.Background(), func() { order = append(order, "normal") }) {
-		t.Fatal("schedule normal failed")
+	if err := queue.Schedule(
+		context.Background(), func() { order = append(order, "normal") },
+	); err != nil {
+		t.Fatal(err)
 	}
 	if !queue.SchedulePriority(context.Background(), func() { order = append(order, "priority") }) {
 		t.Fatal("schedule priority failed")

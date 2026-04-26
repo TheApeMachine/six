@@ -494,6 +494,8 @@ func compilePrograms(lay program.Layout) ([]compiledProgram, error) {
 		if !ok || source == "" {
 			continue
 		}
+		source = expandProgramConstants(source)
+
 		c, err := program.Compile(source, lay)
 		if err != nil {
 			return nil, fmt.Errorf("program %q: %w", key, err)
@@ -501,6 +503,28 @@ func compilePrograms(lay program.Layout) ([]compiledProgram, error) {
 		out = append(out, compiledProgram{name: key, source: source, words: c.Words})
 	}
 	return out, nil
+}
+
+func expandProgramConstants(source string) string {
+	shannonThreshold := int(viper.GetFloat64("system.shannonLimit") * 256)
+	if shannonThreshold < 0 {
+		shannonThreshold = 0
+	}
+	if shannonThreshold > 256 {
+		shannonThreshold = 256
+	}
+
+	routeBudget := viper.GetInt("system.routeBudget")
+	if routeBudget == 0 {
+		routeBudget = 128
+	}
+
+	replacer := strings.NewReplacer(
+		"{{shannonLimitPopcount}}", strconv.Itoa(shannonThreshold),
+		"{{routeBudget}}", strconv.Itoa(routeBudget),
+	)
+
+	return replacer.Replace(source)
 }
 
 // writeProgramsTS emits the program signature table the visualiser's

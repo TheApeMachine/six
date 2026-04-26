@@ -98,6 +98,7 @@ const SHAPE_INDEX: Record<Shape, number> = {
 	asterisk: 8,
 	bar: 9,
 	concentric: 10,
+	plus: 11,
 };
 
 function sortByPosX(a: { posX: number }, b: { posX: number }): number {
@@ -193,6 +194,26 @@ function fieldParticleOffset(
 	const jitter = (fnvHash(id, 31) - 0.5) * slotArc * 0.5;
 	const theta = memberIndex * GOLDEN_ANGLE + jitter;
 	return { ox: Math.cos(theta) * r, oy: Math.sin(theta) * r };
+}
+
+/*
+orphanSpiralPosition lays anchor-less Values on a phyllotaxis spiral that
+starts at `ringInner` and grows outward. Step size is tuned so successive
+points sit roughly 2·PARTICLE_BASE_SIZE apart even at the inner ring, which
+keeps the holding pattern dense but non-overlapping regardless of count.
+Position is a pure function of sequence index, so a Value's holding spot is
+stable across frames as long as snapshot order is stable.
+*/
+const ORPHAN_SPIRAL_STEP = PARTICLE_BASE_SIZE * 2.6;
+function orphanSpiralPosition(
+	seq: number,
+	ringInner: number,
+): { x: number; y: number } {
+	const r = Math.sqrt(
+		ringInner * ringInner + seq * ORPHAN_SPIRAL_STEP * ORPHAN_SPIRAL_STEP,
+	);
+	const theta = seq * GOLDEN_ANGLE;
+	return { x: Math.cos(theta) * r, y: Math.sin(theta) * r };
 }
 
 function categoryForMember(member: { program: string }): ProgramCategory {
@@ -368,6 +389,10 @@ float glyphSdf(int shape, vec2 p) {
         d = min(d, sdRing(p, 0.40, 0.045));
         d = min(d, sdRing(p, 0.18, 0.045));
         return d;
+    } else if (shape == 11) { // plus: two crossed bars (recruit_community)
+        float d = sdBox(p, vec2(0.65, 0.16));
+        d = min(d, sdBox(p, vec2(0.16, 0.65)));
+        return d;
     }
     return sdCircle(p, 0.6);
 }
@@ -452,6 +477,7 @@ layout(location = 1) in vec2 a_pos;
 layout(location = 2) in float a_radius;   // world units
 layout(location = 3) in vec3 a_color;
 layout(location = 4) in float a_alpha;
+layout(location = 5) in float a_density;  // members normalized to [0,1]
 
 uniform vec2 u_camera;
 uniform vec2 u_viewport;
@@ -460,17 +486,20 @@ uniform float u_zoom;
 out vec2 v_uv;
 out vec3 v_color;
 out float v_alpha;
+out float v_density;
 
 void main() {
+    v_density = a_density;
+    // Expand the quad enough to hold the outer halo whose reach grows with resonance.
     float pixelRadius = a_radius * u_zoom;
     vec2 worldOffset = (a_pos - u_camera) * u_zoom;
-    vec2 pixelPos = worldOffset + a_corner * pixelRadius * 1.4;
+    vec2 pixelPos = worldOffset + a_corner * pixelRadius * 1.7;
     vec2 ndc = vec2(
         ( (pixelPos.x + u_viewport.x * 0.5) / u_viewport.x ) * 2.0 - 1.0,
         1.0 - ( (pixelPos.y + u_viewport.y * 0.5) / u_viewport.y ) * 2.0
     );
     gl_Position = vec4(ndc, 0.0, 1.0);
-    v_uv = a_corner * 1.4;
+    v_uv = a_corner * 1.7;
     v_color = a_color;
     v_alpha = a_alpha;
 }
@@ -482,22 +511,60 @@ precision highp float;
 in vec2 v_uv;
 in vec3 v_color;
 in float v_alpha;
+in float v_density;
+
+uniform float u_time;   // ms; drives the resonance breath
 
 out vec4 outColor;
 
+#define TAU 6.2831853
+
 void main() {
     float r = length(v_uv);
-    // Soft inner tint that picks up the dominant category color so each
-    // field reads as a coloured disk rather than a uniform grey ring.
+    float ang = atan(v_uv.y, v_uv.x);
+
+    // Resonance breath: calmer fields barely pulse, energetic ones breathe.
+    // Amplitude is gated by alpha (== resonanceLevel) so it carries meaning.
+    float breath = 0.5 + 0.5 * sin(u_time * 0.0018);
+    float pulse = 1.0 + breath * v_alpha * 0.10;
+    float ri = 0.92 * pulse;
+    float ro = 1.00 * pulse;
+
+    // Soft inner tint — disc reads as a coloured field, not a hollow circle.
     float innerGlow = smoothstep(1.0, 0.0, r) * 0.10;
-    // Two concentric rings give a "double stroke" that scans more clearly
-    // than a single 1px-wide ring at any zoom level. Both rings stay thin
-    // so we never become a solid disk that hides the particles inside.
-    float outerRing = 1.0 - smoothstep(0.02, 0.06, abs(r - 1.0));
-    float innerRing = 1.0 - smoothstep(0.02, 0.05, abs(r - 0.92));
-    float a = (innerGlow + outerRing * 0.55 + innerRing * 0.30) * v_alpha;
+
+    // Double stroke (kept) so the ring scans cleanly at any zoom.
+    float outerRing = 1.0 - smoothstep(0.02, 0.06, abs(r - ro));
+    float innerRing = 1.0 - smoothstep(0.02, 0.05, abs(r - ri));
+
+    // Outer halo: extends beyond the ring proportional to resonance. A quiet
+    // field has almost no halo, an active one bleeds energy outward — same
+    // visual language as the reference image's nested glow.
+    float haloReach = 0.18 + v_alpha * 0.45;
+    float halo = (1.0 - smoothstep(ro, ro + haloReach, r)) * step(ro, r);
+    halo *= 0.35 * v_alpha;
+
+    // Density ticks: short radial dashes around the ring. Count buckets the
+    // member population so a crowded community visibly differs from a sparse
+    // one without us shipping per-member geometry.
+    float ticks = floor(8.0 + v_density * 24.0);
+    float tickPhase = fract(ang / TAU * ticks + 0.5);
+    float tickMask = (1.0 - smoothstep(0.18, 0.42, abs(tickPhase - 0.5)));
+    float tickBand = 1.0 - smoothstep(0.04, 0.10, abs(r - (ro + 0.05)));
+    float tickGlow = tickMask * tickBand * (0.25 + v_density * 0.55);
+
+    float a =
+        innerGlow +
+        outerRing * 0.55 +
+        innerRing * 0.30 +
+        halo +
+        tickGlow * 0.6;
+    a *= v_alpha;
     if (a <= 0.001) discard;
-    outColor = vec4(v_color, a);
+
+    // Halo runs slightly cooler-bright; ring stays at category color.
+    vec3 col = v_color * (1.0 + breath * v_alpha * 0.15);
+    outColor = vec4(col, a);
 }
 `;
 
@@ -663,11 +730,6 @@ export class FieldRenderer {
 	// recompute positions every snapshot without going back through field.members.
 	private readonly memberIndex = new Int32Array(MAX_PARTICLES);
 	private readonly memberCount = new Int32Array(MAX_PARTICLES);
-	// communityId mirrors the COMMUNITY property word the substrate writes per
-	// Value. Non-zero means the Value belongs to a community even if it isn't
-	// (yet) listed in any FieldSnapshot.members — without this the orphan
-	// fallback layout would double-place such Values onto its grid.
-	private readonly communityId = new Int32Array(MAX_PARTICLES);
 	private readonly nextIdx = new Int32Array(MAX_PARTICLES);
 	// Reverse adjacency: prevIdx[i] = j s.t. nextIdx[j] === i, or -1.
 	// Maintained alongside nextIdx so backward chain walks are O(1) per step.
@@ -748,6 +810,7 @@ export class FieldRenderer {
 	private uAnchorCamera!: WebGLUniformLocation;
 	private uAnchorViewport!: WebGLUniformLocation;
 	private uAnchorZoom!: WebGLUniformLocation;
+	private uAnchorTime!: WebGLUniformLocation;
 
 	private edgeProgram!: WebGLProgram;
 	private edgeVao!: WebGLVertexArrayObject;
@@ -1047,12 +1110,17 @@ export class FieldRenderer {
 		gl.enableVertexAttribArray(4);
 		gl.vertexAttribPointer(4, 1, gl.FLOAT, false, ANCHOR_STRIDE_B, 24);
 		gl.vertexAttribDivisor(4, 1);
+		// density (members → tick count + halo intensity)
+		gl.enableVertexAttribArray(5);
+		gl.vertexAttribPointer(5, 1, gl.FLOAT, false, ANCHOR_STRIDE_B, 28);
+		gl.vertexAttribDivisor(5, 1);
 
 		gl.bindVertexArray(null);
 		gl.useProgram(ap);
 		this.uAnchorCamera = mustGetUniform(gl, ap, "u_camera");
 		this.uAnchorViewport = mustGetUniform(gl, ap, "u_viewport");
 		this.uAnchorZoom = mustGetUniform(gl, ap, "u_zoom");
+		this.uAnchorTime = mustGetUniform(gl, ap, "u_time");
 
 		// Edge program ----------------------------------------------------
 		this.edgeProgram = linkProgram(gl, EDGE_VS, EDGE_FS);
@@ -1313,7 +1381,6 @@ export class FieldRenderer {
 		this.fieldId[i] = fieldId;
 		this.memberIndex[i] = memberIndex;
 		this.memberCount[i] = memberCount;
-		this.communityId[i] = m.communityId | 0;
 
 		const cat = categoryForMember(m);
 		const style = PROGRAM_CATEGORIES[cat];
@@ -1386,7 +1453,6 @@ export class FieldRenderer {
 		this.fieldId[idx] = -1;
 		this.memberIndex[idx] = 0;
 		this.memberCount[idx] = 0;
-		this.communityId[idx] = 0;
 		this.nextIdx[idx] = -1;
 		this.prevIdx[idx] = -1;
 		// Zero the whole row so it draws nothing if rendered out of range.
@@ -1454,13 +1520,28 @@ export class FieldRenderer {
 		// Recompute positions from the stored sunflower slot every resync so
 		// radii track anchor growth (and member-count changes) without going
 		// back through field.members.
+		//
+		// Anchor-less Values (communityId < 0) are laid out on a phyllotaxis
+		// spiral surrounding the anchor cluster. This keeps every Value the
+		// backend has emitted visible on screen; the moment a Value joins a
+		// community its fieldId flips >= 0 and it snaps into the anchor's
+		// sunflower placement below without any special-case transition.
+		const orphanRingInner = this.computeOrphanRingInner();
+		let orphanSeq = 0;
 		for (let idx = 0; idx < this.highWater; idx++) {
 			if (this.idByIndex[idx] === "") continue;
-			const fid = this.fieldId[idx];
-			if (fid < 0) continue;
-			const anchor = this.anchorById.get(fid);
-			if (!anchor) continue;
 			const off = idx * STRIDE_F;
+			const fid = this.fieldId[idx];
+			const anchor = fid >= 0 ? this.anchorById.get(fid) : undefined;
+			if (!anchor) {
+				this.instanceData[off + 2] = PARTICLE_BASE_SIZE;
+				const { x, y } = orphanSpiralPosition(orphanSeq, orphanRingInner);
+				orphanSeq++;
+				this.instanceData[off + 0] = x;
+				this.instanceData[off + 1] = y;
+				continue;
+			}
+			this.instanceData[off + 2] = PARTICLE_BASE_SIZE;
 			const { ox, oy } = fieldParticleOffset(
 				this.idByIndex[idx],
 				this.memberIndex[idx],
@@ -1470,78 +1551,21 @@ export class FieldRenderer {
 			this.instanceData[off + 0] = anchor.posX + ox;
 			this.instanceData[off + 1] = anchor.posY + oy;
 		}
-
-		// Orphans — values not bound to any anchor — get laid out along their
-		// prev/next chain order instead of random hash positions, so adjacent
-		// values in the linked list end up adjacent in space and edges become
-		// short local segments instead of full-canvas diagonals.
-		this.layoutOrphansAlongChains();
 	}
 
-	/*
-	Walk every chain head (prevIdx < 0) forward and place its values on a
-	serpentine grid: each row alternates direction so the end of one row sits
-	right above the start of the next. Disconnected singletons are appended
-	last on their own row. The grid is sized to roughly square the visible
-	footprint regardless of population.
-	*/
-	private layoutOrphansAlongChains(): void {
-		const SPACING = 32;
-		const orphans: number[] = [];
-
-		for (let idx = 0; idx < this.highWater; idx++) {
-			if (this.idByIndex[idx] === "") continue;
-			if (this.fieldId[idx] >= 0) continue;
-			// COMMUNITY != 0 means the substrate already placed this Value in a
-			// community; even if the snapshot routed it through orphanValues
-			// (e.g. anchor not yet materialised this tick) the grid would
-			// double-place it on top of the upcoming community ring.
-			if (this.communityId[idx] !== 0) continue;
-			orphans.push(idx);
+	private computeOrphanRingInner(): number {
+		// Smallest radius (from origin) that clears every anchor's outer edge,
+		// padded so orphans never overlap a community circle. Falls back to a
+		// fixed minimum when no anchors exist yet so the spiral has somewhere
+		// to start during the very first frames of a run.
+		let maxReach = 0;
+		for (let i = 0; i < this.anchorRecords.length; i++) {
+			const a = this.anchorRecords[i];
+			const reach = Math.hypot(a.posX, a.posY) + a.radius;
+			if (reach > maxReach) maxReach = reach;
 		}
-		if (orphans.length === 0) return;
-
-		const placed = new Uint8Array(this.highWater);
-		const order: number[] = [];
-
-		for (const idx of orphans) {
-			if (this.prevIdx[idx] >= 0) continue;
-			let cur = idx;
-			let guard = 0;
-			while (cur >= 0 && !placed[cur] && guard++ < this.highWater) {
-				placed[cur] = 1;
-				order.push(cur);
-				cur = this.nextIdx[cur];
-			}
-		}
-		// Catch cycles or any orphan we missed.
-		for (const idx of orphans) {
-			if (placed[idx]) continue;
-			let cur = idx;
-			let guard = 0;
-			while (cur >= 0 && !placed[cur] && guard++ < this.highWater) {
-				placed[cur] = 1;
-				order.push(cur);
-				cur = this.nextIdx[cur];
-			}
-		}
-
-		const cols = Math.max(8, Math.ceil(Math.sqrt(order.length)));
-		const halfW = ((cols - 1) * SPACING) / 2;
-		const rows = Math.ceil(order.length / cols);
-		const halfH = ((rows - 1) * SPACING) / 2;
-
-		for (let i = 0; i < order.length; i++) {
-			const idx = order[i];
-			const row = Math.floor(i / cols);
-			const colInRow = i % cols;
-			// Serpentine: even rows left→right, odd rows right→left, so the
-			// chain step from end-of-row to start-of-next-row is one cell down.
-			const col = row % 2 === 0 ? colInRow : cols - 1 - colInRow;
-			const off = idx * STRIDE_F;
-			this.instanceData[off + 0] = col * SPACING - halfW;
-			this.instanceData[off + 1] = row * SPACING - halfH;
-		}
+		const minRing = MIN_FIELD_DISTANCE * 1.25;
+		return Math.max(minRing, maxReach + PARTICLE_BASE_SIZE * 6);
 	}
 
 	private uploadAnchors(): void {
@@ -1555,7 +1579,9 @@ export class FieldRenderer {
 			this.anchorInstanceData[off + 4] = a.color[1] / 255;
 			this.anchorInstanceData[off + 5] = a.color[2] / 255;
 			this.anchorInstanceData[off + 6] = a.resonanceLevel;
-			this.anchorInstanceData[off + 7] = 0;
+			// Saturate around 24 members so very large communities stop growing
+			// ticks and just stay at "dense"; small ones keep finer resolution.
+			this.anchorInstanceData[off + 7] = Math.min(1, a.memberCount / 24);
 		}
 		const gl = this.gl;
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.anchorInstanceVbo);
@@ -1705,6 +1731,7 @@ export class FieldRenderer {
 			gl.uniform2f(this.uAnchorCamera, this.camX, this.camY);
 			gl.uniform2f(this.uAnchorViewport, this.cssWidth, this.cssHeight);
 			gl.uniform1f(this.uAnchorZoom, this.zoom);
+			gl.uniform1f(this.uAnchorTime, nowMs);
 			gl.bindVertexArray(this.anchorVao);
 			gl.drawArraysInstanced(
 				gl.TRIANGLES,

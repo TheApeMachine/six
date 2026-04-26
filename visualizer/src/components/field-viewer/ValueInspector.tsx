@@ -232,7 +232,7 @@ function hexOrDash(value: string | null): string {
 /*
 WordHexRows prints one row per word index using the same read path as the kernel
 (LE uint64 hex). Matches REGION_SPECS in valueRegions.ts — there is no separate
-“reserved” band; words 56–119 are the ASSET region.
+“reserved” band; words 56–71 are PROPERTIES and words 72–119 are ASSET.
 */
 function WordHexRows({
 	from,
@@ -444,8 +444,8 @@ export function ValueInspector({
 	const affinityHex = affinityFromFrame || snap.communityAffinityHex || null;
 
 	/*
-	Chain: committed ids live at w120/w121 after link; the orchestrator stages
-	the same logical ids at w56/w57 until then. Prefer committed words, else
+	Chain: committed ids live at w120/w121 after link; firmware stages
+	the same logical ids at asset[0]/asset[1] until then. Prefer committed words, else
 	staging, else last VisValue snapshot.
 	*/
 	const chain = chainPreview(regions, frame, frameOk);

@@ -110,6 +110,23 @@ func TestNewValue(t *testing.T) {
 		})
 	})
 
+	Convey("Given a binary payload with zero bytes", t, func() {
+		payload := []byte{0, 'A', 0, 255}
+
+		Convey("When NewValue mints it", func() {
+			values, err := NewValue(payload)
+
+			Convey("It should preserve every byte through String", func() {
+				So(err, ShouldBeNil)
+				So([]byte(values[0].String()), ShouldResemble, payload)
+			})
+
+			Reset(func() {
+				CloseAll(values)
+			})
+		})
+	})
+
 	Convey("Given an empty payload", t, func() {
 		Convey("When NewValue is called", func() {
 			values, err := NewValue(nil)

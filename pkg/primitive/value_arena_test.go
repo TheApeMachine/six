@@ -42,3 +42,29 @@ func TestHeapFallbackAllocations(t *testing.T) {
 		})
 	})
 }
+
+func TestFreeValue(t *testing.T) {
+	Convey("Given an arena Value is closed twice", t, func() {
+		value := AllocValue()
+		slot, ok := ArenaIndex(value)
+
+		So(ok, ShouldBeTrue)
+
+		So(value.Close(), ShouldBeNil)
+		So(value.Close(), ShouldBeNil)
+
+		Convey("It should publish the slot at most once", func() {
+			seen := 0
+
+			arenaMutex.Lock()
+			for _, freeSlot := range freeArenaIdx {
+				if freeSlot == slot {
+					seen++
+				}
+			}
+			arenaMutex.Unlock()
+
+			So(seen, ShouldEqual, 1)
+		})
+	})
+}

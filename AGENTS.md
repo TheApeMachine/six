@@ -8,6 +8,8 @@ This is not a very typical project, and more often than not it requires less typ
 
 If you come in to this project thinking that you need to fix mistakes, you must explicitely check again to make absolutely sure you are not just looking at things through a default lens that may not give you the correct picture.
 
+This project has a different way of running code, which is through in-value programs, with in-band execution. This means you must at all times minimize the amount of Go code that is written, so we keep the in-Value/in-band story as true and pure as possible.
+
 ## Core Philosophy
 
 **Performance is not negotiable**

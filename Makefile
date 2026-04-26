@@ -1,13 +1,5 @@
 .PHONY: build run test bench coverage metal cuda bridge paper pprof pprof-mem dump capnp figure-deps
 
-# The pool package (pkg/pool/lib_runtime_linkage.go) uses go:linkname to
-# reach runtime scheduling symbols (e.g. runtime.dropg, runtime.casgstatus).
-# Starting with Go 1.26, plain `go test` / `go build` fails at link time with:
-#   link: .../pkg/pool: invalid reference to runtime.dropg
-#   link: .../pkg/pool: invalid reference to runtime.casgstatus
-# Pass -checklinkname=0 so the linker allows those references (see `go help build`).
-LDFLAGS := -ldflags='-checklinkname=0'
-
 DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.s'
 # Source extensions plus only visualizer/static/index.html (no other HTML).
 # Drop any .md (README.md is injected separately so it is first and only markdown).
@@ -39,46 +31,45 @@ build:
 	go generate ./pkg/primitive/...
 
 	cd pkg/compute/kernel/metal \
-		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -I. -c backend.metal -o backend.air \
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -fmodules-cache-path=/tmp/six-metal-module-cache -I. -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 
-	cd pkg/compute/kernel/cuda \
-		&& go generate
+	@if command -v nvcc >/dev/null 2>&1; then \
+		go generate -tags cuda ./pkg/compute/kernel/cuda; \
+	else \
+		echo "Skipping CUDA generation: nvcc not found (run make cuda on a CUDA host)"; \
+	fi
 
-	go build $(LDFLAGS) -o six .
+	go build -o six .
 
 run: build
 	./six
 
-# Always use this target (or the same $(LDFLAGS)) for tests that transitively
-# import pkg/pool — e.g. pkg/compute. Raw `go test ./...` will not apply LDFLAGS.
-#
 # experiment/task/pipeline_test.go is behind //go:build exp_pipeline so the
 # long-running TestPipeline suite does not run here (see make paper / pprof).
 test:
-	go test $(LDFLAGS) ./...
+	go test ./...
 
-# Benchmarks only (-run='^$' matches no tests). Same $(LDFLAGS) as test for pkg/pool.
+# Benchmarks only (-run='^$' matches no tests).
 bench:
-	go test $(LDFLAGS) '-run=^$$' -bench=. -benchmem ./...
+	go test '-run=^$$' -bench=. -benchmem ./...
 
 coverage:
-	go test $(LDFLAGS) -coverprofile=coverage.out ./...
+	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out
 
 metal:
 	go generate ./pkg/primitive/...
 	cd pkg/compute/kernel/metal \
-		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -I. -c backend.metal -o backend.air \
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -fmodules-cache-path=/tmp/six-metal-module-cache -I. -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 
 cuda:
 	go generate ./pkg/primitive/...
-	cd pkg/compute/kernel/cuda \
-		&& go generate
+	go generate -tags cuda ./pkg/compute/kernel/cuda
 
 bridge:
-	go run ${LDFLAGS} main.go bridge
+	go run main.go bridge
 
 # Install the Python dependencies the figure renderer needs (matplotlib + numpy).
 # The pipeline shells out to `python3 scripts/figures/render.py` to produce
@@ -97,8 +88,8 @@ figure-deps:
 # Figure rendering is delegated to matplotlib via scripts/figures/render.py;
 # run `make figure-deps` once before `make paper` to install matplotlib + numpy.
 paper:
-	go test $(LDFLAGS) -tags=exp_pipeline -v ./experiment/task/
-	go run $(LDFLAGS) main.go paper
+	go test -tags=exp_pipeline -v ./experiment/task/
+	go run main.go paper
 	cd paper && pdflatex -interaction=nonstopmode main.tex
 	cd paper && pdflatex -interaction=nonstopmode main.tex
 
@@ -106,10 +97,10 @@ paper:
 # Usage: make pprof EXP=Text_Classification
 EXP ?= Languages
 pprof:
-	go test $(LDFLAGS) -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
+	go test -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
 	go tool pprof -http=:6060 paper/profiles/$(shell echo $(EXP) | tr '[:upper:]' '[:lower:]' | tr ' ' '_')_cpu.pprof
 
 # Same for the heap snapshot.
 pprof-mem:
-	go test $(LDFLAGS) -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
+	go test -tags=exp_pipeline -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
 	go tool pprof -http=:6060 paper/profiles/$(shell echo $(EXP) | tr '[:upper:]' '[:lower:]' | tr ' ' '_')_mem.pprof

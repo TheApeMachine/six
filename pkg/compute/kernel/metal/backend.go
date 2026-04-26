@@ -29,11 +29,61 @@ import (
 var backendMetallib []byte
 
 var metalReady atomic.Bool
+var metalRuntimeInit sync.Once
+var metalRuntimeErr error
 
 var metalArenaInit sync.Once
 var metalArenaErr error
 
+func ensureMetalRuntime() error {
+	metalRuntimeInit.Do(func() {
+		tmpFile, err := os.CreateTemp("", "backend-*.metallib")
+
+		if err != nil {
+			metalRuntimeErr = err
+
+			return
+		}
+
+		name := tmpFile.Name()
+
+		defer func() {
+			_ = os.Remove(name)
+		}()
+
+		if _, err := tmpFile.Write(backendMetallib); err != nil {
+			tmpFile.Close()
+			metalRuntimeErr = err
+
+			return
+		}
+
+		if err := tmpFile.Close(); err != nil {
+			metalRuntimeErr = err
+
+			return
+		}
+
+		cPath := C.CString(name)
+		defer C.free(unsafe.Pointer(cPath))
+
+		if res := C.init_metal(cPath); res != 0 {
+			metalRuntimeErr = errors.New("metal: init_metal failed")
+
+			return
+		}
+
+		metalReady.Store(true)
+	})
+
+	return metalRuntimeErr
+}
+
 func ensureMetalArena() error {
+	if err := ensureMetalRuntime(); err != nil {
+		return err
+	}
+
 	metalArenaInit.Do(func() {
 		primitive.EnsureArenaPinnedForGPU()
 
@@ -94,7 +144,7 @@ Available returns the number of Metal-capable GPUs present on this system,
 or an error if the Metal runtime failed to initialize.
 */
 func Available() int {
-	if !metalReady.Load() {
+	if err := ensureMetalRuntime(); err != nil || !metalReady.Load() {
 		return 0
 	}
 
@@ -180,10 +230,10 @@ func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool
 
 	target := (*primitive.Value)(value)
 	frame := (*[128]uint64)(value)
-	prev := frame[16]
-	frame[16] = opcode
+	prev := frame[primitive.ProgramStartWord]
+	frame[primitive.ProgramStartWord] = opcode
 	defer func() {
-		frame[16] = prev
+		frame[primitive.ProgramStartWord] = prev
 	}()
 
 	idx, ok := primitive.ArenaIndex(target)
@@ -193,53 +243,6 @@ func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool
 
 	res := C.geometric_metal_indices((*C.uint32_t)(unsafe.Pointer(&idx)), 1)
 	return res == 0
-}
-
-func init() {
-	tmpFile, err := os.CreateTemp("", "backend-*.metallib")
-
-	if err != nil {
-		reportInitError(err)
-
-		return
-	}
-
-	name := tmpFile.Name()
-
-	defer func() {
-		_ = os.Remove(name)
-	}()
-
-	if _, err := tmpFile.Write(backendMetallib); err != nil {
-		tmpFile.Close()
-		reportInitError(err)
-
-		return
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		reportInitError(err)
-
-		return
-	}
-
-	cPath := C.CString(name)
-	defer C.free(unsafe.Pointer(cPath))
-
-	if res := C.init_metal(cPath); res != 0 {
-		reportInitError(errors.New("metal: init_metal failed"))
-
-		return
-	}
-
-	metalReady.Store(true)
-}
-
-func reportInitError(err error) {
-	if err == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(os.Stderr, "metal backend init: %v\n", err)
 }
 
 func (backend *Backend) Name() string { return "metal" }

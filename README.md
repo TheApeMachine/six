@@ -73,11 +73,11 @@ The three finite fields form a phase hierarchy. Each layer aggregates the one be
 
 This is the actual end-to-end path the code implements today:
 
-1. **Byte stream arrives** — `vm.Machine.Load` feeds a `data.Provider` into a `transport.Pipeline`.
-2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
+1. **Byte stream arrives** — `vm.Machine.Load` consumes a `data.Provider`.
+2. **Tokenizer chunks** — `vm.Tokenizer` calls `primitive.NewValue` to mint one or more `Value` segments per sample. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
 3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
 4. **Firmware precompiled** — `core.NewConfig` lowers the `programs:` block through `pkg/compute/program`; Values install named firmware by copying packed instruction words into their own `program` region.
-5. **Published to Queue** — Values whose `properties.status` is `READY`, whose `program` region is non-empty, and whose `properties.continuation` is non-zero are eligible for backend execution. If a raw population has unassigned Values and no active resident, `vm.Machine.Cycle` emits a single `recruit_community` Value seeded from an unassigned affinity so the firmware can stamp the first community in-band. *(Orchestrator routing is currently deprecated in favor of in-band CONTINUATION scheduling).*
+5. **Published to Queue** — Values whose `properties.status` is `READY`, whose `program` region is non-empty, and whose `properties.continuation` is non-zero are eligible for backend execution. If a raw population has unassigned Values and no active resident, `vm.Machine.Cycle` emits a single `recruit_community` Value seeded from an unassigned affinity so the firmware can stamp the first community in-band.
 6. **Backend executes** — `compute.Backend` marks the selected resident `BUSY`, dispatches its program to CPU, Metal, or CUDA, then finalizes it after the ALU tick. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. Otherwise the backend clears `program`, clears `continuation`, and stamps `DONE`, so firmware cannot linger accidentally.
 8. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
@@ -354,7 +354,7 @@ Only Values with both a non-empty `program` region and non-zero `continuation` a
 
 ### Community Recruitment
 
-Communities are formed by recruiter Values running `recruit_community`. The program materializes `B(affinity[0,5]) ^ A(affinity[0,5])` into each candidate's `signals[0,5]`, builds the recruiter/candidate union witness in `B(asset[40,5])`, and masks candidates that already carry a `community`. It stages the route-budget pass in `B(asset[45,1])`, the Shannon pass in `B(asset[46,1])`, intersects them into `B(asset[47,1])`, and stamps `B(community) = recruiter.id` only for accepted unassigned candidates. The Shannon limit is encoded as `popcnt(asset[40,5]) <= 120`, which is the 47% cap over the 257-bit affinity region.
+Communities are formed by recruiter Values running `recruit_community`. The program materializes `B(affinity[0,5]) ^ A(affinity[0,5])` into each candidate's `signals[0,5]`, builds the recruiter/candidate union witness in the first five words of the candidate asset scratch (`B(asset[0,5])`), and masks candidates that already carry a `community`. It stages the route-budget pass in `B(asset[5,1])`, the Shannon pass in `B(asset[6,1])`, intersects them into `B(asset[7,1])`, and stamps `B(community) = recruiter.id` only for accepted unassigned candidates. The Shannon gate is `{ { B(asset[0,5]) popcnt } 120 ? }`: candidates at 120 set bits or higher do not receive the pass marker.
 
 Accepted candidates are reset to `status = PENDING` in the same firmware pass, so stale lifecycle words do not survive recruitment. Accepted candidate affinities are folded back into the recruiter's own `affinity[0,5]`, so the recruiter carries the saturation witness; `confidence = popcnt(affinity[0,5])` keeps that witness visible after the one-shot program region is cleared.
 
@@ -411,7 +411,7 @@ Six does not compute answers from inputs. It holds a **believed resolution** and
 
 ### The attractor is the local eigenmode
 
-When a prompt Value lands on the Orchestrator, its affinity routes it into a community. That community already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
+When a prompt Value enters the Machine community, its affinity routes it toward the resident mode. That community already has a **dominant eigenmode** — the cluster of Values currently phase-aligned in `GF(257)`, `GF(8191)`, and `GF(65537)`. The eigenmode *is* what the field is already attending to at that coordinate, and it is adopted as the **attractor** for the incoming Value. No separate "goal" is constructed; the goal is whatever belief the field is already holding in the region where the prompt arrived.
 
 The gap between the prompt's affinity and the eigenmode is the drive. The explore program steps the prompt through Morton-space each pass, and every step closes a little more of that gap. Convergence does two things at once:
 
@@ -541,11 +541,12 @@ value:
   bytes: 1024
   region:
     tokens:     { start: 0,   bits: 1024 }
-    program:    { start: 16,  bits: 512 }
-    signals:    { start: 24,  bits: 512 }
-    context:    { start: 32,  bits: 512 }
-    gradient:   { start: 40,  bits: 512 }
-    properties: { start: 48,  bits: 512 }
+    program:    { start: 16,  bits: 1024 }
+    signals:    { start: 32,  bits: 512 }
+    context:    { start: 40,  bits: 512 }
+    gradient:   { start: 48,  bits: 512 }
+    properties: { start: 56,  bits: 1024 }
+    asset:      { start: 72,  bits: 3072 }
     prev:       { start: 120, bits: 64 }
     next:       { start: 121, bits: 64 }
     id:         { start: 122, bits: 64 }
@@ -581,9 +582,9 @@ Structured logs are shipped to Elasticsearch via a bulk indexer with configurabl
 # Full build (generates primitives, compiles Metal shader, generates CUDA bindings)
 make build
 
-# Run tests (linker flag required: pool uses go:linkname into runtime)
+# Run tests
 make test
-# or: go test -ldflags='-checklinkname=0' ./...
+# or: go test ./...
 
 # Generate experiment paper
 make paper
@@ -594,7 +595,7 @@ make paper
 make pprof EXP=Text_Classification
 ```
 
-**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the highly optimize SIMD CPU backend is always available.
+**Requirements**: Go 1.26+. Metal shader compilation requires macOS with Xcode. CUDA requires NVIDIA toolkit. Both are optional — the highly optimized SIMD CPU backend is always available.
 
 Paper figure generation shells out to a small `matplotlib` pipeline under
 `scripts/figures/`. Install its dependencies once per environment before the
@@ -623,13 +624,13 @@ defer machine.Close()
 
 /*
 Load a dataset — Values are minted, linked, programmed, and
-published to the queue and orchestrator automatically.
+published to the backend queue automatically.
 Datasets must follow the Provider interface.
 */
 machine.Load(dataset)
 
 /*
-Prompt — forwards to orchestrator.Cycle (see vm/machine.go). Returned
+Prompt — forwards to Machine.Cycle (see vm/machine.go). Returned
 Values are the field snapshot after that cycle; cancel the context to bound work.
 */
 segments, _ := primitive.NewValue([]byte("the cat sat on the"))
@@ -655,15 +656,10 @@ six/
 │   │       ├── cpu/         # SIMD-optimized bitwise executor + ARM64/AMD64 asm
 │   │       ├── cuda/        # NVIDIA GPU kernels
 │   │       └── metal/       # Apple Metal GPU shaders
-│   ├── core/                # Configuration, data structures
-│   │   └── numeric/
-│   │       └── geometry/    # GF(p) Field, PhaseDial, eigenmode, PGA, Procrustes
-│   ├── mesh/                # Community/global Field (Values + routing + metrics)
-│   ├── pool/                # Lock-free thread pool + tiered work queue
-│   ├── vm/                  # Machine, Orchestrator, Tokenizer
-│   ├── gossip/              # Gossip protocol types (Conn, Digest)
+│   ├── core/                # Configuration, validation, data structures, numeric helpers
+│   ├── pool/                # Bounded worker pools
+│   ├── vm/                  # Machine and Tokenizer
 │   ├── network/             # QUIC, UDP, IPC transports
-│   ├── transport/           # Pipeline, Stream framing
 │   ├── telemetry/           # Event bus, binary wire protocol, bridge transport
 │   └── errnie/              # Structured logging + Elasticsearch shipping
 ├── experiment/              # Experiment tasks, data loaders, paper generation

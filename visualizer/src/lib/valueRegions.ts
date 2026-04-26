@@ -312,7 +312,7 @@ function chainPreviewFromRegions(regions: DecodedValueRegions): ChainPreview {
 		prevCommitted: chainIdFromWord(regions.prev.words[0]),
 		nextCommitted: chainIdFromWord(regions.next.words[0]),
 		/*
-		The orchestrator stages predecessor/successor IDs into the first
+		The link firmware stages predecessor/successor IDs into the first
 		two Asset words before the link firmware copies them into Prev /
 		Next. We expose both so the inspector can show "staged but not
 		yet committed" — useful when chasing a chain that hasn't run the

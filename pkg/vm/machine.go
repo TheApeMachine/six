@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
@@ -16,7 +17,7 @@ import (
 )
 
 /*
-Machine is a central orchestrator that moves Values through a
+Machine is the central runtime that moves Values through a
 processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
@@ -29,7 +30,8 @@ type Machine struct {
 	backend   *compute.Backend
 	telemetry *telemetry.Bridge
 	community []*primitive.Value
-	ephemeral map[uint64]struct{}
+	ready     []*primitive.Value
+	resolved  []*primitive.Value
 }
 
 type machineOpts func(*Machine)
@@ -37,6 +39,11 @@ type machineOpts func(*Machine)
 func NewMachine(
 	ctx context.Context, opts ...machineOpts,
 ) (*Machine, error) {
+	if core.Cfg == nil || len(core.Cfg.Programs) == 0 {
+		_ = core.LoadDefaultConfig()
+		core.NewConfig()
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	bridge, err := telemetry.NewBridge(ctx, core.Cfg.TelemetryWebSocketURL)
@@ -58,12 +65,15 @@ func NewMachine(
 	}
 
 	if machine.host, machine.err = network.NewHost(ctx); machine.err != nil {
+		machine.Close()
+
 		return nil, errnie.Error(machine.err)
 	}
 
 	if machine.tokenizer, machine.err = NewTokenizer(
 		ctx,
 	); machine.err != nil {
+		machine.Close()
 		return nil, errnie.Error(machine.err)
 	}
 
@@ -82,7 +92,19 @@ Close the machine.
 func (machine *Machine) Close() error {
 	var errs []error
 
-	machine.cancel()
+	if machine == nil {
+		return nil
+	}
+
+	if machine.cancel != nil {
+		machine.cancel()
+	}
+
+	if len(machine.community) > 0 {
+		primitive.CloseAll(machine.community)
+		clear(machine.community)
+		machine.community = nil
+	}
 
 	if machine.telemetry != nil {
 		if err := machine.telemetry.Close(); err != nil {
@@ -115,6 +137,10 @@ func (machine *Machine) Close() error {
 Error implements the error interface.
 */
 func (machine *Machine) Error() string {
+	if machine == nil || machine.err == nil {
+		return ""
+	}
+
 	return machine.err.Error()
 }
 
@@ -133,205 +159,28 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 		return nil, nil
 	}
 
-	machine.ensureCommunityRecruiter()
-	machine.markEphemeral(machine.community)
-
-	if !machine.backend.Submit(machine.community) {
-		if err = machine.publishTelemetry(machine.community); err != nil {
-			return nil, err
+	if len(machine.ready) > 1 {
+		if err := machine.backend.Submit(machine.ready[0], machine.ready[1:]); err != nil {
+			return nil, errnie.Error(err)
 		}
-
-		machine.pruneExpiredEphemeral()
-
-		return machine.resolvedValues(), nil
 	}
 
-	spawned := machine.backend.Sync(machine.ctx)
-	if len(spawned) > 0 {
-		machine.community = append(machine.community, spawned...)
-		machine.markEphemeral(spawned)
-		if err = machine.publishTelemetry(machine.community); err != nil {
-			return nil, err
-		}
-
-		machine.pruneExpiredEphemeral()
-
-		return spawned, nil
-	}
-
-	if err = machine.publishTelemetry(machine.community); err != nil {
-		return nil, err
-	}
-
-	machine.pruneExpiredEphemeral()
-
-	return machine.resolvedValues(), nil
-}
-
-/*
-publishTelemetry writes full Value frames through the bridge after an observed
-tick. Bridge-level fingerprints suppress unchanged frames, so this call can be
-made once per cycle without recreating the old tight websocket loop.
-*/
-func (machine *Machine) publishTelemetry(values []*primitive.Value) error {
-	if machine.telemetry == nil || !core.Cfg.TelemetryEnabled {
-		return nil
-	}
-
-	var stackFrame [1024]byte
-	frame := stackFrame[:]
-	if core.Cfg.Value.Bytes > len(stackFrame) {
-		frame = make([]byte, core.Cfg.Value.Bytes)
-	}
-	if len(frame) != core.Cfg.Value.Bytes {
-		frame = stackFrame[:core.Cfg.Value.Bytes]
-	}
-
-	for _, value := range values {
-		if value == nil {
+	for spawned := range machine.backend.Sync(machine.ctx) {
+		if spawned == nil {
 			continue
 		}
 
-		n, readErr := value.Read(frame)
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return readErr
-		}
+		ringbuffer.New(1024).Copy(machine.telemetry, spawned)
 
-		if _, writeErr := machine.telemetry.Write(frame[:n]); writeErr != nil {
-			return writeErr
-		}
-	}
-
-	return nil
-}
-
-func (machine *Machine) ensureCommunityRecruiter() bool {
-	if machine == nil || len(machine.community) == 0 || core.Cfg == nil {
-		return false
-	}
-
-	if machine.hasReadyValue() {
-		return false
-	}
-
-	seed := machine.firstUnassignedCommunityValue()
-	if seed == nil {
-		return false
-	}
-
-	recruiter := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
-	if !recruiter.ReadyForALU() {
-		recruiter.Close()
-		return false
-	}
-
-	copy(recruiter.Get(primitive.AffinityRegion), seed.Get(primitive.AffinityRegion))
-	recruiter.NormalizeAffinity()
-	machine.community = append(machine.community, recruiter)
-
-	return true
-}
-
-func (machine *Machine) hasReadyValue() bool {
-	for _, value := range machine.community {
-		if value != nil && value.ReadyForALU() {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (machine *Machine) firstUnassignedCommunityValue() *primitive.Value {
-	for _, value := range machine.community {
-		if value == nil || value.HasProgram() {
+		if spawned.Status() != primitive.READY {
+			machine.ready = append(machine.ready, spawned)
 			continue
 		}
 
-		community, err := value.Property(primitive.COMMUNITY)
-		if err != nil || community != 0 {
-			continue
-		}
-
-		return value
+		machine.community = append(machine.community, spawned)
 	}
 
-	return nil
-}
-
-func (machine *Machine) unassignedCommunityValues() int {
-	count := 0
-
-	for _, value := range machine.community {
-		if value == nil || value.HasProgram() {
-			continue
-		}
-
-		community, err := value.Property(primitive.COMMUNITY)
-		if err != nil || community != 0 {
-			continue
-		}
-
-		count++
-	}
-
-	return count
-}
-
-func (machine *Machine) resolvedValues() []*primitive.Value {
-	resolved := make([]*primitive.Value, 0)
-
-	for _, value := range machine.community {
-		if value == nil {
-			continue
-		}
-
-		switch value.Status() {
-		case primitive.DONE, primitive.RESOLVED:
-			resolved = append(resolved, value)
-		}
-	}
-
-	return resolved
-}
-
-func (machine *Machine) markEphemeral(values []*primitive.Value) {
-	for _, value := range values {
-		if value == nil || value.TTL() == 0 {
-			continue
-		}
-
-		if machine.ephemeral == nil {
-			machine.ephemeral = make(map[uint64]struct{})
-		}
-
-		machine.ephemeral[value.ID()] = struct{}{}
-	}
-}
-
-func (machine *Machine) pruneExpiredEphemeral() {
-	if len(machine.ephemeral) == 0 || len(machine.community) == 0 {
-		return
-	}
-
-	kept := machine.community[:0]
-	for _, value := range machine.community {
-		if value == nil {
-			continue
-		}
-
-		id := value.ID()
-		if _, ok := machine.ephemeral[id]; ok && value.TTL() == 0 {
-			delete(machine.ephemeral, id)
-			value.Close()
-			continue
-		}
-
-		kept = append(kept, value)
-	}
-
-	clear(machine.community[len(kept):])
-	machine.community = kept
+	return machine.resolved, nil
 }
 
 /*
@@ -349,6 +198,12 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	var segments []*primitive.Value
 
+	// Spark the community forming by emitting a recruiter Value.
+	machine.ready = append(machine.ready, primitive.Emit(
+		primitive.WithFirmware(core.RECRUIT_COMMUNITY),
+		primitive.WithStatus(uint64(primitive.READY)),
+	))
+
 	for sample := range dataset.Generate() {
 		if segments, err = machine.tokenizer.IngestSample(
 			machine.ctx, sample,
@@ -357,22 +212,33 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 
 		machine.community = append(machine.community, segments...)
-	}
+		machine.ready = append(machine.ready, segments...)
 
-	for {
-		before := machine.unassignedCommunityValues()
-		if before == 0 {
-			return nil
+		for _, value := range machine.ready {
+			value.SetStatus(primitive.READY)
+			ringbuffer.New(1024).Copy(machine.telemetry, value)
 		}
 
 		if _, err := machine.Cycle(); err != nil {
 			return errors.Join(machine.err, errnie.Error(err))
 		}
 
-		if machine.unassignedCommunityValues() >= before {
-			return nil
+		readers := make([]io.Reader, len(machine.community))
+
+		for i, value := range machine.community {
+			readers[i] = value
 		}
+
+		ringbuffer.New(1024).Copy(
+			machine.telemetry, io.MultiReader(readers...),
+		)
 	}
+
+	if _, err := machine.Cycle(); err != nil {
+		return errors.Join(machine.err, errnie.Error(err))
+	}
+
+	return nil
 }
 
 /*

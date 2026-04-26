@@ -36,7 +36,7 @@ export interface TelemetryPayloadSnapshot {
 CausalState collapses the rule-cascade residues a single Value carries
 into three orthogonal booleans the visualiser can highlight
 independently. All three are derived directly from the wire frame so
-no side channel is needed; see pkg/mesh/value-store.ts:readCausalState
+no side channel is needed; see visualizer/src/lib/value-store.ts:readCausalState
 for exact word/bit mapping.
 
  - hypothesizing: the Value has staged a refutation target in

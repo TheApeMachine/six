@@ -2,7 +2,10 @@ package compute
 
 import (
 	"context"
+	"errors"
+	"iter"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,16 +32,28 @@ Backend is a small load balancer over compute substrates (CUDA, Metal, CPU).
 It picks the lowest-pressure candidate using inflight × EMA service time.
 */
 type Backend struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	err        error
-	queues     map[QueueType]*Queue
-	pool       *pool.Pool
-	substrates []kernel.Substrate
-	popped     atomic.Int64
-	nextSub    atomic.Uint64
-	pending    atomic.Int64
-	completed  chan []*primitive.Value
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	queues       map[QueueType]*Queue
+	pool         *pool.Pool
+	substrates   []*substrateState
+	cpuSubstrate *substrateState
+	popped       atomic.Int64
+	nextSub      atomic.Uint64
+	pending      atomic.Int64
+	cache        sync.Map
+}
+
+/*
+substrateState carries the live scheduling pressure for one substrate.
+Service time is a nanosecond EMA so selection does not blindly round-robin a
+tiny CPU job onto a cold accelerator with worse transfer/setup cost.
+*/
+type substrateState struct {
+	kernel.Substrate
+	inflight     atomic.Int64
+	serviceNanos atomic.Int64
 }
 
 /*
@@ -53,21 +68,38 @@ func NewBackend(ctx context.Context) *Backend {
 		err:        nil,
 		queues:     make(map[QueueType]*Queue),
 		pool:       pool.NewPool(uint64(runtime.NumCPU())),
-		substrates: make([]kernel.Substrate, 0),
-		completed:  make(chan []*primitive.Value, runtime.NumCPU()*4),
+		substrates: make([]*substrateState, 0),
+		cache:      sync.Map{},
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
-		backend.substrates = append(backend.substrates, cuda.NewBackend(device))
+		backend.addSubstrate(cuda.NewBackend(device))
 	}
 
 	for device := 0; device < metal.Available(); device++ {
-		backend.substrates = append(backend.substrates, metal.NewBackend(device))
+		backend.addSubstrate(metal.NewBackend(device))
 	}
 
-	backend.substrates = append(backend.substrates, cpu.NewBackend(ctx))
-	backend.queues[QueueTypeNormal], _ = NewQueue(ctx)
-	backend.queues[QueueTypePriority], _ = NewQueue(ctx)
+	backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
+
+	normalQueue, err := NewQueue(ctx)
+
+	if err != nil {
+		errnie.Error(err)
+		return nil
+	}
+
+	backend.queues[QueueTypeNormal] = normalQueue
+
+	priorityQueue, err := NewQueue(ctx)
+
+	if err != nil {
+		errnie.Error(err)
+		return nil
+	}
+
+	backend.queues[QueueTypePriority] = priorityQueue
+
 	go backend.dispatch(backend.queues[QueueTypePriority])
 	go backend.dispatch(backend.queues[QueueTypeNormal])
 
@@ -84,49 +116,31 @@ func (backend *Backend) Schedule(job func()) {
 /*
 Submit schedules in-value execution over a community.
 */
-func (backend *Backend) Submit(community []*primitive.Value) bool {
+func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Value) (err error) {
 	if backend == nil || len(community) == 0 {
-		return false
+		return errors.New("backend is nil or community is empty")
 	}
 
-	if scheduledProgramOwner(community) < 0 {
-		return false
+	if owner == nil {
+		return errors.New("owner is nil")
 	}
 
-	queue := backend.queues[QueueTypeNormal]
-	if queue == nil {
-		return false
+	if owner.Status() != primitive.READY {
+		return errors.New("owner is not ready")
 	}
+
+	owner.SetStatus(primitive.WAITING)
 
 	backend.pending.Add(1)
-	if queue.Schedule(backend.ctx, func() {
+
+	if err = backend.queues[QueueTypeNormal].Schedule(backend.ctx, func() {
 		defer backend.pending.Add(-1)
-		backend.runHypercubeGossip(community)
-	}) {
-		return true
+		backend.runHypercubeGossip(owner, community)
+	}); err != nil {
+		return err
 	}
 
-	backend.pending.Add(-1)
-	return false
-}
-
-/*
-DrainSpawned returns all emitted Values completed by queued workloads.
-*/
-func (backend *Backend) DrainSpawned() []*primitive.Value {
-	if backend == nil {
-		return nil
-	}
-
-	var spawned []*primitive.Value
-	for {
-		select {
-		case values := <-backend.completed:
-			spawned = append(spawned, values...)
-		default:
-			return spawned
-		}
-	}
+	return nil
 }
 
 /*
@@ -134,25 +148,30 @@ Sync waits for queued compute work to quiesce and then drains emitted Values.
 The normal cycle path still submits asynchronously; prompt/readout callers use
 this when they need an observed tick before deciding whether anything resolved.
 */
-func (backend *Backend) Sync(ctx context.Context) []*primitive.Value {
+func (backend *Backend) Sync(ctx context.Context) iter.Seq[*primitive.Value] {
 	if backend == nil {
 		return nil
 	}
 
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-
-	for backend.pending.Load() > 0 {
-		select {
-		case <-ctx.Done():
-			return backend.DrainSpawned()
-		case <-backend.ctx.Done():
-			return backend.DrainSpawned()
-		case <-ticker.C:
+	return func(yield func(*primitive.Value) bool) {
+		for backend.pending.Load() > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				runtime.Gosched()
+			}
 		}
-	}
 
-	return backend.DrainSpawned()
+		backend.cache.Range(func(key any, value any) bool {
+			if value.(*primitive.Value).Status() != primitive.DONE {
+				yield(value.(*primitive.Value))
+				backend.cache.Delete(key)
+			}
+
+			return true
+		})
+	}
 }
 
 func (backend *Backend) dispatch(queue *Queue) {
@@ -167,92 +186,174 @@ func (backend *Backend) dispatch(queue *Queue) {
 	}
 }
 
-func (backend *Backend) runHypercubeGossip(community []*primitive.Value) {
-	substrate := backend.nextSubstrate()
-	if substrate == nil {
+func (backend *Backend) runHypercubeGossip(owner *primitive.Value, community []*primitive.Value) {
+	substrateState := backend.nextSubstrate()
+	if substrateState == nil {
 		return
 	}
 
-	ownerIdx := scheduledProgramOwner(community)
-	if ownerIdx < 0 {
-		return
-	}
+	before := snapshotProgram(owner)
 
-	owner := community[ownerIdx]
-	programBefore := snapshotProgram(owner)
-	ttlBefore := owner.TTL()
 	owner.SetStatus(primitive.BUSY)
 
-	spawned, err := substrate.HypercubeGossip(owner, community)
-	finalizeProgramOwner(owner, programBefore, ttlBefore)
+	kernelValues := make([]*primitive.Value, 0, 1+len(community))
+	kernelValues = append(kernelValues, owner)
+
+	for _, value := range community {
+		if value == nil {
+			continue
+		}
+
+		if value == owner {
+			continue
+		}
+
+		kernelValues = append(kernelValues, value)
+	}
+
+	spawned, err := backend.executeSubstrate(substrateState, owner, kernelValues)
+
+	if err != nil && backend.cpuSubstrate != nil && substrateState != backend.cpuSubstrate {
+		errnie.Error(err)
+		primitive.CloseAll(spawned)
+		spawned, err = backend.executeSubstrate(backend.cpuSubstrate, owner, kernelValues)
+	}
+
 	if err != nil {
 		errnie.Error(err)
-
-		return
-	}
-	if len(spawned) == 0 {
-		return
-	}
-
-	select {
-	case backend.completed <- spawned:
-	case <-backend.ctx.Done():
 		primitive.CloseAll(spawned)
+		owner.SetStatus(primitive.ERROR)
+		return
+	}
+
+	backend.finalizeOwner(owner, before)
+
+	backend.cache.Range(func(key any, value any) bool {
+		value.(*primitive.Value).SetStatus(primitive.DONE)
+		return true
+	})
+
+	for _, value := range spawned {
+		backend.cache.Store(value.ID(), value)
 	}
 }
 
-func (backend *Backend) nextSubstrate() kernel.Substrate {
+func (backend *Backend) finalizeOwner(owner *primitive.Value, before [primitive.ProgramWords]uint64) {
+	if owner == nil {
+		return
+	}
+
+	if ttl := owner.TTL(); ttl > 0 && ttl != ^uint64(0) {
+		if ttl == 1 {
+			owner.SetProperty(primitive.TTL, ttlExpiredSentinel)
+			owner.SetSchedulingNext(0)
+		} else {
+			owner.SetProperty(primitive.TTL, ttl-1)
+		}
+	}
+
+	if programChanged(owner, before) && owner.Status() == primitive.READY && owner.SchedulingNext() != 0 {
+		return
+	}
+
+	owner.ClearProgram()
+	owner.SetSchedulingNext(0)
+	owner.SetStatus(primitive.DONE)
+}
+
+func (backend *Backend) addSubstrate(substrate kernel.Substrate) *substrateState {
+	if substrate == nil {
+		return nil
+	}
+
+	state := &substrateState{Substrate: substrate}
+	backend.substrates = append(backend.substrates, state)
+
+	return state
+}
+
+func (backend *Backend) executeSubstrate(
+	state *substrateState,
+	owner *primitive.Value,
+	community []*primitive.Value,
+) ([]*primitive.Value, error) {
+	if state == nil {
+		return nil, nil
+	}
+
+	state.inflight.Add(1)
+	start := time.Now()
+
+	spawned, err := state.HypercubeGossip(owner, community)
+
+	state.inflight.Add(-1)
+	state.observe(time.Since(start))
+
+	return spawned, err
+}
+
+func (state *substrateState) observe(elapsed time.Duration) {
+	if state == nil {
+		return
+	}
+
+	nanos := elapsed.Nanoseconds()
+	if nanos < 1 {
+		nanos = 1
+	}
+
+	for {
+		previous := state.serviceNanos.Load()
+		next := nanos
+		if previous > 0 {
+			next = ((previous * 7) + nanos) / 8
+		}
+
+		if state.serviceNanos.CompareAndSwap(previous, next) {
+			return
+		}
+	}
+}
+
+func (backend *Backend) nextSubstrate() *substrateState {
 	if backend == nil || len(backend.substrates) == 0 {
 		return nil
 	}
 
-	idx := backend.nextSub.Add(1) - 1
-	return backend.substrates[int(idx%uint64(len(backend.substrates)))]
-}
+	start := backend.nextSub.Add(1) - 1
+	var best *substrateState
+	bestScore := ^uint64(0)
 
-func scheduledProgramOwner(values []*primitive.Value) int {
-	for idx, value := range values {
-		if value != nil && value.ReadyForALU() {
-			return idx
+	for offset := range backend.substrates {
+		idx := int((start + uint64(offset)) % uint64(len(backend.substrates)))
+		candidate := backend.substrates[idx]
+		score := candidate.pressure()
+
+		if score < bestScore {
+			best = candidate
+			bestScore = score
 		}
 	}
 
-	return -1
+	return best
 }
 
-func finalizeProgramOwner(value *primitive.Value, programBefore [primitive.ProgramWords]uint64, ttlBefore uint64) {
-	if value == nil {
-		return
+func (state *substrateState) pressure() uint64 {
+	if state == nil {
+		return ^uint64(0)
 	}
 
-	ttlExpired := ttlExpiredAfterTick(value, ttlBefore)
-
-	if !ttlExpired && value.Status() == primitive.READY && programChanged(value, programBefore) && value.SchedulingNext() != 0 {
-		return
+	inflight := state.inflight.Load()
+	if inflight < 0 {
+		inflight = 0
 	}
 
-	value.ClearProgram()
-	value.SetSchedulingNext(0)
-	value.SetStatus(primitive.DONE)
-}
-
-func ttlExpiredAfterTick(value *primitive.Value, before uint64) bool {
-	ttl := value.TTL()
-	if ttl == ^uint64(0) {
-		return false
-	}
-	if ttl&ttlExpiredSentinel != 0 {
-		value.SetProperty(primitive.TTL, 0)
-		return true
-	}
-	if ttl != before {
-		return ttl == 0 && before != 0 && before != ^uint64(0)
-	}
-	if ttl == 0 {
-		return false
+	service := state.serviceNanos.Load()
+	if service < 1 {
+		service = 1
 	}
 
-	return value.DecTTL() == 0
+	return uint64(inflight+1) * uint64(service)
 }
 
 func snapshotProgram(value *primitive.Value) [primitive.ProgramWords]uint64 {
@@ -291,7 +392,24 @@ Close closes the Backend and all its substrates.
 */
 func (backend *Backend) Close() error {
 	errnie.Trace("compute.Backend.Close")
-	backend.cancel()
+	if backend == nil {
+		return nil
+	}
+
+	if backend.cancel != nil {
+		backend.cancel()
+	}
+
+	for _, queue := range backend.queues {
+		if queue != nil {
+			_ = queue.Close()
+		}
+	}
+
+	if backend.pool != nil {
+		_ = backend.pool.Close()
+	}
+
 	for _, sub := range backend.substrates {
 		if err := sub.Close(); err != nil {
 			errnie.Error(err)
@@ -304,5 +422,9 @@ func (backend *Backend) Close() error {
 Error implements the error interface.
 */
 func (backend *Backend) Error() string {
+	if backend == nil || backend.err == nil {
+		return ""
+	}
+
 	return backend.err.Error()
 }

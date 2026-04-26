@@ -82,6 +82,12 @@ NewRing allocates a ring. Capacity must be >= 2 and a power of two.
 func NewRing(ctx context.Context, capacity int) (*Ring, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	if capacity < 2 || capacity&(capacity-1) != 0 {
+		cancel()
+
+		return nil, errors.New("data.Ring: capacity must be >= 2 and a power of two")
+	}
+
 	ring := &Ring{
 		ctx:    ctx,
 		cancel: cancel,

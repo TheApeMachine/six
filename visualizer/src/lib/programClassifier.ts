@@ -38,6 +38,7 @@ export type ProgramCategory =
 	| "intervene" // Pearl L2 do-operation
 	| "gap_probe" // surprisal / causal_explore / causal_hub / falsification
 	| "resident" // measure_field — field-level resident
+	| "recruiter" // recruit_community — broadcast invite to join a community
 	| "util" // popcount, coupling, temperature
 	| "unknown";
 
@@ -52,7 +53,8 @@ export type Shape =
 	| "ring"
 	| "concentric"
 	| "bar"
-	| "circle";
+	| "circle"
+	| "plus";
 
 export interface ProgramCategoryStyle {
 	category: ProgramCategory;
@@ -154,6 +156,21 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			shape: "ring",
 			description: "resident selector / carrier / field program",
 		},
+		/*
+		recruiter is the community-recruitment broadcast: a Value carrying
+		recruit_community fans an invitation out to nearby orphans so they
+		fold into a forming community. It gets its own glyph because
+		recruitment is the visible bridge between the orphan ring and the
+		anchor cluster — operators need to spot it instantly when watching
+		community formation, separate from the other resident programs.
+		*/
+		recruiter: {
+			category: "recruiter",
+			label: "recruiter",
+			color: [80, 255, 200],
+			shape: "plus",
+			description: "recruit_community — invite orphans into a community",
+		},
 		util: {
 			category: "util",
 			label: "util",
@@ -196,7 +213,7 @@ const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	hypothesis: "gap_probe",
 	program_select: "resident",
 	program_carrier: "resident",
-	recruit_community: "resident",
+	recruit_community: "recruiter",
 	measure_field: "resident",
 	popcount: "util",
 	coupling: "util",
@@ -317,6 +334,7 @@ export const ROLE_BY_CATEGORY: Record<
 	intervene: "action",
 	gap_probe: "action",
 	resident: "action",
+	recruiter: "action",
 	util: "data",
 	unknown: "data",
 };

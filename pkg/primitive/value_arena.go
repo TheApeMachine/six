@@ -58,6 +58,7 @@ var (
 	valueArenaOnce sync.Once
 	arenaMutex     sync.Mutex
 	freeArenaIdx   []uint32
+	arenaInUse     []atomic.Uint32
 
 	// arenaLinearNext is the next slot index for lock-free linear allocation
 	// when the free list is empty. It is shared with GPU atomics when the
@@ -74,6 +75,7 @@ func ensureArena() {
 	valueArenaOnce.Do(func() {
 		valueArena = make([]Value, ArenaSlotCount)
 		freeArenaIdx = make([]uint32, 0, 1024)
+		arenaInUse = make([]atomic.Uint32, ArenaSlotCount)
 	})
 }
 
@@ -136,7 +138,12 @@ func ArenaIndex(value *Value) (uint32, bool) {
 		return 0, false
 	}
 
-	return uint32((ptr - base) / step), true
+	offset := ptr - base
+	if offset%step != 0 {
+		return 0, false
+	}
+
+	return uint32(offset / step), true
 }
 
 /*
@@ -186,20 +193,29 @@ otherwise allocates a fresh heap Value (same shape as legacy sync.Pool).
 func AllocValue() *Value {
 	ensureArena()
 
-	arenaMutex.Lock()
+	for {
+		arenaMutex.Lock()
 
-	if freeListLen := len(freeArenaIdx); freeListLen > 0 {
+		freeListLen := len(freeArenaIdx)
+		if freeListLen == 0 {
+			arenaMutex.Unlock()
+
+			break
+		}
+
 		slot := freeArenaIdx[freeListLen-1]
 		freeArenaIdx = freeArenaIdx[:freeListLen-1]
 		arenaMutex.Unlock()
+
+		if int(slot) >= len(valueArena) || !arenaInUse[slot].CompareAndSwap(0, 1) {
+			continue
+		}
 
 		value := &valueArena[slot]
 		*value = Value{}
 
 		return value
 	}
-
-	arenaMutex.Unlock()
 
 	for {
 		slot := atomic.LoadUint32(&arenaLinearNext)
@@ -208,6 +224,8 @@ func AllocValue() *Value {
 		}
 
 		if atomic.CompareAndSwapUint32(&arenaLinearNext, slot, slot+1) {
+			arenaInUse[slot].Store(1)
+
 			value := &valueArena[slot]
 			*value = Value{}
 
@@ -238,11 +256,10 @@ func FreeValue(value *Value) {
 		return
 	}
 
-	*value = Value{}
-
 	ensureArena()
 
 	if len(valueArena) == 0 {
+		*value = Value{}
 		heapValuePool.Put(value)
 
 		return
@@ -253,12 +270,24 @@ func FreeValue(value *Value) {
 	end := base + uintptr(len(valueArena))*unsafe.Sizeof(Value{})
 
 	if ptr < base || ptr >= end {
+		*value = Value{}
 		heapValuePool.Put(value)
 
 		return
 	}
 
-	slot := uint32((ptr - base) / unsafe.Sizeof(Value{}))
+	offset := ptr - base
+	step := unsafe.Sizeof(Value{})
+	if offset%step != 0 {
+		return
+	}
+
+	slot := uint32(offset / step)
+	if int(slot) >= len(arenaInUse) || !arenaInUse[slot].CompareAndSwap(1, 0) {
+		return
+	}
+
+	*value = Value{}
 
 	arenaMutex.Lock()
 	freeArenaIdx = append(freeArenaIdx, slot)

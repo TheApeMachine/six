@@ -27,9 +27,14 @@ func Emit(options ...EmitOptions) *Value {
 
 func WithLabels(labels ...uint64) EmitOptions {
 	return func(value *Value) {
-		base := core.Cfg.Value.Region.Properties.Start + int(LABELS)
-		for i, label := range labels {
-			value.Set(base+i, label)
+		for _, label := range labels {
+			if label == 0 {
+				continue
+			}
+
+			value.SetProperty(LABELS, label)
+
+			return
 		}
 	}
 }

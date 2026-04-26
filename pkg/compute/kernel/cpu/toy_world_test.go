@@ -49,7 +49,7 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 	frame := (*[128]uint64)(unsafe.Pointer(v1))
 
 	// Copy program into frame
-	copy(frame[16:32], comp.Words)
+	copy(frame[primitive.ProgramStartWord:primitive.ProgramStartWord+primitive.ProgramWords], comp.Words)
 
 	// Set initial state
 	frame[59] = 1       // TTL = 1
@@ -106,7 +106,7 @@ func TestToyWorld_SpawnedLineage(t *testing.T) {
 	v1.StampID()
 	frame := (*[128]uint64)(unsafe.Pointer(v1))
 
-	copy(frame[16:32], comp.Words)
+	copy(frame[primitive.ProgramStartWord:primitive.ProgramStartWord+primitive.ProgramWords], comp.Words)
 	frame[40] = 1
 	frame[32] = 0  // falsified
 	frame[59] = 10 // TTL

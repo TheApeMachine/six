@@ -135,12 +135,7 @@ func initConfig() {
 		}
 	}
 
-	/*
-		core.init runs NewConfig while viper is still empty, so Value.Bytes and the
-		rest of Cfg are zero until we rebuild from the loaded file. Without this,
-		the tokenizer and vm.Machine IO loop see value.bytes==0 and return
-		io.ErrShortBuffer forever.
-	*/
+	// Rebuild from the selected file so CLI overrides replace the library default.
 	core.NewConfig()
 
 	if err := errnie.InitLoggerFromViper(); err != nil {

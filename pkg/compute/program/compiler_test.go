@@ -2,6 +2,8 @@ package program
 
 import (
 	"testing"
+
+	. "github.com/smartystreets/goconvey/convey"
 )
 
 func layoutLikeConfigViper() Layout {
@@ -193,6 +195,93 @@ func TestFeedFoldTopologyMatchesContract(t *testing.T) {
 	}
 }
 
+func TestFeedAssetIndexedOperandIsRegionRelative(t *testing.T) {
+	Convey("Given an indexed asset operand in feed syntax", t, func() {
+		lay := layoutLikeConfigViper()
+
+		out, err := Compile(`[ { B(asset[0,5]) B(affinity[0,5]) B } ]`, lay)
+
+		So(err, ShouldBeNil)
+		So(len(out.Words), ShouldEqual, 1)
+		if err != nil || len(out.Words) != 1 {
+			return
+		}
+
+		_, _, bStart, bSpan, dstStart, dstSpan, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
+
+		So(dstStart, ShouldEqual, 72)
+		So(dstSpan, ShouldEqual, 5)
+		So(bStart, ShouldEqual, 123)
+		So(bSpan, ShouldEqual, 5)
+		So(opcode, ShouldEqual, Opcodes["B"])
+		So(mode, ShouldEqual, ModeTruth)
+		So(bType, ShouldEqual, InstrBTypeDirect)
+	})
+}
+
+func TestFeedThresholdGateBlocksAtThreshold(t *testing.T) {
+	Convey("Given a feed threshold gate", t, func() {
+		lay := layoutLikeConfigViper()
+		source := `
+[ { B(asset[6,1]) A(id) B } ] <= [
+  { { B(asset[0,5]) popcnt } 120 ? }
+] <= [
+  { B(asset[0,5]) B(affinity[0,5]) B }
+]`
+
+		out, err := Compile(source, lay)
+
+		So(err, ShouldBeNil)
+		So(len(out.Words), ShouldEqual, 2)
+		if err != nil || len(out.Words) != 2 {
+			return
+		}
+
+		_, _, _, _, dstStart, _, _, _, _, predStart, predCond, _, _ := DecodeInstruction(out.Words[1])
+
+		So(dstStart, ShouldEqual, 78)
+		So(predCond, ShouldEqual, predExtended)
+
+		var frame [128]uint64
+		frame[72] = ^uint64(0)
+		frame[73] = (uint64(1) << 55) - 1
+
+		So(PredicateAllows(&frame, predStart, predCond), ShouldBeTrue)
+
+		frame[73] = (uint64(1) << 56) - 1
+
+		So(PredicateAllows(&frame, predStart, predCond), ShouldBeFalse)
+	})
+}
+
+func TestLegacyPopcntPredicateKeepsAtMostSemantics(t *testing.T) {
+	Convey("Given a legacy popcnt predicate", t, func() {
+		lay := layoutLikeConfigViper()
+
+		out, err := Compile(`[ (signals[0,1] self) <= (1) ? (popcnt(affinity[0,5]) | 120) <= community ]`, lay)
+
+		So(err, ShouldBeNil)
+		So(len(out.Words), ShouldEqual, 1)
+		if err != nil || len(out.Words) != 1 {
+			return
+		}
+
+		_, _, _, _, _, _, _, _, _, predStart, predCond, _, _ := DecodeInstruction(out.Words[0])
+
+		So(predCond, ShouldEqual, predExtended)
+
+		var frame [128]uint64
+		frame[123] = ^uint64(0)
+		frame[124] = (uint64(1) << 56) - 1
+
+		So(PredicateAllows(&frame, predStart, predCond), ShouldBeTrue)
+
+		frame[124] = (uint64(1) << 57) - 1
+
+		So(PredicateAllows(&frame, predStart, predCond), ShouldBeFalse)
+	})
+}
+
 func TestCompiler(t *testing.T) {
 	lay := Layout{
 		Regions: map[string]RegionExtent{
@@ -280,5 +369,24 @@ func TestCompiler(t *testing.T) {
 				t.Fatalf("expected 1 word, got %d", len(compiled.Words))
 			}
 		})
+	}
+}
+
+func BenchmarkFeedThresholdGateCompile(b *testing.B) {
+	lay := layoutLikeConfigViper()
+	source := `
+[ { B(asset[6,1]) A(id) B } ] <= [
+  { { B(asset[0,5]) popcnt } 120 ? }
+] <= [
+  { B(asset[0,5]) B(affinity[0,5]) B }
+]`
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		if _, err := Compile(source, lay); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

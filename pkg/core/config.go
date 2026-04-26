@@ -2,6 +2,9 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +33,64 @@ var (
 )
 
 func init() {
+	_ = LoadDefaultConfig()
 	Cfg = NewConfig()
+}
+
+/*
+LoadDefaultConfig loads the repository default config when callers use the
+library without going through cmd.initConfig. Explicit caller-loaded viper
+state wins; this only fills the otherwise-empty firmware/config gap.
+*/
+func LoadDefaultConfig() error {
+	if viper.IsSet("programs") {
+		return nil
+	}
+
+	viper.SetConfigType("yml")
+
+	var lastErr error
+	for _, path := range defaultConfigPaths() {
+		viper.SetConfigFile(path)
+		if err := viper.ReadInConfig(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	return lastErr
+}
+
+func defaultConfigPaths() []string {
+	paths := []string{
+		filepath.Clean("cmd/cfg/config.yml"),
+		filepath.Clean("config.yml"),
+	}
+
+	if _, file, _, ok := runtime.Caller(0); ok {
+		paths = append(paths, filepath.Clean(
+			filepath.Join(filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml"),
+		))
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".six", "config.yml"))
+	}
+
+	seen := make(map[string]struct{}, len(paths))
+	out := paths[:0]
+
+	for _, path := range paths {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+
+	return out
 }
 
 type FirmwareType string
@@ -89,7 +149,7 @@ type SystemConfig struct {
 		spawn. Zero disables the backstop.
 	*/
 	MaxMembersPerField int `mapstructure:"maxMembersPerField"`
-	// QuiescenceTimeout bounds the busy-wait in vm.Orchestrator.Cycle before
+	// QuiescenceTimeout bounds the busy-wait in vm.Machine.Cycle before
 	// draining; zero means 100ms at runtime.
 	QuiescenceTimeout time.Duration `mapstructure:"quiescenceTimeout"`
 	// DrainTimeout caps the post-quiescence drain loop; zero means 100ms at runtime.
@@ -158,12 +218,11 @@ type ValueRegionConfig struct {
 }
 
 /*
-MaxTokenIngestBytes is the largest raw byte span passed to primitive.NewValue
-from fixed-width ingest (e.g. vm.Tokenizer). With Morton encoding each input
-byte occupies one uint64 word, so the max is simply the number of token words.
+MaxTokenIngestBytes is the largest raw byte span that fits in one Value token
+slab. Each uint64 token word carries four 16-bit Morton codes.
 */
 func (region ValueRegionConfig) MaxTokenIngestBytes() int {
-	out := int(region.Tokens.Bits / 64)
+	out := int(region.Tokens.Bits/64) * 4
 
 	if out < 1 {
 		return 1
@@ -230,105 +289,97 @@ type Config struct {
 }
 
 func NewConfig() *Config {
+	system := SystemConfig{
+		BatchSize:          configInt("system.batchSize", 10000),
+		BatchWindow:        time.Duration(configInt("system.batchWindow", 500)) * time.Microsecond,
+		QueueSize:          configInt("system.queueSize", 20000),
+		ShannonLimit:       configFloat64("system.shannonLimit", 0.47),
+		ResonanceThreshold: configFloat64("system.resonanceThreshold", 0.6),
+		BeliefEpsilon:      configFloat64("system.beliefEpsilon", 0.05),
+		RouteBudget:        configInt("system.routeBudget", 128),
+		MaxMembersPerField: configInt("system.maxMembersPerField", 256),
+		QuiescenceTimeout:  configDuration("system.quiescenceTimeout", 100*time.Millisecond),
+		DrainTimeout:       configDuration("system.drainTimeout", 100*time.Millisecond),
+	}
+
 	value := ValueConfig{
-		Word:         WithDefault(viper.GetInt("value.word"), 64),
-		Words:        WithDefault(viper.GetInt("value.words"), 128),
-		Bytes:        WithDefault(viper.GetInt("value.bytes"), 1024),
-		NumRotations: WithDefault(viper.GetInt("value.num_rotations"), 16),
+		Word:         configInt("value.word", 64),
+		Words:        configInt("value.words", 128),
+		Bytes:        configInt("value.bytes", 1024),
+		NumRotations: configInt("value.num_rotations", 16),
 		Region: ValueRegionConfig{
 			Tokens: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.tokens.start"), 0),
-				Bits:  WithDefault(viper.GetUint64("value.region.tokens.bits"), 1024),
+				Start: configInt("value.region.tokens.start", 0),
+				Bits:  configUint64("value.region.tokens.bits", 1024),
 			},
 			Program: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.program.start"), 16),
-				Bits:  WithDefault(viper.GetUint64("value.region.program.bits"), 1024),
+				Start: configInt("value.region.program.start", 16),
+				Bits:  configUint64("value.region.program.bits", 1024),
 			},
 			Signals: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.signals.start"), 32),
-				Bits:  WithDefault(viper.GetUint64("value.region.signals.bits"), 512),
+				Start: configInt("value.region.signals.start", 32),
+				Bits:  configUint64("value.region.signals.bits", 512),
 			},
 			Context: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.context.start"), 40),
-				Bits:  WithDefault(viper.GetUint64("value.region.context.bits"), 512),
+				Start: configInt("value.region.context.start", 40),
+				Bits:  configUint64("value.region.context.bits", 512),
 			},
 			Gradient: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.gradient.start"), 48),
-				Bits:  WithDefault(viper.GetUint64("value.region.gradient.bits"), 512),
+				Start: configInt("value.region.gradient.start", 48),
+				Bits:  configUint64("value.region.gradient.bits", 512),
 			},
 			Properties: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.properties.start"), 56),
-				Bits:  WithDefault(viper.GetUint64("value.region.properties.bits"), 1024),
+				Start: configInt("value.region.properties.start", 56),
+				Bits:  configUint64("value.region.properties.bits", 1024),
 			},
 			Asset: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.asset.start"), 72),
-				Bits:  WithDefault(viper.GetUint64("value.region.asset.bits"), 3072),
+				Start: configInt("value.region.asset.start", 72),
+				Bits:  configUint64("value.region.asset.bits", 3072),
 			},
 			Prev: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.prev.start"), 120),
-				Bits:  WithDefault(viper.GetUint64("value.region.prev.bits"), 64),
+				Start: configInt("value.region.prev.start", 120),
+				Bits:  configUint64("value.region.prev.bits", 64),
 			},
 			Next: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.next.start"), 121),
-				Bits:  WithDefault(viper.GetUint64("value.region.next.bits"), 64),
+				Start: configInt("value.region.next.start", 121),
+				Bits:  configUint64("value.region.next.bits", 64),
 			},
 			ID: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.id.start"), 122),
-				Bits:  WithDefault(viper.GetUint64("value.region.id.bits"), 64),
+				Start: configInt("value.region.id.start", 122),
+				Bits:  configUint64("value.region.id.bits", 64),
 			},
 			Affinity: ValueOffsetConfig{
-				Start: WithDefault(viper.GetInt("value.region.affinity.start"), 123),
-				Bits:  WithDefault(viper.GetUint64("value.region.affinity.bits"), 257),
+				Start: configInt("value.region.affinity.start", 123),
+				Bits:  configUint64("value.region.affinity.bits", 257),
 			},
 		},
 		Opcodes: ValueOpcodesConfig{
-			False:    WithDefault(viper.GetString("value.opcodes.false"), "0000"),
-			And:      WithDefault(viper.GetString("value.opcodes.and"), "0001"),
-			AandNotB: WithDefault(viper.GetString("value.opcodes.aandnotb"), "0010"),
-			A:        WithDefault(viper.GetString("value.opcodes.a"), "0011"),
-			NotAandB: WithDefault(viper.GetString("value.opcodes.notandb"), "0100"),
-			B:        WithDefault(viper.GetString("value.opcodes.b"), "0101"),
-			XOR:      WithDefault(viper.GetString("value.opcodes.xor"), "0110"),
-			OR:       WithDefault(viper.GetString("value.opcodes.or"), "0111"),
-			NOR:      WithDefault(viper.GetString("value.opcodes.nor"), "1000"),
-			XNOR:     WithDefault(viper.GetString("value.opcodes.xnor"), "1001"),
-			NOTB:     WithDefault(viper.GetString("value.opcodes.notb"), "1010"),
-			IFBTHENA: WithDefault(viper.GetString("value.opcodes.ifbthena"), "1011"),
-			NOTA:     WithDefault(viper.GetString("value.opcodes.nota"), "1100"),
-			IFATHENB: WithDefault(viper.GetString("value.opcodes.ifathenb"), "1101"),
-			NAND:     WithDefault(viper.GetString("value.opcodes.nand"), "1110"),
-			TRUE:     WithDefault(viper.GetString("value.opcodes.true"), "1111"),
+			False:    configString("value.opcodes.false", "0000"),
+			And:      configString("value.opcodes.and", "0001"),
+			AandNotB: configString("value.opcodes.aandnotb", "0010"),
+			A:        configString("value.opcodes.a", "0011"),
+			NotAandB: configString("value.opcodes.notandb", "0100"),
+			B:        configString("value.opcodes.b", "0101"),
+			XOR:      configString("value.opcodes.xor", "0110"),
+			OR:       configString("value.opcodes.or", "0111"),
+			NOR:      configString("value.opcodes.nor", "1000"),
+			XNOR:     configString("value.opcodes.xnor", "1001"),
+			NOTB:     configString("value.opcodes.notb", "1010"),
+			IFBTHENA: configString("value.opcodes.ifbthena", "1011"),
+			NOTA:     configString("value.opcodes.nota", "1100"),
+			IFATHENB: configString("value.opcodes.ifathenb", "1101"),
+			NAND:     configString("value.opcodes.nand", "1110"),
+			TRUE:     configString("value.opcodes.true", "1111"),
 		},
 		PropertiesList: viper.GetStringSlice("value.properties"),
 	}
 
-	quiescenceTimeout := viper.GetDuration("system.quiescenceTimeout")
-	if quiescenceTimeout == 0 {
-		quiescenceTimeout = 100 * time.Millisecond
-	}
-
-	drainTimeout := viper.GetDuration("system.drainTimeout")
-	if drainTimeout == 0 {
-		drainTimeout = 100 * time.Millisecond
-	}
-
 	Cfg = &Config{
-		System: SystemConfig{
-			BatchSize:          WithDefault(viper.GetInt("system.batchSize"), 10000),
-			BatchWindow:        time.Duration(WithDefault(viper.GetInt("system.batchWindow"), 500)) * time.Microsecond,
-			QueueSize:          WithDefault(viper.GetInt("system.queueSize"), 20000),
-			ShannonLimit:       WithDefault(viper.GetFloat64("system.shannonLimit"), 0.47),
-			ResonanceThreshold: WithDefault(viper.GetFloat64("system.resonanceThreshold"), 0.6),
-			BeliefEpsilon:      WithDefault(viper.GetFloat64("system.beliefEpsilon"), 0.05),
-			RouteBudget:        WithDefault(viper.GetInt("system.routeBudget"), 128),
-			MaxMembersPerField: WithDefault(viper.GetInt("system.maxMembersPerField"), 256),
-			QuiescenceTimeout:  quiescenceTimeout,
-			DrainTimeout:       drainTimeout,
-		},
+		System:                system,
 		Value:                 value,
-		Programs:              precompile(value),
-		TelemetryEnabled:      WithDefault(viper.GetBool("telemetry.enabled"), false),
-		TelemetryWebSocketURL: WithDefault(viper.GetString("telemetry.ws_url"), ""),
+		Programs:              precompile(value, system),
+		TelemetryEnabled:      configBool("telemetry.enabled", false),
+		TelemetryWebSocketURL: configString("telemetry.ws_url", ""),
 	}
 
 	return Cfg
@@ -344,6 +395,59 @@ func WithDefault[T comparable](value, defaultValue T) T {
 	return value
 }
 
+func configInt(key string, defaultValue int) int {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+
+	return viper.GetInt(key)
+}
+
+func configUint64(key string, defaultValue uint64) uint64 {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+
+	return viper.GetUint64(key)
+}
+
+func configFloat64(key string, defaultValue float64) float64 {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+
+	return viper.GetFloat64(key)
+}
+
+func configString(key string, defaultValue string) string {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+
+	return viper.GetString(key)
+}
+
+func configBool(key string, defaultValue bool) bool {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+
+	return viper.GetBool(key)
+}
+
+func configDuration(key string, defaultValue time.Duration) time.Duration {
+	if !viper.IsSet(key) {
+		return defaultValue
+	}
+
+	value := viper.GetDuration(key)
+	if value == 0 {
+		return defaultValue
+	}
+
+	return value
+}
+
 /*
 precompile lowers every named DSL block under `programs:` into the packed
 64-bit instruction format the universal-bitwise kernel executes directly.
@@ -353,7 +457,7 @@ DSL source. Lowering errors are surfaced as a panic because a malformed
 firmware block is a programmer-authored bug we want caught at startup, not
 silently elided into a no-op program.
 */
-func precompile(value ValueConfig) map[FirmwareType]ProgramConfig {
+func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]ProgramConfig {
 	out := make(map[FirmwareType]ProgramConfig)
 
 	raw, ok := viper.Get("programs").(map[string]any)
@@ -369,6 +473,8 @@ func precompile(value ValueConfig) map[FirmwareType]ProgramConfig {
 		if !ok || source == "" {
 			continue
 		}
+
+		source = expandProgramConstants(source, system)
 
 		ft := FirmwareType(key)
 		name := viper.GetString(fmt.Sprintf("programs.%s.name", key))
@@ -396,6 +502,23 @@ func precompile(value ValueConfig) map[FirmwareType]ProgramConfig {
 	}
 
 	return out
+}
+
+func expandProgramConstants(source string, system SystemConfig) string {
+	shannonThreshold := int(system.ShannonLimit * 256)
+	if shannonThreshold < 0 {
+		shannonThreshold = 0
+	}
+	if shannonThreshold > 256 {
+		shannonThreshold = 256
+	}
+
+	replacer := strings.NewReplacer(
+		"{{shannonLimitPopcount}}", strconv.Itoa(shannonThreshold),
+		"{{routeBudget}}", strconv.Itoa(system.RouteBudget),
+	)
+
+	return replacer.Replace(source)
 }
 
 // buildProgramLayout snapshots the active region and opcode tables into the
