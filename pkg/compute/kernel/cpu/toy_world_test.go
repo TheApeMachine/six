@@ -149,9 +149,9 @@ func TestStructuralComponentEmitsThroughProgram(t *testing.T) {
 	  { B(prev) B(id) ^ }
 	  { B(next) B(id) ^ }
 	] <= [
-	  { B(tokens) signals[0,1] ^ }
-	  { B(tokens) signals[1,1] ^ }
-	  { B(tokens) signals[2,1] ^ }
+	  { B(tokens) B(signals[0,1]) ^ }
+	  { B(tokens) B(signals[1,1]) ^ }
+	  { B(tokens) B(signals[2,1]) ^ }
 	]> [
 	  { B(signals) }
 	] <= [

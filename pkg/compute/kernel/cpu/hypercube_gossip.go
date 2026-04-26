@@ -129,7 +129,7 @@ func HypercubeGossip(
 
 			writeMask := ^uint64(0)
 			if predCond != 0 {
-				if bFrame == nil || !program.PredicateAllows(bFrame, predStart, predCond) {
+				if frame == nil || !program.PredicateAllows(frame, predStart, predCond) {
 					writeMask = 0
 				}
 			}

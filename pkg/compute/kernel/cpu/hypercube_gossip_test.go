@@ -94,6 +94,30 @@ func TestHypercubeGossip(t *testing.T) {
 		}
 	})
 
+	Convey("Given a bare A/B implicit map pipeline", t, func() {
+		layout := program.Layout{
+			Regions: map[string]program.RegionExtent{
+				"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
+			},
+		}
+		compiled, err := program.Compile(`[(B popcnt)] <= [(A B ^)]`, layout)
+		So(err, ShouldBeNil)
+
+		owner := primitive.Emit()
+		defer owner.Close()
+		candidate := primitive.Emit()
+		defer candidate.Close()
+
+		So(owner.InstallProgram(compiled.Words), ShouldBeTrue)
+
+		owner.Set(primitive.SignalsStartWord, 0b1010)
+		candidate.Set(primitive.SignalsStartWord, 0b1111)
+
+		HypercubeGossip(owner, []*primitive.Value{owner, candidate})
+
+		So(candidate.Get(primitive.SignalsRegion)[0], ShouldEqual, 2)
+	})
+
 	Convey("Given a geometric instruction with encoded operands and destination", t, func() {
 		layout := program.Layout{
 			Regions: map[string]program.RegionExtent{
@@ -139,10 +163,12 @@ func TestHypercubeGossip(t *testing.T) {
 
 		selector := primitive.Emit(primitive.WithFirmware(core.PROGRAM_SELECT))
 		defer selector.Close()
+		selector.SetProperty(primitive.COMMUNITY, 1)
 
 		candidate := primitive.Emit()
 		defer candidate.Close()
 
+		candidate.SetProperty(primitive.COMMUNITY, 1)
 		candidate.SetProperty(primitive.SURPRISAL, 512)
 
 		HypercubeGossip(selector, []*primitive.Value{selector, candidate})
@@ -160,10 +186,12 @@ func TestHypercubeGossip(t *testing.T) {
 
 		selector := primitive.Emit(primitive.WithFirmware(core.PROGRAM_SELECT))
 		defer selector.Close()
+		selector.SetProperty(primitive.COMMUNITY, 1)
 
 		candidate := primitive.Emit()
 		defer candidate.Close()
 
+		candidate.SetProperty(primitive.COMMUNITY, 1)
 		candidate.SetProperty(primitive.SURPRISAL, 512)
 		candidate.SetProperty(primitive.NOISE, 1)
 
@@ -173,6 +201,114 @@ func TestHypercubeGossip(t *testing.T) {
 
 		So(err, ShouldBeNil)
 		So(programID, ShouldEqual, 6)
+	})
+
+	Convey("Given an unassigned Value", t, func() {
+		loadHypercubeGossipConfig(t)
+
+		selector := primitive.Emit(primitive.WithFirmware(core.PROGRAM_SELECT))
+		defer selector.Close()
+		selector.SetProperty(primitive.COMMUNITY, 1)
+
+		candidate := primitive.Emit()
+		defer candidate.Close()
+
+		candidate.SetProperty(primitive.SURPRISAL, 512)
+
+		HypercubeGossip(selector, []*primitive.Value{selector, candidate})
+
+		programID, err := candidate.Property(primitive.PROGRAM_ID)
+
+		So(err, ShouldBeNil)
+		So(programID, ShouldEqual, 8)
+		So(candidate.SchedulingNext(), ShouldEqual, candidate.ID())
+	})
+
+	Convey("Given a community recruiter", t, func() {
+		loadHypercubeGossipConfig(t)
+
+		recruiter := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
+		defer recruiter.Close()
+
+		accepted := primitive.Emit()
+		defer accepted.Close()
+		accepted.SetStatus(primitive.ERROR)
+
+		assigned := primitive.Emit()
+		defer assigned.Close()
+		assigned.SetStatus(primitive.ERROR)
+
+		rejected := primitive.Emit()
+		defer rejected.Close()
+
+		recruiter.Set(primitive.AffinityStartWord, 0b0011)
+		accepted.Set(primitive.AffinityStartWord, 0b0100)
+		assigned.Set(primitive.AffinityStartWord, 0b1000)
+		assigned.SetProperty(primitive.COMMUNITY, 999)
+		for lane := 0; lane < primitive.AffinityWords; lane++ {
+			rejected.Set(primitive.AffinityStartWord+lane, ^uint64(0))
+		}
+		rejected.NormalizeAffinity()
+
+		HypercubeGossip(recruiter, []*primitive.Value{recruiter, accepted, assigned, rejected})
+
+		recruiterCommunity, err := recruiter.Property(primitive.COMMUNITY)
+		So(err, ShouldBeNil)
+		So(recruiterCommunity, ShouldEqual, recruiter.ID())
+
+		recruiterConfidence, err := recruiter.Property(primitive.CONFIDENCE)
+		So(err, ShouldBeNil)
+		So(recruiterConfidence, ShouldEqual, 3)
+
+		acceptedCommunity, err := accepted.Property(primitive.COMMUNITY)
+		So(err, ShouldBeNil)
+		So(acceptedCommunity, ShouldEqual, recruiter.ID())
+		So(accepted.Status(), ShouldEqual, primitive.PENDING)
+		So(accepted.Get(primitive.SignalsRegion)[0], ShouldEqual, 0)
+
+		assignedCommunity, err := assigned.Property(primitive.COMMUNITY)
+		So(err, ShouldBeNil)
+		So(assignedCommunity, ShouldEqual, 999)
+		So(assigned.Status(), ShouldEqual, primitive.ERROR)
+		So(assigned.Get(primitive.SignalsRegion)[0], ShouldEqual, 0)
+
+		rejectedCommunity, err := rejected.Property(primitive.COMMUNITY)
+		So(err, ShouldBeNil)
+		So(rejectedCommunity, ShouldEqual, 0)
+		So(rejected.Get(primitive.SignalsRegion)[0], ShouldEqual, 0)
+
+		So(recruiter.Get(primitive.AffinityRegion)[0], ShouldEqual, 0b0111)
+		So(recruiter.Get(primitive.SignalsRegion)[0], ShouldEqual, 0)
+	})
+
+	Convey("Given a candidate inside route budget but beyond Shannon saturation", t, func() {
+		loadHypercubeGossipConfig(t)
+
+		recruiter := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
+		defer recruiter.Close()
+		setAffinityPrefix(recruiter, 1)
+
+		accepted := primitive.Emit()
+		defer accepted.Close()
+		setAffinityPrefix(accepted, 120)
+
+		saturated := primitive.Emit()
+		defer saturated.Close()
+		setAffinityPrefix(saturated, 121)
+
+		HypercubeGossip(recruiter, []*primitive.Value{recruiter, accepted, saturated})
+
+		acceptedCommunity, err := accepted.Property(primitive.COMMUNITY)
+		So(err, ShouldBeNil)
+		So(acceptedCommunity, ShouldEqual, recruiter.ID())
+
+		saturatedCommunity, err := saturated.Property(primitive.COMMUNITY)
+		So(err, ShouldBeNil)
+		So(saturatedCommunity, ShouldEqual, 0)
+
+		recruiterConfidence, err := recruiter.Property(primitive.CONFIDENCE)
+		So(err, ShouldBeNil)
+		So(recruiterConfidence, ShouldEqual, 120)
 	})
 
 	Convey("Given a matching program carrier", t, func() {
@@ -249,6 +385,18 @@ func hypercubeGossipConfigPath(file string) string {
 		"..", "..", "..", "..",
 		"cmd", "cfg", "config.yml",
 	))
+}
+
+func setAffinityPrefix(value *primitive.Value, bitCount int) {
+	if value == nil {
+		return
+	}
+
+	for bit := 0; bit < bitCount && bit < primitive.AffinityBits; bit++ {
+		value.Set(primitive.AffinityStartWord+(bit/64), (*value)[primitive.AffinityStartWord+(bit/64)]|uint64(1<<(bit%64)))
+	}
+
+	value.NormalizeAffinity()
 }
 
 func BenchmarkPopcntWords(b *testing.B) {

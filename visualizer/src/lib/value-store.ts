@@ -12,11 +12,11 @@ import {
 	ID_START_WORD,
 	NEXT_START_WORD,
 	PREV_START_WORD,
-	SIGNALS_START_WORD,
 	VALUE_WORD_COUNT,
 } from "./layoutGenerated";
 import {
 	type ClassifiedProgram,
+	classifyKnownProgram,
 	classifyInstructionStream,
 	ROLE_BY_CATEGORY,
 } from "./programClassifier";
@@ -61,15 +61,15 @@ up the yellow "hypothesis" halo even though no Popperian probe had
 been armed.
 */
 const PROPERTIES_COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
+const PROPERTIES_NOISE_WORD = PROPERTY_WORD("NOISE");
 const PROPERTIES_ROLE_WORD = PROPERTY_WORD("ROLE");
 const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTY_WORD("TARGET");
 const VALUE_ROLE_PROMPT_WORD = BigInt(VALUE_ROLE.Prompt);
 
 /*
-The resident ALU writes scalar falsification witnesses into signals[7].
+The resident ALU carries falsification as the in-band NOISE property.
 Asset/context spans come from the generated Value layout.
 */
-const SIGNALS_FALSIFIED_WORD = SIGNALS_START_WORD + 7;
 const ASSET_GRADIENT_WORD = ASSET_START_WORD + 16;
 const ASSET_GRADIENT_SPAN = 8;
 const CONTEXT_SPAN = 8;
@@ -128,7 +128,7 @@ readCausalState pulls causal residues and scalar witnesses straight off the wire
 function readCausalState(words: bigint[]): CausalState {
 	const hypothesizing = words[PROPERTIES_REFUTATION_TARGET_WORD] !== 0n;
 
-	const falsified = words[SIGNALS_FALSIFIED_WORD] !== 0n;
+	const falsified = words[PROPERTIES_NOISE_WORD] !== 0n;
 	const surprisal = Number(words[PROPERTY_WORD("SURPRISAL")] ?? 0n);
 	const delta_surprisal = Number(words[PROPERTY_WORD("DELTA_SURPRISAL")] ?? 0n);
 	const ttl = Number(words[PROPERTY_WORD("TTL")] ?? 0n);
@@ -160,6 +160,29 @@ function readCausalState(words: bigint[]): CausalState {
 		ttl,
 		temperature,
 	};
+}
+
+function classifyFrameProgram(decoded: DecodedValueFrame): ClassifiedProgram {
+	const installed = classifyInstructionStream(
+		decodeProgramWire(decoded.regions.program),
+	);
+
+	if (installed.program) {
+		return installed;
+	}
+
+	if (isCompletedCommunityRecruiter(decoded)) {
+		return classifyKnownProgram("recruit_community");
+	}
+
+	return installed;
+}
+
+function isCompletedCommunityRecruiter(decoded: DecodedValueFrame): boolean {
+	const id = decoded.words[ID_START_WORD] ?? 0n;
+	const community = decoded.words[PROPERTIES_COMMUNITY_WORD] ?? 0n;
+
+	return id !== 0n && community === id;
 }
 
 function formatValueId(word: bigint): string {
@@ -475,9 +498,7 @@ export class ValueStore {
 		instead of being tagged with whichever program happens to be
 		first in the list.
 		*/
-		value.classification = classifyInstructionStream(
-			decodeProgramWire(decoded.regions.program),
-		);
+		value.classification = classifyFrameProgram(decoded);
 
 		/*
 		Signals popcount is a cheap proxy for "how loud is this Value
@@ -500,7 +521,7 @@ export class ValueStore {
 		/*
 		Causal residues are recomputed on every frame because any of the
 		three can flip within a single tick (the do_intervention rule
-		fires, a resident program writes signals[7], …). The
+			fires, a resident program writes NOISE, …). The
 		read is a handful of BigInt ORs over already-decoded words so the
 		overhead per frame is negligible.
 		*/

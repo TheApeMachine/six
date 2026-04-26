@@ -294,9 +294,9 @@ struct DecodedInstr {
 };
 
 struct PredicateSpec {
-    uint kind;
-    uint start;
-    uint span;
+    ulong kind;
+    ulong start;
+    ulong span;
     ulong threshold;
 };
 
@@ -399,8 +399,8 @@ static inline bool ast_predicate_allows(device ulong* frame, DecodedInstr instr,
     }
 
     uint count = 0;
-    for (uint lane = 0; lane < spec.span && spec.start + lane < WORDS; lane++) {
-        count += popcount(frame[spec.start + lane]);
+    for (ulong lane = 0; lane < spec.span && spec.start + lane < WORDS; lane++) {
+        count += popcount(frame[uint(spec.start + lane)]);
     }
 
     return ulong(count) <= spec.threshold;
@@ -581,8 +581,9 @@ static inline ulong ast_fold_payload(
             continue;
         }
 
+        device ulong* predicate = ast_frame(arena, indices, source);
         ExecContext ctx = ast_context(arena, indices, params, source, pc, raw, instr);
-        if (!ast_predicate_allows(ctx.b, instr, specs)) {
+        if (!ast_predicate_allows(predicate, instr, specs)) {
             continue;
         }
 
@@ -669,8 +670,9 @@ kernel void hypercube_gossip_kernel(
                     continue;
                 }
 
+                device ulong* predicate = ast_frame(arena, indices, source);
                 ExecContext ctx = ast_context(arena, indices, params, source, pc, raw, instr);
-                if (!ast_predicate_allows(ctx.b, instr, specs)) {
+                if (!ast_predicate_allows(predicate, instr, specs)) {
                     continue;
                 }
 
@@ -704,7 +706,7 @@ kernel void hypercube_gossip_kernel(
                 DecodedInstr instr = ast_decode(raw);
                 if (instr.topology == TOPOLOGY_SPAWN) {
                     ExecContext ctx = ast_context(arena, indices, params, lid, pc, raw, instr);
-                    if (ast_predicate_allows(ctx.b, instr, specs)) {
+                    if (ast_predicate_allows(source, instr, specs)) {
                         ast_initialize_spawn(arena, spawn_indices, spawn_ids, spawn_active, lid, source);
                         if (spawn_active != nullptr && spawn_active[lid] != 0) {
                             device ulong* spawned = arena + (ulong)spawn_indices[lid] * (ulong)WORDS;

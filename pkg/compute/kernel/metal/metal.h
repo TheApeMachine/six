@@ -22,9 +22,9 @@ indexed arena slots without staging copies. Kept alongside routing and gossip
 GPU paths; the in-band VM is host-side via kernel.Optimizer.Run only.
 */
 typedef struct {
-    uint32_t kind;
-    uint32_t start;
-    uint32_t span;
+    uint64_t kind;
+    uint64_t start;
+    uint64_t span;
     uint64_t threshold;
 } predicate_device_spec_t;
 

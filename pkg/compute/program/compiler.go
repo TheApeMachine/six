@@ -66,9 +66,9 @@ PredicateDeviceSpec is the compact predicate table entry copied into native
 GPU kernels so extended predicates keep the same meaning as the CPU map.
 */
 type PredicateDeviceSpec struct {
-	Kind      uint32
-	Start     uint32
-	Span      uint32
+	Kind      uint64
+	Start     uint64
+	Span      uint64
 	Threshold uint64
 }
 
@@ -197,9 +197,11 @@ type feedSite struct {
 }
 
 type feedAtom struct {
-	owner string
-	ref   string
-	imm   bool
+	owner     string
+	ref       string
+	imm       bool
+	bare      bool
+	synthetic bool
 }
 
 type feedExpr struct {
@@ -207,6 +209,7 @@ type feedExpr struct {
 	right    feedAtom
 	op       string
 	mode     uint64
+	topology uint64
 	implicit bool
 }
 
@@ -446,7 +449,7 @@ func compileFeedSite(site feedSite, inheritedPredStart, inheritedPredCond uint64
 			words = append(words, instr)
 			expr, exprErr := parseFeedExpr(parts)
 			if exprErr == nil {
-				result = append(result, feedAtom{ref: expr.left.ref})
+				result = append(result, feedAtom{ref: expr.left.ref, synthetic: true})
 			}
 		}
 	}
@@ -579,6 +582,9 @@ func parseNestedGatePredicate(block, nested string) (*PredicateNode, error) {
 			if err != nil {
 				return nil, err
 			}
+			if err := requireExplicitFeedOwner(left); err != nil {
+				return nil, err
+			}
 
 			return &PredicateNode{
 				IsPopcnt:  true,
@@ -638,6 +644,14 @@ func compileOperationSite(parts []string, predStart, predCond uint64, incoming f
 }
 
 func parseFeedExpr(parts []string) (feedExpr, error) {
+	topology := uint64(TopologySelf)
+	if len(parts) > 0 {
+		if candidate, ok := Topologies[strings.ToLower(parts[len(parts)-1])]; ok {
+			topology = candidate
+			parts = parts[:len(parts)-1]
+		}
+	}
+
 	stack := make([]feedExpr, 0, len(parts))
 
 	for _, part := range parts {
@@ -648,9 +662,10 @@ func parseFeedExpr(parts []string) (feedExpr, error) {
 
 			src := stack[len(stack)-1]
 			stack[len(stack)-1] = feedExpr{
-				left: src.left,
-				op:   "A",
-				mode: feedReducerMode(part),
+				left:     src.left,
+				op:       "A",
+				mode:     feedReducerMode(part),
+				topology: topology,
 			}
 			continue
 		}
@@ -664,10 +679,11 @@ func parseFeedExpr(parts []string) (feedExpr, error) {
 			left := stack[len(stack)-2]
 			stack = stack[:len(stack)-2]
 			stack = append(stack, feedExpr{
-				left:  left.left,
-				right: right.left,
-				op:    part,
-				mode:  ModeTruth,
+				left:     left.left,
+				right:    right.left,
+				op:       part,
+				mode:     ModeTruth,
+				topology: topology,
 			})
 			continue
 		}
@@ -684,11 +700,13 @@ func parseFeedExpr(parts []string) (feedExpr, error) {
 			stack[0].implicit = true
 		}
 
+		stack[0].topology = topology
+
 		return stack[0], nil
 	}
 
 	if len(stack) == 2 {
-		return feedExpr{left: stack[0].left, right: stack[1].left, op: "B", mode: stack[1].mode}, nil
+		return feedExpr{left: stack[0].left, right: stack[1].left, op: "B", mode: stack[1].mode, topology: topology}, nil
 	}
 
 	return feedExpr{}, fmt.Errorf("operation leaves %d stack values: %v", len(stack), parts)
@@ -718,10 +736,17 @@ func feedTokenIsOperator(part string, depth int) bool {
 }
 
 func compileFeedExpr(expr feedExpr, predStart, predCond uint64, lay Layout) (uint64, bool, error) {
-	return compileFeedExprWithTopology(expr, predStart, predCond, TopologySelf, lay)
+	return compileFeedExprWithTopology(expr, predStart, predCond, expr.topology, lay)
 }
 
 func compileFeedExprWithTopology(expr feedExpr, predStart, predCond, topology uint64, lay Layout) (uint64, bool, error) {
+	if err := requireExplicitFeedOwner(expr.left); err != nil {
+		return 0, false, fmt.Errorf("left: %w", err)
+	}
+	if err := requireExplicitFeedOwner(expr.right); err != nil {
+		return 0, false, fmt.Errorf("right: %w", err)
+	}
+
 	aStart, aSpan, aInd, err := parseFeedOperand(expr.left, lay)
 	if err != nil {
 		return 0, false, fmt.Errorf("left: %w", err)
@@ -745,25 +770,31 @@ func compileFeedExprWithTopology(expr feedExpr, predStart, predCond, topology ui
 	if IsGeometricOpcode(opcode) {
 		expr.mode = ModeGeometric
 	}
+	if topology == TopologyFold && !isFoldOpcode(opcode) {
+		return 0, false, fmt.Errorf("fold topology requires associative/commutative operators, got opcode 0x%x", opcode)
+	}
 
 	leftOwner := feedOwner(expr.left, "A")
 	rightOwner := feedOwner(expr.right, leftOwner)
+
+	// Bare A/B notation means "map resident A over every B" rather than
+	// "write every mapped result back into A".
+	implicitBMap := expr.left.bare && leftOwner == "A" && rightOwner == "B"
 
 	flags := uint64(0)
 	if leftOwner == "B" {
 		flags |= InstrFlagAFromB
 		flags |= InstrFlagTargetB
 	}
-	if leftOwner == "A" {
+	if implicitBMap {
+		flags |= InstrFlagTargetB
+	}
+	if leftOwner == "A" && !implicitBMap {
 		flags |= InstrFlagTargetOwner
 	}
 	if rightOwner == "A" && bType != InstrBTypeImmediate {
 		flags |= InstrFlagBFromA
 	}
-	if leftOwner == "B" && expr.right.owner == "B" && bType == InstrBTypeDirect {
-		bType = InstrBTypeNext
-	}
-
 	return EncodeInstruction(
 		aStart, aSpan, bStart, bSpan, dstStart, dstSpan,
 		opcode, expr.mode, topology,
@@ -806,11 +837,25 @@ func feedOwner(atom feedAtom, fallback string) string {
 	return "A"
 }
 
+func requireExplicitFeedOwner(atom feedAtom) error {
+	if atom.ref == "" || atom.imm || atom.bare || atom.synthetic {
+		return nil
+	}
+	if atom.owner != "" {
+		return nil
+	}
+
+	return fmt.Errorf("ambiguous operand %q; use A(%s) or B(%s)", atom.ref, atom.ref, atom.ref)
+}
+
 func parseFeedPredicate(raw string) (*PredicateNode, error) {
 	parts := strings.Fields(raw)
 	if len(parts) == 3 {
 		left, err := parseFeedAtom(parts[0])
 		if err != nil {
+			return nil, err
+		}
+		if err := requireExplicitFeedOwner(left); err != nil {
 			return nil, err
 		}
 
@@ -824,6 +869,9 @@ func parseFeedPredicate(raw string) (*PredicateNode, error) {
 	if len(parts) == 4 && parts[1] == "popcnt" {
 		left, err := parseFeedAtom(parts[0])
 		if err != nil {
+			return nil, err
+		}
+		if err := requireExplicitFeedOwner(left); err != nil {
 			return nil, err
 		}
 
@@ -858,7 +906,7 @@ func parseFeedAtom(raw string) (feedAtom, error) {
 	}
 
 	if strings.EqualFold(raw, "A") || strings.EqualFold(raw, "B") {
-		return feedAtom{owner: strings.ToUpper(raw), ref: "signals[0,8]"}, nil
+		return feedAtom{owner: strings.ToUpper(raw), ref: "signals[0,8]", bare: true}, nil
 	}
 
 	if isNumeric(raw) || strings.EqualFold(raw, "done") || strings.EqualFold(raw, "clear") {
@@ -1161,7 +1209,7 @@ func compilePredicate(node *PredicateNode, lay Layout) (uint64, uint64, error) {
 		if node.Op != "|" {
 			return 0, 0, fmt.Errorf("popcnt predicate must use '| Threshold'")
 		}
-		threshold, err := strconv.ParseUint(node.Threshold, 10, 7)
+		threshold, err := strconv.ParseUint(node.Threshold, 10, 64)
 		if err != nil {
 			return 0, 0, fmt.Errorf("popcnt predicate threshold: %w", err)
 		}
@@ -1266,9 +1314,9 @@ func PredicateDeviceSpecs() [128]PredicateDeviceSpec {
 		}
 
 		out[id] = PredicateDeviceSpec{
-			Kind:      uint32(spec.kind),
-			Start:     uint32(spec.start),
-			Span:      uint32(spec.span),
+			Kind:      uint64(spec.kind),
+			Start:     uint64(spec.start),
+			Span:      uint64(spec.span),
 			Threshold: spec.threshold,
 		}
 	}

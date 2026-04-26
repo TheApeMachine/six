@@ -8,7 +8,7 @@ import {
 	VALUE_FRAME_BYTE_LENGTH,
 	VALUE_WORD_COUNT,
 } from "./layoutGenerated";
-import { PROPERTY_WORD } from "./propertiesGenerated";
+import { PROPERTY_WORD, VALUE_ROLE } from "./propertiesGenerated";
 import type { FieldMetricsPayload } from "./value-store";
 import { decodeValueFrame, ValueStore } from "./value-store";
 import { decodeValueWireMessage } from "./wire";
@@ -21,6 +21,8 @@ any drift in the iota or the PROPERTIES_START_WORD anchor trips this
 table instead of silently passing.
 */
 const PROPERTIES_COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
+const PROPERTIES_NOISE_WORD = PROPERTY_WORD("NOISE");
+const PROPERTIES_ROLE_WORD = PROPERTY_WORD("ROLE");
 const PROPERTIES_REFUTATION_TARGET_WORD = PROPERTY_WORD("TARGET");
 const SIGNALS_FALSIFIED_WORD = SIGNALS_START_WORD + 7;
 const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
@@ -73,12 +75,14 @@ function makeValueFrame(init?: {
 	prev?: bigint;
 	next?: bigint;
 	content?: string;
-	communityId?: bigint;
-	refutationTarget?: bigint;
-	falsified?: bigint;
-	gradientWord?: bigint;
-	contextWord?: bigint;
-}) {
+		communityId?: bigint;
+		role?: bigint;
+		refutationTarget?: bigint;
+		noise?: bigint;
+		signalsWord7?: bigint;
+		gradientWord?: bigint;
+		contextWord?: bigint;
+	}) {
 	const frame = new Uint8Array(VALUE_FRAME_BYTE_LENGTH);
 
 	if (init?.id !== undefined) {
@@ -101,12 +105,20 @@ function makeValueFrame(init?: {
 		writeWord(frame, PROPERTIES_COMMUNITY_WORD, init.communityId);
 	}
 
+	if (init?.role !== undefined) {
+		writeWord(frame, PROPERTIES_ROLE_WORD, init.role);
+	}
+
 	if (init?.refutationTarget !== undefined) {
 		writeWord(frame, PROPERTIES_REFUTATION_TARGET_WORD, init.refutationTarget);
 	}
 
-	if (init?.falsified !== undefined) {
-		writeWord(frame, SIGNALS_FALSIFIED_WORD, init.falsified);
+	if (init?.noise !== undefined) {
+		writeWord(frame, PROPERTIES_NOISE_WORD, init.noise);
+	}
+
+	if (init?.signalsWord7 !== undefined) {
+		writeWord(frame, SIGNALS_FALSIFIED_WORD, init.signalsWord7);
 	}
 
 	if (init?.gradientWord !== undefined) {
@@ -225,6 +237,45 @@ test("Values without a community word land in orphanValues", () => {
 	assert.equal(snapshot.orphanValues.length, 1);
 });
 
+test("Completed community recruiters stay visible after their program clears", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000030");
+	store.applyWireFrame(
+		0x30n,
+		makeValueFrame({
+			id: 0x30n,
+			communityId: 0x30n,
+			role: BigInt(VALUE_ROLE.Programmer),
+		}),
+	);
+
+	const stored = store.get("0000000000000030");
+
+	assert.ok(stored);
+	assert.equal(stored?.classification.program, "recruit_community");
+	assert.equal(stored?.classification.category, "resident");
+});
+
+test("Completed community recruiters do not require a role side channel", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000031");
+	store.applyWireFrame(
+		0x31n,
+		makeValueFrame({
+			id: 0x31n,
+			communityId: 0x31n,
+		}),
+	);
+
+	const stored = store.get("0000000000000031");
+
+	assert.ok(stored);
+	assert.equal(stored?.classification.program, "recruit_community");
+	assert.equal(stored?.classification.category, "resident");
+});
+
 test("readCausalState surfaces hypothesizing when refutation target is armed", () => {
 	const store = new ValueStore();
 
@@ -245,27 +296,46 @@ test("readCausalState surfaces hypothesizing when refutation target is armed", (
 	assert.equal(stored?.causal.intervening, false);
 });
 
-test("readCausalState surfaces falsified when signals[7] carries a witness", () => {
+test("readCausalState surfaces falsified when NOISE carries a witness", () => {
 	const store = new ValueStore();
 
 	store.ensure("0000000000000011");
 	store.applyWireFrame(
 		0x11n,
-		makeValueFrame({
-			id: 0x11n,
-			communityId: 3n,
-			falsified: 0x123n,
-		}),
-	);
+			makeValueFrame({
+				id: 0x11n,
+				communityId: 3n,
+				noise: 0x123n,
+			}),
+		);
 
 	const stored = store.get("0000000000000011");
 	assert.ok(stored);
 	assert.equal(stored?.causal.falsified, true);
-	// hypothesizing/intervening independent — a frame may be falsified
-	// without the target being re-armed after ApplyRefutationProbe clears
-	// it, so these must stay false under a bare noise-only write.
-	assert.equal(stored?.causal.hypothesizing, false);
-	assert.equal(stored?.causal.intervening, false);
+		// hypothesizing/intervening independent — a frame may be falsified
+		// without the target being re-armed, so these must stay false under a
+		// bare noise-only write.
+		assert.equal(stored?.causal.hypothesizing, false);
+		assert.equal(stored?.causal.intervening, false);
+	});
+
+test("readCausalState ignores generic signals[7] residue", () => {
+	const store = new ValueStore();
+
+	store.ensure("0000000000000016");
+	store.applyWireFrame(
+		0x16n,
+		makeValueFrame({
+			id: 0x16n,
+			communityId: 3n,
+			signalsWord7: 0x123n,
+		}),
+	);
+
+	const stored = store.get("0000000000000016");
+
+	assert.ok(stored);
+	assert.equal(stored?.causal.falsified, false);
 });
 
 test("readCausalState surfaces intervening only when gradient+context are set and prev is zero", () => {

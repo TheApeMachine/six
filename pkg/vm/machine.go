@@ -133,11 +133,8 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 		return nil, nil
 	}
 
+	machine.ensureCommunityRecruiter()
 	machine.markEphemeral(machine.community)
-
-	if err = machine.stageEncounters(); err != nil {
-		return nil, err
-	}
 
 	if !machine.backend.Submit(machine.community) {
 		if err = machine.publishTelemetry(machine.community); err != nil {
@@ -208,58 +205,77 @@ func (machine *Machine) publishTelemetry(values []*primitive.Value) error {
 	return nil
 }
 
-/*
-stageEncounters materializes the current peer view before the ALU tick.
-The program still decides what to consume; this only performs the same
-Value.Write staging that a Conn would perform when a resident meets a peer.
-*/
-func (machine *Machine) stageEncounters() error {
-	if len(machine.community) < 2 {
-		return nil
+func (machine *Machine) ensureCommunityRecruiter() bool {
+	if machine == nil || len(machine.community) == 0 || core.Cfg == nil {
+		return false
 	}
 
-	var stackFrame [1024]byte
-	frame := stackFrame[:]
-	if core.Cfg.Value.Bytes > len(stackFrame) {
-		frame = make([]byte, core.Cfg.Value.Bytes)
-	}
-	if len(frame) != core.Cfg.Value.Bytes {
-		frame = stackFrame[:core.Cfg.Value.Bytes]
+	if machine.hasReadyValue() {
+		return false
 	}
 
-	for hostIdx, host := range machine.community {
-		if host == nil || !host.ReadyForALU() {
+	seed := machine.firstUnassignedCommunityValue()
+	if seed == nil {
+		return false
+	}
+
+	recruiter := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
+	if !recruiter.ReadyForALU() {
+		recruiter.Close()
+		return false
+	}
+
+	copy(recruiter.Get(primitive.AffinityRegion), seed.Get(primitive.AffinityRegion))
+	recruiter.NormalizeAffinity()
+	machine.community = append(machine.community, recruiter)
+
+	return true
+}
+
+func (machine *Machine) hasReadyValue() bool {
+	for _, value := range machine.community {
+		if value != nil && value.ReadyForALU() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (machine *Machine) firstUnassignedCommunityValue() *primitive.Value {
+	for _, value := range machine.community {
+		if value == nil || value.HasProgram() {
 			continue
 		}
 
-		peer := machine.peerAfter(hostIdx)
-		if peer == nil {
+		community, err := value.Property(primitive.COMMUNITY)
+		if err != nil || community != 0 {
 			continue
 		}
 
-		n, readErr := peer.Read(frame)
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return readErr
-		}
-
-		if _, writeErr := host.Write(frame[:n]); writeErr != nil {
-			return writeErr
-		}
+		return value
 	}
 
 	return nil
 }
 
-func (machine *Machine) peerAfter(hostIdx int) *primitive.Value {
-	count := len(machine.community)
-	for offset := 1; offset < count; offset++ {
-		peer := machine.community[(hostIdx+offset)%count]
-		if peer != nil {
-			return peer
+func (machine *Machine) unassignedCommunityValues() int {
+	count := 0
+
+	for _, value := range machine.community {
+		if value == nil || value.HasProgram() {
+			continue
 		}
+
+		community, err := value.Property(primitive.COMMUNITY)
+		if err != nil || community != 0 {
+			continue
+		}
+
+		count++
 	}
 
-	return nil
+	return count
 }
 
 func (machine *Machine) resolvedValues() []*primitive.Value {
@@ -321,7 +337,8 @@ func (machine *Machine) pruneExpiredEphemeral() {
 /*
 Load walks Generate(), mints Morton-packed Values from each sample’s Text via
 primitive.NewValue (see tokenizer.IngestSample), stamps every segment’s
-Properties word when Label is present, then runs Cycle.
+Properties word when Label is present, then cycles recruitment until the
+community word stops changing.
 */
 func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
@@ -342,11 +359,20 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		machine.community = append(machine.community, segments...)
 	}
 
-	if _, err := machine.Cycle(); err != nil {
-		return errors.Join(machine.err, errnie.Error(err))
-	}
+	for {
+		before := machine.unassignedCommunityValues()
+		if before == 0 {
+			return nil
+		}
 
-	return nil
+		if _, err := machine.Cycle(); err != nil {
+			return errors.Join(machine.err, errnie.Error(err))
+		}
+
+		if machine.unassignedCommunityValues() >= before {
+			return nil
+		}
+	}
 }
 
 /*

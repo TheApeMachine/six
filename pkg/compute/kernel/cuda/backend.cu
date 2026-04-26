@@ -199,9 +199,9 @@ __global__ void geometric_kernel(uint64_t* A, uint32_t num_values) {
 #define AST_PRED_KIND_POPCNT_LTE   1u
 
 typedef struct {
-    uint32_t kind;
-    uint32_t start;
-    uint32_t span;
+    uint64_t kind;
+    uint64_t start;
+    uint64_t span;
     uint64_t threshold;
 } predicate_device_spec_t;
 
@@ -326,8 +326,10 @@ static __device__ __forceinline__ bool ast_predicate_allows(uint64_t* frame, ast
     if (spec.kind != AST_PRED_KIND_POPCNT_LTE) return frame[instr.pred_start] > 0;
 
     uint32_t count = 0;
-    for (uint32_t lane = 0; lane < spec.span && spec.start + lane < WORDS; lane++) {
-        count += (uint32_t)__popcll((unsigned long long)frame[spec.start + lane]);
+    uint32_t start = (uint32_t)spec.start;
+    uint32_t span = (uint32_t)spec.span;
+    for (uint32_t lane = 0; lane < span && start + lane < WORDS; lane++) {
+        count += (uint32_t)__popcll((unsigned long long)frame[start + lane]);
     }
 
     return (uint64_t)count <= spec.threshold;
@@ -444,8 +446,9 @@ static __device__ __forceinline__ uint64_t ast_fold_payload(
         ast_decoded_instr instr = ast_decode(raw);
         if (instr.topology != AST_TOPOLOGY_FOLD || instr.opcode != opcode || dst_idx < instr.dst_start || dst_idx >= instr.dst_start + instr.dst_span) continue;
 
+        uint64_t* predicate = ast_frame(frames, source);
         ast_context ctx = ast_make_context(frames, active, value_count, owner_index, source, pc, raw, instr);
-        if (!ast_predicate_allows(ctx.b, instr, specs)) continue;
+        if (!ast_predicate_allows(predicate, instr, specs)) continue;
 
         uint64_t final_res[64];
         int final_len = ast_payloads(instr, ctx, final_res);
@@ -498,8 +501,9 @@ __global__ void hypercube_ast_kernel(
                 ast_decoded_instr instr = ast_decode(raw);
                 if (instr.topology == AST_TOPOLOGY_SPAWN) continue;
 
+                uint64_t* predicate = ast_frame(frames, source);
                 ast_context ctx = ast_make_context(frames, active, value_count, owner_index, source, pc, raw, instr);
-                if (!ast_predicate_allows(ctx.b, instr, specs)) continue;
+                if (!ast_predicate_allows(predicate, instr, specs)) continue;
 
                 int route = ast_route(source, value_count, owner_index, pc, instr, raw);
                 if (route != (int)lid) continue;
@@ -527,7 +531,7 @@ __global__ void hypercube_ast_kernel(
                 ast_decoded_instr instr = ast_decode(raw);
                 if (instr.topology == AST_TOPOLOGY_SPAWN) {
                     ast_context ctx = ast_make_context(frames, active, value_count, owner_index, lid, pc, raw, instr);
-                    if (ast_predicate_allows(ctx.b, instr, specs)) {
+                    if (ast_predicate_allows(source, instr, specs)) {
                         uint64_t* spawned = spawn_frames + (uint64_t)lid * (uint64_t)WORDS;
                         if (spawn_active[lid] == 0) {
                             for (uint32_t word = 0; word < WORDS; word++) spawned[word] = source[word];

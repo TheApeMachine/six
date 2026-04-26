@@ -125,24 +125,24 @@ programs:
     [ { A(affinity[0,5]) A(tokens[0,16]) ^ } ]
   structural_component: |
     <[
-      { B(prev) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write Bn+1 id to prev region
-      { B(next) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write Bn+1 id to next region
+      { B(prev) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write the mapped id to prev region
+      { B(next) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write the mapped id to next region
     ] <= [
       { A(status) done ^ }                               ; set status of A to done
-      { B(tokens) signals[0, 1] ^ }                      ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
-      { B(tokens) signals[1, 1] ^ }                      ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
-      { B(tokens) signals[2, 1] ^ }                      ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
+      { B(tokens) B(signals[0, 1]) ^ }                   ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
+      { B(tokens) B(signals[1, 1]) ^ }                   ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
+      { B(tokens) B(signals[2, 1]) ^ }                   ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
     ]> [                                                 ; emit new values to the substrate
         { B(signals) }                                   ; map over Bn ([]*primitive.Value) and write results of previous pipe to signals region
     ] <= [
-        { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 16 bits applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 32 bits applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 48 bits applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 64 bits applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 80 bits applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 96 bits applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 112 bits applying AND
+        { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+        { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
     ]
   beam_swarm_step: |
     <[
@@ -280,8 +280,12 @@ programs:
       { A(prev_surprisal) A(surprisal) B }
     ]
   program_select: |
-    [ { B(continuation) id B } ] <= [
+    [ { B(continuation) B(id) B } ] <= [
       { { B(program_id) 0 != } ? }
+    ] <= [
+      { B(program_id) 8 B }
+    ] <= [
+      { { B(community) 0 == } ? }
     ] <= [
       { B(program_id) 10 B }
     ] <= [
@@ -335,13 +339,13 @@ programs:
     ] <= [
       { { B(signals[0,1]) 0 == } ? }
     ] <= [
-      { B(continuation) id B }
+      { B(continuation) B(id) B }
     ] <= [
       { { B(signals[0,1]) 0 == } ? }
     ] <= [
       { B(signals[0,1]) A(program_id) ^ }
     ] <= [
-      { B(signals[0,1]) program_id B }
+      { B(signals[0,1]) B(program_id) B }
     ]
   causal_explore: |
     <[
@@ -376,16 +380,48 @@ programs:
       { A(signals[0,8]) A(context[0,8]) B }
     ]
   recruit_community: |
-    <[{ A clear }]> [
-        { A(affinity) B(affinity) ^ }
+    [ { A(confidence) A(affinity[0,5]) popcnt } ] <= [
+      { B(signals[0,5]) clear B }
     ] <= [
-        { A(status) done }
+      { A(affinity[0,5]) A(signals[0,5]) B }
     ] <= [
-        { A(id) B(community) ^ }
+      { A(signals[0,5]) B(affinity[0,5]) | fold }
     ] <= [
-        { { A(affinity) popcnt } 120 ? }
+      { { B(asset[47,1]) 0 != } ? }
     ] <= [
-        { { A(affinity) B(affinity) ^ } 64 | }
+      { B(status) 0 B }
+    ] <= [
+      { { B(asset[47,1]) 0 != } ? }
+    ] <= [
+      { B(community) B(asset[47,1]) B }
+    ] <= [
+      { { B(community) 0 == } ? }
+    ] <= [
+      { B(asset[47,1]) B(asset[46,1]) & }
+    ] <= [
+      { B(asset[47,1]) B(asset[45,1]) B }
+    ] <= [
+      { B(asset[46,1]) A(id) B }
+    ] <= [
+      { { B(asset[40,5]) popcnt } 120 ? }
+    ] <= [
+      { B(asset[45,1]) A(id) B }
+    ] <= [
+      { { B(signals[0,5]) popcnt } 128 ? }
+    ] <= [
+      { B(asset[45,3]) clear B }
+    ] <= [
+      { B(signals[0,5]) B(signals[0,5]) == }
+    ] <= [
+      { { B(community) 0 != } ? }
+    ] <= [
+      { B(signals[0,5]) A(affinity[0,5]) ^ }
+    ] <= [
+      { B(asset[40,5]) A(affinity[0,5]) | }
+    ] <= [
+      { B(asset[40,5]) B(affinity[0,5]) B }
+    ] <= [
+      { B(signals[0,5]) B(affinity[0,5]) B }
     ]
   causal_hub: |
     [ { A(continuation) clear B } ] <= [

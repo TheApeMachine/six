@@ -35,9 +35,9 @@ func TestStructuralComponentProgramMatchesContract(t *testing.T) {
   { B(prev) B(id) ^ }
   { B(next) B(id) ^ }
 ] <= [
-  { B(tokens) signals[0,1] ^ }
-  { B(tokens) signals[1,1] ^ }
-  { B(tokens) signals[2,1] ^ }
+  { B(tokens) B(signals[0,1]) ^ }
+  { B(tokens) B(signals[1,1]) ^ }
+  { B(tokens) B(signals[2,1]) ^ }
 ]> [
   { B(signals) }
 ] <= [
@@ -54,7 +54,7 @@ func TestStructuralComponentProgramMatchesContract(t *testing.T) {
 	}
 
 	_, _, _, _, dst, _, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
-	if dst != 0 || opcode != Opcodes["&"] || mode != ModeTruth || bType != InstrBTypeNext || out.Words[0]&InstrFlagAFromB == 0 {
+	if dst != 0 || opcode != Opcodes["&"] || mode != ModeTruth || bType != InstrBTypeDirect || out.Words[0]&InstrFlagAFromB == 0 {
 		t.Fatalf("rightmost pipe word 0 = dst %d opcode 0x%x mode %d bType %d flags 0x%x", dst, opcode, mode, bType, out.Words[0]>>60)
 	}
 
@@ -69,7 +69,7 @@ func TestStructuralComponentProgramMatchesContract(t *testing.T) {
 	}
 
 	_, _, _, _, dst, _, opcode, mode, _, _, _, _, bType = DecodeInstruction(out.Words[6])
-	if dst != 120 || opcode != Opcodes["^"] || mode != ModeEmit || bType != InstrBTypeNext || out.Words[6]&InstrFlagTargetB == 0 {
+	if dst != 120 || opcode != Opcodes["^"] || mode != ModeEmit || bType != InstrBTypeDirect || out.Words[6]&InstrFlagTargetB == 0 {
 		t.Fatalf("leftmost pipe word = dst %d opcode 0x%x mode %d bType %d flags 0x%x", dst, opcode, mode, bType, out.Words[6]>>60)
 	}
 }
@@ -83,6 +83,35 @@ func TestFeedExampleProgramMatchesContract(t *testing.T) {
 	}
 	if len(out.Words) != 2 {
 		t.Fatalf("expected 2 words, got %d", len(out.Words))
+	}
+}
+
+func TestFeedBareABImplicitMapTargetsB(t *testing.T) {
+	t.Parallel()
+
+	lay := layoutLikeConfigViper()
+	out, err := Compile(`[(B popcnt)] <= [(A B ^)]`, lay)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(out.Words) != 2 {
+		t.Fatalf("expected 2 words, got %d", len(out.Words))
+	}
+
+	_, _, _, _, dstStart, dstSpan, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
+	if dstStart != 32 || dstSpan != 8 || opcode != Opcodes["^"] || mode != ModeTruth || bType != InstrBTypeDirect {
+		t.Fatalf("unexpected implicit map op: dst=%d/%d opcode=0x%x mode=%d bType=%d", dstStart, dstSpan, opcode, mode, bType)
+	}
+	if out.Words[0]&InstrFlagTargetB == 0 || out.Words[0]&InstrFlagTargetOwner != 0 || out.Words[0]&InstrFlagAFromB != 0 {
+		t.Fatalf("expected bare A/B map to target B from owner A, got flags 0x%x", out.Words[0]>>60)
+	}
+
+	_, _, _, _, dstStart, dstSpan, opcode, mode, _, _, _, _, bType = DecodeInstruction(out.Words[1])
+	if dstStart != 32 || dstSpan != 8 || opcode != Opcodes["A"] || mode != ModePopcnt || bType != InstrBTypeDirect {
+		t.Fatalf("unexpected mapped reducer: dst=%d/%d opcode=0x%x mode=%d bType=%d", dstStart, dstSpan, opcode, mode, bType)
+	}
+	if out.Words[1]&InstrFlagTargetB == 0 || out.Words[1]&InstrFlagAFromB == 0 {
+		t.Fatalf("expected B reducer to map over B frames, got flags 0x%x", out.Words[1]>>60)
 	}
 }
 
@@ -107,11 +136,11 @@ func TestFeedReducerStoreMatchesContract(t *testing.T) {
 	}
 }
 
-func TestFeedBarePropertyMatchesContract(t *testing.T) {
+func TestFeedExplicitPropertyMatchesContract(t *testing.T) {
 	t.Parallel()
 
 	lay := layoutLikeConfigViper()
-	out, err := Compile(`[ { B(signals[0,1]) program_id B } ]`, lay)
+	out, err := Compile(`[ { B(signals[0,1]) B(program_id) B } ]`, lay)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -128,6 +157,39 @@ func TestFeedBarePropertyMatchesContract(t *testing.T) {
 	}
 	if out.Words[0]&InstrFlagTargetB == 0 || out.Words[0]&InstrFlagAFromB == 0 {
 		t.Fatalf("expected B target/source flags, got 0x%x", out.Words[0]>>60)
+	}
+}
+
+func TestFeedBarePropertyRequiresOwner(t *testing.T) {
+	t.Parallel()
+
+	lay := layoutLikeConfigViper()
+	if _, err := Compile(`[ { B(signals[0,1]) program_id B } ]`, lay); err == nil {
+		t.Fatalf("expected bare property to require A(...) or B(...)")
+	}
+}
+
+func TestFeedFoldTopologyMatchesContract(t *testing.T) {
+	t.Parallel()
+
+	lay := layoutLikeConfigViper()
+	out, err := Compile(`[ { A(signals[0,5]) B(affinity[0,5]) | fold } ]`, lay)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(out.Words) != 1 {
+		t.Fatalf("expected 1 word, got %d", len(out.Words))
+	}
+
+	_, _, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, _, _, _, bType := DecodeInstruction(out.Words[0])
+	if bStart != 123 || bSpan != 5 || dstStart != 32 || dstSpan != 5 {
+		t.Fatalf("unexpected spans: b=%d/%d dst=%d/%d", bStart, bSpan, dstStart, dstSpan)
+	}
+	if opcode != Opcodes["|"] || mode != ModeTruth || topology != TopologyFold || bType != InstrBTypeDirect {
+		t.Fatalf("unexpected fold lowering: opcode=0x%x mode=%d topology=%d bType=%d", opcode, mode, topology, bType)
+	}
+	if out.Words[0]&InstrFlagTargetOwner == 0 {
+		t.Fatalf("expected fold target to stay on owner, got flags 0x%x", out.Words[0]>>60)
 	}
 }
 

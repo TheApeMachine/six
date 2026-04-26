@@ -2,13 +2,20 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/compute/program"
 	"github.com/theapemachine/six/pkg/core"
@@ -16,80 +23,122 @@ import (
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
-const recruitProgramForMachineTest = `
-[ (signals[0,5] self) <= (context[0,5] ^ asset[40,5]) <= community ]
-[ (properties.noise self) <= popcnt(signals[0,5]) <= community ]
-[ (signals[7,1] self) <= (0) <= community ]
-[ (signals[7,1] self) <= (1) ? (popcnt(signals[0,5]) | 120) <= community ]
-[ (properties.community next) <= (properties.community) ? (signals[7,1] != 0) <= community ]
-[ (context[0,5] self) <= (signals[0,5]) ? (signals[7,1] != 0) <= community ]
-`
+const machineConfigEnv = "CONFIG_PATH"
+const machineDefaultConfigPath = "cmd/cfg/config.yml"
 
-func installMachineTestRecruitProgram(t *testing.T, value *primitive.Value) {
-	t.Helper()
+var machineConfigOnce sync.Once
+var machineConfigErr error
 
-	compiled, err := program.Compile(recruitProgramForMachineTest, program.Layout{
-		Regions: map[string]program.RegionExtent{
-			"signals":    {Start: 32, Words: 8},
-			"context":    {Start: 40, Words: 8},
-			"properties": {Start: 56, Words: 16},
-			"asset":      {Start: 72, Words: 48},
-		},
-		Properties: map[string]int{
-			"noise":     int(primitive.NOISE),
-			"community": int(primitive.COMMUNITY),
-		},
+func TestMachineCycleBootstrapsCommunityRecruiter(t *testing.T) {
+	Convey("Given unassigned Values without installed programs", t, func() {
+		loadMachineConfig(t)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		backend := compute.NewBackend(ctx)
+		defer backend.Close()
+
+		first := primitive.Emit()
+		second := primitive.Emit()
+		start, _ := primitive.AffinityRegion.WordExtent()
+
+		first.Set(start, 0b0011)
+		first.NormalizeAffinity()
+		first.SetStatus(primitive.ERROR)
+		second.Set(start, 0b0100)
+		second.NormalizeAffinity()
+		second.SetStatus(primitive.ERROR)
+
+		machine := &Machine{
+			ctx:       ctx,
+			cancel:    cancel,
+			backend:   backend,
+			community: []*primitive.Value{first, second},
+		}
+		defer func() {
+			primitive.CloseAll(machine.community)
+		}()
+
+		Convey("When the machine cycles", func() {
+			_, err := machine.Cycle()
+
+			Convey("It should emit one in-value recruiter and let firmware stamp the community", func() {
+				So(err, ShouldBeNil)
+				So(len(machine.community), ShouldEqual, 3)
+
+				recruiter := machine.community[2]
+				recruiterCommunity, communityErr := recruiter.Property(primitive.COMMUNITY)
+				firstCommunity, firstErr := first.Property(primitive.COMMUNITY)
+				secondCommunity, secondErr := second.Property(primitive.COMMUNITY)
+
+				So(communityErr, ShouldBeNil)
+				So(firstErr, ShouldBeNil)
+				So(secondErr, ShouldBeNil)
+				So(recruiterCommunity, ShouldEqual, recruiter.ID())
+				So(firstCommunity, ShouldEqual, recruiter.ID())
+				So(secondCommunity, ShouldEqual, recruiter.ID())
+				So(first.Status(), ShouldEqual, primitive.PENDING)
+				So(second.Status(), ShouldEqual, primitive.PENDING)
+				So(recruiter.HasProgram(), ShouldBeFalse)
+				So(recruiter.Status(), ShouldEqual, primitive.DONE)
+			})
+		})
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !value.InstallProgram(compiled.Words) {
-		t.Fatal("failed to install recruit program")
-	}
 }
 
-func TestMachineCycleRecruitsCommunityThroughProgramExecution(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestMachineCycleEmitsNextRecruiterAfterShannonCap(t *testing.T) {
+	Convey("Given an unassigned Value outside the recruiter's Shannon cap", t, func() {
+		loadMachineConfig(t)
 
-	backend := compute.NewBackend(ctx)
-	defer backend.Close()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	candidate := primitive.Emit()
-	defer candidate.Close()
-	candidate.SetProperty(primitive.CONTINUATION, candidate.ID())
-	start, _ := primitive.AffinityRegion.WordExtent()
-	candidate.Set(start, 0x3)
-	candidate.NormalizeAffinity()
+		backend := compute.NewBackend(ctx)
+		defer backend.Close()
 
-	root := primitive.Emit(primitive.WithRole(uint64(primitive.ValueRoleProgrammer)))
-	defer root.Close()
-	installMachineTestRecruitProgram(t, root)
-	root.SetProperty(primitive.COMMUNITY, 99)
+		first := primitive.Emit()
+		defer first.Close()
+		setMachineAffinityPrefix(first, 120)
 
-	machine := &Machine{
-		ctx:       ctx,
-		cancel:    cancel,
-		backend:   backend,
-		community: []*primitive.Value{root, candidate},
-	}
+		second := primitive.Emit()
+		defer second.Close()
+		setMachineAffinityBit(second, 120)
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := machine.Cycle(); err != nil {
-			t.Fatal(err)
+		machine := &Machine{
+			ctx:       ctx,
+			cancel:    cancel,
+			backend:   backend,
+			community: []*primitive.Value{first, second},
 		}
+		defer func() {
+			for _, value := range machine.community[2:] {
+				value.Close()
+			}
+		}()
 
-		got, _ := candidate.Property(primitive.COMMUNITY)
-		if got == 99 {
-			return
-		}
+		Convey("When the machine cycles twice", func() {
+			_, firstErr := machine.Cycle()
+			_, secondErr := machine.Cycle()
 
-		time.Sleep(time.Millisecond)
-	}
+			Convey("It should leave the saturated Value for a new recruiter", func() {
+				So(firstErr, ShouldBeNil)
+				So(secondErr, ShouldBeNil)
+				So(len(machine.community), ShouldEqual, 4)
 
-	got, _ := candidate.Property(primitive.COMMUNITY)
-	t.Fatalf("candidate community = %d, want recruited community 99", got)
+				firstRecruiter := machine.community[2]
+				secondRecruiter := machine.community[3]
+				firstCommunity, firstCommunityErr := first.Property(primitive.COMMUNITY)
+				secondCommunity, secondCommunityErr := second.Property(primitive.COMMUNITY)
+
+				So(firstCommunityErr, ShouldBeNil)
+				So(secondCommunityErr, ShouldBeNil)
+				So(firstCommunity, ShouldEqual, firstRecruiter.ID())
+				So(secondCommunity, ShouldEqual, secondRecruiter.ID())
+				So(firstRecruiter.ID(), ShouldNotEqual, secondRecruiter.ID())
+			})
+		})
+	})
 }
 
 func TestMachineCyclePublishesChangedTelemetry(t *testing.T) {
@@ -116,6 +165,7 @@ func TestMachineCyclePublishesChangedTelemetry(t *testing.T) {
 
 	value := primitive.Emit()
 	defer value.Close()
+	value.SetProperty(primitive.COMMUNITY, 1)
 
 	machine := &Machine{
 		ctx:       ctx,
@@ -197,6 +247,7 @@ func TestMachinePromptAppendsValuesBeforeCycle(t *testing.T) {
 
 	value := primitive.Emit()
 	defer value.Close()
+	value.SetProperty(primitive.COMMUNITY, 1)
 	value.SetStatus(primitive.DONE)
 
 	machine := &Machine{
@@ -264,4 +315,71 @@ func noMachineTelemetryMessage(messages <-chan int) bool {
 	case <-time.After(50 * time.Millisecond):
 		return true
 	}
+}
+
+func setMachineAffinityPrefix(value *primitive.Value, bitCount int) {
+	if value == nil {
+		return
+	}
+
+	for bit := 0; bit < bitCount && bit < primitive.AffinityBits; bit++ {
+		word := primitive.AffinityStartWord + (bit / 64)
+		value.Set(word, (*value)[word]|uint64(1<<(bit%64)))
+	}
+
+	value.NormalizeAffinity()
+}
+
+func setMachineAffinityBit(value *primitive.Value, bit int) {
+	if value == nil || bit < 0 || bit >= primitive.AffinityBits {
+		return
+	}
+
+	word := primitive.AffinityStartWord + (bit / 64)
+	value.Set(word, (*value)[word]|uint64(1<<(bit%64)))
+	value.NormalizeAffinity()
+}
+
+func loadMachineConfig(t *testing.T) {
+	t.Helper()
+
+	machineConfigOnce.Do(func() {
+		_, file, _, ok := runtime.Caller(0)
+		if !ok {
+			machineConfigErr = errors.New("cannot resolve vm test file")
+			return
+		}
+
+		viper.SetConfigFile(machineConfigPath(file))
+		machineConfigErr = viper.ReadInConfig()
+		if machineConfigErr != nil {
+			return
+		}
+
+		core.Cfg = core.NewConfig()
+	})
+
+	if machineConfigErr != nil {
+		t.Fatalf("load machine config: %v", machineConfigErr)
+	}
+}
+
+func machineConfigPath(file string) string {
+	if configured := os.Getenv(machineConfigEnv); configured != "" {
+		return filepath.Clean(configured)
+	}
+
+	if filepath.IsAbs(machineDefaultConfigPath) {
+		return filepath.Clean(machineDefaultConfigPath)
+	}
+
+	if _, err := os.Stat(machineDefaultConfigPath); err == nil {
+		return filepath.Clean(machineDefaultConfigPath)
+	}
+
+	return filepath.Clean(filepath.Join(
+		filepath.Dir(file),
+		"..", "..",
+		"cmd", "cfg", "config.yml",
+	))
 }

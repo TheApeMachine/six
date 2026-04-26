@@ -86,7 +86,6 @@ func NewBackend(idx int, opts ...backendOption) *Backend {
 }
 
 func (backend *Backend) Close() error {
-	cleanupMetalPools()
 	return nil
 }
 

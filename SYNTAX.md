@@ -34,7 +34,7 @@ Canonical **1024-bit** region for discrete tags, forward-transition statistics, 
 | 61         | 5             | **status**       | Value status enum (e.g., PENDING, READY, DONE).                                                                                                                                   |
 | 62         | 6             | **probe window** | Window size for causal probes.                                                                                                                                                    |
 | 63         | 7             | **probe depth**  | Re-stabilisation depth for causal hub probes.                                                                                                                                     |
-| 64         | 8             | **community**    | Stable `mesh.Field` ID stamped onto the visitor.                                                                                                                                  |
+| 64         | 8             | **community**    | Stable recruiter `ValueID` stamped onto Values accepted by in-band community recruitment.                                                                                         |
 | 65         | 9             | **target**       | ValueID of an addressable target.                                                                                                                                                 |
 | 66         | 10            | **role**         | In-band `ValueRole`.                                                                                                                                                              |
 | 67         | 11            | **reference**    | ValueID to encounter before the target.                                                                                                                                           |
@@ -280,6 +280,13 @@ The **bracket pipeline** in §2 is how programs are spelled in `config.yml` and 
 < >     **emit**       continuation / return
 ```
 
+Bare `A`/`B` sources use the implicit mapped form: `[(B popcnt)] <= [(A B ^)]`
+materializes the resident runner against each mapped `B` frame before reducing.
+Region and property operands must be explicit `A(...)` or `B(...)`; a bare
+region like `affinity[0,5]` is a compiler error because it has no frame owner.
+Gates evaluate on the mapped source frame so a `B(...)` write is masked by that
+candidate's own witnesses.
+
 ## Examples
 
 ```
@@ -302,32 +309,32 @@ The **bracket pipeline** in §2 is how programs are spelled in `config.yml` and 
 
 ; structural compose
 <[
-    { B(prev) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write Bn+1 id to prev region
-    { B(next) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write Bn+1 id to next region
+    { B(prev) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write the mapped id to prev region
+    { B(next) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write the mapped id to next region
 ] <= [
     { A(status) done ^ }                             ; set status of A to done
-    { B(tokens) signals[0, 1] ^ }                    ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
-    { B(tokens) signals[1, 1] ^ }                    ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
-    { B(tokens) signals[2, 1] ^ }                    ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
+    { B(tokens) B(signals[0, 1]) ^ }                 ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
+    { B(tokens) B(signals[1, 1]) ^ }                 ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
+    { B(tokens) B(signals[2, 1]) ^ }                 ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
 ]> [                                                 ; emit new values to the substrate
     { B(signals) }                                   ; map over Bn ([]*primitive.Value) and write results of previous pipe to signals region
 ] <= [
-    { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }   ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 8 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 16 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 24 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 24 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 32 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 40 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 40 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 48 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 56 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 56 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 64 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 72 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 72 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 80 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 88 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 88 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 96 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 104 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 104 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 112 bits applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 120 <<) } & } ; map over Bn ([]*primitive.Value) tokens and Bn+1 tokens rotated by 120 bits applying AND
+    { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }   ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 24 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 40 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 56 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 72 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 88 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 104 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
+    { B(tokens[0,16]) { B(tokens[0,16] 120 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
 ]
 ```
 

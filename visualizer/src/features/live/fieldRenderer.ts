@@ -663,6 +663,11 @@ export class FieldRenderer {
 	// recompute positions every snapshot without going back through field.members.
 	private readonly memberIndex = new Int32Array(MAX_PARTICLES);
 	private readonly memberCount = new Int32Array(MAX_PARTICLES);
+	// communityId mirrors the COMMUNITY property word the substrate writes per
+	// Value. Non-zero means the Value belongs to a community even if it isn't
+	// (yet) listed in any FieldSnapshot.members — without this the orphan
+	// fallback layout would double-place such Values onto its grid.
+	private readonly communityId = new Int32Array(MAX_PARTICLES);
 	private readonly nextIdx = new Int32Array(MAX_PARTICLES);
 	// Reverse adjacency: prevIdx[i] = j s.t. nextIdx[j] === i, or -1.
 	// Maintained alongside nextIdx so backward chain walks are O(1) per step.
@@ -1308,6 +1313,7 @@ export class FieldRenderer {
 		this.fieldId[i] = fieldId;
 		this.memberIndex[i] = memberIndex;
 		this.memberCount[i] = memberCount;
+		this.communityId[i] = m.communityId | 0;
 
 		const cat = categoryForMember(m);
 		const style = PROGRAM_CATEGORIES[cat];
@@ -1380,6 +1386,7 @@ export class FieldRenderer {
 		this.fieldId[idx] = -1;
 		this.memberIndex[idx] = 0;
 		this.memberCount[idx] = 0;
+		this.communityId[idx] = 0;
 		this.nextIdx[idx] = -1;
 		this.prevIdx[idx] = -1;
 		// Zero the whole row so it draws nothing if rendered out of range.
@@ -1485,6 +1492,11 @@ export class FieldRenderer {
 		for (let idx = 0; idx < this.highWater; idx++) {
 			if (this.idByIndex[idx] === "") continue;
 			if (this.fieldId[idx] >= 0) continue;
+			// COMMUNITY != 0 means the substrate already placed this Value in a
+			// community; even if the snapshot routed it through orphanValues
+			// (e.g. anchor not yet materialised this tick) the grid would
+			// double-place it on top of the upcoming community ring.
+			if (this.communityId[idx] !== 0) continue;
 			orphans.push(idx);
 		}
 		if (orphans.length === 0) return;

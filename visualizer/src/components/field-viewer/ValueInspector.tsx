@@ -531,13 +531,13 @@ export function ValueInspector({
 							</Badge>
 						)}
 						{/*
-						Causal residues are three independent booleans the wire
-						carries for every Value: the hypothesis bit means a
-						refutation target is staged in properties.target; falsified
-						means the resident program left a witness in signals[7];
-						intervening means the do_intervention rule severed causal
-						history and injected a foreign gradient. Exposing all
-						three as colour-coded badges lets the operator see the
+							Causal residues are three independent booleans the wire
+							carries for every Value: the hypothesis bit means a
+							refutation target is staged in properties.target; falsified
+							means the resident program left a witness in properties.noise;
+							intervening means the do_intervention rule severed causal
+							history and injected a foreign gradient. Exposing all
+							three as colour-coded badges lets the operator see the
 						causal cascade residue at a glance without decoding hex.
 						*/}
 						{snap.causal.hypothesizing && (
@@ -551,10 +551,10 @@ export function ValueInspector({
 						)}
 						{snap.causal.falsified && (
 							<Badge
-								variant="outline"
-								className="border-red-500/40 bg-red-500/20 text-red-200"
-								title="Falsification witness in signals[7]"
-							>
+									variant="outline"
+									className="border-red-500/40 bg-red-500/20 text-red-200"
+									title="Falsification witness in properties.noise"
+								>
 								FALSIFIED
 							</Badge>
 						)}

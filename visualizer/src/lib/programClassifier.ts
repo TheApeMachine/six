@@ -196,6 +196,7 @@ const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	hypothesis: "gap_probe",
 	program_select: "resident",
 	program_carrier: "resident",
+	recruit_community: "resident",
 	measure_field: "resident",
 	popcount: "util",
 	coupling: "util",
@@ -221,6 +222,16 @@ function unknownProgram(): ClassifiedProgram {
 		program: "",
 		category: "unknown",
 		style: PROGRAM_CATEGORIES.unknown,
+	};
+}
+
+export function classifyKnownProgram(program: string): ClassifiedProgram {
+	const category = categoryForProgram(program);
+
+	return {
+		program,
+		category,
+		style: PROGRAM_CATEGORIES[category],
 	};
 }
 
@@ -274,12 +285,7 @@ export function classifyInstructionStream(
 		}
 
 		if (matched) {
-			const category = categoryForProgram(sig.name);
-			return {
-				program: sig.name,
-				category,
-				style: PROGRAM_CATEGORIES[category],
-			};
+			return classifyKnownProgram(sig.name);
 		}
 	}
 

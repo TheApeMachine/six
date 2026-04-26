@@ -119,6 +119,14 @@ func (experiment *BabiExperiment) TableData() any {
 	return experiment.tableData
 }
 
+func (experiment *BabiExperiment) LabelForPrompt(idx int) []byte {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil
+	}
+
+	return experiment.holdouts[idx]
+}
+
 func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 	n := len(experiment.tableData)
 	if n == 0 {

@@ -77,13 +77,13 @@ This is the actual end-to-end path the code implements today:
 2. **Tokenizer chunks** — `vm.Tokenizer` reads from a ring buffer, calls `primitive.NewValue` to mint one or more `Value` segments per chunk. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
 3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
 4. **Firmware precompiled** — `core.NewConfig` lowers the `programs:` block through `pkg/compute/program`; Values install named firmware by copying packed instruction words into their own `program` region.
-5. **Published to Queue** — Values whose `properties.status` is `READY`, whose `program` region is non-empty, and whose `properties.continuation` is non-zero are eligible for backend execution. *(Orchestrator routing is currently deprecated in favor of in-band CONTINUATION scheduling).*
+5. **Published to Queue** — Values whose `properties.status` is `READY`, whose `program` region is non-empty, and whose `properties.continuation` is non-zero are eligible for backend execution. If a raw population has unassigned Values and no active resident, `vm.Machine.Cycle` emits a single `recruit_community` Value seeded from an unassigned affinity so the firmware can stamp the first community in-band. *(Orchestrator routing is currently deprecated in favor of in-band CONTINUATION scheduling).*
 6. **Backend executes** — `compute.Backend` marks the selected resident `BUSY`, dispatches its program to CPU, Metal, or CUDA, then finalizes it after the ALU tick. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. Otherwise the backend clears `program`, clears `continuation`, and stamps `DONE`, so firmware cannot linger accidentally.
-8. **Encounter / Staging** — `vm.Machine.Cycle` pairs active Values with peers from the community, staging peer context and gradient into the active Value's asset region before execution.
+8. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
 9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send.
 
-*(Gossip and Mesh routing mechanisms are currently marked as **specified but not implemented** in the active snapshot, as the architecture transitions to pure in-band routing via `next`, `fold`, and `spawn`).*
+*(The old Gossip/Mesh routing layer has been removed from the active runtime. Routing now lives in the packed AST through `self`, `next`, `fold`, and `spawn`, executed by HypercubeGossip).*
 
 ## The Intelligence Ladder
 
@@ -155,7 +155,7 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 | 61              | 5             | **status**                                 | Value status: PENDING, READY, BUSY, WAITING, DONE, RESOLVED, ERROR                                                                   |
 | 62              | 6             | **noise**                                  | Noise metrics                                                                                                                        |
 | 63              | 7             | **program_id**                             | Identifier of the currently executing routine                                                                                        |
-| 64              | 8             | **community**                              | Stable `mesh.Field` ID stamped onto the visitor by the leaf `Field.Write` after routing — the visualiser keys community buckets here |
+| 64              | 8             | **community**                              | Stable in-band community ID stamped by resident recruitment firmware; the visualiser keys community buckets here                    |
 | 65              | 9             | **target**                                 | ValueID of an addressable target (linker / encounter dispatch)                                                                       |
 | 66              | 10            | **role**                                   | In-band `ValueRole` (e.g. `ValueRoleProgrammer`); zero means no special role                                                         |
 | 67              | 11            | **reference**                              | ValueID to encounter before the target (linker staging)                                                                              |
@@ -170,7 +170,7 @@ Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-l
 
 Pipeline in order:
 
-1. **`program.Compile()`** lowers the bracket/feed source into compact 64-bit Instructions. Operation sites use direct region/property names (`signals`, `gradient[0,8]`, `program_id`) and optional owner markers (`A(...)`, `B(...)`).
+1. **`program.Compile()`** lowers the bracket/feed source into compact 64-bit Instructions. Operation sites use explicit owner markers (`A(signals)`, `B(gradient[0,8])`, `B(program_id)`) for every region/property operand.
 2. **`core.precompile()`** runs once during config load and stores packed instruction words in `core.Cfg.Programs`.
 3. **`primitive.Value.InstallFirmware()`** copies a named program into the Value's `program` region and stamps `properties.continuation = id`.
 4. **The ALU** executes the packed words directly; each instruction can write local `A(...)`, peer/candidate `B(...)`, spawned Values, or fold outputs depending on its topology.
@@ -269,7 +269,10 @@ Slots are packed **low-to-high**: slot 0 occupies bits 0–15 (the lowest 16 bit
 
 ### Field Crystallization
 
-Each community field maintains a **crystallization score** computed by **`mesh.MeasureFieldMetrics`** over the live members (and eigenmode snapshot when present), stored via **`Field.refreshMetrics`** on ingest and leaf **`Cycle`**. Routing parents expose a **weighted rollup** of child metrics (`RollupFieldMetrics`). The score is composed from three metrics:
+The active runtime no longer carries a separate `mesh.Field` / `gossip.Conn`
+layer. A community is the live population handed to `HypercubeGossip`, and
+crystallization is read from the Values themselves through label and witness
+words. The score is still composed from three observable metrics:
 
 | Metric         | Semantics                                                 | Computation                                  |
 |----------------|-----------------------------------------------------------|----------------------------------------------|
@@ -278,23 +281,30 @@ Each community field maintains a **crystallization score** computed by **`mesh.M
 | `LabelDensity` | Mean fraction of the four available slots that are filled | `slotSum / (total × 4)`                      |
 
 ```
-Crystallization.Score = Coverage × Consensus × LabelDensity
+Crystallization.Score = Coverage x Consensus x LabelDensity
 ```
 
-When a community's `Coverage` is below `crystallizationFloor` (0.35), higher-level rules (e.g. unsupervised / orchestration) can run a labeling pass on it — the field itself only **measures** and **emits** pressure through the same I/O paths.
+When a community's `Coverage` is below the crystallization floor, resident
+selector/carrier firmware can activate `survey_community`, `vote_swarm`, or
+`classify_readout`. Those programs leave their result in `labels`,
+`confidence`, `signals`, and `continuation`; there is no Go-side field object
+that mutates source Values on their behalf.
 
-**`measure_field` (firmware resident):** A resident Value can run the `measure_field` program so peers stage label-bearing state through the gossip substrate (`Conn.Write` → `StageAssetFrom`), with `asset` carrying routed peers' compressed state. The AST reduces into `signals` as an in-band energy readout. Separately, **`mesh.Field`** observability comes from **`MeasureFieldMetrics` + eigenmode detection** (`refreshMetrics` / `Cycle` on leaves), not from Go reading that resident's `signals[7]` on every tick.
+Field observability is therefore a readout concern over raw Value frames
+(telemetry, tests, or explicit resident readout Values), while routing and
+coordination stay inside HypercubeGossip topologies.
 
 ```text
-[ (signals self) <= popcnt(asset) <= community ]
+[ (signals fold) <= (labels | labels) <= community ]
 [ (properties.continuation self) <= (id) <= community ]
 ```
 
 ### Global Crystallization and the Spawn Trigger
 
-When a community's `Coverage` falls below the floor, the field emits an ephemeral carrier Value aimed (by affinity) at the learners it wants to activate. Delivery goes through the same gossip substrate every other Value uses: `io.Copy` from the emitting field into a `gossip.Conn` whose bundle is the target learner population, with `io.MultiWriter` fanning the frame across additional peers where fast paths exist. `Conn.Write` calls `StageAssetFrom` on every receiver, so the learner wakes up with the emitter's Signals+Context+Gradient+Properties already in its asset window — no Go-side registry lookup, no orchestrator-side token copy. The field's carrier emission is the trigger; the community-wide pressure arises from many carriers landing in parallel rather than a central loop materializing the O(U²) pair graph.
-
-When `Coverage >= crystallizationFloor` across all communities, no carriers are emitted and the system is quiescent. Carriers are minted with **`primitive.Emit`** (see **`mesh.Field.BuildPressureCarrier`**) so pressure metadata and firmware install stay on the same wire path as ordinary Values.
+When crystallization pressure needs to activate a behavior, the runtime emits
+ordinary Values with firmware and witness words, then lets the selector /
+carrier handshake install the next program in-band. When coverage is already
+sufficient, no resident is eligible and the backend remains quiescent.
 
 ### Firmware Programs
 
@@ -310,8 +320,9 @@ Current firmware families:
 | `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
 | `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
 | `program_select`, `program_carrier` | In-value program selection: selectors write the desired `program_id`; carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
-| `episodic_replay`, `memory_prune` | Memory pressure: compare staged peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
-| `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure using staged peer properties in `asset[24,1]`. |
+| `recruit_community` | Affinity recruitment: recruiter Values stamp `community = recruiter.id` onto unassigned peers within the Hamming budget while the recruiter/candidate union remains below the 47% Shannon cap, then fold accepted affinity back into their own witness. |
+| `episodic_replay`, `memory_prune` | Memory pressure: compare mapped peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
+| `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure over in-band label/property witnesses. |
 | `open_ended_generation` | Experimental generation path: mutate token coordinates by gradient and spawn only frames that survive the structural witness. |
 
 Reducer operations use the direct RPN contract: `{ A(surprisal) A(signals) popcnt }` means "store `popcnt(A(signals))` in `A(surprisal)`." If a backend/lowerer drifts from that meaning, the compiler is wrong, not the source language.
@@ -331,6 +342,7 @@ Program selection is a two-stage in-value handshake, not a Go dispatcher:
 | 5 | `causal_explore` | `ttl != 0` |
 | 6 | `causal_hub` | `noise != 0` |
 | 7 | `intervene` | `asset[16,1] != 0` |
+| 8 | `recruit_community` | `community == 0` |
 | 9 | `survey_community` | `asset[24,1] != 0` |
 | 10 | `classify_readout` | `labels != 0` |
 
@@ -340,15 +352,19 @@ The selector never knows program bytes, and the carrier never decides what shoul
 
 Only Values with both a non-empty `program` region and non-zero `continuation` are eligible as resident program owners. A settled resident can keep its firmware bytes without monopolizing the next gossip pass.
 
-### How Programs See Peer Data — the Gossip Substrate
+### Community Recruitment
 
-The ALU has a strict single-Value contract: every program line operates on regions of the **currently executing Value** only. Peer data reaches a program by being **written into that Value** through an `io.ReadWriter` composition:
+Communities are formed by recruiter Values running `recruit_community`. The program materializes `B(affinity[0,5]) ^ A(affinity[0,5])` into each candidate's `signals[0,5]`, builds the recruiter/candidate union witness in `B(asset[40,5])`, and masks candidates that already carry a `community`. It stages the route-budget pass in `B(asset[45,1])`, the Shannon pass in `B(asset[46,1])`, intersects them into `B(asset[47,1])`, and stamps `B(community) = recruiter.id` only for accepted unassigned candidates. The Shannon limit is encoded as `popcnt(asset[40,5]) <= 120`, which is the 47% cap over the 257-bit affinity region.
 
-```text
-peer Value   ──io.Copy──▶   gossip.Conn   ──Write──▶   receiver.asset[0,40] + receiver.asset[40,5]
-```
+Accepted candidates are reset to `status = PENDING` in the same firmware pass, so stale lifecycle words do not survive recruitment. Accepted candidate affinities are folded back into the recruiter's own `affinity[0,5]`, so the recruiter carries the saturation witness; `confidence = popcnt(affinity[0,5])` keeps that witness visible after the one-shot program region is cleared.
 
-`Value`, `gossip.Conn`, and **`mesh.Field`** all implement `io.ReadWriteCloser`, so `io.MultiWriter`, `io.MultiReader`, and `io.TeeReader` express fan-out, fan-in, and fast paths without any custom routing layer. `Conn.Write` stages the peer's Signals, Context, Gradient, and Properties into `asset[0,40]`, then stages peer Affinity into `asset[40,5]`. The ALU then runs with peer state already in-band. No Go-side registry. No per-program staging path. Selection of who writes to whom is the field's job, expressed by which `io.ReadWriteCloser` ends up wired to which.
+The VM does not assign communities itself. Its bootstrap responsibility is only to emit the next recruiter when the live community has unassigned Values and no active firmware owner. `Load` repeats that cycle until the unassigned count stops moving, which lets additional recruiters form until the batch has been claimed or the firmware can no longer make progress. The clustering rule remains resident firmware over `affinity` and `community`, not a Go-side assignment pass.
+
+### How Programs See Peer Data — Hypercube Mapping
+
+The ALU has a strict frame contract: source syntax names the resident runner as `A` and the mapped community operands as `B`. `HypercubeGossip` executes the resident program over the whole community in lockstep, so `B(...)` reads the current mapped peer frame, explicit `A(...)`/`B(...)` operands keep their frame ownership, and `fold` performs the synchronized hypercube reduction.
+
+Bare notation is only legal for the implicit `A`/`B` map described in `SYNTAX.md`: `[(B popcnt)] <= [(A B ^)]` materializes `A ^ B` onto each mapped `B` frame, then reduces each mapped result. Bare region/property operands are compiler errors; resident programs must address `A(...)` or `B(...)` directly, or use `asset` as their own carrier/scratch window.
 
 ---
 
@@ -442,10 +458,10 @@ This gives Popperian falsification a natural substrate. A hypothesis is a Value 
 **Causal modelling is a system behaviour, not an inference call.** The rule engine in `cmd/cfg/config.yml` drives every Value through the causal cycle autonomously — no Go-side orchestration ever asks "should this Value now form a hypothesis?" The rules observe region state and fire firmware, in this order once the bootstrap `link → affinity → explore` cascade has settled:
 
 1. **`hypothesis`** — `context[0,8]` and `gradient[0,8]` carry the live belief. The program writes `context ^ gradient` into `signals[0,8]`, reduces that signature into `target`, ORs in the Value's own `id` so the target cannot collapse to zero, stamps `reference = id`, and emits an ephemeral child carrying `context`, `gradient`, `target`, `reference`, `prev`, and `ttl`. **This is the "what if" question being asked autonomously.**
-2. **`falsification`** — a target is armed. The program compares the predicted-absent local context against the staged downstream peer context in `asset[8,8]`, writes the XOR into `signals[0,8]`, reduces the scalar refutation witness into `noise`, and folds the staged peer target from `asset[33,1]` into `reference`. The wide `signals` lane remains intact for the long-run probe; no Go-side classifier reads the result.
+2. **`falsification`** — a target is armed. The program compares the predicted-absent local context against the mapped downstream peer context, writes the XOR into `signals[0,8]`, reduces the scalar refutation witness into `noise`, and folds the peer target into `reference`. The wide `signals` lane remains intact for the long-run probe; no Go-side classifier reads the result.
 3. **`causal_explore`** — the ephemeral lineage carries the armed `target` and `reference`, drifts `context` by `gradient` while `surprisal` remains non-zero, emits descendants while `ttl` is live, and stops by clearing `continuation` when the TTL lane expires.
-4. **`causal_hub`** — a refutation witness in `noise` lets the hub absorb the residual `context ^ asset[8,8]`: `confidence` and `surprisal` witness the residual strength, `delta_surprisal` witnesses motion, and `gradient` changes only when the Value is carrying a real refutation. When the residual stabilises, `noise`, `target`, and `continuation` clear.
-5. **`intervene`** — a severed-history carrier (`prev == 0`) with a foreign gradient staged in `asset[16,8]` takes the `do()` path. The program folds that gradient into local `gradient`, reduces the intervention witness into `surprisal`, stamps `target/reference`, and emits an observation lineage so downstream drift is measured in-band.
+4. **`causal_hub`** — a refutation witness in `noise` lets the hub absorb the mapped residual between local context and downstream context: `confidence` and `surprisal` witness the residual strength, `delta_surprisal` witnesses motion, and `gradient` changes only when the Value is carrying a real refutation. When the residual stabilises, `noise`, `target`, and `continuation` clear.
+5. **`intervene`** — a severed-history carrier (`prev == 0`) with a foreign mapped gradient takes the `do()` path. The program folds that gradient into local `gradient`, reduces the intervention witness into `surprisal`, stamps `target/reference`, and emits an observation lineage so downstream drift is measured in-band.
 
 Agency is the resident selector's traversal over the Value's own region state. `program_select` turns witnesses into `program_id`, and matching `program_carrier` Values install the selected firmware in-band. Hypotheses are generated because the shape of the regions after `beam_swarm_step` is exactly the shape `hypothesis` consumes. Refutations cascade into counterfactuals because `falsification` stamps `noise`, and `causal_hub` consumes that witness. Nothing in Go decides when to ask "what if"; the substrate asks.
 
@@ -470,61 +486,17 @@ Because a hypothesis query and a real observation share the same substrate, Six 
 
 ---
 
-## Composable I/O — Value, Field, and Conn as `io.ReadWriteCloser`
+## Routing Substrate
 
-`primitive.Value`, **`mesh.Field`**, and `gossip.Conn` all implement `io.ReadWriteCloser`. This is not a serialization convenience — it is the **routing substrate**. Because every participant in the system speaks the same interface, the entire Go standard library's I/O combinators become first-class routing primitives with no additional glue.
+`primitive.Value` remains an `io.ReadWriteCloser` for opaque 1KB wire frames,
+and the `network` package provides IPC, UDP, and QUIC transport for moving
+those frames between processes or machines. Inside one runtime, routing is not
+an I/O graph: it is encoded directly in packed AST words and executed by
+`HypercubeGossip`.
 
-### The Ring Buffer as Transport
-
-The lock-free `data.Ring` (Vyukov MPMC) backs **`gossip.Conn`** and the **`pool.Queue`**: `Conn.Write` pushes frame bytes into the ring; `Conn.Read` pops them. That is the hot path for orchestrator → field fan-in. A **`primitive.Value`** itself is already a fixed `[128]uint64`; its **`Read`/`Write`** methods marshal wire bytes in place without a ring. **`mesh.Field.Read`** delegates to its embedded **`gossip.Conn`**, which uses the ring.
-
-```text
-gossip.Conn.Write(p) → Ring.Push(...)
-gossip.Conn.Read(p)  → Ring.Pop(...) → copy into p
-```
-
-### Routing as I/O Composition
-
-Because every node is an `io.ReadWriteCloser`, routing is pure stdlib composition:
-
-```go
-// Field emits to local queue and two remote fields simultaneously
-route := io.MultiWriter(localQueue, remoteField1, remoteField2)
-
-// ALU output is consumed locally and propagated to gossip at the same time
-tee := io.TeeReader(emittedValue, gossipConn)
-io.Copy(localQueue, tee)
-
-// Directed Value-to-Value handoff: message output → target Reserved (pre-staged before ALU dispatch)
-pr, pw := io.Pipe()
-io.Copy(pw, messageValue)    // message writes its Signals bytes
-io.Copy(targetReserved, pr)  // target reads into Reserved before dispatch
-```
-
-No routing tables. No special-cased dispatch paths. The topology is expressed entirely in which `io.ReadWriteCloser` values are passed to which stdlib combinators at connection time.
-
-### Affinity as address
-
-The five **affinity** words (see `value.region.affinity` in config) fingerprint each Value. **`mesh.Field`** routing compares incoming frames to **community seeds** with a Hamming-distance scan (`findCommunity`); that is the live addressing story today. A separate **affinity-filtered `io.Writer`** (drop frames whose decoded affinity is outside a Hamming budget of a target) is a natural stdlib-sized building block for multi-hop fan-out — compose it when you need it; it is not a dedicated type in `pkg/` yet.
-
-### `gossip.Conn` as `io.ReadWriteCloser`
-
-`gossip.Conn` bundles zero or more **`primitive.Value`** references with a **`pool.Queue`**, a **`data.Ring`** for streaming frames, and telemetry teeing. **`Write`** forwards bytes into the ring (and staging paths described in `pkg/gossip/conn.go`). **`Read`** round-robins **`Value.Read`** over the bundle so each full frame is one read. See the package docs for the exact staging / executable submission contract — the struct fields are not the simplified “intake + peer scores” sketch from earlier drafts.
-
-### `mesh.Field` as `io.ReadWriteCloser`
-
-```go
-func (field *Field) Write(p []byte) (int, error)
-// Deserialize a wire frame into a Value; on a leaf, append and refresh metrics;
-// on a routing parent, Hamming-route into the winning sub-field.
-
-func (field *Field) Read(p []byte) (int, error)
-// Delegate to the embedded gossip.Conn — round-robin read of stored Values as frames.
-
-func (field *Field) Close() error
-```
-
-A `mesh.Field` is constructed with a **`gossip.Conn`** (`field.conn`) and optional **`pool.Queue`** for backend publishing. Wire it with `io.Copy`, `io.MultiWriter`, and the same patterns as `Value` and `Conn` — there is no separate “field stream” type beyond this composition.
+`self`, `next`, `fold`, and `spawn` are the active routing primitives. The
+compiler lowers them into topology bits, and the CPU/Metal/CUDA kernels apply
+them against the live community arena with deterministic tick barriers.
 
 ---
 

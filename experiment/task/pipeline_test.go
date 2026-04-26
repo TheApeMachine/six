@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
+	"github.com/theapemachine/six/experiment/task/logic"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -122,7 +123,7 @@ func TestPipeline(t *testing.T) {
 		// phasedial.NewSteerabilityExperiment(),
 		// phasedial.NewTwoHopRetrievalExperiment(),
 		// imagegen.NewReconstructionExperiment(),
-		// logic.NewBabiExperiment(),
+		logic.NewBabiExperiment(),
 		// logic.NewSemanticAlgebraExperiment(),
 		// misc.NewCrossDomainCompletionExperiment(),
 		// misc.NewGemmaIntegrationExperiment(),

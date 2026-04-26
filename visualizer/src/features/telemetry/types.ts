@@ -42,8 +42,8 @@ for exact word/bit mapping.
  - hypothesizing: the Value has staged a refutation target in
    properties.target — i.e. the "what if" question has been asked and the
    ALU is waiting for a signal one-run long enough to refute it.
- - falsified: the resident ALU left a non-zero witness in signals[7],
-   meaning the hypothesis was successfully refuted.
+	 - falsified: the resident ALU left a non-zero witness in
+	   properties.noise, meaning the hypothesis was successfully refuted.
  - intervening: the carrier that arrived at this Value severed causal
    history (no prev) and injected a foreign gradient. The do_intervention
    program then XOR'd that gradient into local context.
