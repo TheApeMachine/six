@@ -1,9 +1,13 @@
 package program
 
 import (
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 )
 
 func layoutLikeConfigViper() Layout {
@@ -76,6 +80,64 @@ func TestStructuralComponentProgramMatchesContract(t *testing.T) {
 	}
 }
 
+func TestConfigProgramsCompile(t *testing.T) {
+	t.Parallel()
+
+	cfg := viper.New()
+	cfg.SetConfigFile(filepath.Join("..", "..", "..", "cmd", "cfg", "config.yml"))
+	if err := cfg.ReadInConfig(); err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	programs := cfg.GetStringMapString("programs")
+	if len(programs) == 0 {
+		t.Fatalf("expected config programs")
+	}
+
+	lay := layoutLikeConfigViper()
+	replacer := configProgramReplacer(cfg)
+
+	for name, source := range programs {
+		source := source
+		if source == "" {
+			continue
+		}
+
+		t.Run(name, func(t *testing.T) {
+			out, err := Compile(replacer.Replace(source), lay)
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+			if len(out.Words) == 0 {
+				t.Fatalf("expected instructions")
+			}
+			if len(out.Words) > lay.Regions["program"].Words {
+				t.Fatalf("program lowered to %d words; program region holds %d", len(out.Words), lay.Regions["program"].Words)
+			}
+		})
+	}
+}
+
+func configProgramReplacer(cfg *viper.Viper) *strings.Replacer {
+	shannonThreshold := int(cfg.GetFloat64("system.shannonLimit") * 256)
+	if shannonThreshold < 0 {
+		shannonThreshold = 0
+	}
+	if shannonThreshold > 256 {
+		shannonThreshold = 256
+	}
+
+	routeBudget := cfg.GetInt("system.routeBudget")
+	if routeBudget == 0 {
+		routeBudget = 128
+	}
+
+	return strings.NewReplacer(
+		"{{shannonLimitPopcount}}", strconv.Itoa(shannonThreshold),
+		"{{routeBudget}}", strconv.Itoa(routeBudget),
+	)
+}
+
 func TestFeedExampleProgramMatchesContract(t *testing.T) {
 	t.Parallel()
 	lay := layoutLikeConfigViper()
@@ -130,10 +192,10 @@ func TestFeedReducerStoreMatchesContract(t *testing.T) {
 	}
 
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
-	if aStart != 68 || aSpan != 1 || bStart != 32 || bSpan != 8 || dstStart != 68 || dstSpan != 1 {
+	if aStart != 32 || aSpan != 8 || bStart != 0 || bSpan != 1 || dstStart != 68 || dstSpan != 1 {
 		t.Fatalf("unexpected spans: a=%d/%d b=%d/%d dst=%d/%d", aStart, aSpan, bStart, bSpan, dstStart, dstSpan)
 	}
-	if opcode != Opcodes["B"] || mode != ModePopcnt || bType != InstrBTypeDirect {
+	if opcode != Opcodes["A"] || mode != ModePopcnt || bType != InstrBTypeDirect {
 		t.Fatalf("unexpected reducer lowering: opcode=0x%x mode=%d bType=%d", opcode, mode, bType)
 	}
 }
@@ -159,6 +221,27 @@ func TestFeedExplicitPropertyMatchesContract(t *testing.T) {
 	}
 	if out.Words[0]&InstrFlagTargetB == 0 || out.Words[0]&InstrFlagAFromB == 0 {
 		t.Fatalf("expected B target/source flags, got 0x%x", out.Words[0]>>60)
+	}
+}
+
+func TestFeedIndexedOperandAllowsWhitespace(t *testing.T) {
+	t.Parallel()
+
+	lay := layoutLikeConfigViper()
+	out, err := Compile(`[ { B(tokens) B(signals[0, 1]) ^ } ]`, lay)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(out.Words) != 1 {
+		t.Fatalf("expected 1 word, got %d", len(out.Words))
+	}
+
+	_, _, bStart, bSpan, dstStart, dstSpan, opcode, mode, _, _, _, _, bType := DecodeInstruction(out.Words[0])
+	if bStart != 32 || bSpan != 1 || dstStart != 0 || dstSpan != 16 {
+		t.Fatalf("unexpected spans: b=%d/%d dst=%d/%d", bStart, bSpan, dstStart, dstSpan)
+	}
+	if opcode != Opcodes["^"] || mode != ModeTruth || bType != InstrBTypeDirect {
+		t.Fatalf("unexpected lowering: opcode=0x%x mode=%d bType=%d", opcode, mode, bType)
 	}
 }
 
@@ -254,11 +337,11 @@ func TestFeedThresholdGateBlocksAtThreshold(t *testing.T) {
 	})
 }
 
-func TestLegacyPopcntPredicateKeepsAtMostSemantics(t *testing.T) {
-	Convey("Given a legacy popcnt predicate", t, func() {
+func TestFeedPopcntPredicateKeepsAtMostSemantics(t *testing.T) {
+	Convey("Given a feed pipe with popcnt threshold predicate", t, func() {
 		lay := layoutLikeConfigViper()
 
-		out, err := Compile(`[ (signals[0,1] self) <= (1) ? (popcnt(affinity[0,5]) | 120) <= community ]`, lay)
+		out, err := Compile(`[ { A(signals[0,1]) 1 B } { A(affinity[0,5]) popcnt 121 ? } ]`, lay)
 
 		So(err, ShouldBeNil)
 		So(len(out.Words), ShouldEqual, 1)
@@ -300,59 +383,74 @@ func TestCompiler(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
-		src   string
-		valid bool
+		name      string
+		src       string
+		valid     bool
+		wantWords int
 	}{
 		{
-			name:  "Basic Local Sweep",
-			src:   `[ (16..24 self) <= (0..8 ^ 8..16) <= (0..n) ]`,
-			valid: true,
+			name:      "Basic Local Sweep",
+			src:       `[ { A(16..24) B(0..8) B(8..16) ^ } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Predicated Fold",
-			src:   `[ (gradient fold) <= (0..8 ^ context) ? (signals[7,1] != 0) <= community ]`,
-			valid: true,
+			name: "Predicated Fold",
+			src: `
+[ { { A(signals[7,1]) 0 != } ? } ]
+[ { A(gradient) B(context) ^ fold } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Fold rejects projection",
-			src:   `[ (gradient fold) <= (context) <= community ]`,
-			valid: false,
+			name:      "Fold rejects projection",
+			src:       `[ { A(gradient) B(context) A fold } ]`,
+			valid:     false,
+			wantWords: 0,
 		},
 		{
-			name:  "Fold rejects NAND",
-			src:   `[ (gradient fold) <= (context ~& signals) <= community ]`,
-			valid: false,
+			name:      "Fold rejects NAND",
+			src:       `[ { A(gradient) B(context) B(signals) ~& fold } ]`,
+			valid:     false,
+			wantWords: 0,
 		},
 		{
-			name:  "Fold accepts XNOR",
-			src:   `[ (gradient fold) <= (context == signals) <= community ]`,
-			valid: true,
+			name:      "Fold accepts XOR",
+			src:       `[ { A(gradient) B(context) ^ fold } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Reduction",
-			src:   `[ (signals[7,1] self) <= any_zero(16..24 -> context) <= community ]`,
-			valid: true,
+			name:      "Reduction",
+			src:       `[ { A(signals[7,1]) B(16..24) B(context) -> any_zero } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Immediate with predicate",
-			src:   `[ (program self) <= (rom.unsupervised | 0) ? (signals[7,1] != 0) <= community ]`,
-			valid: true,
+			name: "Immediate with predicate",
+			src: `
+[ { { A(signals[7,1]) 0 != } ? } ]
+[ { A(program) B(rom.unsupervised) 0 | } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Popcnt threshold predicate",
-			src:   `[ (signals[7,1] self) <= (1) ? (popcnt(affinity[0,5]) | 120) <= community ]`,
-			valid: true,
+			name:      "Popcnt threshold predicate",
+			src:       `[ { A(signals[7,1]) 1 B } { A(affinity[0,5]) popcnt 121 ? } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Bare A expression (must not eat closing bracket)",
-			src:   `[ (signals[7,1] self) <= A <= community ]`,
-			valid: true,
+			name:      "Bare A expression (must not eat closing bracket)",
+			src:       `[ { A(signals[7,1]) A } ]`,
+			valid:     true,
+			wantWords: 1,
 		},
 		{
-			name:  "Saturates is not a language intrinsic",
-			src:   `[ (signals[7,1] self) <= saturates(affinity[0,5]) <= community ]`,
-			valid: false,
+			name:      "Saturates is not a language intrinsic",
+			src:       `[ { A(signals[7,1]) B(affinity[0,5]) saturates } ]`,
+			valid:     false,
+			wantWords: 0,
 		},
 	}
 
@@ -365,8 +463,8 @@ func TestCompiler(t *testing.T) {
 			if !tt.valid && err == nil {
 				t.Fatalf("expected error, got valid")
 			}
-			if tt.valid && len(compiled.Words) != 1 {
-				t.Fatalf("expected 1 word, got %d", len(compiled.Words))
+			if tt.valid && tt.wantWords > 0 && len(compiled.Words) != tt.wantWords {
+				t.Fatalf("expected %d words, got %d", tt.wantWords, len(compiled.Words))
 			}
 		})
 	}

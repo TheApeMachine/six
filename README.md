@@ -168,6 +168,9 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes both the source text and the packed instruction words for each named firmware block.
 
+The authoring syntax is parsed by `grammar/tree-sitter-six`; `pkg/compute/program`
+lowers the typed Tree-sitter feed terms into packed instruction words.
+
 Pipeline in order:
 
 1. **`program.Compile()`** lowers the bracket/feed source into compact 64-bit Instructions. Operation sites use explicit owner markers (`A(signals)`, `B(gradient[0,8])`, `B(program_id)`) for every region/property operand.

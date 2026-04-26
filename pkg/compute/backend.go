@@ -43,6 +43,7 @@ type Backend struct {
 	nextSub      atomic.Uint64
 	pending      atomic.Int64
 	cache        sync.Map
+	staged       sync.Map
 }
 
 /*
@@ -70,6 +71,7 @@ func NewBackend(ctx context.Context) *Backend {
 		pool:       pool.NewPool(uint64(runtime.NumCPU())),
 		substrates: make([]*substrateState, 0),
 		cache:      sync.Map{},
+		staged:     sync.Map{},
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -253,6 +255,10 @@ func (backend *Backend) runHypercubeGossip(owner *primitive.Value, community []*
 }
 
 func (backend *Backend) finalizeOwner(owner *primitive.Value, before [primitive.ProgramWords]uint64) {
+	finalizeExecutedOwner(owner, before)
+}
+
+func finalizeExecutedOwner(owner *primitive.Value, before [primitive.ProgramWords]uint64) {
 	if owner == nil {
 		return
 	}

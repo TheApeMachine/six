@@ -24,7 +24,7 @@ func TestHypercubeGossip(t *testing.T) {
 				"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 			},
 		}
-		compiled, err := program.Compile(`[ (signals[0,1] self) <= (tokens[0,1] ^ tokens[1,1]) <= community ]`, layout)
+		compiled, err := program.Compile(`[ { A(signals[0,1]) A(tokens[0,1]) A(tokens[1,1]) ^ } ]`, layout)
 		So(err, ShouldBeNil)
 
 		actual := primitive.Emit()
@@ -65,7 +65,7 @@ func BenchmarkHypercubeGossip(b *testing.B) {
 			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
 	}
-	compiled, err := program.Compile(`[ (signals[0,1] self) <= (tokens[0,1] ^ tokens[1,1]) <= community ]`, layout)
+	compiled, err := program.Compile(`[ { A(signals[0,1]) A(tokens[0,1]) A(tokens[1,1]) ^ } ]`, layout)
 	if err != nil {
 		b.Fatal(err)
 	}

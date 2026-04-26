@@ -17,10 +17,10 @@ func TestOptimizerWorkloadExecutesProgramOwnerOverCommunity(t *testing.T) {
 		Regions: map[string]program.RegionExtent{
 			"program": {Start: primitive.ProgramStartWord, Words: primitive.ProgramWords},
 			"id":      {Start: primitive.IDStartWord, Words: primitive.IDWords},
-			"out":     {Start: primitive.SignalsStartWord, Words: 1},
+			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
 	}
-	compiled, err := program.Compile(`[ (out self) <= (id) <= community ]`, lay)
+	compiled, err := program.Compile(`[ { B(signals[0,1]) A(id) B } ]`, lay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,10 +39,10 @@ func TestOptimizerWorkloadExecutesProgramOwnerOverCommunity(t *testing.T) {
 	NewOptimizer(context.Background(), []*primitive.Value{owner, candidate}).Workload()()
 
 	if ownerFrame[primitive.SignalsStartWord] != owner.ID() {
-		t.Fatalf("owner out = %d, want owner id %d", ownerFrame[primitive.SignalsStartWord], owner.ID())
+		t.Fatalf("owner signals = %d, want owner id %d", ownerFrame[primitive.SignalsStartWord], owner.ID())
 	}
 	if candidateFrame[primitive.SignalsStartWord] != owner.ID() {
-		t.Fatalf("candidate out = %d, want owner id %d", candidateFrame[primitive.SignalsStartWord], owner.ID())
+		t.Fatalf("candidate signals = %d, want owner id %d", candidateFrame[primitive.SignalsStartWord], owner.ID())
 	}
 	if owner.Status() != primitive.DONE {
 		t.Fatalf("owner status = %d, want DONE", owner.Status())
@@ -58,11 +58,11 @@ func TestOptimizerWorkloadExecutesProgramOwnerOverCommunity(t *testing.T) {
 func TestOptimizerWorkloadSkipsSettledProgramOwner(t *testing.T) {
 	lay := program.Layout{
 		Regions: map[string]program.RegionExtent{
-			"id":  {Start: primitive.IDStartWord, Words: primitive.IDWords},
-			"out": {Start: primitive.SignalsStartWord, Words: 1},
+			"id":      {Start: primitive.IDStartWord, Words: primitive.IDWords},
+			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
 	}
-	compiled, err := program.Compile(`[ (out self) <= (id) <= community ]`, lay)
+	compiled, err := program.Compile(`[ { A(signals[0,1]) A(id) } ]`, lay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +89,10 @@ func TestOptimizerWorkloadSchedulesReadyProgramOwnerOnly(t *testing.T) {
 	lay := program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"id":      {Start: primitive.IDStartWord, Words: primitive.IDWords},
-			"signals": {Start: primitive.SignalsStartWord, Words: 1},
+			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
 	}
-	compiled, err := program.Compile(`[ (signals[0,1] self) <= (id) <= community ]`, lay)
+	compiled, err := program.Compile(`[ { A(signals[0,1]) A(id) } ]`, lay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestOptimizerWorkloadMarksOwnerBusyDuringALU(t *testing.T) {
 			"status": int(primitive.STATUS),
 		},
 	}
-	compiled, err := program.Compile(`[ (signals[0,1] self) <= (properties.status) <= community ]`, lay)
+	compiled, err := program.Compile(`[ { A(signals[0,1]) A(properties.status) B } ]`, lay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestOptimizerWorkloadComparesOwnerAWithCandidateB(t *testing.T) {
 			"signals":  {Start: primitive.SignalsStartWord, Words: primitive.AffinityWords},
 		},
 	}
-	compiled, err := program.Compile(`[ (signals[0,5] self) <= (affinity[0,5] ^ affinity[0,5]) <= community ]`, lay)
+	compiled, err := program.Compile(`[ { B(signals[0,5]) A(affinity[0,5]) B(affinity[0,5]) ^ } ]`, lay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,13 +192,14 @@ func TestBackendSubmitDispatchesHypercubeGossip(t *testing.T) {
 	owner := primitive.Emit()
 	defer owner.Close()
 	compiled, err := program.Compile(`
-	[ (properties.community B) <= (id[0,1] A) ]
-	[ (properties.status self) <= (DONE) ]
-	[ (properties.continuation emit) <= A ]`, program.Layout{
+	[ { B(properties.community) A(id[0,1]) B } ]
+	[ { A(properties.status) done } ]
+	[ { A(properties.continuation) A(id) emit } ]`, program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
 			"affinity":   {Start: primitive.AffinityStartWord, Words: primitive.AffinityWords},
 			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},
+			"signals":    {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
 		Properties: map[string]int{
 			"community":    int(primitive.COMMUNITY),
@@ -271,7 +272,7 @@ func TestBackendRunHypercubeGossipFallsBackAfterSubstrateError(t *testing.T) {
 	accepted := primitive.Emit()
 	defer accepted.Close()
 
-	compiled, err := program.Compile(`[ (properties.community B) <= (id[0,1] A) ]`, program.Layout{
+	compiled, err := program.Compile(`[ { B(properties.community) A(id[0,1]) B } ]`, program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
 			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},
@@ -312,7 +313,7 @@ func TestBackendRunHypercubeGossipKeepsProgramAfterSubstrateError(t *testing.T) 
 	owner := primitive.Emit()
 	defer owner.Close()
 
-	compiled, err := program.Compile(`[ (properties.community B) <= (id[0,1] A) ]`, program.Layout{
+	compiled, err := program.Compile(`[ { B(properties.community) A(id[0,1]) B } ]`, program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
 			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},
@@ -377,7 +378,7 @@ func drainBackendSpawned(t *testing.T, backend *Backend) []*primitive.Value {
 func benchmarkCommunityProgramWords(b testing.TB) []uint64 {
 	b.Helper()
 
-	compiled, err := program.Compile(`[ (properties.community B) <= (id[0,1] A) ]`, program.Layout{
+	compiled, err := program.Compile(`[ { B(properties.community) A(id[0,1]) B } ]`, program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"properties": {Start: primitive.PropertiesStartWord, Words: primitive.PropertiesWords},
 			"id":         {Start: primitive.IDStartWord, Words: primitive.IDWords},

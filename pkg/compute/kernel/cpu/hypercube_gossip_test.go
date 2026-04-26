@@ -32,7 +32,7 @@ func TestHypercubeGossip(t *testing.T) {
 				"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 			},
 		}
-		compiled, err := program.Compile(`[ (signals[0,1] fold) <= (tokens[0,1] | 0) <= community ]`, layout)
+		compiled, err := program.Compile(`[ { A(signals[0,1]) B(tokens[0,1]) | fold } ]`, layout)
 		So(err, ShouldBeNil)
 
 		first := primitive.Emit()
@@ -58,15 +58,16 @@ func TestHypercubeGossip(t *testing.T) {
 	})
 
 	Convey("Given an in-band geometric instruction", t, func() {
-		layout := program.Layout{
-			Regions: map[string]program.RegionExtent{
-				"signals":  {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
-				"context":  {Start: primitive.ContextStartWord, Words: primitive.ContextWords},
-				"gradient": {Start: primitive.GradientStartWord, Words: primitive.GradientWords},
-			},
-		}
-		compiled, err := program.Compile(`[ (signals self) <= (context compose gradient) <= community ]`, layout)
-		So(err, ShouldBeNil)
+		composeOp := program.Opcodes["compose"]
+		compiled := program.Compiled{Words: []uint64{
+			program.EncodeInstruction(
+				primitive.ContextStartWord, primitive.ContextWords,
+				primitive.GradientStartWord, primitive.GradientWords,
+				primitive.SignalsStartWord, primitive.SignalsWords,
+				composeOp, program.ModeGeometric, program.TopologySelf,
+				0, 0, 0, program.InstrBTypeDirect,
+			) | program.InstrFlagTargetOwner,
+		}}
 
 		actual := primitive.Emit()
 		defer actual.Close()
@@ -120,15 +121,16 @@ func TestHypercubeGossip(t *testing.T) {
 	})
 
 	Convey("Given a geometric instruction with encoded operands and destination", t, func() {
-		layout := program.Layout{
-			Regions: map[string]program.RegionExtent{
-				"tokens":   {Start: primitive.TokensStartWord, Words: primitive.TokensWords},
-				"gradient": {Start: primitive.GradientStartWord, Words: primitive.GradientWords},
-				"asset":    {Start: primitive.AssetStartWord, Words: primitive.AssetWords},
-			},
-		}
-		compiled, err := program.Compile(`[ (asset[8,8] self) <= (tokens[0,8] compose gradient) <= community ]`, layout)
-		So(err, ShouldBeNil)
+		composeOp := program.Opcodes["compose"]
+		compiled := program.Compiled{Words: []uint64{
+			program.EncodeInstruction(
+				primitive.TokensStartWord, 8,
+				primitive.GradientStartWord, primitive.GradientWords,
+				primitive.AssetStartWord+8, 8,
+				composeOp, program.ModeGeometric, program.TopologySelf,
+				0, 0, 0, program.InstrBTypeDirect,
+			) | program.InstrFlagTargetOwner,
+		}}
 
 		actual := primitive.Emit()
 		defer actual.Close()

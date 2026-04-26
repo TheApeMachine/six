@@ -205,7 +205,7 @@ func TestMachineCyclePrunesExpiredEphemeralValues(t *testing.T) {
 	backend := compute.NewBackend(ctx)
 	defer backend.Close()
 
-	compiled, err := program.Compile(`[ (signals[0,1] self) <= (id) <= community ]`, program.Layout{
+	compiled, err := program.Compile(`[ { A(signals[0,1]) A(id) } ]`, program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"id":      {Start: primitive.IDStartWord, Words: primitive.IDWords},
 			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},

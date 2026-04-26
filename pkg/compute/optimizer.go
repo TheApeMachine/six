@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -53,10 +54,16 @@ Workload returns the workload to be executed.
 func (optimizer *Optimizer) Workload() func() {
 	return func() {
 		for _, value := range optimizer.values {
-			if value == nil {
+			if value == nil || !value.ReadyForALU() {
 				continue
 			}
+
+			before := snapshotProgram(value)
+
 			value.SetStatus(primitive.BUSY)
+			optimizer.spawned = append(optimizer.spawned, cpu.HypercubeGossip(value, optimizer.values)...)
+
+			finalizeExecutedOwner(value, before)
 		}
 	}
 }

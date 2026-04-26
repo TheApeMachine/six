@@ -123,11 +123,15 @@ programs:
     [ { A(continuation) A(id) | } ]
   affinity: |
     [ { A(affinity[0,5]) A(tokens[0,16]) ^ } ]
-  query:
+  # query: community subset search / ready buffer — reserved; no program text yet
+  query: |
     ; query the community for a sub-set of values, based on matching
     ; region and word state, and queue the results in the ready buffer.
     ; This will make sure that the next call to backend.Submit receives
     ; the values that were found.
+    [ 
+      { B(reference) A(id) ^ }                           ; set the reference of the matched values to the owner id
+    ]
   structural_component: |
     <[
       { B(prev) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write the mapped id to prev region
@@ -385,50 +389,17 @@ programs:
       { A(signals[0,8]) A(context[0,8]) B }
     ]
   recruit_community: |
-    [
-      { A(confidence) A(affinity[0,5]) popcnt }
+    <[ 
+      { program A(program) ^ }                     ; copy the program region to the new Value to be emitted
+      { A(status) done ^ }                         ; set the status of A to DONE
+    ]> [
+      { { { A(affinity) popcnt } 120 < } ? }       ; hard gate when Shannon limit is reached
     ] <= [
-      { B(signals[0,5]) clear B }
+      { A(affinity) B(affinity) | }                ; OR the candidate affinity with the recruiter affinity
+      { B(community) A(id) ^ }                     ; set the community of each B to the recruiter id
+      { B(status) done ^ }                         ; set the status of each B to DONE
     ] <= [
-      { A(affinity[0,5]) A(signals[0,5]) B }
-    ] <= [
-      { A(signals[0,5]) B(affinity[0,5]) | fold }
-    ] <= [
-      { { B(asset[7,1]) 0 != } ? }
-    ] <= [
-      { B(status) 0 B }
-    ] <= [
-      { { B(asset[7,1]) 0 != } ? }
-    ] <= [
-      { B(community) B(asset[7,1]) B }
-    ] <= [
-      { { B(community) 0 == } ? }
-    ] <= [
-      { B(asset[7,1]) B(asset[6,1]) & }
-    ] <= [
-      { B(asset[7,1]) B(asset[5,1]) B }
-    ] <= [
-      { B(asset[6,1]) A(id) B }
-    ] <= [
-      { { B(asset[0,5]) popcnt } 120 ? }
-    ] <= [
-      { B(asset[5,1]) A(id) B }
-    ] <= [
-      { { B(signals[0,5]) popcnt } {{routeBudget}} ? }
-    ] <= [
-      { B(asset[5,3]) clear B }
-    ] <= [
-      { B(signals[0,5]) B(signals[0,5]) == }
-    ] <= [
-      { { B(community) 0 != } ? }
-    ] <= [
-      { B(signals[0,5]) A(affinity[0,5]) ^ }
-    ] <= [
-      { B(asset[0,5]) A(affinity[0,5]) | }
-    ] <= [
-      { B(asset[0,5]) B(affinity[0,5]) B }
-    ] <= [
-      { B(signals[0,5]) B(affinity[0,5]) B }
+      { { A(affinity) B(affinity) hamming } 64 < } ; filter by affinity hamming distance budget
     ]
   causal_hub: |
     [ { A(continuation) clear B } ] <= [

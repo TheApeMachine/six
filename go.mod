@@ -15,6 +15,7 @@ require (
 )
 
 require (
+	github.com/alexaandru/go-tree-sitter-bare v1.11.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.8.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

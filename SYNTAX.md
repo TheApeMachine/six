@@ -1,14 +1,12 @@
 # The Six Programming Syntax
 
-This document defines the canonical programming syntax for high-level, in-value programming. It represents a paradigm shift: **the complete unification of computation, routing, and state management into a single array-oriented mathematical syntax.**
-
-By treating network operations as just another bitwise ALU instruction, this syntax allows a swarm of `Values` to execute Active Inference, Causal Modelling, and Autonomous Reprogramming natively on GPU/SIMD hardware—achieving a **total divorce from Go-side orchestration**.
+This document describes the **program text** the toolchain accepts today: the scanner (`pkg/compute/program/scanner.go`), parser (`pkg/compute/program/parser.go`), and compiler (`pkg/compute/program/compiler.go`), with regions and property names resolved from `cmd/cfg/config.yml` (loaded into `program.Layout` via `pkg/core/config.go`).
 
 ---
 
-## 1. Values: Programmable Data (The ABI)
+## 1. Values: programmable data (the ABI)
 
-The `Value` type comes from the idea that machine intelligence currently lacks its own distinct "language". A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as data, program, and identity. It is the atom of computation in Six.
+The runtime `Value` is a fixed layout of `uint64` words (see `value.region` in `config.yml`). Source programs refer to **symbolic regions** (e.g. `program`, `tokens`, `properties.surprisal`); the compiler lowers those names to absolute word indices using the active `Layout`.
 
 ```text
 ┌─────────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┬─────────────┬──────┬──────┬─────┬──────────────┐
@@ -18,352 +16,194 @@ The `Value` type comes from the idea that machine intelligence currently lacks i
 └─────────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┴─────────────┴──────┴──────┴─────┴──────────────┘
 ```
 
-**Symbolic vs. Absolute Addressing:** 
-Six source code targets **symbolic regions** (e.g., `program`, `tokens`, `properties.surprisal`). The `pkg/compute/firmware` Compiler lowers these symbolic names to the canonical 1KB ABI (e.g., `16..31`, `0..15`, `68..68`). 
+Word spans follow `value.region.*.start` and `value.region.*.bits` in `config.yml` (word count is bits rounded up to 64-bit words).
 
-### Properties (Words 56-71)
-Canonical **1024-bit** region for discrete tags, forward-transition statistics, and scalar witnesses.
+### Properties (words 56–71)
 
-| Word (abs) | Region offset | Symbolic Name    | Notes                                                                                                                                                                             |
-|------------|---------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 56         | 0             | **labels**       | 4 × 16-bit slots packed low-to-high.                                                                                                                                              |
-| 57         | 1             | **confidence**   | Overall confidence calculated from algorithm artifacts.                                                                                                                           |
-| 58         | 2             | **epoch**        | +1 for any algorithm run.                                                                                                                                                         |
-| 59         | 3             | **TTL**          | Time-to-live for ephemeral Values. 0 means dissolve.                                                                                                                              |
-| 60         | 4             | **temperature**  | The scaler that determines generative "creativity".                                                                                                                               |
-| 61         | 5             | **status**       | Value status enum (e.g., PENDING, READY, DONE).                                                                                                                                   |
-| 62         | 6             | **probe window** | Window size for causal probes.                                                                                                                                                    |
-| 63         | 7             | **probe depth**  | Re-stabilisation depth for causal hub probes.                                                                                                                                     |
-| 64         | 8             | **community**    | Stable recruiter `ValueID` stamped onto Values accepted by in-band community recruitment.                                                                                         |
-| 65         | 9             | **target**       | ValueID of an addressable target.                                                                                                                                                 |
-| 66         | 10            | **role**         | In-band `ValueRole`.                                                                                                                                                              |
-| 67         | 11            | **reference**    | ValueID to encounter before the target.                                                                                                                                           |
-| 68         | 12            | **surprisal**    | Scalar reduction of the prediction error gap.                                                                                                                                     |
-| 69         | 13            | **falsified**    | Witness register for Popperian hypothesis testing.                                                                                                                                |
-| 70         | 14            | **stuck**        | Triggers autonomous reprogramming based on stagnation.                                                                                                                            |
-| 71         | 15            | **continuation** | The ValueID to schedule next. Writing `id` (Word 122) here creates a recursive loop. Writing another ValueID creates a branch or sequence. Halts if 0. Replaces the old word 117. |
+The **order and spelling** of property slots come from `value.properties` in `config.yml`. The compiler lowercases each entry to build `Layout.Properties` (e.g. `SURPRISAL` → `surprisal`). Offsets are **indices inside the properties region** (absolute word = `properties.start` + offset).
 
----
+With the default list in `config.yml`:
 
-## 2. The Core Anatomy
+| Word (abs) | Offset | Symbolic name       | Config key        |
+|------------|--------|---------------------|-------------------|
+| 56         | 0      | **labels**          | `LABELS`          |
+| 57         | 1      | **confidence**      | `CONFIDENCE`      |
+| 58         | 2      | **epoch**           | `EPOCH`           |
+| 59         | 3      | **ttl**             | `TTL`             |
+| 60         | 4      | **temperature**     | `TEMPERATURE`     |
+| 61         | 5      | **status**          | `STATUS`          |
+| 62         | 6      | **noise**           | `NOISE`           |
+| 63         | 7      | **program_id**      | `PROGRAM_ID`      |
+| 64         | 8      | **community**       | `COMMUNITY`       |
+| 65         | 9      | **target**          | `TARGET`          |
+| 66         | 10     | **role**            | `ROLE`            |
+| 67         | 11     | **reference**       | `REFERENCE`       |
+| 68         | 12     | **surprisal**       | `SURPRISAL`       |
+| 69         | 13     | **prev_surprisal**  | `PREV_SURPRISAL`  |
+| 70         | 14     | **delta_surprisal** | `DELTA_SURPRISAL` |
+| 71         | 15     | **continuation**    | `CONTINUATION`    |
 
-Every instruction in Six follows an explicit data flow pipeline:
-
-```text
-[ (Target & Routing) <= (Computation) <= (Scope) ]
-```
-
-- **Target & Routing:** Where does the result go, and through what network topology?
-- **Computation:** What bitwise math or reduction are we performing on the source memory?
-- **Scope:** Across which population of Values is this instruction applied?
-- **Predicate (Optional):** `? (Condition)` allows branchless conditional execution.
-
-### Example: A Basic Local Sweep
-```text
-[ (program self) <= (rom.unsupervised | 0) ? (properties.stuck != 0) <= community ]
-```
-**Reads as:** "For all values in the `community`, if `stuck != 0`, write `rom.unsupervised` to their own `program` region."
+`status` and `role` in `config.yml` define the integer enums stored in **status** and **role** words.
 
 ---
 
-## 3. Topology Routing (The Network is the ALU)
+## 2. Lexical rules (scanner)
 
-The routing keyword inside the Target block eliminates the need for Go-side orchestrators to move data.
-
-| Keyword | Topology  | Behavior                                                                                                                            |
-|---------|-----------|-------------------------------------------------------------------------------------------------------------------------------------|
-| `self`  | Local     | The ALU writes the result into the same `Value` that executed the instruction.                                                      |
-| `next`  | Ring      | The ALU shifts the result to the adjacent `Value` in the community ($i \to i+1 \pmod N$).                                           |
-| `fold`  | Hypercube | The ALU runs the $O(\log_2 N)$ hypercube routing fold across the entire community, and writes the global consensus into the target. |
-| `spawn` | Scatter   | Allocates a new `Value` frame in the community and writes the result into it.                                                       |
-
-### Note on `fold` Semantics and Synchronization
-`fold` requires an implicit **synchronization barrier** (Tick/Tock double-buffer or `__syncthreads()`). Furthermore, `fold` **must only be used with associative and commutative operators** (like `^`, `|`, `&`, `popcnt`) to guarantee deterministic convergence, unless strict ordered butterfly semantics are explicitly desired.
-
-### Range Semantics
-All numeric ranges in Six syntax are **half-open `[start, end)`**. 
-For example, `16..24` targets 8 words starting at index 16 up to 23 (words 16, 17, 18, 19, 20, 21, 22, 23).
+- **Whitespace** is ignored outside tokens.
+- **Comments** run from `;` to end of line (`scanner.go`).
+- **Identifiers** must match either a region name, word name, or enum constant, and optionally a (sub) span (e.g. `status`, `asset[0,8]`).
+- **Numbers** are digit runs, optionally containing one `.` for range literals like `16..24`.
+- **`<=`** is a single **feed** token. **`<` alone** is left angle; **`>`** is right angle. There is **no** `=>` token.
+- **Operators** are single runes from the set `^ | & ~ = \ / -` with limited two-character lookahead (`==`, `~|`, `~&`, `~A`, `~B`, `->`, `<-`).
+- **`?`** is a hard gate, when condition is not met execution stops for the the rest of the current ALU run
 
 ---
 
-## 4. Mathematical Operators
+## 3. Instruction-line bracket form
 
-These define the 4-bit truth tables applied by the Universal Bitwise kernel.
+Grammar (after comments stripped per line; used when §2’s feed trigger is absent):
 
-| Operator | Concept    | Description                                           |
-|----------|------------|-------------------------------------------------------|
-| `0`      | `false`    | Writes physical zeroes.                               |
-| `&`      | `and`      | Intersection.                                         |
-| `\`      | `aandnotb` | Novelty. Acts as an eraser.                           |
-| `A`      | `a`        | Passthrough A.                                        |
-| `/`      | `notandb`  | Reverse Novelty.                                      |
-| `B`      | `b`        | Passthrough B.                                        |
-| `^`      | `xor`      | Difference. Finds parity or structural gaps.          |
-| `\|`     | `or`       | Union. Combines knowledge.                            |
-| `~\|`    | `nor`      | Neither A nor B.                                      |
-| `==`     | `xnor`     | Strict Equality.                                      |
-| `~B`     | `notb`     | Inverts Operand B.                                    |
-| `<-`     | `ifbthena` | Superset.                                             |
-| `~A`     | `nota`     | Inverts Operand A.                                    |
-| `->`     | `ifathenb` | Subset/Implies. Produces 1s where the rule is obeyed. |
-| `~&`     | `nand`     | Inverted intersection.                                |
-| `1`      | `true`     | Writes physical ones (`0xFF...`).                     |
+```text
+[ ( <region> <topology> ) <= ( <expr> ) [ ? ( <predicate> ) ] [ <= <scope> ] ]
+```
+
+- **Target:** parentheses containing exactly two tokens: region reference and topology keyword.
+- **Feed:** `<=` between target and expression.
+- **Expression:** parentheses around either a reduction prefix, a bare `DONE` / `A`, or a truth-table / passthrough form (see below).
+- **Predicate:** optional `? ( ... )` after the expression.
+- **Scope:** optional second `<=` followed by `community`, an identifier, or a parenthesized token run (e.g. `(0..n)`). The parser stores this string on the AST **but `compileInstruction` does not encode it into the instruction word**; execution scope is whatever the runtime applies when it runs the compiled program.
+
+### Region references (`parseRef`)
+
+- **Numeric:** `wordIndex` or half-open range `start..end` (span = `end - start` words, words `start` through `start + span - 1`).
+- **Indexed region:** `name[relStart]` or `name[relStart,wordSpan]` (e.g. `signals[0,8]`).
+- **Property:** `properties.<name>` where `<name>` is a key in `Layout.Properties`.
+- **Indirect:** leading `*` on the above forms sets the indirect flag on the operand.
+- **Bare region name:** if `Layout.Regions` contains the name (e.g. `program`), that whole region is used.
+
+Any region or property name must exist on the `Layout` passed to `Compile` (normally built from `config.yml`).
+
+### Topologies (`Topologies` in `compiler.go`)
+
+| Keyword | Compiler constant | Notes                                                                      |
+|---------|-------------------|----------------------------------------------------------------------------|
+| `self`  | local             | Result written on the executing value (or owner flags vary by expression). |
+| `next`  | ring              | Adjacent value in community order.                                         |
+| `fold`  | hypercube         | Allowed only for opcodes `0`, `1`, `&`, `|`, `^`, `==` (`isFoldOpcode`).   |
+| `spawn` | scatter           |                                                                            |
+| `emit`  | same as `spawn`   | Alias in the topology map.                                                 |
+
+`B` as topology is accepted and normalized to `self` with `InstrFlagTargetB` set.
+
+### Expressions (`parseExpr` + `compileInstruction`)
+
+- **Reduction prefix:** `popcnt`, `any_zero`, or `all_ones` before the parenthesized operand (modes `ModePopcnt`, `ModeAnyZero`, `ModeAllOnes`).
+- **`saturates`:** recognized by the parser in this position but **`compileInstruction` returns an error** (“not a language intrinsic”). Do not use in instruction-line form.
+- **`DONE`:** encodes immediate/status-style write using opcode `B`, immediate type, fixed slot from compiler.
+- **Bare `A`:** passthrough opcode `A`.
+- **Unary region / literal:** `(0)`, `(1)`, `(A)`, or a single region ref — opcode `A` or constant opcodes for `0`/`1`.
+- **Binary:** `( <ref> <op> <ref-or-immediate> )` where `<op>` is a key in `var Opcodes` (`compiler.go`): `0`, `&`, `\`, `A`, `/`, `B`, `^`, `|`, `~|`, `==`, `~B`, `<-`, `~A`, `->`, `~&`, `1`, plus geometric **`compose`**, **`sandwich`**, **`reverse`** (high nibble; `IsGeometricOpcode` forces geometric mode).
+- **Immediate right-hand side:** numeric `B` operand packs start/span for small immediates (`compileInstruction`).
+
+### Predicates (`compilePredicate`)
+
+- **Extended popcnt:** `popcnt(<region>) | <N>` → population count **≤ N** (`predicatePopcntLTE`).  
+- **Feed nested gate** (§5–§6): `popcnt` with operator `<` and threshold `N` → count **< N** (`predicatePopcntLT`).
+- **Word tests:** `!= 0`, `== 0`, or `> 0` on a scalar word (the `> 0` case uses extended predicate mode with `PredicateAllows` fallback `frame[predStart] > 0` when no table entry exists).
+- Other combinations return a compile error (“not fully supported yet”).
 
 ---
 
-## 5. Reduction Operators (Scalar Witnesses)
+## 4. Feed pipelines (`compileFeedSource`)
 
-Intelligence relies on collapsing wide bit-vectors (like a 512-bit `signals` region) into scalar "witnesses" (like a surprisal score) to trigger state transitions. Truth-table operators alone cannot do this. Six includes explicit reduction intrinsics:
+Used when the program text includes `{` or the two-byte prefix **`[` + `(`** with no space between them (`[(` — see `Compile`). That allows a compact pipe like `[(B popcnt)]` with parentheses but no braces (`compiler_test.go`). The compiler scans for each `[ ... ]` **pipe**; a pipe is marked emit-phase if it appears inside `<[ ... ]>` (see `parseFeedSites`).
 
-| Intrinsic     | Behavior                                                                                       |
-|---------------|------------------------------------------------------------------------------------------------|
-| `popcnt(A)`   | Returns the total number of set bits (1s) in region A.                                         |
-| `any_zero(A)` | Returns 1 if *any* bit in region A is 0. (Useful for checking if `A -> B` implication failed). |
-| `all_ones(A)` | Returns 1 if *all* bits in region A are 1.                                                     |
+### Comments
 
-**Example:**
-```text
-[ (properties.surprisal self) <= popcnt(signals) <= community ]
-```
+`stripFeedComments` removes `;` and `#` to end of line before splitting pipes.
 
----
+### Order of compilation
 
-## 6. Control Flow: Predicate Execution (`?`)
+- If the source **contains** the substring `<=`, pipes are compiled **from last in the file to first**; otherwise **first to last** (`compileFeedSource`).
 
-GPUs and SIMD engines suffer massive performance penalties when branching. We use **Predicated Execution** instead.
-An instruction executes the math universally, but only commits its write to memory if the predicate condition evaluates to true.
+### Operations `{ }`
 
-### How Predicates Interact with Topology
-When a predicated instruction uses a global topology like `fold`, the predicate **does not mask participation in the fold**. To preserve the $O(\log N)$ butterfly network, all `Values` must participate. The predicate **only masks the final write**.
+Inside a pipe, one or more `{ ... }` blocks (Reverse Polish style via `parseFeedExpr`):
 
-```text
-[ (gradient fold) <= (scratch ^ context) ? (properties.falsified != 0) <= community ]
-```
-**Reads as:** "Perform a community-wide fold of `scratch ^ context`. Then, *only* Values where `falsified != 0` will overwrite their own `gradient` with the result."
+- **Operands:** `A(...)`, `B(...)`, bare `A` / `B` (map over community with default `signals[0,8]` target in the atom), immediates `done`, `clear`, or numeric immediates, or region refs with explicit owner where required.
+- **Reducers (suffix):** `popcnt`, `any_zero`, `all_ones` only (`isFeedReducer`). **`saturates` is not a feed reducer.**
+- **Operators:** keys from `Opcodes` as in §4; topology may appear as the **last** token of an operation (`self`, `next`, `fold`, `spawn`, `emit`).
+- **Ambiguity:** operands that name a region must include `A(` or `B(` unless they are immediates or bare `A`/`B` — `requireExplicitFeedOwner`.
 
-Predicate conditions may also reduce a region with `popcnt` and compare it
-against an immediate threshold using `| N`. In predicate position this means
-"at most N set bits"; it is not the bitwise OR operator.
+**Rotations:** inside `A(...)` / `B(...)`, a ref may be followed by `N <<` or `N >>` to rotate indices within a span (`parseFeedAtomRef` / `rotateFeedRef`).
 
-```text
-[ (properties.community next) <= (id[0,1]) ? (popcnt(affinity[0,5]) | 120) <= community ]
-```
-**Reads as:** "Write this Value's ID into the routed peer's community word only
-while this Value's affinity region has no more than 120 set bits."
+### Feeds between pipes
 
-Feed-pipeline gate sites use the RPN form `{ { A(region) popcnt } N ? }`.
-This opens only while the reduced population is below `N`; at `N` or above the
-gated write is skipped for that lane. For example, `{ { B(asset[0,5]) popcnt }
-120 ? }` blocks once the first five asset words reach the Shannon saturation
-threshold.
+Physical layout uses `<=` in the source only to select **reverse** compilation order; bonds between stages are the **incoming feed atoms** produced by earlier-compiled pipes, not a separate `=>` syntax.
+
+### Emit `<[ ... ]>`
+
+Emit brackets toggle emit mode for contained pipes. Emit operations set **continuation** from **id** with `ModeEmit` and spawn topology (`compileEmitSite` / `compileEmitOperationSite`).
+
+### Feed gates
+
+- **Standalone gate site:** nested `{ { ... } N ? }` with inner `owner(ref) popcnt` → predicate **count < N**.
+- **`{ ... } { ... ? }`:** second block may encode a feed predicate parsed by `parseFeedPredicate` / `compilePredicate`.
 
 ---
 
-## 7. The Non-Negotiable Execution Contract
+## 5. Predicate vs fold (instruction-line)
 
-For Six source to be valid, it must lower to deterministic substrate operations. This syntax acts as a strict execution contract:
-
-1. **Bounded Memory:** All reads and writes must be clamped to the 1KB boundaries of a `Value`. Dynamic addressing (`*`) that attempts to read/write out of bounds is clamped or masked to `0`.
-2. **Conflict Resolution:** Multiple Values writing to the same target (e.g., via `next` or `spawn`) use deterministic conflict resolution. By default, simultaneous writes to the same address are combined using `OR`.
-3. **Execution Order:** Reads observe the **pre-state** of the current clock tick. Writes are committed to a double-buffer and only become visible on the next tick.
-4. **Scheduling (`properties.continuation`):** A program loop only continues if it writes its own ID (or a valid target address) to the `continuation` property word (word 71). Zeroing `continuation` halts execution for that Value. This completely replaces the legacy "word 117" logic.
-5. **Allocation Bounds:** `spawn` allocates a new frame. If the arena is exhausted, the predicate fails silently (no-op), enforcing strict memory safety without Go-side panics.
-
-Every grand claim of intelligence in Six must be backed by a concrete **scalar witness** (e.g., `surprisal`, `falsified`, `stuck`) governed by this exact contract.
+For `fold`, every value must participate; the predicate only masks the **final write** (the compiler emits predicate bits accordingly; exact runtime semantics follow the substrate).
 
 ---
 
-## 8. Complex Autonomy Examples
+## 6. Layout truth
 
-These examples demonstrate how theoretical intelligence maps to physical scalar witnesses and ALU operations.
+- **Property names** must exist in `value.properties` in `config.yml` (or the `Layout` you pass in tests).
+- **Regions** must exist in `Layout.Regions` (`tokens`, `program`, `signals`, `context`, `gradient`, `properties`, `asset`, `prev`, `next`, `id`, `affinity` in stock config).
+- **Fold:** non-associative opcodes on `fold` fail at compile time.
+- **`rom.*` and other extra regions** are valid only if declared in the layout.
 
-### Active Inference (Gap Closure)
-Active inference "works" only if `properties.surprisal` decreases over repeated `continuation` passes, or the Value terminates.
+---
 
-```text
-; 1. PERCEPTION: Measure the gap (tokens ^ context).
-[ (signals self) <= (tokens ^ context) <= community ]
-
-; 2. SURPRISAL: Reduce the gap to a scalar witness.
-[ (properties.surprisal self) <= popcnt(signals) <= community ]
-
-; 3. NETWORK RESONANCE: Fold the gap across the community to find the global attractor.
-[ (asset.pressure fold) <= (signals | signals) <= community ]
-
-; 4. ACTION: Update the local belief (context) by drifting toward the community's pressure.
-[ (context self) <= (context ^ asset.pressure) <= community ]
-```
-
-### Causal Modelling (Intervention & Falsification)
-Falsification "works" only if a predicted-absent pattern produces a witness in `properties.falsified`, changing the routing or gradient.
+## 9. Notation summary (authoring)
 
 ```text
-; 1. POPPERIAN TEST: Does 'tokens' strictly imply 'context'? (tokens -> context)
-[ (signals self) <= (tokens -> context) <= community ]
-
-; 2. THE WITNESS: If ANY 0s exist in the signals, the hypothesis is FALSIFIED.
-[ (properties.falsified self) <= any_zero(signals) <= community ]
-
-; 3. CAUSAL DRIFT: If falsified, push the community gradient away from this belief.
-[ (gradient fold) <= (gradient ^ context) ? (properties.falsified != 0) <= community ]
-```
-
-### Autonomous Reprogramming (The Spark of Agency)
-Reprogramming "works" only if a Value whose `properties.stuck` crosses a threshold installs a different compiled frame.
-
-```text
-; 1. TRIGGER: Check if Surprisal is maxed out AND we are running INFERENCE.
-[ (properties.stuck self) <= (properties.surprisal == MAX & properties.program_id == INFERENCE) <= community ]
-
-; 2. THE REWRITE: Fetch the UNSUPERVISED binary from ROM and overwrite the Program region.
-[ (program self) <= (rom.unsupervised | 0) ? (properties.stuck != 0) <= community ]
-
-; 3. STATE UPDATE: Mark the new program ID.
-[ (properties.program_id self) <= (UNSUPERVISED) ? (properties.stuck != 0) <= community ]
-
-; 4. EMISSION (SPAWNING): If the Value successfully learns something new (surprisal drops to 0), spawn it.
-[ (value spawn) <= (value self) ? (properties.surprisal == 0 & properties.program_id == UNSUPERVISED) <= community ]
-```
-
-### Out-of-Corpus Generation (Synthesizing Novelty)
-Six generates out-of-corpus novelty physically, by applying affine rotations to geometric coordinates (Morton-coded tokens) and using falsification to reject invalid structural mutations. *(Note: Falsification enforces structural validity; semantic usefulness requires grounding the geometry accurately to begin with).*
-
-```text
-; 1. THE AFFINE ROTATION: Rotate the current token vectors toward the prompt's context.
-[ (tokens self) <= (tokens ^ prompt.context) <= community ]
-
-; 2. THE BOOLEAN FILTER: Check if the mutated tokens break structural rules in Context.
-[ (properties.falsified self) <= any_zero(tokens -> context) <= community ]
-
-; 3. THE CULLING: Erase the generated token if it violates causal logic.
-[ (value self) <= (0) ? (properties.falsified != 0) <= community ]
-
-; 4. THE EMISSION: If the novel coordinate survived falsification, spawn it into the persistent sequence.
-[ (value spawn) <= (value self) ? (properties.falsified == 0) <= community ]
+ ;      comment (scanner: also #)
+[ ]     pipe (feed pipeline)
+{ }     operation (RPN in feed form)
+<=>     feed token: only <= exists (not =>)
+ ?      gate / predicate marker
+ !      part of != or ! when composed by scanner
+ A B    frame owners in feed form
+< >     emit wrapper: <[ pipes ]>
 ```
 
 ---
 
-## 9. The Minimal "Actually Works" Implementation Ladder
+## 10. Specification (feed pipeline)
 
-To prove that Go is no longer secretly orchestrating the intelligence, the compiler and kernel must be built via this strict, pragmatic ladder. We do not attempt Out-of-Corpus Generation on day one. 
-
-1. **Local Deterministic ALU:** Compile one syntax line into the existing firmware frame format and verify exact word-level output for `self`.
-2. **Predicate Commit:** Prove that all Values execute the same computation, but only matching Values commit the write.
-3. **Scheduler Re-entry:** Prove `properties.continuation` re-enters the kernel queue and halts deterministically when zeroed.
-4. **Peer Staging:** Prove one Value can receive another Value’s state into `asset` and run a local program over it.
-5. **Next Routing:** Prove ring message passing (`next`) across a community with double-buffered writes.
-6. **Fold Routing:** Prove only associative reductions (`OR`/`AND`/`XOR`/`popcnt`) across the hypercube with a strict synchronization barrier.
-7. **Spawn:** Prove bounded allocation, ID assignment, TTL propagation, and deterministic failure behavior when the arena is full.
-8. **One Cognitive Loop:** Implement active inference gap closure. Prove the community converges on a `surprisal` threshold using only resident programs, with Go merely dispatching the queue.
-
-## Conclusion: Total Divorce from Go
-
-By implementing this syntax inside an AST that lowers directly to 64-bit Kernel Instructions:
-
-1. **`fold`, `next`, and `spawn`** replace Go's network routing and orchestrator loops.
-2. **Predicate `?`** replaces Go's rule engine and state machine logic.
-3. **Mathematical and Reduction operators** replace Go-side heuristic evaluations.
-4. **Dynamic Addressing (`*`)** replaces Go-side variable management.
-
-Go is reduced to a bootloader. It compiles the `SYNTAX.md`, allocates the RAM arena, hands it to the GPU/SIMD engine, and stops executing. The Substrate becomes the entire computer.
-
-### Notation (authoring grammar)
-
-The **bracket pipeline** in §2 is how programs are spelled in `config.yml` and tests today. The table below is the same algebra in the composable surface form (pipe / operation / feed).
-
-```text
- ;      **comment**    ignored/stripped by compiler
-[ ]     **pipe**       build something to be realized
-{ }     **operation**  Reverse Polish notation over regions and ops
-<=>     **feed**       take what this *is* (realize) and move in direction; the
-                       bond is two-way. In bracket sources the feed is the `<=` token
-                       (one arrow per site in the current scanner).
- !      **is not**     when something is not
- ?      **gate**       must open or the buck stops here
- A      **value**      the program runner
- B      **values**     hypercube gossip operands; implicit map over B
-< >     **emit**       continuation / return
-```
-
-Bare `A`/`B` sources use the implicit mapped form: `[(B popcnt)] <= [(A B ^)]`
-materializes the resident runner against each mapped `B` frame before reducing.
-Region and property operands must be explicit `A(...)` or `B(...)`; a bare
-region like `affinity[0,5]` is a compiler error because it has no frame owner.
-Gates evaluate on the mapped source frame so a `B(...)` write is masked by that
-candidate's own witnesses.
-
-## Examples
-
-```
-; a simple example
-[(B popcnt)] <= [(A B ^)] ; stages A to XOR with each B, materialize result
-                          ; and get popcount of each *(implicit map)* B value
-
-; recruit communities
-<[{ A clear }]> [
-    { A(affinity) B(affinity) ^ }
-] <= [
-    { A(status) done ^ }
-] <= [
-    { A(id) B(community) ^ }
-] <= [
-    { { A(affinity) popcnt } 120 ? }
-] <= [
-    { { A(affinity) B(affinity) ^ } 64 | }
-]
-
-; structural compose
-<[
-    { B(prev) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write the mapped id to prev region
-    { B(next) B(id) ^ }                              ; map over Bn ([]*primitive.Value) and write the mapped id to next region
-] <= [
-    { A(status) done ^ }                             ; set status of A to done
-    { B(tokens) B(signals[0, 1]) ^ }                 ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
-    { B(tokens) B(signals[1, 1]) ^ }                 ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
-    { B(tokens) B(signals[2, 1]) ^ }                 ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
-]> [                                                 ; emit new values to the substrate
-    { B(signals) }                                   ; map over Bn ([]*primitive.Value) and write results of previous pipe to signals region
-] <= [
-    { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }   ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 24 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 40 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 56 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 72 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 88 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 104 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    { B(tokens[0,16]) { B(tokens[0,16] 120 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-]
-```
-
-## Specification
-
-- A program is read/interpreted from bottom to top
-- A program is a sequence of `pipe` objects
-- A program can have an optional `emit` stage
+- A program is a sequence of **pipe** objects discovered in source order.
+- A program may include an **emit** stage (`<[ ... ]>`).
 
 ### Pipe `[ ]`
 
-- A pipe is a staging area for work that is to be realized
-- A pipe is materialized once it is given a direction to materialize to (`<=` `=>`)
-- A pipe is read/interpreted from right to left
+- Staging area realized when combined with other pipes via feed compilation.
+- With `<=` in the file, compilation walks pipes **last-to-first**; without it, **first-to-last**.
 
 ### Operation `{ }`
 
-- An operation is the staging primitive inside of a pipe
-- It uses Reverse Polish Notation, where the first element is `dst` and the last element is `op`
-- An operation can have an optional `data`/`src` element in between `dst` ans `op`
-- Multiple operations at the same nesting level implies potential concurency, with fan-in at the next `<=`
-- An operation is read/interpreted from left to right
+- Staging primitive inside a pipe; RPN evaluation in `parseFeedExpr`.
+- Multiple `{ }` blocks at the same level compile to multiple instructions; concurrency is a runtime matter.
+- Interpreted left-to-right in source; stack semantics in `parseFeedExpr`.
 
 ### Emit `< >`
 
-- An emit stage is a sequence of `pipe` objects
+- Emit stage is a sequence of pipe objects between `<[` and the matching `]>` (see `parseFeedSites`).
+
+---
+
+## 11. Examples aligned with `config.yml`
+
+The `programs:` section in `cmd/cfg/config.yml` is the live reference for **feed** programs (e.g. `link`, `affinity`, `query`, `program_select`, `program_carrier`). `pkg/compute/program/compiler_test.go` exercises both surfaces (`compileFeedSource` and instruction-line compilation).
