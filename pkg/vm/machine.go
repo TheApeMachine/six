@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/theapemachine/six/experiment/data"
@@ -14,6 +15,8 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
+
+const maxRecruitmentIterations = 4096
 
 /*
 Machine is the central runtime that moves Values through a
@@ -356,7 +359,18 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		machine.community = append(machine.community, segments...)
 	}
 
-	for {
+	for iterations := 0; ; iterations++ {
+		if iterations >= maxRecruitmentIterations {
+			return errors.Join(
+				machine.err,
+				errnie.Error(fmt.Errorf(
+					"vm: recruitment made no progress after %d iterations (unassigned=%d)",
+					maxRecruitmentIterations,
+					machine.unassignedCommunityValues(),
+				)),
+			)
+		}
+
 		before := machine.unassignedCommunityValues()
 		if before == 0 {
 			return nil

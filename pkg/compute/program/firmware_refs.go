@@ -9,7 +9,8 @@ import (
 type actorKind byte
 
 const (
-	actorA actorKind = iota
+	actorInvalid actorKind = iota
+	actorA
 	actorB
 	actorChild
 )
@@ -35,7 +36,7 @@ func parseActorPrefix(path string) (actor actorKind, rest string, err error) {
 	if strings.HasPrefix(path, "child.") {
 		return actorChild, strings.TrimPrefix(path, "child."), nil
 	}
-	return 0, "", fmt.Errorf("firmware: missing actor prefix in %q", path)
+	return actorInvalid, "", fmt.Errorf("firmware: missing actor prefix in %q", path)
 }
 
 func resolveRef(lay Layout, path string) (resolvedRef, error) {

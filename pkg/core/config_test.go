@@ -165,25 +165,8 @@ func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
 	}
 }
 
-func TestRecruitCommunityGuardPredicateWord(t *testing.T) {
-	t.Helper()
-
-	commIdx := -1
-	for i, name := range Cfg.Value.PropertiesList {
-		if strings.EqualFold(strings.TrimSpace(name), "COMMUNITY") {
-			commIdx = i
-			break
-		}
-	}
-	if commIdx < 0 {
-		t.Fatal("COMMUNITY not in properties list")
-	}
-	wantWord := Cfg.Value.Region.Properties.Start + commIdx
-
-	words := Cfg.Programs[RECRUIT_COMMUNITY].Compiled()
-	specs := program.PredicateDeviceSpecs()
-	found := false
-	var predRefs strings.Builder
+func recruitCommunityGuardPredicateHitsCommunityWord(words []uint64, specs []program.PredicateDeviceSpec, wantWord int) (found bool, predRefs string) {
+	var b strings.Builder
 	for pc, enc := range words {
 		if enc == 0 {
 			continue
@@ -193,18 +176,66 @@ func TestRecruitCommunityGuardPredicateWord(t *testing.T) {
 			continue
 		}
 		si := int(predStart)
-		fmt.Fprintf(&predRefs, " pc%d->slot%d(kind=%d)", pc, si, specs[si].Kind)
 		if si < 0 || si >= len(specs) {
 			continue
 		}
+		fmt.Fprintf(&b, " pc%d->slot%d(kind=%d)", pc, si, specs[si].Kind)
 		spec := specs[si]
 		if spec.Kind == program.PredKindHammingLTAndScalarEq0 && int(spec.AndWord) == wantWord {
-			found = true
+			return true, b.String()
+		}
+	}
+	return false, b.String()
+}
+
+func TestRecruitCommunityGuardPredicateWord(t *testing.T) {
+	Convey("Given COMMUNITY in the layout and recruit_community firmware", t, func() {
+		commIdx := -1
+		for i, name := range Cfg.Value.PropertiesList {
+			if strings.EqualFold(strings.TrimSpace(name), "COMMUNITY") {
+				commIdx = i
+				break
+			}
+		}
+		So(commIdx, ShouldBeGreaterThanOrEqualTo, 0)
+
+		wantWord := Cfg.Value.Region.Properties.Start + commIdx
+
+		Convey("When scanning compiled instructions against predicate specs", func() {
+			words := Cfg.Programs[RECRUIT_COMMUNITY].Compiled()
+			specs := program.PredicateDeviceSpecs()
+			found, _ := recruitCommunityGuardPredicateHitsCommunityWord(words, specs, wantWord)
+
+			Convey("It should reference a compound predicate with the community word", func() {
+				So(found, ShouldBeTrue)
+			})
+		})
+	})
+}
+
+func BenchmarkRecruitCommunityGuardPredicateWord(b *testing.B) {
+	commIdx := -1
+	for i, name := range Cfg.Value.PropertiesList {
+		if strings.EqualFold(strings.TrimSpace(name), "COMMUNITY") {
+			commIdx = i
 			break
 		}
 	}
-	if !found {
-		t.Fatalf("no instruction refs compound slot (want AndWord=%d). predRefs:%s words:%v", wantWord, predRefs.String(), words)
+	if commIdx < 0 {
+		b.Fatal("COMMUNITY not in properties list")
+	}
+	wantWord := Cfg.Value.Region.Properties.Start + commIdx
+	words := Cfg.Programs[RECRUIT_COMMUNITY].Compiled()
+	specs := program.PredicateDeviceSpecs()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		found, _ := recruitCommunityGuardPredicateHitsCommunityWord(words, specs, wantWord)
+		if !found {
+			b.Fatal("expected compound predicate")
+		}
 	}
 }
 

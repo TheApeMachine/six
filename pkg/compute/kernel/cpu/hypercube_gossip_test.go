@@ -277,7 +277,7 @@ program fold_xor {
 		acceptedCommunity, err := accepted.Property(primitive.COMMUNITY)
 		So(err, ShouldBeNil)
 		So(acceptedCommunity, ShouldEqual, recruiter.ID())
-		So(accepted.Status(), ShouldEqual, primitive.PENDING)
+		So(accepted.Status(), ShouldEqual, primitive.DONE)
 		So(accepted.Get(primitive.SignalsRegion)[0], ShouldEqual, 0)
 
 		assignedCommunity, err := assigned.Property(primitive.COMMUNITY)

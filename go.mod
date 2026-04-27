@@ -3,7 +3,6 @@ module github.com/theapemachine/six
 go 1.26
 
 require (
-	github.com/alexaandru/go-tree-sitter-bare v1.11.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/smartystreets/goconvey v1.8.1
@@ -35,7 +34,6 @@ require (
 )
 
 require (
-	github.com/NVIDIA/go-nvml v0.13.0-1
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gopherjs/gopherjs v1.20.1 // indirect
@@ -44,7 +42,6 @@ require (
 	github.com/parquet-go/parquet-go v0.29.0
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
-	github.com/smallnest/ringbuffer v0.1.1
 	github.com/smarty/assertions v1.16.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect

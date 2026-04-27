@@ -1,6 +1,7 @@
 package program
 
 import (
+	"fmt"
 	"math/bits"
 	"sync"
 )
@@ -40,14 +41,15 @@ table slots that earlier programs' instructions still reference.
 */
 func ResetPredicateSession() {
 	firmwarePredSlotMu.Lock()
-	firmwareNextPredSlot = 1
-	firmwarePredSlotMu.Unlock()
-
 	predicateTableMu.Lock()
+
+	firmwareNextPredSlot = 1
 	for idx := range predicateTable {
 		predicateTable[idx] = PredicateDeviceSpec{}
 	}
+
 	predicateTableMu.Unlock()
+	firmwarePredSlotMu.Unlock()
 }
 
 func beginFirmwarePredCompile() int {
@@ -73,13 +75,14 @@ func PredicateDeviceSpecs() []PredicateDeviceSpec {
 	return out
 }
 
-func SetPredicateSpecSlot(slot int, spec PredicateDeviceSpec) {
+func SetPredicateSpecSlot(slot int, spec PredicateDeviceSpec) error {
 	if slot < 0 || slot >= len(predicateTable) {
-		return
+		return fmt.Errorf("invalid predicate slot: %d", slot)
 	}
 	predicateTableMu.Lock()
 	predicateTable[slot] = spec
 	predicateTableMu.Unlock()
+	return nil
 }
 
 func hammingWords(frameA, frameB *[valueWordCount]uint64, start, span int) uint64 {

@@ -13,6 +13,7 @@ const maxSweepWords = 16
 CompileFirmware is the only authoring entry: human `program name { … }` source.
 */
 func compileFirmwareSource(ctx context.Context, source string, lay Layout) ([]uint64, error) {
+	// TODO(compileFirmwareSource): use ctx for cancellation and compile tracing.
 	_ = ctx
 	trim := strings.TrimSpace(source)
 	if !strings.HasPrefix(trim, "program ") {
@@ -29,6 +30,7 @@ func compileFirmwareSource(ctx context.Context, source string, lay Layout) ([]ui
 		return nil, err
 	}
 	body = stripLineComments(body)
+	// TODO(compileFirmwareSource): preserve program name for diagnostics and compile metadata.
 	_ = name
 
 	predBase := beginFirmwarePredCompile()
@@ -150,12 +152,15 @@ func (comp *compiler) compileMaskLine(stmt string, env compileEnv) (compileEnv, 
 	}
 
 	key := fmt.Sprintf("mask|popcnt|%s|%d|%v", strings.TrimSpace(arg), threshold, strictLess)
-	slot := comp.allocPred(key, PredicateDeviceSpec{
+	slot, err := comp.allocPred(key, PredicateDeviceSpec{
 		Kind:      kind,
 		Start:     uint64(ref.start),
 		Span:      uint64(ref.span),
 		Threshold: threshold,
 	})
+	if err != nil {
+		return env, err
+	}
 
 	next := env
 	next.maskPopActive = true
@@ -178,19 +183,19 @@ func (comp *compiler) compileTarget(stmt string, env compileEnv) error {
 		if brace < 0 {
 			return fmt.Errorf("firmware: target where … missing {")
 		}
-		wherePart := strings.TrimSpace(rest[len("where "):brace])
-		whereExpr = wherePart
+		whereExpr = strings.TrimSpace(rest[len("where "):brace])
 		body, err = extractBraceBlock(rest[brace:])
 		if err != nil {
 			return err
 		}
-	} else if strings.HasPrefix(rest, "{") {
+	} else {
+		if !strings.HasPrefix(rest, "{") {
+			return fmt.Errorf("firmware: malformed target")
+		}
 		body, err = extractBraceBlock(rest)
 		if err != nil {
 			return err
 		}
-	} else {
-		return fmt.Errorf("firmware: malformed target")
 	}
 
 	sub := env
@@ -361,7 +366,10 @@ func (comp *compiler) emitTruth(
 	if fold {
 		topo = TopologyFold
 	}
-	predStart, predCond := comp.predFromEnv(env)
+	predStart, predCond, err := comp.predFromEnv(env)
+	if err != nil {
+		return err
+	}
 	flags := instrTargetFlags(lhs)
 	aStart, aSpan := aRef.start, aRef.span
 	bStart, bSpan := bRef.start, bRef.span
@@ -405,7 +413,10 @@ func instrTargetFlags(lhs string) uint64 {
 
 func (comp *compiler) emitCopyRef(dst, src resolvedRef, env compileEnv, lhs string) error {
 	op := comp.ops["a"]
-	predStart, predCond := comp.predFromEnv(env)
+	predStart, predCond, err := comp.predFromEnv(env)
+	if err != nil {
+		return err
+	}
 	flags := instrTargetFlags(lhs)
 	mode := ModeTruth
 	topo := TopologySelf
@@ -435,7 +446,10 @@ func (comp *compiler) emitCopyRef(dst, src resolvedRef, env compileEnv, lhs stri
 
 func (comp *compiler) emitCopyImm(dst resolvedRef, imm uint64, env compileEnv, lhs string) error {
 	op := comp.ops["b"]
-	predStart, predCond := comp.predFromEnv(env)
+	predStart, predCond, err := comp.predFromEnv(env)
+	if err != nil {
+		return err
+	}
 	flags := instrTargetFlags(lhs)
 	mode := ModeTruth
 	topo := TopologySelf
@@ -459,7 +473,10 @@ func (comp *compiler) emitCopyImm(dst resolvedRef, imm uint64, env compileEnv, l
 
 func (comp *compiler) emitReduction(dst, src resolvedRef, mode uint64, env compileEnv, lhs string) error {
 	op := comp.ops["a"]
-	predStart, predCond := comp.predFromEnv(env)
+	predStart, predCond, err := comp.predFromEnv(env)
+	if err != nil {
+		return err
+	}
 	flags := instrTargetFlags(lhs)
 	if env.targetB {
 		flags |= InstrFlagTargetB
@@ -481,52 +498,59 @@ func (comp *compiler) emitReduction(dst, src resolvedRef, mode uint64, env compi
 	return nil
 }
 
-func (comp *compiler) predFromEnv(env compileEnv) (predStart int, predCond uint64) {
+func (comp *compiler) predFromEnv(env compileEnv) (predStart int, predCond uint64, err error) {
 	if env.whenActive && env.hamActive {
 		kind := PredKindHammingLTAndScalarEq0
 		if env.whenCondNE {
 			kind = PredKindHammingLTAndScalarNE0
 		}
 		key := fmt.Sprintf("ham|scalar|%d|%d|%d|%d|%d", env.hamStart, env.hamSpan, env.hamThresh, env.whenWord, kind)
-		slot := comp.allocPred(key, PredicateDeviceSpec{
+		slot, aerr := comp.allocPred(key, PredicateDeviceSpec{
 			Kind:      kind,
 			Start:     uint64(env.hamStart),
 			Span:      uint64(env.hamSpan),
 			Threshold: env.hamThresh,
 			AndWord:   uint64(env.whenWord),
 		})
+		if aerr != nil {
+			return 0, 0, aerr
+		}
 
-		return slot, 3
+		return slot, 3, nil
 	}
 	if env.whenActive {
 		if env.whenCondNE {
-			return env.whenWord, 1
+			return env.whenWord, 1, nil
 		}
-		return env.whenWord, 2
+		return env.whenWord, 2, nil
 	}
 	if env.hamActive {
-		return env.hamSlot, 3
+		return env.hamSlot, 3, nil
 	}
 	if env.maskPopActive {
-		return env.maskPopSlot, 3
+		return env.maskPopSlot, 3, nil
 	}
 
-	return 0, 0
+	return 0, 0, nil
 }
 
-func (comp *compiler) allocPred(key string, spec PredicateDeviceSpec) int {
+func (comp *compiler) allocPred(key string, spec PredicateDeviceSpec) (int, error) {
 	if slot, ok := comp.predKeySlot[key]; ok {
-		SetPredicateSpecSlot(slot, spec)
-		return slot
+		if err := SetPredicateSpecSlot(slot, spec); err != nil {
+			return 0, err
+		}
+		return slot, nil
 	}
 	slot := comp.nextPredSlot
 	if slot >= 127 {
-		panic("firmware: predicate slot overflow")
+		return 0, fmt.Errorf("firmware: predicate slot overflow (slot=%d)", slot)
 	}
 	comp.nextPredSlot++
 	comp.predKeySlot[key] = slot
-	SetPredicateSpecSlot(slot, spec)
-	return slot
+	if err := SetPredicateSpecSlot(slot, spec); err != nil {
+		return 0, err
+	}
+	return slot, nil
 }
 
 func (comp *compiler) allocHammingLine(whereLine string) (slot int, start, span int, th uint64, err error) {
@@ -546,12 +570,15 @@ func (comp *compiler) allocHammingLine(whereLine string) (slot int, start, span 
 		return 0, 0, 0, 0, fmt.Errorf("firmware: hamming spans must match")
 	}
 	key := fmt.Sprintf("ham:%d:%d:%d", aRef.start, aRef.span, thresh)
-	slot = comp.allocPred(key, PredicateDeviceSpec{
+	slot, err = comp.allocPred(key, PredicateDeviceSpec{
 		Kind:      PredKindHammingLT,
 		Start:     uint64(aRef.start),
 		Span:      uint64(aRef.span),
 		Threshold: thresh,
 	})
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
 
 	return slot, aRef.start, aRef.span, thresh, nil
 }

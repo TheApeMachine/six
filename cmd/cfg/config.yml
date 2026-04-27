@@ -262,7 +262,7 @@ programs:
       }
 
       when A.properties.surprisal == 0 {
-        set A.properties.status <- 5
+        set A.properties.status <- DONE
         set A.properties.continuation <- 0
       }
     }
@@ -364,7 +364,7 @@ programs:
     }
 
   recruit_community: |
-    program recruit {
+    program recruit_community {
       mask popcnt(A.affinity) < 120
 
       target B where hamming(A.affinity, B.affinity) < 64 {
@@ -442,7 +442,7 @@ programs:
       }
 
       when A.properties.labels != 0 {
-        set A.properties.status <- 5
+        set A.properties.status <- DONE
         set A.properties.continuation <- 0
       }
     }
@@ -458,7 +458,7 @@ programs:
       }
 
       when A.properties.labels != 0 {
-        set A.properties.status <- 5
+        set A.properties.status <- DONE
         set A.properties.continuation <- 0
       }
     }
@@ -469,6 +469,14 @@ programs:
       write A.signals[0,8] <- xor(A.signals[0,8], A.asset[8,8])
       write A.gradient[0,8] <- xor(A.gradient[0,8], A.signals[0,8])
       set A.properties.confidence <- popcnt(A.signals[0,8])
+
+      when A.properties.confidence == 0 {
+        set A.properties.continuation <- 0
+      }
+
+      when A.properties.confidence != 0 {
+        set A.properties.continuation <- A.id
+      }
     }
 
   intervene: |
@@ -510,7 +518,7 @@ programs:
       }
 
       when A.properties.labels != 0 {
-        set A.properties.status <- 5
+        set A.properties.status <- DONE
         set A.properties.continuation <- 0
       }
     }

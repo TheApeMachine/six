@@ -328,6 +328,20 @@ static __device__ __forceinline__ ast_context ast_make_context(
     return ctx;
 }
 
+static __device__ __forceinline__ uint32_t ast_hamming_distance(
+    const uint64_t* frame_a,
+    const uint64_t* frame_b,
+    uint32_t start,
+    uint32_t span,
+    uint32_t word_count
+) {
+    uint32_t dist = 0;
+    for (uint32_t lane = 0; lane < span && start + lane < word_count; lane++) {
+        dist += (uint32_t)__popcll((unsigned long long)(frame_a[start + lane] ^ frame_b[start + lane]));
+    }
+    return dist;
+}
+
 static __device__ __forceinline__ bool ast_predicate_allows(
     uint64_t* frame,
     ast_decoded_instr instr,
@@ -343,22 +357,16 @@ static __device__ __forceinline__ bool ast_predicate_allows(
     predicate_device_spec_t spec = specs[instr.pred_start];
     if (spec.kind == AST_PRED_KIND_HAMMING_LT) {
         if (frame_a == nullptr || frame_b == nullptr) return false;
-        uint32_t dist = 0;
         uint32_t start = (uint32_t)spec.start;
         uint32_t span = (uint32_t)spec.span;
-        for (uint32_t lane = 0; lane < span && start + lane < WORDS; lane++) {
-            dist += (uint32_t)__popcll((unsigned long long)(frame_a[start + lane] ^ frame_b[start + lane]));
-        }
+        uint32_t dist = ast_hamming_distance(frame_a, frame_b, start, span, WORDS);
         return (uint64_t)dist < spec.threshold;
     }
     if (spec.kind == AST_PRED_KIND_HAMMING_LT_AND_EQ0 || spec.kind == AST_PRED_KIND_HAMMING_LT_AND_NE0) {
         if (frame_a == nullptr || frame_b == nullptr) return false;
-        uint32_t dist = 0;
         uint32_t start = (uint32_t)spec.start;
         uint32_t span = (uint32_t)spec.span;
-        for (uint32_t lane = 0; lane < span && start + lane < WORDS; lane++) {
-            dist += (uint32_t)__popcll((unsigned long long)(frame_a[start + lane] ^ frame_b[start + lane]));
-        }
+        uint32_t dist = ast_hamming_distance(frame_a, frame_b, start, span, WORDS);
         if ((uint64_t)dist >= spec.threshold) return false;
         uint32_t idx = (uint32_t)spec.and_word;
         if (idx >= WORDS) return false;

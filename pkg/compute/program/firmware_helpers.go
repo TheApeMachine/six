@@ -55,6 +55,10 @@ func splitTopLevel(body string) []string {
 }
 
 func parseWhen(stmt string) (cond string, bracePart string, err error) {
+	stmt = strings.TrimSpace(stmt)
+	if !strings.HasPrefix(stmt, "when ") {
+		return "", "", fmt.Errorf("firmware: when missing prefix")
+	}
 	rest := strings.TrimSpace(strings.TrimPrefix(stmt, "when "))
 	idx := strings.IndexByte(rest, '{')
 	if idx < 0 {
