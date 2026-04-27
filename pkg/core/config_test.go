@@ -10,7 +10,6 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/compute/program"
 )
 
 func resolveCoreTestConfigPath() string {
@@ -165,78 +164,50 @@ func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
 	}
 }
 
-func recruitCommunityGuardPredicateHitsCommunityWord(words []uint64, specs []program.PredicateDeviceSpec, wantWord int) (found bool, predRefs string) {
-	var b strings.Builder
-	for pc, enc := range words {
-		if enc == 0 {
-			continue
-		}
-		_, _, _, _, _, _, _, _, _, predStart, predCond, _, _ := program.DecodeInstruction(enc)
-		if predCond != 3 {
-			continue
-		}
-		si := int(predStart)
-		if si < 0 || si >= len(specs) {
-			continue
-		}
-		fmt.Fprintf(&b, " pc%d->slot%d(kind=%d)", pc, si, specs[si].Kind)
-		spec := specs[si]
-		if spec.Kind == program.PredKindHammingLTAndScalarEq0 && int(spec.AndWord) == wantWord {
-			return true, b.String()
-		}
-	}
-	return false, b.String()
-}
+/*
+TestRecruitCommunityGuardPredicate verifies that the canonical
+recruit_community block lowers its Shannon-limit guard to a real inline
+predicate instruction. The guard reads `(A.affinity >= 121)` (the 47%
+ceiling for a 257-bit affinity window), so the lowered instruction must
+carry the GE condition code with 121 staged into the constants table.
+*/
+func TestRecruitCommunityGuardPredicate(t *testing.T) {
+	Convey("Given the compiled recruit_community firmware", t, func() {
+		entry := Cfg.Programs[RECRUIT_COMMUNITY]
+		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
-func TestRecruitCommunityGuardPredicateWord(t *testing.T) {
-	Convey("Given COMMUNITY in the layout and recruit_community firmware", t, func() {
-		commIdx := -1
-		for i, name := range Cfg.Value.PropertiesList {
-			if strings.EqualFold(strings.TrimSpace(name), "COMMUNITY") {
-				commIdx = i
-				break
+		Convey("It encodes at least one GE-predicate instruction", func() {
+			foundGE := false
+			for _, word := range entry.Words {
+				if word == 0 {
+					continue
+				}
+
+				if (word>>57)&1 != 1 {
+					continue
+				}
+
+				if (word>>58)&7 == 3 { // PredGE
+					foundGE = true
+					break
+				}
 			}
-		}
-		So(commIdx, ShouldBeGreaterThanOrEqualTo, 0)
 
-		wantWord := Cfg.Value.Region.Properties.Start + commIdx
+			So(foundGE, ShouldBeTrue)
+		})
 
-		Convey("When scanning compiled instructions against predicate specs", func() {
-			words := Cfg.Programs[RECRUIT_COMMUNITY].Compiled()
-			specs := program.PredicateDeviceSpecs()
-			found, _ := recruitCommunityGuardPredicateHitsCommunityWord(words, specs, wantWord)
+		Convey("And the constants table stages 121 for the Shannon threshold", func() {
+			has121 := false
+			for _, init := range entry.Constants {
+				if init.Value == 121 {
+					has121 = true
+					break
+				}
+			}
 
-			Convey("It should reference a compound predicate with the community word", func() {
-				So(found, ShouldBeTrue)
-			})
+			So(has121, ShouldBeTrue)
 		})
 	})
-}
-
-func BenchmarkRecruitCommunityGuardPredicateWord(b *testing.B) {
-	commIdx := -1
-	for i, name := range Cfg.Value.PropertiesList {
-		if strings.EqualFold(strings.TrimSpace(name), "COMMUNITY") {
-			commIdx = i
-			break
-		}
-	}
-	if commIdx < 0 {
-		b.Fatal("COMMUNITY not in properties list")
-	}
-	wantWord := Cfg.Value.Region.Properties.Start + commIdx
-	words := Cfg.Programs[RECRUIT_COMMUNITY].Compiled()
-	specs := program.PredicateDeviceSpecs()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for iteration := 0; iteration < b.N; iteration++ {
-		found, _ := recruitCommunityGuardPredicateHitsCommunityWord(words, specs, wantWord)
-		if !found {
-			b.Fatal("expected compound predicate")
-		}
-	}
 }
 
 func BenchmarkNewConfig(b *testing.B) {

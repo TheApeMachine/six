@@ -36,7 +36,7 @@ export interface TelemetryPayloadSnapshot {
 CausalState collapses the rule-cascade residues a single Value carries
 into three orthogonal booleans the visualiser can highlight
 independently. All three are derived directly from the wire frame so
-no side channel is needed; see visualizer/src/lib/value-store.ts:readCausalState
+no side channel is needed; see visualizer/src/lib/value-frame.ts:readCausalState
 for exact word/bit mapping.
 
  - hypothesizing: the Value has staged a refutation target in
@@ -105,10 +105,9 @@ export interface FieldSnapshot {
 	concentration: number;
 	members: FieldValueSnapshot[];
 	/*
-	Crystallisation fingerprint sourced from the FieldMetrics envelope
-	mesh.Field.Cycle emits every tick. When no envelope has arrived yet
-	every field falls back to 0 — the old hardcoded placeholders — so
-	the UI degrades gracefully instead of NaN'ing.
+	Crystallisation fingerprint derived from raw Value frames. Labels live
+	in the LABELS property word, so the UI can read coverage and consensus
+	without a side channel.
 	*/
 	coverage: number;
 	consensus: number;

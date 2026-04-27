@@ -3,9 +3,6 @@ package cpu
 import (
 	"context"
 	"runtime"
-	"unsafe"
-
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -32,21 +29,4 @@ func (backend *Backend) Name() string { return "cpu" }
 func (backend *Backend) Close() error {
 	backend.cancel()
 	return nil
-}
-
-/*
-HypercubeGossip diffuses the values across the community using a hypercube.
-This unifies the execution, and the networking across values, effectively
-allowing data exchange as a first-class citizen in the programming model.
-*/
-func (backend *Backend) HypercubeGossip(
-	value *primitive.Value, values []*primitive.Value,
-) ([]*primitive.Value, error) {
-	return HypercubeGossip(value, values), nil
-}
-
-// GeometricFrame applies PGA rotations/translations to the continuous
-// representation of a Value.
-func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
-	return GeometricFrame(value, opcode)
 }

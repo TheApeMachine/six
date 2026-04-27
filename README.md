@@ -81,7 +81,7 @@ This is the actual end-to-end path the code implements today:
 6. **Backend executes** — `compute.Backend` marks the selected resident `BUSY`, dispatches its program to CPU, Metal, or CUDA, then finalizes it after the ALU tick. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. Otherwise the backend clears `program`, clears `continuation`, and stamps `DONE`, so firmware cannot linger accidentally.
 8. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
-9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send.
+9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send. Expired ephemeral Values are still published once with the TTL expired sentinel before pruning, which lets the visualizer treat that raw frame as a tombstone instead of leaving a stale orphan on screen.
 
 *(The old Gossip/Mesh routing layer has been removed from the active runtime. Routing now lives in the packed AST through `self`, `next`, `fold`, and `spawn`, executed by HypercubeGossip).*
 
@@ -324,7 +324,7 @@ Current firmware families:
 | `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
 | `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
 | `program_select`, `program_carrier` | In-value program selection: selectors write the desired `program_id`; carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
-| `recruit_community` | Affinity recruitment: recruiter Values stamp `community = recruiter.id` onto unassigned peers within the Hamming budget while the recruiter/candidate union remains below the 47% Shannon cap, then fold accepted affinity back into their own witness. |
+| `recruit_community` | Affinity recruitment: recruiter Values stamp `community = recruiter.id` onto unassigned peers within the Hamming budget while the recruiter/candidate union remains below the explicit 120-bit Shannon cap, then fold accepted affinity back into their own witness. |
 | `episodic_replay`, `memory_prune` | Memory pressure: compare mapped peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
 | `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure over in-band label/property witnesses. |
 | `open_ended_generation` | Experimental generation path: mutate token coordinates by gradient and spawn only frames that survive the structural witness. |
@@ -358,11 +358,11 @@ Only Values with both a non-empty `program` region and non-zero `continuation` a
 
 ### Community Recruitment
 
-Communities are formed by recruiter Values running `recruit_community`. The program materializes `B(affinity[0,5]) ^ A(affinity[0,5])` into each candidate's `signals[0,5]`, poisons already-assigned candidates with an all-ones scratch witness, and stamps `B(community) = recruiter.id` only while `popcnt(B(signals[0,5])) < 119`. The final sweep clears candidate `signals[0,5]`, so recruitment scratch does not leak into later programs.
+Communities are formed by recruiter Values running `recruit_community`. The program first folds the eligible candidate set down to one deterministic `ValueID` with `min_nonzero(B.id) fold`, then stamps only that selected orphan. Eligibility is the conjunction of three in-band predicates: the candidate is still unassigned, the recruiter/candidate Hamming distance is within `routeBudget`, and `popcnt(A.affinity | B.affinity) < 120`. This prevents one SIMD sweep from admitting many individually-near candidates whose combined affinity union would overfill the community.
 
-Accepted candidates are reset to `status = PENDING` in the same firmware pass, so stale lifecycle words do not survive recruitment. Accepted candidate affinities are folded back into the recruiter's own `affinity[0,5]`, so the recruiter carries the saturation witness; `confidence = popcnt(affinity[0,5])` keeps that witness visible after the one-shot program region is cleared.
+Accepted candidates are reset to `status = DONE` in the same firmware pass, so stale lifecycle words do not survive recruitment. The accepted candidate affinity is folded back into the recruiter's own `affinity[0,5]`, so the recruiter carries the saturation witness; `confidence = popcnt(affinity[0,5])` keeps that witness visible after the one-shot program region is cleared.
 
-The VM does not assign communities itself. Its bootstrap responsibility is only to emit the next recruiter when the live community has unassigned Values and no active firmware owner. `Load` repeats that cycle until the unassigned count stops moving, which lets additional recruiters form until the batch has been claimed or the firmware can no longer make progress. The clustering rule remains resident firmware over `affinity` and `community`, not a Go-side assignment pass.
+The VM does not assign communities itself. Its bootstrap responsibility is only to emit the next recruiter when the live community has unassigned Values and no active firmware owner. `Load` repeats that cycle and evicts stalled recruiters when an active resident can no longer reduce the unassigned count, which lets additional recruiters form until the batch has been claimed or the firmware can no longer make progress. The clustering rule remains resident firmware over `affinity` and `community`, not a Go-side assignment pass.
 
 ### How Programs See Peer Data — Hypercube Mapping
 

@@ -1,6 +1,6 @@
 # Six Visualizer
 
-React/Vite inspection UI and local bridge for live Six telemetry. The Go runtime dials the bridge WebSocket as a client and sends binary VZB frames on that connection; the bridge fans them out to every browser tab also connected to `/ws`. The bridge serves `/ws`, `/api/prompt`, and `/api/programs`.
+React/Vite inspection UI and local bridge for live Six telemetry. The Go runtime dials the bridge WebSocket as a client and sends raw 1024-byte Value frames on that connection; the bridge fans them out to every browser tab also connected to `/ws`. The bridge serves `/ws`, `/api/prompt`, and `/api/programs`.
 
 ## Run
 
@@ -33,7 +33,7 @@ TELEMETRY_CONTROL_URL=http://127.0.0.1:8259 npm run bridge
 - **Live** renders the current event stream as a field/value canvas.
 - **Fields** renders community membership, saturation, concentration, and emitted action counts.
 - **Values** renders the causal graph from `PrevID` and `NextID` telemetry.
-- **Stream** shows the raw decoded wire events, including every `vals` and `meta` payload.
+- **Stream** shows the raw decoded Value frames.
 - **Telemetry** follows the canonical 1 KB Value layout from `pkg/compute/kernel/layout.go`, including property words 48–63.
 - **Programs** fetches firmware source from `/api/programs` and renders each DSL line as a dataflow circuit.
 

@@ -14,6 +14,7 @@ typedef struct {
     uint64_t span;
     uint64_t threshold;
     uint64_t and_word;
+    uint64_t threshold_b;
 } predicate_device_spec_t;
 
 int hypercube_gossip_cuda(
@@ -41,6 +42,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/program"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -107,7 +109,29 @@ func Available() int {
 
 const cudaCommunityBreakEven = 16
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []kernel.StageRequest, error) {
+	n := len(community)
+	if n == 0 {
+		return nil, nil, nil
+	}
+
+	_ = value
+	_ = n
+
+	// The CUDA kernel was authored against the previous ALU's
+	// instruction format and predicate-spec uniform layout. The new
+	// inline-predicate ALU is incompatible with that kernel; until the
+	// .cu source is rewritten, surface a sentinel error so the
+	// orchestrator falls back to the CPU substrate.
+	return nil, nil, fmt.Errorf("cuda: substrate disabled pending kernel rewrite for new ALU")
+}
+
+// HypercubeGossipLegacy preserves the original CUDA dispatch path so
+// the kernel can be reactivated once the .cu kernel is rewritten for
+// the new ALU. It is intentionally unused by the runtime today.
+//
+//nolint:unused
+func (backend *Backend) hypercubeGossipLegacy(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
 	n := len(community)
 	if n == 0 {
 		return nil, nil
@@ -136,7 +160,6 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 
 	spawnValues, spawnFrames, spawnIDs := cudaSpawnBuffers(value, community)
 	spawnActive := make([]uint8, n)
-	predicateSpecs := program.PredicateDeviceSpecs()
 
 	res := C.hypercube_gossip_cuda(
 		C.int(backend.deviceIdx),
@@ -144,7 +167,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		(*C.uint8_t)(unsafe.Pointer(&active[0])),
 		C.uint32_t(n),
 		C.uint32_t(ownerIndex),
-		(*C.predicate_device_spec_t)(unsafe.Pointer(&predicateSpecs[0])),
+		nil,
 		(*C.uint64_t)(unsafe.Pointer(&spawnFrames[0])),
 		(*C.uint64_t)(unsafe.Pointer(&spawnIDs[0])),
 		(*C.uint8_t)(unsafe.Pointer(&spawnActive[0])),
@@ -250,8 +273,8 @@ func valueMaySpawn(value *primitive.Value) bool {
 			continue
 		}
 
-		_, _, _, _, _, _, _, _, topology, _, _, _, _ := program.DecodeInstruction(instr)
-		if topology == program.TopologySpawn {
+		// Detect spawn intent via the new ALU's emit bit (instr[54]).
+		if (instr>>54)&1 == 1 {
 			return true
 		}
 	}

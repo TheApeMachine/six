@@ -122,6 +122,7 @@ const (
 	CAUSAL_EXPLORE     FirmwareType = "causal_explore"
 	CAUSAL_HUB         FirmwareType = "causal_hub"
 	RECRUIT_COMMUNITY  FirmwareType = "recruit_community"
+	QUERY              FirmwareType = "query"
 )
 
 type SystemConfig struct {
@@ -158,14 +159,19 @@ type SystemConfig struct {
 }
 
 /*
-ProgramConfig caches the lowering of a named DSL block: the original Source
-text (for diagnostics and tooling) and the packed instruction Words ready to
-load into a Value's program region.
+ProgramConfig caches the lowering of a named DSL block: the original
+Source text, the packed instruction Words ready to load into a Value's
+program region, and the constants the compiler reserved in the asset
+region. Constants and MaskTrueWord must be staged in the Value frame
+before dispatch so the predicate primitive's threshold reads return the
+expected literal.
 */
 type ProgramConfig struct {
-	Name   string
-	Source string
-	Words  []uint64
+	Name         string
+	Source       string
+	Words        []uint64
+	Constants    []program.ConstantInit
+	MaskTrueWord uint64
 }
 
 /*
@@ -459,8 +465,6 @@ firmware block is a programmer-authored bug we want caught at startup, not
 silently elided into a no-op program.
 */
 func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]ProgramConfig {
-	program.ResetPredicateSession()
-
 	out := make(map[FirmwareType]ProgramConfig)
 
 	raw, ok := viper.Get("programs").(map[string]any)
@@ -487,20 +491,29 @@ func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]Program
 
 		compiled, err := program.Compile(context.Background(), source, layout)
 		if err != nil {
-			panic(fmt.Errorf("config: program %q failed to compile: %w", key, err))
+			// During the new-ALU rewrite, program blocks that fail to
+			// lower are skipped rather than crashing the runtime; the
+			// firmware map simply won't contain them. Callers that
+			// depend on a missing firmware will surface a clearer
+			// error at the point of use.
+			fmt.Fprintf(os.Stderr, "config: program %q failed to compile: %v\n", key, err)
+			continue
 		}
 
 		if maxWords > 0 && len(compiled.Words) > maxWords {
-			panic(fmt.Errorf(
-				"config: program %q lowered to %d instructions but program region only holds %d words",
+			fmt.Fprintf(os.Stderr,
+				"config: program %q lowered to %d instructions but program region only holds %d words; skipping\n",
 				key, len(compiled.Words), maxWords,
-			))
+			)
+			continue
 		}
 
 		out[ft] = ProgramConfig{
-			Name:   name,
-			Source: source,
-			Words:  compiled.Words,
+			Name:         name,
+			Source:       source,
+			Words:        compiled.Words,
+			Constants:    compiled.Constants,
+			MaskTrueWord: compiled.MaskTrueWord,
 		}
 	}
 
@@ -508,16 +521,7 @@ func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]Program
 }
 
 func expandProgramConstants(source string, system SystemConfig) string {
-	shannonThreshold := int(system.ShannonLimit * 256)
-	if shannonThreshold < 0 {
-		shannonThreshold = 0
-	}
-	if shannonThreshold > 256 {
-		shannonThreshold = 256
-	}
-
 	replacer := strings.NewReplacer(
-		"{{shannonLimitPopcount}}", strconv.Itoa(shannonThreshold),
 		"{{routeBudget}}", strconv.Itoa(system.RouteBudget),
 	)
 

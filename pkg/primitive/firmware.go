@@ -59,5 +59,17 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
 		return false
 	}
 
+	// Stage MaskTrue (^0) and every reserved literal before installing
+	// the program words. Without this the predicate primitive reads its
+	// threshold as zero and every non-predicate instruction sees mask=0,
+	// which silently suppresses every body write.
+	if entry.MaskTrueWord != 0 {
+		value.Set(int(entry.MaskTrueWord), ^uint64(0))
+	}
+
+	for _, init := range entry.Constants {
+		value.Set(int(init.Offset), init.Value)
+	}
+
 	return value.InstallProgram(entry.Compiled())
 }

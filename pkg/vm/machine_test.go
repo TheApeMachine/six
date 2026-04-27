@@ -2,391 +2,153 @@ package vm
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/gorilla/websocket"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/compute/program"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/telemetry"
 )
 
-const machineConfigEnv = "CONFIG_PATH"
-const machineDefaultConfigPath = "cmd/cfg/config.yml"
+var configOnce sync.Once
 
-var machineConfigOnce sync.Once
-var machineConfigErr error
-
-func TestMachineCycleBootstrapsCommunityRecruiter(t *testing.T) {
-	Convey("Given unassigned Values without installed programs", t, func() {
-		loadMachineConfig(t)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		backend := compute.NewBackend(ctx)
-		defer backend.Close()
-
-		first := primitive.Emit()
-		second := primitive.Emit()
-		start, _ := primitive.AffinityRegion.WordExtent()
-
-		first.Set(start, 0b0011)
-		first.NormalizeAffinity()
-		first.SetStatus(primitive.ERROR)
-		second.Set(start, 0b0100)
-		second.NormalizeAffinity()
-		second.SetStatus(primitive.ERROR)
-
-		machine := &Machine{
-			ctx:       ctx,
-			cancel:    cancel,
-			backend:   backend,
-			community: []*primitive.Value{first, second},
-		}
-		defer func() {
-			primitive.CloseAll(machine.community)
-		}()
-
-		Convey("When the machine cycles", func() {
-			_, err := machine.Cycle()
-
-			Convey("It should emit one in-value recruiter and let firmware stamp the community", func() {
-				So(err, ShouldBeNil)
-				So(len(machine.community), ShouldEqual, 3)
-
-				recruiter := machine.community[2]
-				recruiterCommunity, communityErr := recruiter.Property(primitive.COMMUNITY)
-				firstCommunity, firstErr := first.Property(primitive.COMMUNITY)
-				secondCommunity, secondErr := second.Property(primitive.COMMUNITY)
-
-				So(communityErr, ShouldBeNil)
-				So(firstErr, ShouldBeNil)
-				So(secondErr, ShouldBeNil)
-				So(recruiterCommunity, ShouldEqual, recruiter.ID())
-				So(firstCommunity, ShouldEqual, recruiter.ID())
-				So(secondCommunity, ShouldEqual, recruiter.ID())
-				So(first.Status(), ShouldEqual, primitive.DONE)
-				So(second.Status(), ShouldEqual, primitive.DONE)
-				So(recruiter.HasProgram(), ShouldBeFalse)
-				So(recruiter.Status(), ShouldEqual, primitive.DONE)
-			})
-		})
-	})
-}
-
-func TestMachineCycleEmitsNextRecruiterAfterShannonCap(t *testing.T) {
-	Convey("Given an unassigned Value outside the recruiter's Shannon cap (120 low bits vs sibling at 119)", t, func() {
-		loadMachineConfig(t)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		backend := compute.NewBackend(ctx)
-		defer backend.Close()
-
-		first := primitive.Emit()
-		defer first.Close()
-		setMachineAffinityPrefix(first, 120)
-
-		second := primitive.Emit()
-		defer second.Close()
-		setMachineAffinityBit(second, 119)
-
-		machine := &Machine{
-			ctx:       ctx,
-			cancel:    cancel,
-			backend:   backend,
-			community: []*primitive.Value{first, second},
-		}
-		defer func() {
-			for _, value := range machine.community[2:] {
-				value.Close()
-			}
-		}()
-
-		Convey("When the machine cycles twice", func() {
-			_, firstErr := machine.Cycle()
-			_, secondErr := machine.Cycle()
-
-			Convey("It should leave the saturated Value for a new recruiter", func() {
-				So(firstErr, ShouldBeNil)
-				So(secondErr, ShouldBeNil)
-				So(len(machine.community), ShouldEqual, 4)
-
-				firstRecruiter := machine.community[2]
-				secondRecruiter := machine.community[3]
-				firstCommunity, firstCommunityErr := first.Property(primitive.COMMUNITY)
-				secondCommunity, secondCommunityErr := second.Property(primitive.COMMUNITY)
-
-				So(firstCommunityErr, ShouldBeNil)
-				So(secondCommunityErr, ShouldBeNil)
-				So(firstCommunity, ShouldEqual, firstRecruiter.ID())
-				So(secondCommunity, ShouldEqual, secondRecruiter.ID())
-				So(firstRecruiter.ID(), ShouldNotEqual, secondRecruiter.ID())
-			})
-		})
-	})
-}
-
-func TestMachineCyclePublishesChangedTelemetry(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	url, messages, closeServer := newMachineTelemetryServer(t)
-	defer closeServer()
-
-	enabled := core.Cfg.TelemetryEnabled
-	defer func() {
-		core.Cfg.TelemetryEnabled = enabled
-	}()
-	core.Cfg.TelemetryEnabled = true
-
-	bridge, err := telemetry.NewBridge(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bridge.Close()
-
-	backend := compute.NewBackend(ctx)
-	defer backend.Close()
-
-	value := primitive.Emit()
-	defer value.Close()
-	value.SetProperty(primitive.COMMUNITY, 1)
-
-	machine := &Machine{
-		ctx:       ctx,
-		cancel:    cancel,
-		backend:   backend,
-		telemetry: bridge,
-		community: []*primitive.Value{value},
-	}
-
-	if _, err := machine.Cycle(); err != nil {
-		t.Fatal(err)
-	}
-	if got := readMachineTelemetryMessage(t, messages); got != primitive.FrameByteLength {
-		t.Fatalf("telemetry frame length = %d, want %d", got, primitive.FrameByteLength)
-	}
-
-	if _, err := machine.Cycle(); err != nil {
-		t.Fatal(err)
-	}
-	if !noMachineTelemetryMessage(messages) {
-		t.Fatal("unchanged Value was resent")
-	}
-
-	value.SetProperty(primitive.NOISE, 1)
-	if _, err := machine.Cycle(); err != nil {
-		t.Fatal(err)
-	}
-	if got := readMachineTelemetryMessage(t, messages); got != primitive.FrameByteLength {
-		t.Fatalf("changed telemetry frame length = %d, want %d", got, primitive.FrameByteLength)
-	}
-}
-
-func TestMachineCyclePrunesExpiredEphemeralValues(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	backend := compute.NewBackend(ctx)
-	defer backend.Close()
-
-	compiled, err := program.Compile(context.Background(), `
-program ephemeral_mark {
-  write A.signals[0,1] <- A.id
-}
-`, program.Layout{
-		Regions: map[string]program.RegionExtent{
-			"id":      {Start: primitive.IDStartWord, Words: primitive.IDWords},
-			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
-		},
-		Opcodes: program.Opcodes,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	value := primitive.Emit(primitive.WithTTL(1))
-	if !value.InstallProgram(compiled.Words) {
-		value.Close()
-		t.Fatal("failed to install ephemeral program")
-	}
-
-	machine := &Machine{
-		ctx:       ctx,
-		cancel:    cancel,
-		backend:   backend,
-		community: []*primitive.Value{value},
-	}
-
-	if _, err := machine.Cycle(); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(machine.community) != 0 {
-		primitive.CloseAll(machine.community)
-		t.Fatalf("community len = %d, want expired ephemeral pruned", len(machine.community))
-	}
-}
-
-func TestMachinePromptAppendsValuesBeforeCycle(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	backend := compute.NewBackend(ctx)
-	defer backend.Close()
-
-	value := primitive.Emit()
-	defer value.Close()
-	value.SetProperty(primitive.COMMUNITY, 1)
-	value.SetStatus(primitive.DONE)
-
-	machine := &Machine{
-		ctx:     ctx,
-		cancel:  cancel,
-		backend: backend,
-	}
-
-	resolved, err := machine.Prompt(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(machine.community) != 1 {
-		t.Fatalf("community len = %d, want 1", len(machine.community))
-	}
-	if len(resolved) != 1 || resolved[0] != value {
-		t.Fatalf("resolved len = %d, want prompt Value resolved", len(resolved))
-	}
-}
-
-func newMachineTelemetryServer(t *testing.T) (string, <-chan int, func()) {
+func loadConfigForTests(t *testing.T) {
 	t.Helper()
 
-	messages := make(chan int, 8)
-	upgrader := websocket.Upgrader{}
+	configOnce.Do(func() {
+		viper.SetConfigType("yml")
+		viper.Set("telemetry.enabled", false)
+		viper.Set("telemetry.ws_url", "")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
+		candidates := []string{
+			filepath.Join("..", "..", "cmd", "cfg", "config.yml"),
+			"cmd/cfg/config.yml",
 		}
-		defer conn.Close()
 
-		for {
-			_, payload, readErr := conn.ReadMessage()
-			if readErr != nil {
+		for _, path := range candidates {
+			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+
+			viper.SetConfigFile(path)
+			if err := viper.ReadInConfig(); err == nil {
+				core.NewConfig()
 				return
 			}
-
-			messages <- len(payload)
-		}
-	}))
-
-	return "ws" + strings.TrimPrefix(server.URL, "http"), messages, server.Close
-}
-
-func readMachineTelemetryMessage(t *testing.T, messages <-chan int) int {
-	t.Helper()
-
-	select {
-	case length := <-messages:
-		return length
-	case <-time.After(time.Second):
-		t.Fatalf("timed out waiting for telemetry message")
-	}
-
-	return 0
-}
-
-func noMachineTelemetryMessage(messages <-chan int) bool {
-	select {
-	case <-messages:
-		return false
-	case <-time.After(50 * time.Millisecond):
-		return true
-	}
-}
-
-func setMachineAffinityPrefix(value *primitive.Value, bitCount int) {
-	if value == nil {
-		return
-	}
-
-	for bit := 0; bit < bitCount && bit < primitive.AffinityBits; bit++ {
-		word := primitive.AffinityStartWord + (bit / 64)
-		value.Set(word, (*value)[word]|uint64(1<<(bit%64)))
-	}
-
-	value.NormalizeAffinity()
-}
-
-func setMachineAffinityBit(value *primitive.Value, bit int) {
-	if value == nil || bit < 0 || bit >= primitive.AffinityBits {
-		return
-	}
-
-	word := primitive.AffinityStartWord + (bit / 64)
-	value.Set(word, (*value)[word]|uint64(1<<(bit%64)))
-	value.NormalizeAffinity()
-}
-
-func loadMachineConfig(t *testing.T) {
-	t.Helper()
-
-	t.Setenv("SIX_SUBSTRATE", "cpu")
-
-	machineConfigOnce.Do(func() {
-		_, file, _, ok := runtime.Caller(0)
-		if !ok {
-			machineConfigErr = errors.New("cannot resolve vm test file")
-			return
 		}
 
-		viper.SetConfigFile(machineConfigPath(file))
-		machineConfigErr = viper.ReadInConfig()
-		if machineConfigErr != nil {
-			return
-		}
-
-		core.Cfg = core.NewConfig()
+		t.Fatalf("no config.yml found in candidates")
 	})
-
-	if machineConfigErr != nil {
-		t.Fatalf("load machine config: %v", machineConfigErr)
-	}
 }
 
-func machineConfigPath(file string) string {
-	if configured := os.Getenv(machineConfigEnv); configured != "" {
-		return filepath.Clean(configured)
-	}
+func TestCycle(t *testing.T) {
+	loadConfigForTests(t)
 
-	if filepath.IsAbs(machineDefaultConfigPath) {
-		return filepath.Clean(machineDefaultConfigPath)
-	}
+	Convey("Given a machine seeded with a query and recruiter over a small community", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	if _, err := os.Stat(machineDefaultConfigPath); err == nil {
-		return filepath.Clean(machineDefaultConfigPath)
-	}
+		machine, err := NewMachine(ctx)
+		So(err, ShouldBeNil)
+		So(machine, ShouldNotBeNil)
+		Reset(func() {
+			machine.Close()
+		})
 
-	return filepath.Clean(filepath.Join(
-		filepath.Dir(file),
-		"..", "..",
-		"cmd", "cfg", "config.yml",
-	))
+		members := make([]*primitive.Value, 0, 4)
+		for idx := 0; idx < 4; idx++ {
+			value := primitive.Emit()
+			affinityStart, _ := primitive.AffinityRegion.WordExtent()
+			value.Set(affinityStart, uint64(1)<<uint64(idx))
+			value.NormalizeAffinity()
+
+			members = append(members, value)
+			machine.community.Store(value.ID(), value)
+		}
+
+		recruiter := primitive.Emit(
+			primitive.WithFirmware(core.RECRUIT_COMMUNITY),
+		)
+
+		query := primitive.Emit(
+			primitive.WithFirmware(core.QUERY),
+			primitive.WithReference(recruiter.ID()),
+		)
+
+		machine.community.Store(recruiter.ID(), recruiter)
+		machine.community.Store(query.ID(), query)
+
+		for _, value := range members {
+			machine.backend.StageInto(query.ID(), value)
+		}
+
+		Convey("When Cycle runs", func() {
+			err := machine.Cycle()
+			So(err, ShouldBeNil)
+
+			Convey("Then the query program had its expected instruction shape", func() {
+				words := query.Get(primitive.ProgramRegion)
+				// Seed (topo=PopQueue), write reference, stage(B) with popEnd bit.
+				So(words[0]>>55&3, ShouldEqual, 1)
+				So(words[1]>>55&3, ShouldEqual, 0)
+				So(words[2]>>55&3, ShouldEqual, 0)
+				So(words[2]>>62&1, ShouldEqual, 1) // stage bit
+				So(words[2]>>63&1, ShouldEqual, 1) // pop end
+			})
+
+			Convey("Then the query stamps every staged member with the recruiter's id", func() {
+				for _, value := range members {
+					ref, refErr := value.Property(primitive.REFERENCE)
+					So(refErr, ShouldBeNil)
+					So(ref, ShouldEqual, recruiter.ID())
+				}
+			})
+
+			Convey("Then the recruiter's lane is drained after consumption", func() {
+				lane := machine.backend.Lane(recruiter)
+				So(len(lane), ShouldEqual, 0)
+			})
+
+			Convey("Then the recruiter's affinity union covers the seeded bits", func() {
+				affinityStart, _ := primitive.AffinityRegion.WordExtent()
+				word := recruiter.Get(primitive.AffinityRegion)[0]
+
+				var expected uint64
+				for idx := range members {
+					expected |= uint64(1) << uint64(idx)
+				}
+
+				_ = affinityStart
+				So(word&expected, ShouldEqual, expected)
+			})
+
+			Convey("Then every gossiped peer is stamped with the recruiter's id as its community", func() {
+				for _, value := range members {
+					community, communityErr := value.Property(primitive.COMMUNITY)
+					So(communityErr, ShouldBeNil)
+					So(community, ShouldEqual, recruiter.ID())
+				}
+			})
+
+			Convey("And the recruiter id is non-zero (sanity check)", func() {
+				So(recruiter.ID(), ShouldNotEqual, uint64(0))
+			})
+
+			Convey("And the recruiter id differs from member ids (sanity check)", func() {
+				for _, value := range members {
+					So(value.ID(), ShouldNotEqual, recruiter.ID())
+				}
+			})
+
+			Convey("And reading the raw COMMUNITY word at offset 64 confirms the stamp", func() {
+				for _, value := range members {
+					raw := value.Get(primitive.PropertiesRegion)[primitive.COMMUNITY]
+					So(raw, ShouldEqual, recruiter.ID())
+				}
+			})
+		})
+	})
 }

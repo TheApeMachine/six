@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"iter"
-	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +47,7 @@ type Backend struct {
 	nextSub      atomic.Uint64
 	pending      atomic.Int64
 	cache        sync.Map
+	staging      sync.Map
 }
 
 /*
@@ -76,21 +75,18 @@ func NewBackend(ctx context.Context) *Backend {
 		pool:       pool.NewPool(uint64(runtime.NumCPU())),
 		substrates: make([]*substrateState, 0),
 		cache:      sync.Map{},
+		staging:    sync.Map{},
 	}
 
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("SIX_SUBSTRATE")), "cpu") {
-		backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
-	} else {
-		for device := 0; device < cuda.Available(); device++ {
-			backend.addSubstrate(cuda.NewBackend(device))
-		}
-
-		for device := 0; device < metal.Available(); device++ {
-			backend.addSubstrate(metal.NewBackend(device))
-		}
-
-		backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
+	for device := 0; device < cuda.Available(); device++ {
+		backend.addSubstrate(cuda.NewBackend(device))
 	}
+
+	for device := 0; device < metal.Available(); device++ {
+		backend.addSubstrate(metal.NewBackend(device))
+	}
+
+	backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
 
 	if !createAndAssignQueue(ctx, backend, QueueTypeNormal) {
 		return nil
@@ -99,9 +95,6 @@ func NewBackend(ctx context.Context) *Backend {
 	if !createAndAssignQueue(ctx, backend, QueueTypePriority) {
 		return nil
 	}
-
-	go backend.dispatch(backend.queues[QueueTypePriority])
-	go backend.dispatch(backend.queues[QueueTypeNormal])
 
 	return backend
 }
@@ -133,6 +126,12 @@ func (backend *Backend) Schedule(job func()) {
 
 /*
 Submit schedules in-value execution over a community.
+
+The community values are parked under the owner's ValueID inside backend.staging
+as the B-pool the kernel sweep will pop from. Programs are linear sweeps over
+the program region (select A, select B, apply truth table, write to DST); the
+only way to branch or loop is for the value to set the spawn/reschedule word
+and fall back into the ALU on the priority queue for another sweep.
 */
 func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Value) (err error) {
 	if backend == nil || len(community) == 0 {
@@ -149,19 +148,127 @@ func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Va
 
 	owner.SetStatus(primitive.WAITING)
 
+	backend.stage(owner, community)
 	backend.pending.Add(1)
 
-	if err = backend.queues[QueueTypeNormal].Schedule(backend.ctx, func() {
+	backend.pool.Submit(func() {
 		defer backend.pending.Add(-1)
-		backend.runHypercubeGossip(owner, community)
-	}); err != nil {
-		backend.pending.Add(-1)
-		owner.SetStatus(primitive.READY)
-
-		return err
-	}
+		defer backend.clearStaging(owner)
+		backend.executeSubstrate(backend.cpuSubstrate, owner, community)
+	})
 
 	return nil
+}
+
+/*
+stagingLane is the per-owner B-pool that programs pop from during a sweep.
+PopB advances the read cursor with a CAS so kernels share the pool without
+a mutex on the consume side. The producer side (StageInto) protects append
+with a small mutex because Go slice growth is not safe under concurrent
+appends; lanes are partitioned by owner ID so contention is per-owner, not
+global, and the only contenders are sweeps that explicitly target the same
+owner — rare in practice.
+*/
+type stagingLane struct {
+	mu     sync.Mutex
+	values []*primitive.Value
+	cursor atomic.Uint64
+}
+
+/*
+stage parks the community under the owner's ValueID. Re-staging the same owner
+overwrites the prior lane (a fresh sweep starts from a fresh cursor).
+*/
+func (backend *Backend) stage(owner *primitive.Value, community []*primitive.Value) {
+	if backend == nil || owner == nil {
+		return
+	}
+
+	lane := &stagingLane{values: community}
+	backend.staging.Store(owner.ID(), lane)
+}
+
+/*
+Lane returns a snapshot of the staging slice for the given owner. The host
+scheduler uses this to decide whether a Value has work to do: empty lane,
+nothing to dispatch. Programs are the only thing that fills lanes (via the
+kernel's stage instruction), so the host stays out of selection logic.
+*/
+func (backend *Backend) Lane(owner *primitive.Value) []*primitive.Value {
+	if backend == nil || owner == nil {
+		return nil
+	}
+
+	entry, ok := backend.staging.Load(owner.ID())
+	if !ok {
+		return nil
+	}
+
+	lane := entry.(*stagingLane)
+	lane.mu.Lock()
+	out := make([]*primitive.Value, len(lane.values))
+	copy(out, lane.values)
+	lane.mu.Unlock()
+
+	return out
+}
+
+/*
+StageInto pushes a Value into the staging lane keyed by ownerID. The kernel's
+stage instruction calls this from inside a program sweep, so reference-style
+selection happens entirely inside Value-space — no Go side decides which Bs
+go where, the program does. Contention is per-owner; the per-lane mutex only
+serializes the rare case where two sweeps target the same owner at once.
+*/
+func (backend *Backend) StageInto(ownerID uint64, value *primitive.Value) {
+	if backend == nil || value == nil {
+		return
+	}
+
+	entry, _ := backend.staging.LoadOrStore(ownerID, &stagingLane{})
+	lane := entry.(*stagingLane)
+
+	lane.mu.Lock()
+	lane.values = append(lane.values, value)
+	lane.mu.Unlock()
+}
+
+/*
+PopB returns the next community Value parked under the owner's ValueID, or nil
+when the lane is exhausted. This is the host-side counterpart to the kernel's
+pop(B) topology — every program is a linear sweep that consumes its B span by
+calling here.
+*/
+func (backend *Backend) PopB(owner *primitive.Value) *primitive.Value {
+	if backend == nil || owner == nil {
+		return nil
+	}
+
+	entry, ok := backend.staging.Load(owner.ID())
+	if !ok {
+		return nil
+	}
+
+	lane := entry.(*stagingLane)
+	idx := lane.cursor.Add(1) - 1
+
+	if idx >= uint64(len(lane.values)) {
+		return nil
+	}
+
+	return lane.values[idx]
+}
+
+/*
+clearStaging drops the owner's lane. Called when a submission fails before the
+sweep runs and after the sweep retires so the map does not retain dead frames.
+*/
+func (backend *Backend) clearStaging(owner *primitive.Value) {
+	if backend == nil || owner == nil {
+		return
+	}
+
+	backend.staging.Delete(owner.ID())
 }
 
 /*
@@ -198,100 +305,6 @@ func (backend *Backend) Sync(ctx context.Context) iter.Seq[*primitive.Value] {
 	}
 }
 
-func (backend *Backend) dispatch(queue *Queue) {
-	for {
-		select {
-		case <-backend.ctx.Done():
-			return
-		default:
-			task := queue.Next()
-			backend.pool.Submit(task)
-		}
-	}
-}
-
-func (backend *Backend) runHypercubeGossip(owner *primitive.Value, community []*primitive.Value) {
-	substrateState := backend.nextSubstrate()
-	if substrateState == nil {
-		return
-	}
-
-	before := snapshotProgram(owner)
-
-	owner.SetStatus(primitive.BUSY)
-
-	kernelValues := make([]*primitive.Value, 0, 1+len(community))
-	kernelValues = append(kernelValues, owner)
-
-	for _, value := range community {
-		if value == nil {
-			continue
-		}
-
-		if value == owner {
-			continue
-		}
-
-		kernelValues = append(kernelValues, value)
-	}
-
-	spawned, err := backend.executeSubstrate(substrateState, owner, kernelValues)
-
-	if err != nil && backend.cpuSubstrate != nil && substrateState != backend.cpuSubstrate {
-		errnie.Error(err)
-		primitive.CloseAll(spawned)
-		spawned, err = backend.executeSubstrate(backend.cpuSubstrate, owner, kernelValues)
-	}
-
-	if err != nil {
-		errnie.Error(err)
-		primitive.CloseAll(spawned)
-		owner.SetStatus(primitive.ERROR)
-		return
-	}
-
-	backend.finalizeOwner(owner, before)
-
-	backend.cache.Range(func(key any, value any) bool {
-		value.(*primitive.Value).SetStatus(primitive.DONE)
-		return true
-	})
-
-	for _, value := range spawned {
-		backend.cache.Store(value.ID(), value)
-	}
-}
-
-func (backend *Backend) finalizeOwner(owner *primitive.Value, before [primitive.ProgramWords]uint64) {
-	finalizeExecutedOwner(owner, before)
-}
-
-func finalizeExecutedOwner(owner *primitive.Value, before [primitive.ProgramWords]uint64) {
-	if owner == nil {
-		return
-	}
-
-	if ttl := owner.TTL(); ttl > 0 && ttl != ^uint64(0) {
-		if ttl == 1 {
-			owner.SetProperty(primitive.TTL, ttlExpiredSentinel)
-			owner.SetSchedulingNext(0)
-		} else {
-			owner.SetProperty(primitive.TTL, ttl-1)
-		}
-	}
-
-	// HypercubeGossip / in-kernel firmware can move the owner back to READY
-	// with a non-zero continuation. That mark is the only cross-sweep control
-	// contract; the current sweep never changes its own PC.
-	if owner.Status() == primitive.READY && owner.SchedulingNext() != 0 {
-		return
-	}
-
-	owner.ClearProgram()
-	owner.SetSchedulingNext(0)
-	owner.SetStatus(primitive.DONE)
-}
-
 func (backend *Backend) addSubstrate(substrate kernel.Substrate) *substrateState {
 	if substrate == nil {
 		return nil
@@ -315,10 +328,14 @@ func (backend *Backend) executeSubstrate(
 	state.inflight.Add(1)
 	start := time.Now()
 
-	spawned, err := state.HypercubeGossip(owner, community)
+	spawned, staged, err := state.HypercubeGossip(owner, community)
 
 	state.inflight.Add(-1)
 	state.observe(time.Since(start))
+
+	for _, req := range staged {
+		backend.StageInto(req.OwnerID, req.Value)
+	}
 
 	return spawned, err
 }
@@ -344,78 +361,6 @@ func (state *substrateState) observe(elapsed time.Duration) {
 			return
 		}
 	}
-}
-
-func (backend *Backend) nextSubstrate() *substrateState {
-	if backend == nil || len(backend.substrates) == 0 {
-		return nil
-	}
-
-	start := backend.nextSub.Add(1) - 1
-	var best *substrateState
-	bestScore := ^uint64(0)
-
-	for offset := range backend.substrates {
-		idx := int((start + uint64(offset)) % uint64(len(backend.substrates)))
-		candidate := backend.substrates[idx]
-		score := candidate.pressure()
-
-		if score < bestScore {
-			best = candidate
-			bestScore = score
-		}
-	}
-
-	return best
-}
-
-func (state *substrateState) pressure() uint64 {
-	if state == nil {
-		return ^uint64(0)
-	}
-
-	inflight := state.inflight.Load()
-	if inflight < 0 {
-		inflight = 0
-	}
-
-	service := state.serviceNanos.Load()
-	if service < 1 {
-		service = 1
-	}
-
-	return uint64(inflight+1) * uint64(service)
-}
-
-func snapshotProgram(value *primitive.Value) [primitive.ProgramWords]uint64 {
-	var snapshot [primitive.ProgramWords]uint64
-
-	if value == nil {
-		return snapshot
-	}
-
-	copy(snapshot[:], value.Get(primitive.ProgramRegion))
-
-	return snapshot
-}
-
-func programChanged(value *primitive.Value, before [primitive.ProgramWords]uint64) bool {
-	if value == nil {
-		return false
-	}
-
-	after := value.Get(primitive.ProgramRegion)
-	if len(after) != primitive.ProgramWords {
-		return true
-	}
-
-	for idx, word := range after {
-		if word != before[idx] {
-			return true
-		}
-	}
-
-	return false
 }
 
 /*

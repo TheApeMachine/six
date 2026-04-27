@@ -492,8 +492,6 @@ type compiledProgram struct {
 // compilePrograms walks viper's `programs:` map (sorted for stable output)
 // and lowers each DSL block through the same compiler the runtime uses.
 func compilePrograms(lay program.Layout) ([]compiledProgram, error) {
-	program.ResetPredicateSession()
-
 	raw, ok := viper.Get("programs").(map[string]any)
 	if !ok || raw == nil {
 		return nil, nil
@@ -523,21 +521,12 @@ func compilePrograms(lay program.Layout) ([]compiledProgram, error) {
 }
 
 func expandProgramConstants(source string) string {
-	shannonThreshold := int(viper.GetFloat64("system.shannonLimit") * 256)
-	if shannonThreshold < 0 {
-		shannonThreshold = 0
-	}
-	if shannonThreshold > 256 {
-		shannonThreshold = 256
-	}
-
 	routeBudget := viper.GetInt("system.routeBudget")
 	if routeBudget == 0 {
 		routeBudget = 128
 	}
 
 	replacer := strings.NewReplacer(
-		"{{shannonLimitPopcount}}", strconv.Itoa(shannonThreshold),
 		"{{routeBudget}}", strconv.Itoa(routeBudget),
 	)
 

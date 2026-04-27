@@ -206,20 +206,6 @@ func buildBabiQASamples(texts, answers []string, types []int) []babiQASample {
 	return samples
 }
 
-// extractBabiQuestion returns the last sentence ending in "?" from visible,
-// or the full visible text if no question sentence is found.
-func extractBabiQuestion(visible string) string {
-	sentences := strings.Split(visible, ".")
-	for i := len(sentences) - 1; i >= 0; i-- {
-		s := strings.TrimSpace(sentences[i])
-		if strings.HasSuffix(s, "?") {
-			return s
-		}
-	}
-
-	return visible
-}
-
 func isBabiQuestion(idx int, text string, types []int) bool {
 	if idx < len(types) {
 		return types[idx] != 0

@@ -23,9 +23,21 @@ state transitions, and computation into a single execution loop.
 Memory: every *Value is a full 128-word frame owned by the caller.
 Substrates mutate in place and do not retain pointers after return.
 */
+/*
+StageRequest is one in-band staging directive emitted by a program's stage
+instruction during a kernel sweep. OwnerID names the staging lane (the
+recruiter / next-program id stamped into A.properties.reference at sweep
+time); Value is the popped B that should land in that lane. The compute
+backend turns the slice into StageInto calls after the sweep retires.
+*/
+type StageRequest struct {
+	OwnerID uint64
+	Value   *primitive.Value
+}
+
 type Substrate interface {
 	Name() string
-	HypercubeGossip(value *primitive.Value, values []*primitive.Value) ([]*primitive.Value, error)
+	HypercubeGossip(value *primitive.Value, values []*primitive.Value) (spawned []*primitive.Value, staged []StageRequest, err error)
 	GeometricFrame(value unsafe.Pointer, opcode uint64) bool
 	Close() error
 }

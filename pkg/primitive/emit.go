@@ -1,9 +1,6 @@
 package primitive
 
 import (
-	"encoding/binary"
-	"io"
-
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -131,46 +128,8 @@ func WithFirmware(firmware core.FirmwareType) EmitOptions {
 	}
 }
 
-// WithAssetPressureMetrics materializes Coverage / Consensus / Crystallization into the asset
-// window and sets Properties TTL=1 via a full-frame patch so the stamped ID from Emit is preserved.
-func WithAssetPressureMetrics(coverage, consensus, crystallization float64) EmitOptions {
+func WithReference(reference uint64) EmitOptions {
 	return func(value *Value) {
-		if value == nil {
-			return
-		}
-
-		clamp01 := func(x float64) float64 {
-			if x < 0 {
-				return 0
-			}
-
-			if x > 1 {
-				return 1
-			}
-
-			return x
-		}
-
-		scaleFixed := func(x float64) uint64 {
-			return uint64(clamp01(x) * float64(uint64(1)<<32))
-		}
-
-		buf := make([]byte, core.Cfg.Value.Bytes)
-
-		if _, err := value.Read(buf); err != nil && err != io.EOF {
-			return
-		}
-
-		assetStart, assetWords := core.Cfg.Value.Region.Asset.WordExtent()
-
-		if assetWords >= 3 {
-			binary.LittleEndian.PutUint64(buf[(assetStart+0)*8:], scaleFixed(coverage))
-			binary.LittleEndian.PutUint64(buf[(assetStart+1)*8:], scaleFixed(consensus))
-			binary.LittleEndian.PutUint64(buf[(assetStart+2)*8:], scaleFixed(crystallization))
-		}
-
-		binary.LittleEndian.PutUint64(buf[(core.Cfg.Value.Region.Properties.Start+int(TTL))*8:], 1)
-
-		_ = value.LoadFullFrame(buf)
+		value.Set(core.Cfg.Value.Region.Properties.Start+int(REFERENCE), reference)
 	}
 }
