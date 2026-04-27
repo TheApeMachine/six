@@ -3,92 +3,36 @@ package program
 import (
 	"context"
 	"fmt"
-
-	"github.com/theapemachine/six/pkg/compute/program/ts"
+	"strings"
 )
 
-func Compile(source string, lay Layout) (Compiled, error) {
-	var out Compiled
+/*
+Compile lowers authoring source to resident words. Only the firmware surface
 
-	words, err := compileFeedSource(source, lay)
-	if err != nil {
-		return out, err
+	program <name> { ... }
+
+is supported; there is no legacy feed parser.
+*/
+func Compile(ctx context.Context, source string, lay Layout) (Compiled, error) {
+	trim := strings.TrimSpace(source)
+	if !strings.HasPrefix(trim, "program ") {
+		return Compiled{}, fmt.Errorf("program: only firmware syntax is supported (expected program … { … }), got %q", firstLine(trim))
 	}
 
-	out.Words = words
+	words, err := compileFirmwareSource(ctx, trim, lay)
+	if err != nil {
+		return Compiled{}, err
+	}
 
-	return out, nil
+	return Compiled{Words: words}, nil
 }
 
-func compileFeedSource(source string, lay Layout) ([]uint64, error) {
-	srcBytes := []byte(source)
-
-	program, err := ts.ParseFeedProgram(context.Background(), srcBytes)
-	if err != nil {
-		return nil, err
+func firstLine(source string) string {
+	if idx := strings.IndexByte(source, '\n'); idx >= 0 {
+		return source[:idx] + " …"
 	}
-
-	sitesTS := program.Sites
-	sites := make([]feedSite, len(sitesTS))
-	for idx := range sitesTS {
-		sites[idx] = feedSite{
-			emit:       sitesTS[idx].Emit,
-			compact:    sitesTS[idx].CompactTerms,
-			operations: sitesTS[idx].Operations,
-		}
+	if len(source) > 80 {
+		return source[:80] + " …"
 	}
-
-	out := make([]uint64, 0, len(sites))
-
-	if !program.HasFeed {
-		var pendingPredStart, pendingPredCond uint64
-		var incoming []feedAtom
-		for site := 0; site < len(sites); site++ {
-			if predStart, predCond, ok, err := feedSiteGate(sites[site], lay); err != nil {
-				return nil, fmt.Errorf("site %d: %w", site+1, err)
-			} else if ok {
-				pendingPredStart = predStart
-				pendingPredCond = predCond
-				continue
-			}
-
-			words, result, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, incoming, lay)
-			if err != nil {
-				return nil, fmt.Errorf("site %d: %w", site+1, err)
-			}
-			if ok {
-				out = append(out, words...)
-				incoming = result
-				pendingPredStart = 0
-				pendingPredCond = 0
-			}
-		}
-
-		return out, nil
-	}
-
-	var pendingPredStart, pendingPredCond uint64
-	var incoming []feedAtom
-	for site := len(sites) - 1; site >= 0; site-- {
-		if predStart, predCond, ok, err := feedSiteGate(sites[site], lay); err != nil {
-			return nil, fmt.Errorf("site %d: %w", len(sites)-site, err)
-		} else if ok {
-			pendingPredStart = predStart
-			pendingPredCond = predCond
-			continue
-		}
-
-		words, result, ok, err := compileFeedSite(sites[site], pendingPredStart, pendingPredCond, incoming, lay)
-		if err != nil {
-			return nil, fmt.Errorf("site %d: %w", len(sites)-site, err)
-		}
-		if ok {
-			out = append(out, words...)
-			incoming = result
-			pendingPredStart = 0
-			pendingPredCond = 0
-		}
-	}
-
-	return out, nil
+	return source
 }

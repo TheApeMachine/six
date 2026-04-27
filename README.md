@@ -139,7 +139,7 @@ A Value is a `[128]uint64` — exactly 1KB — that serves simultaneously as dat
 | `BUSY` | The backend has selected the Value and the ALU is currently processing it. |
 | `DONE` | The ALU pass has completed and the resident program was cleared. |
 
-After each ALU pass, the backend makes the executable state single-use by default. A program survives only when the resident program region changed during the tick, the resident status is `READY`, and `continuation` is still non-zero. Spawned Values keep lineage data such as TTL, `prev`, and `next`, but they do not inherit the source program, continuation, or `BUSY` state unless the emitting program explicitly writes those lanes into the spawned frame.
+After each ALU pass, the backend makes executable state single-use by default. A program survives for the next sweep only when firmware writes the resident status back to `READY` and leaves `continuation` non-zero. This makes branching and looping a data effect: the current sweep never changes its own PC, but it may mark a next-sweep continuation for the scheduler. Spawned Values keep lineage data such as TTL, `prev`, and `next`, but they do not inherit the source program, continuation, or `BUSY` state unless the emitting program explicitly writes those lanes into the spawned frame.
 
 ### Properties
 
@@ -164,19 +164,20 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 | 70              | 14            | **delta_surprisal**                        | Reduced difference between surprisal ticks.                                                                                          |
 | 71              | 15            | **continuation**                           | ValueID to schedule next. `id` = recursive loop, `0` = halt                                                                          |
 
-### Program Authoring (`pkg/compute/program` — config-time DSL only)
+### Program Authoring (`pkg/compute/program`)
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes both the source text and the packed instruction words for each named firmware block.
 
-The authoring syntax is parsed by `grammar/tree-sitter-six`; `pkg/compute/program`
-lowers the typed Tree-sitter feed terms into packed instruction words.
+`pkg/compute/program` is the normalizer for the resident machine algebra. It supports the compact bracket/feed source used by config firmware and a canonical Go IR (`ProgramIR`, `SlotIR`, `OperationIR`, `ExprIR`, `MachineOp`) for agent/self-programming paths that should not emit text at all.
 
 Pipeline in order:
 
 1. **`program.Compile()`** lowers the bracket/feed source into compact 64-bit Instructions. Operation sites use explicit owner markers (`A(signals)`, `B(gradient[0,8])`, `B(program_id)`) for every region/property operand.
-2. **`core.precompile()`** runs once during config load and stores packed instruction words in `core.Cfg.Programs`.
-3. **`primitive.Value.InstallFirmware()`** copies a named program into the Value's `program` region and stamps `properties.continuation = id`.
-4. **The ALU** executes the packed words directly; each instruction can write local `A(...)`, peer/candidate `B(...)`, spawned Values, or fold outputs depending on its topology.
+2. **`program.NewCompiler(layout).EncodeIR()`** lowers canonical IR directly into the same packed words when source text is not needed.
+3. **`program.Disassemble()`** prints the fixed 16-slot sweep for inspection, including resolved word spans and predicates.
+4. **`core.precompile()`** runs once during config load and stores packed instruction words in `core.Cfg.Programs`.
+5. **`primitive.Value.InstallFirmware()`** copies a named program into the Value's `program` region and stamps `properties.continuation = id`.
+6. **The ALU** executes the packed words directly; each instruction can write local `A(...)`, peer/candidate `B(...)`, spawned Values, or fold outputs depending on its topology.
 
 So: **one compiled firmware stream → one program region on one Value**. Chaining is natively expressed by setting the `continuation` property word in the AST.
 
@@ -357,7 +358,7 @@ Only Values with both a non-empty `program` region and non-zero `continuation` a
 
 ### Community Recruitment
 
-Communities are formed by recruiter Values running `recruit_community`. The program materializes `B(affinity[0,5]) ^ A(affinity[0,5])` into each candidate's `signals[0,5]`, builds the recruiter/candidate union witness in the first five words of the candidate asset scratch (`B(asset[0,5])`), and masks candidates that already carry a `community`. It stages the route-budget pass in `B(asset[5,1])`, the Shannon pass in `B(asset[6,1])`, intersects them into `B(asset[7,1])`, and stamps `B(community) = recruiter.id` only for accepted unassigned candidates. The Shannon gate is `{ { B(asset[0,5]) popcnt } 120 ? }`: candidates at 120 set bits or higher do not receive the pass marker.
+Communities are formed by recruiter Values running `recruit_community`. The program materializes `B(affinity[0,5]) ^ A(affinity[0,5])` into each candidate's `signals[0,5]`, poisons already-assigned candidates with an all-ones scratch witness, and stamps `B(community) = recruiter.id` only while `popcnt(B(signals[0,5])) < 119`. The final sweep clears candidate `signals[0,5]`, so recruitment scratch does not leak into later programs.
 
 Accepted candidates are reset to `status = PENDING` in the same firmware pass, so stale lifecycle words do not survive recruitment. Accepted candidate affinities are folded back into the recruiter's own `affinity[0,5]`, so the recruiter carries the saturation witness; `confidence = popcnt(affinity[0,5])` keeps that witness visible after the one-shot program region is cleared.
 

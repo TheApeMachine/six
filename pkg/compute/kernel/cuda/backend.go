@@ -13,6 +13,7 @@ typedef struct {
     uint64_t start;
     uint64_t span;
     uint64_t threshold;
+    uint64_t and_word;
 } predicate_device_spec_t;
 
 int hypercube_gossip_cuda(

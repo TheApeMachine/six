@@ -1,30 +1,29 @@
 package program
 
+/*
+Instruction bit layout matches the CUDA/Metal ast_decode contract (see
+pkg/compute/kernel/cuda/backend.cu). This is the on-wire format HypercubeGossip
+executes, not an authoring syntax.
+*/
+
 const (
-	InstrDstSpanShift  = 0
-	InstrDstStartShift = 6
-
-	InstrASpanShift  = 13
-	InstrAStartShift = 19
-
-	InstrBSpanShift  = 26
-	InstrBStartShift = 32
-
-	InstrOpcodeShift   = 39
-	InstrModeShift     = 43
-	InstrTopologyShift = 46
-
+	InstrDstSpanShift   = 0
+	InstrDstStartShift  = 6
+	InstrASpanShift     = 13
+	InstrAStartShift    = 19
+	InstrBSpanShift     = 26
+	InstrBStartShift    = 32
+	InstrOpcodeShift    = 39
+	InstrModeShift      = 43
+	InstrTopologyShift  = 46
 	InstrPredStartShift = 48
 	InstrPredCondShift  = 55
-
 	InstrAIndirectShift = 57
 	InstrBTypeShift     = 58
 
-	InstrSpanMask  uint64 = 0x3F
-	InstrStartMask uint64 = 0x7F
-)
+	InstrSpanMask  = 0x3f
+	InstrStartMask = 0x7f
 
-const (
 	InstrFlagTargetB     uint64 = 1 << 60
 	InstrFlagTargetOwner uint64 = 1 << 61
 	InstrFlagAFromB      uint64 = 1 << 62
@@ -32,77 +31,32 @@ const (
 )
 
 const (
-	InstrBTypeDirect uint64 = iota
-	InstrBTypeIndirect
-	InstrBTypeImmediate
-	InstrBTypeNext
+	ModeTruth     uint64 = 0
+	ModePopcnt    uint64 = 1
+	ModeAnyZero   uint64 = 2
+	ModeAllOnes   uint64 = 3
+	ModeGeometric uint64 = 4
+	ModeEmit      uint64 = 5
 )
 
 const (
-	TopologySelf  = 0
-	TopologyNext  = 1
-	TopologyFold  = 2
-	TopologySpawn = 3
+	TopologySelf  uint64 = 0
+	TopologyNext  uint64 = 1
+	TopologyFold  uint64 = 2
+	TopologySpawn uint64 = 3
 )
 
 const (
-	ModeTruth     = 0
-	ModePopcnt    = 1
-	ModeAnyZero   = 2
-	ModeAllOnes   = 3
-	ModeGeometric = 4
-	ModeEmit      = 5
+	InstrBTypeDirect    uint64 = 0
+	InstrBTypeIndirect  uint64 = 1
+	InstrBTypeImmediate uint64 = 2
+	InstrBTypeNext      uint64 = 3
 )
 
-var Opcodes = map[string]uint64{
-	"0":  0b0000,
-	"&":  0b0001,
-	"\\": 0b0010,
-	"A":  0b0011,
-	"/":  0b0100,
-	"B":  0b0101,
-	"^":  0b0110,
-	"|":  0b0111,
-	"~|": 0b1000,
-	"==": 0b1001,
-	"~B": 0b1010,
-	"<-": 0b1011,
-	"~A": 0b1100,
-	"->": 0b1101,
-	"~&": 0b1110,
-	"1":  0b1111,
-
-	"compose":  0x10,
-	"sandwich": 0x20,
-	"reverse":  0x30,
-}
-
-var Topologies = map[string]uint64{
-	"self":  TopologySelf,
-	"next":  TopologyNext,
-	"fold":  TopologyFold,
-	"spawn": TopologySpawn,
-	"emit":  TopologySpawn,
-}
-
-func IsGeometricOpcode(opcode uint64) bool {
-	switch opcode & 0xF0 {
-	case 0x10, 0x20, 0x30:
-		return true
-	default:
-		return false
-	}
-}
-
-func isFoldOpcode(opcode uint64) bool {
-	switch opcode {
-	case Opcodes["0"], Opcodes["1"], Opcodes["&"], Opcodes["|"], Opcodes["^"], Opcodes["=="]:
-		return true
-	default:
-		return false
-	}
-}
-
+/*
+EncodeInstruction packs one resident sweep step. Flags (TargetB, etc.) are OR’d
+by callers onto the low 60-bit encoding.
+*/
 func EncodeInstruction(
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan int,
 	opcode, mode, topology, predStart, predCond, aInd, bType uint64,
@@ -132,7 +86,7 @@ func EncodeInstruction(
 		((encodedOpcode & 0xF) << InstrOpcodeShift) |
 		((mode & 0x7) << InstrModeShift) |
 		((topology & 0x3) << InstrTopologyShift) |
-		((predStart & InstrStartMask) << InstrPredStartShift) |
+		((uint64(predStart) & InstrStartMask) << InstrPredStartShift) |
 		((predCond & 0x3) << InstrPredCondShift) |
 		((aInd & 0x1) << InstrAIndirectShift) |
 		((bType & 0x3) << InstrBTypeShift)
@@ -158,5 +112,10 @@ func DecodeInstruction(instr uint64) (
 	predCond = (instr >> InstrPredCondShift) & 0x3
 	aInd = (instr >> InstrAIndirectShift) & 0x1
 	bType = (instr >> InstrBTypeShift) & 0x3
+
 	return
+}
+
+func IsGeometricOpcode(opcode uint64) bool {
+	return opcode&0xF0 == 0x10 || opcode&0xF0 == 0x20 || opcode&0xF0 == 0x30
 }

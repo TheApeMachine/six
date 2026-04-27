@@ -118,435 +118,399 @@ value:
     - ERROR
 programs:
   link: |
-    [ { A(prev) A(asset[0,1]) | } ]
-    [ { A(next) A(asset[1,1]) | } ]
-    [ { A(continuation) A(id) | } ]
+    program link {
+      write A.prev <- or(A.prev, A.asset[0,1])
+      write A.next <- or(A.next, A.asset[1,1])
+      write A.properties.continuation <- or(A.properties.continuation, A.id)
+    }
+
   affinity: |
-    [ { A(affinity[0,5]) A(tokens[0,16]) ^ } ]
-  # query: community subset search / ready buffer — reserved; no program text yet
+    program affinity {
+      write A.affinity[0,5] <- xor(A.affinity[0,5], A.tokens[0,16])
+    }
+
   query: |
-    ; query the community for a sub-set of values, based on matching
-    ; region and word state, and queue the results in the ready buffer.
-    ; This will make sure that the next call to backend.Submit receives
-    ; the values that were found.
-    [ 
-      { B(reference) A(id) ^ }                           ; set the reference of the matched values to the owner id
-    ]
+    program query {
+      write B.properties.reference <- xor(B.properties.reference, A.id)
+    }
+
   structural_component: |
-    <[
-      { B(prev) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write the mapped id to prev region
-      { B(next) B(id) ^ }                                ; map over Bn ([]*primitive.Value) and write the mapped id to next region
-    ] <= [
-      { A(status) done ^ }                               ; set status of A to done
-      { B(tokens) B(signals[0, 1]) ^ }                   ; map over Bn ([]*primitive.Value) and write signals[0, 1] to tokens region
-      { B(tokens) B(signals[1, 1]) ^ }                   ; map over Bn ([]*primitive.Value) and write signals[1, 1] to tokens region
-      { B(tokens) B(signals[2, 1]) ^ }                   ; map over Bn ([]*primitive.Value) and write signals[2, 1] to tokens region
-    ]> [                                                 ; emit new values to the substrate
-        { B(signals) }                                   ; map over Bn ([]*primitive.Value) and write results of previous pipe to signals region
-    ] <= [
-        { B(tokens[0,16]) B(tokens[0,16]) & }            ; map over Bn ([]*primitive.Value) tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 16 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 32 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 48 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 64 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 80 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 96 <<) } & }  ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-        { B(tokens[0,16]) { B(tokens[0,16] 112 <<) } & } ; map over Bn ([]*primitive.Value) tokens and rotated tokens applying AND
-    ]
+    program structural_component {
+      emit child {
+        set child.signals <- B.signals
+      }
+
+      set A.properties.status <- DONE
+
+      target B {
+        write B.tokens <- xor(B.tokens, B.signals[2,1])
+        write B.tokens <- xor(B.tokens, B.signals[1,1])
+        write B.tokens <- xor(B.tokens, B.signals[0,1])
+      }
+
+      emit child {
+        set child.prev <- B.id
+        set child.next <- B.id
+      }
+    }
+
   beam_swarm_step: |
-    <[
-      { B(context[0,8]) A(context[0,8]) ^ }
-      { B(gradient[0,8]) A(gradient[0,8]) ^ }
-      { B(prev) A(id) B }
-      { B(continuation) B(id) B }
-    ]> [
-      { A(confidence) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(gradient[0,8]) A(signals[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(tokens[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) clear B }
-    ]
+    program beam_swarm_step {
+      set A.signals[0,8] <- 0
+      write A.signals[0,8] <- xor(A.signals[0,8], A.tokens[0,8])
+      write A.signals[0,8] <- xor(A.signals[0,8], A.context[0,8])
+      write A.gradient[0,8] <- xor(A.gradient[0,8], A.signals[0,8])
+      set A.properties.confidence <- popcnt(A.signals[0,8])
+
+      emit child {
+        set child.context[0,8] <- A.context[0,8]
+        set child.gradient[0,8] <- A.gradient[0,8]
+        set child.prev <- A.id
+        set child.properties.continuation <- B.id
+      }
+    }
+
   surprisal: |
-    [ { A(continuation) A(id) B } ] <= [
-      { A(delta_surprisal) A(surprisal) ^ }
-    ] <= [
-      { A(delta_surprisal) A(prev_surprisal) ^ }
-    ] <= [
-      { A(delta_surprisal) clear B }
-    ] <= [
-      { A(surprisal) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(gradient[0,8]) A(signals[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(tokens[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) clear B }
-    ] <= [
-      { A(prev_surprisal) A(surprisal) B }
-    ]
+    program surprisal {
+      set A.properties.prev_surprisal <- A.properties.surprisal
+      set A.signals[0,8] <- 0
+      write A.signals[0,8] <- xor(A.signals[0,8], A.tokens[0,8])
+      write A.signals[0,8] <- xor(A.signals[0,8], A.context[0,8])
+      write A.gradient[0,8] <- xor(A.gradient[0,8], A.signals[0,8])
+      set A.properties.surprisal <- popcnt(A.signals[0,8])
+      set A.properties.delta_surprisal <- 0
+      write A.properties.delta_surprisal <- xor(A.properties.delta_surprisal, A.properties.prev_surprisal)
+      write A.properties.delta_surprisal <- xor(A.properties.delta_surprisal, A.properties.surprisal)
+      set A.properties.continuation <- A.id
+    }
+
   hypothesis: |
-    <[
-      { B(context[0,8]) A(context[0,8]) B }
-      { B(gradient[0,8]) A(gradient[0,8]) B }
-      { B(target) A(target) B }
-      { B(reference) A(reference) B }
-      { B(prev) A(id) B }
-      { B(ttl) A(ttl) B }
-      { B(continuation) A(id) B }
-    ]> [
-      { { A(target) 0 != } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(target) 0 != } ? }
-    ] <= [
-      { A(reference) A(id) B }
-    ] <= [
-      { A(target) A(id) | }
-    ] <= [
-      { A(target) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(signals[0,8]) A(gradient[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ] <= [
-      { A(noise) clear B }
-    ]
+    program hypothesis {
+      set A.properties.noise <- 0
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.gradient[0,8])
+      set A.properties.target <- popcnt(A.signals[0,8])
+      write A.properties.target <- or(A.properties.target, A.id)
+
+      when A.properties.target != 0 {
+        set A.properties.reference <- A.id
+        set A.properties.continuation <- A.id
+      }
+
+      emit child {
+        set child.context[0,8] <- A.context[0,8]
+        set child.gradient[0,8] <- A.gradient[0,8]
+        set child.properties.target <- A.properties.target
+        set child.properties.reference <- A.properties.reference
+        set child.prev <- A.id
+        set child.properties.ttl <- A.properties.ttl
+        set child.properties.continuation <- A.id
+      }
+    }
+
   falsification: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(noise) 0 == } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(noise) 0 != } ? }
-    ] <= [
-      { A(reference) A(asset[33,1]) | }
-    ] <= [
-      { { A(noise) 0 != } ? }
-    ] <= [
-      { A(noise) A(signals[0,8]) any_zero }
-    ] <= [
-      { A(signals[0,8]) A(asset[8,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ] <= [
-      { A(noise) clear B }
-    ]
+    program falsification {
+      set A.properties.noise <- 0
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.asset[8,8])
+      set A.properties.noise <- any_zero(A.signals[0,8])
+
+      when A.properties.noise != 0 {
+        write A.properties.reference <- or(A.properties.reference, A.asset[33,1])
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.noise == 0 {
+        set A.properties.continuation <- 0
+      }
+    }
+
   memory_prune: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(ttl) 0 == } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(ttl) 0 != } ? }
-    ] <= [
-      { A(confidence) A(signals[0,1]) | }
-    ] <= [
-      { { A(noise) 0 == } ? }
-    ] <= [
-      { A(confidence) A(noise) \ }
-    ] <= [
-      { { A(noise) 0 != } ? }
-    ]
+    program memory_prune {
+      when A.properties.noise != 0 {
+        write A.properties.confidence <- and_not(A.properties.confidence, A.properties.noise)
+      }
+
+      when A.properties.noise == 0 {
+        write A.properties.confidence <- or(A.properties.confidence, A.signals[0,1])
+      }
+
+      when A.properties.ttl != 0 {
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.ttl == 0 {
+        set A.properties.continuation <- 0
+      }
+    }
+
   active_inference: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(surprisal) 0 == } ? }
-    ] <= [
-      { A(status) 5 B }
-    ] <= [
-      { { A(surprisal) 0 == } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(surprisal) 0 != } ? }
-    ] <= [
-      { A(context[0,8]) A(gradient[0,8]) ^ }
-    ] <= [
-      { { A(surprisal) 0 != } ? }
-    ] <= [
-      { A(delta_surprisal) A(surprisal) ^ }
-    ] <= [
-      { A(delta_surprisal) A(prev_surprisal) ^ }
-    ] <= [
-      { A(delta_surprisal) clear B }
-    ] <= [
-      { A(surprisal) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(gradient[0,8]) A(signals[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(tokens[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) clear B }
-    ] <= [
-      { A(prev_surprisal) A(surprisal) B }
-    ]
+    program active_inference {
+      set A.properties.prev_surprisal <- A.properties.surprisal
+      set A.signals[0,8] <- 0
+      write A.signals[0,8] <- xor(A.signals[0,8], A.tokens[0,8])
+      write A.signals[0,8] <- xor(A.signals[0,8], A.context[0,8])
+      write A.gradient[0,8] <- xor(A.gradient[0,8], A.signals[0,8])
+      set A.properties.surprisal <- popcnt(A.signals[0,8])
+      set A.properties.delta_surprisal <- 0
+      write A.properties.delta_surprisal <- xor(A.properties.delta_surprisal, A.properties.prev_surprisal)
+      write A.properties.delta_surprisal <- xor(A.properties.delta_surprisal, A.properties.surprisal)
+
+      when A.properties.surprisal != 0 {
+        write A.context[0,8] <- xor(A.context[0,8], A.gradient[0,8])
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.surprisal == 0 {
+        set A.properties.status <- 5
+        set A.properties.continuation <- 0
+      }
+    }
+
   program_select: |
-    [ { B(continuation) B(id) B } ] <= [
-      { { B(program_id) 0 != } ? }
-    ] <= [
-      { B(program_id) 8 B }
-    ] <= [
-      { { B(community) 0 == } ? }
-    ] <= [
-      { B(program_id) 10 B }
-    ] <= [
-      { { B(labels) 0 != } ? }
-    ] <= [
-      { B(program_id) 9 B }
-    ] <= [
-      { { B(asset[24,1]) 0 != } ? }
-    ] <= [
-      { B(program_id) 7 B }
-    ] <= [
-      { { B(asset[16,1]) 0 != } ? }
-    ] <= [
-      { B(program_id) 6 B }
-    ] <= [
-      { { B(noise) 0 != } ? }
-    ] <= [
-      { B(program_id) 4 B }
-    ] <= [
-      { { B(target) 0 != } ? }
-    ] <= [
-      { B(program_id) clear B }
-    ] <= [
-      { { B(surprisal) 0 == } ? }
-    ] <= [
-      { B(program_id) 3 B }
-    ] <= [
-      { { B(delta_surprisal) 0 == } ? }
-    ] <= [
-      { B(program_id) 2 B }
-    ] <= [
-      { { B(delta_surprisal) 0 != } ? }
-    ] <= [
-      { B(program_id) 1 B }
-    ] <= [
-      { { B(surprisal) 0 != } ? }
-    ] <= [
-      { B(program_id) 5 B }
-    ] <= [
-      { { B(ttl) 0 != } ? }
-    ] <= [
-      { B(program_id) clear B }
-    ] <= [
-      { B(continuation) clear B }
-    ]
+    program program_select {
+      set B.properties.continuation <- 0
+      set B.properties.program_id <- 0
+
+      when B.properties.ttl != 0 {
+        set B.properties.program_id <- 5
+      }
+
+      when B.properties.surprisal != 0 {
+        set B.properties.program_id <- 1
+      }
+
+      when B.properties.delta_surprisal != 0 {
+        set B.properties.program_id <- 2
+      }
+
+      when B.properties.delta_surprisal == 0 {
+        set B.properties.program_id <- 3
+      }
+
+      when B.properties.surprisal == 0 {
+        set B.properties.program_id <- 0
+      }
+
+      when B.properties.target != 0 {
+        set B.properties.program_id <- 4
+      }
+
+      when B.properties.noise != 0 {
+        set B.properties.program_id <- 6
+      }
+
+      when B.asset[16,1] != 0 {
+        set B.properties.program_id <- 7
+      }
+
+      when B.asset[24,1] != 0 {
+        set B.properties.program_id <- 9
+      }
+
+      when B.properties.labels != 0 {
+        set B.properties.program_id <- 10
+      }
+
+      when B.properties.community == 0 {
+        set B.properties.program_id <- 8
+      }
+
+      when B.properties.program_id != 0 {
+        set B.properties.continuation <- B.id
+      }
+    }
+
   program_carrier: |
-    [ { B(program[0,16]) A(asset[0,16]) B } ] <= [
-      { { B(signals[0,1]) 0 == } ? }
-    ] <= [
-      { B(status) 1 B }
-    ] <= [
-      { { B(signals[0,1]) 0 == } ? }
-    ] <= [
-      { B(continuation) B(id) B }
-    ] <= [
-      { { B(signals[0,1]) 0 == } ? }
-    ] <= [
-      { B(signals[0,1]) A(program_id) ^ }
-    ] <= [
-      { B(signals[0,1]) B(program_id) B }
-    ]
+    program program_carrier {
+      set B.signals[0,1] <- B.properties.program_id
+      write B.signals[0,1] <- xor(B.signals[0,1], A.properties.program_id)
+
+      when B.signals[0,1] == 0 {
+        set B.properties.continuation <- B.id
+        set B.properties.status <- 1
+        set B.program[0,16] <- A.asset[0,16]
+      }
+    }
+
   causal_explore: |
-    <[
-      { B(context[0,8]) A(context[0,8]) B }
-      { B(gradient[0,8]) A(gradient[0,8]) B }
-      { B(target) A(target) B }
-      { B(reference) A(reference) B }
-      { B(prev) A(id) B }
-      { B(ttl) A(ttl) B }
-      { B(continuation) A(id) B }
-    ]> [
-      { { A(ttl) 0 != } ? }
-    ] <= [
-      { A(continuation) clear B }
-    ] <= [
-      { { A(ttl) 0 == } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(ttl) 0 != } ? }
-    ] <= [
-      { A(context[0,8]) A(gradient[0,8]) ^ }
-    ] <= [
-      { { A(surprisal) 0 != } ? }
-    ] <= [
-      { A(noise) A(signals[0,8]) any_zero }
-    ] <= [
-      { A(surprisal) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(signals[0,8]) A(gradient[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ]
+    program causal_explore {
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.gradient[0,8])
+      set A.properties.surprisal <- popcnt(A.signals[0,8])
+      set A.properties.noise <- any_zero(A.signals[0,8])
+
+      when A.properties.surprisal != 0 {
+        write A.context[0,8] <- xor(A.context[0,8], A.gradient[0,8])
+      }
+
+      when A.properties.ttl != 0 {
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.ttl == 0 {
+        set A.properties.continuation <- 0
+      }
+
+      emit child {
+        set child.context[0,8] <- A.context[0,8]
+        set child.gradient[0,8] <- A.gradient[0,8]
+        set child.properties.target <- A.properties.target
+        set child.properties.reference <- A.properties.reference
+        set child.prev <- A.id
+        set child.properties.ttl <- A.properties.ttl
+        set child.properties.continuation <- A.id
+      }
+    }
+
   recruit_community: |
-    <[ 
-      { program A(program) ^ }                     ; copy the program region to the new Value to be emitted
-      { A(status) done ^ }                         ; set the status of A to DONE
-    ]> [
-      { { { A(affinity) popcnt } 120 < } ? }       ; hard gate when Shannon limit is reached
-    ] <= [
-      { A(affinity) B(affinity) | }                ; OR the candidate affinity with the recruiter affinity
-      { B(community) A(id) ^ }                     ; set the community of each B to the recruiter id
-      { B(status) done ^ }                         ; set the status of each B to DONE
-    ] <= [
-      { { A(affinity) B(affinity) hamming } 64 < } ; filter by affinity hamming distance budget
-    ]
+    program recruit {
+      mask popcnt(A.affinity) < 120
+
+      target B where hamming(A.affinity, B.affinity) < 64 {
+        when B.properties.community == 0 {
+          write A.affinity <- or(A.affinity, B.affinity)
+          set B.properties.status <- DONE
+          set B.properties.community <- A.id
+        }
+      }
+
+      set A.properties.confidence <- popcnt(A.affinity[0,1])
+      set A.properties.community <- A.id
+
+      emit child {
+        set child.program <- A.program
+        set child.properties.status <- DONE
+      }
+    }
+
   causal_hub: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(delta_surprisal) 0 == } ? }
-    ] <= [
-      { A(noise) clear B }
-    ] <= [
-      { { A(delta_surprisal) 0 == } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(delta_surprisal) 0 != } ? }
-    ] <= [
-      { A(target) clear B }
-    ] <= [
-      { { A(noise) 0 != } ? }
-    ] <= [
-      { A(gradient[0,8]) A(signals[0,8]) ^ }
-    ] <= [
-      { { A(noise) 0 != } ? }
-    ] <= [
-      { A(delta_surprisal) A(surprisal) ^ }
-    ] <= [
-      { A(delta_surprisal) A(prev_surprisal) ^ }
-    ] <= [
-      { A(delta_surprisal) clear B }
-    ] <= [
-      { A(surprisal) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(confidence) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(signals[0,8]) A(asset[8,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ] <= [
-      { A(prev_surprisal) A(surprisal) B }
-    ]
+    program causal_hub {
+      set A.properties.prev_surprisal <- A.properties.surprisal
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.asset[8,8])
+      set A.properties.confidence <- popcnt(A.signals[0,8])
+      set A.properties.surprisal <- popcnt(A.signals[0,8])
+      set A.properties.delta_surprisal <- 0
+      write A.properties.delta_surprisal <- xor(A.properties.delta_surprisal, A.properties.prev_surprisal)
+      write A.properties.delta_surprisal <- xor(A.properties.delta_surprisal, A.properties.surprisal)
+
+      when A.properties.noise != 0 {
+        write A.gradient[0,8] <- xor(A.gradient[0,8], A.signals[0,8])
+        set A.properties.target <- 0
+      }
+
+      when A.properties.delta_surprisal != 0 {
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.delta_surprisal == 0 {
+        set A.properties.noise <- 0
+        set A.properties.continuation <- 0
+      }
+    }
+
   open_ended_generation: |
-    <[
-      { B(tokens[0,16]) A(tokens[0,16]) B }
-      { B(context[0,8]) A(context[0,8]) B }
-      { B(prev) A(id) B }
-    ]> [
-      { A(continuation) clear B }
-    ] <= [
-      { { A(noise) 0 != } ? }
-    ] <= [
-      { A(noise) A(signals[0,8]) any_zero }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) -> }
-    ] <= [
-      { A(tokens[0,8]) A(gradient[0,8]) ^ }
-    ]
+    program open_ended_generation {
+      write A.tokens[0,8] <- xor(A.tokens[0,8], A.gradient[0,8])
+      write A.signals[0,8] <- truth_arrow(A.signals[0,8], A.context[0,8])
+      set A.properties.noise <- any_zero(A.signals[0,8])
+
+      when A.properties.noise != 0 {
+        set A.properties.continuation <- 0
+      }
+
+      emit child {
+        set child.tokens[0,16] <- A.tokens[0,16]
+        set child.context[0,8] <- A.context[0,8]
+        set child.prev <- A.id
+      }
+    }
+
   survey_community: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(labels) 0 != } ? }
-    ] <= [
-      { A(status) 5 B }
-    ] <= [
-      { { A(labels) 0 != } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(labels) 0 == } ? }
-    ] <= [
-      { A(labels) A(asset[24,1]) | }
-    ] <= [
-      { { A(asset[24,1]) 0 != } ? }
-    ] <= [
-      { A(confidence) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(signals[0,8]) A(asset[8,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ]
+    program survey_community {
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.asset[8,8])
+      set A.properties.confidence <- popcnt(A.signals[0,8])
+
+      when A.asset[24,1] != 0 {
+        write A.properties.labels <- or(A.properties.labels, A.asset[24,1])
+      }
+
+      when A.properties.labels == 0 {
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.labels != 0 {
+        set A.properties.status <- 5
+        set A.properties.continuation <- 0
+      }
+    }
+
   classify_readout: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(labels) 0 != } ? }
-    ] <= [
-      { A(status) 5 B }
-    ] <= [
-      { { A(labels) 0 != } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(labels) 0 == } ? }
-    ] <= [
-      { A(labels) A(asset[24,1]) | }
-    ] <= [
-      { { A(asset[24,1]) 0 != } ? }
-    ]
+    program classify_readout {
+      when A.asset[24,1] != 0 {
+        write A.properties.labels <- or(A.properties.labels, A.asset[24,1])
+      }
+
+      when A.properties.labels == 0 {
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.labels != 0 {
+        set A.properties.status <- 5
+        set A.properties.continuation <- 0
+      }
+    }
+
   episodic_replay: |
-    [ { A(confidence) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(gradient[0,8]) A(signals[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(asset[8,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ]
+    program episodic_replay {
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.asset[8,8])
+      write A.gradient[0,8] <- xor(A.gradient[0,8], A.signals[0,8])
+      set A.properties.confidence <- popcnt(A.signals[0,8])
+    }
+
   intervene: |
-    <[
-      { B(context[0,8]) A(context[0,8]) B }
-      { B(gradient[0,8]) A(gradient[0,8]) B }
-      { B(target) A(target) B }
-      { B(reference) A(reference) B }
-      { B(prev) A(id) B }
-      { B(ttl) A(ttl) B }
-      { B(continuation) A(id) B }
-    ]> [
-      { { A(prev) 0 == } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(prev) 0 == } ? }
-    ] <= [
-      { A(reference) A(id) B }
-    ] <= [
-      { A(target) A(id) | }
-    ] <= [
-      { A(gradient[0,8]) A(asset[16,8]) ^ }
-    ] <= [
-      { A(surprisal) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(signals[0,8]) A(asset[16,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ]
+    program intervene {
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.asset[16,8])
+      set A.properties.surprisal <- popcnt(A.signals[0,8])
+      write A.gradient[0,8] <- xor(A.gradient[0,8], A.asset[16,8])
+      write A.properties.target <- or(A.properties.target, A.id)
+
+      when A.prev == 0 {
+        set A.properties.reference <- A.id
+        set A.properties.continuation <- A.id
+      }
+
+      emit child {
+        set child.context[0,8] <- A.context[0,8]
+        set child.gradient[0,8] <- A.gradient[0,8]
+        set child.properties.target <- A.properties.target
+        set child.properties.reference <- A.properties.reference
+        set child.prev <- A.id
+        set child.properties.ttl <- A.properties.ttl
+        set child.properties.continuation <- A.id
+      }
+    }
+
   vote_swarm: |
-    [ { A(continuation) clear B } ] <= [
-      { { A(labels) 0 != } ? }
-    ] <= [
-      { A(status) 5 B }
-    ] <= [
-      { { A(labels) 0 != } ? }
-    ] <= [
-      { A(continuation) A(id) B }
-    ] <= [
-      { { A(labels) 0 == } ? }
-    ] <= [
-      { A(labels) A(asset[24,1]) | }
-    ] <= [
-      { { A(asset[24,1]) 0 != } ? }
-    ] <= [
-      { A(confidence) A(signals[0,8]) popcnt }
-    ] <= [
-      { A(signals[0,8]) A(asset[0,8]) ^ }
-    ] <= [
-      { A(signals[0,8]) A(context[0,8]) B }
-    ]
+    program vote_swarm {
+      set A.signals[0,8] <- A.context[0,8]
+      write A.signals[0,8] <- xor(A.signals[0,8], A.asset[0,8])
+      set A.properties.confidence <- popcnt(A.signals[0,8])
+
+      when A.asset[24,1] != 0 {
+        write A.properties.labels <- or(A.properties.labels, A.asset[24,1])
+      }
+
+      when A.properties.labels == 0 {
+        set A.properties.continuation <- A.id
+      }
+
+      when A.properties.labels != 0 {
+        set A.properties.status <- 5
+        set A.properties.continuation <- 0
+      }
+    }

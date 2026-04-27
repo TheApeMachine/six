@@ -26,6 +26,7 @@ typedef struct {
     uint64_t start;
     uint64_t span;
     uint64_t threshold;
+    uint64_t and_word;
 } predicate_device_spec_t;
 
 int geometric_metal_indices(const uint32_t* indices, uint32_t count);

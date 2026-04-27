@@ -205,11 +205,16 @@ func TestMachineCyclePrunesExpiredEphemeralValues(t *testing.T) {
 	backend := compute.NewBackend(ctx)
 	defer backend.Close()
 
-	compiled, err := program.Compile(`[ { A(signals[0,1]) A(id) } ]`, program.Layout{
+	compiled, err := program.Compile(context.Background(), `
+program ephemeral_mark {
+  write A.signals[0,1] <- A.id
+}
+`, program.Layout{
 		Regions: map[string]program.RegionExtent{
 			"id":      {Start: primitive.IDStartWord, Words: primitive.IDWords},
 			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
+		Opcodes: program.Opcodes,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -342,6 +347,8 @@ func setMachineAffinityBit(value *primitive.Value, bit int) {
 
 func loadMachineConfig(t *testing.T) {
 	t.Helper()
+
+	t.Setenv("SIX_SUBSTRATE", "cpu")
 
 	machineConfigOnce.Do(func() {
 		_, file, _, ok := runtime.Caller(0)

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +29,10 @@ const (
 
 const ttlExpiredSentinel = uint64(1) << 63
 
+func TTLExpiredSentinel() uint64 {
+	return ttlExpiredSentinel
+}
+
 /*
 Backend is a small load balancer over compute substrates (CUDA, Metal, CPU).
 It picks the lowest-pressure candidate using inflight × EMA service time.
@@ -43,7 +49,6 @@ type Backend struct {
 	nextSub      atomic.Uint64
 	pending      atomic.Int64
 	cache        sync.Map
-	staged       sync.Map
 }
 
 /*
@@ -71,18 +76,21 @@ func NewBackend(ctx context.Context) *Backend {
 		pool:       pool.NewPool(uint64(runtime.NumCPU())),
 		substrates: make([]*substrateState, 0),
 		cache:      sync.Map{},
-		staged:     sync.Map{},
 	}
 
-	for device := 0; device < cuda.Available(); device++ {
-		backend.addSubstrate(cuda.NewBackend(device))
-	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("SIX_SUBSTRATE")), "cpu") {
+		backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
+	} else {
+		for device := 0; device < cuda.Available(); device++ {
+			backend.addSubstrate(cuda.NewBackend(device))
+		}
 
-	for device := 0; device < metal.Available(); device++ {
-		backend.addSubstrate(metal.NewBackend(device))
-	}
+		for device := 0; device < metal.Available(); device++ {
+			backend.addSubstrate(metal.NewBackend(device))
+		}
 
-	backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
+		backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
+	}
 
 	if !createAndAssignQueue(ctx, backend, QueueTypeNormal) {
 		return nil
@@ -272,10 +280,10 @@ func finalizeExecutedOwner(owner *primitive.Value, before [primitive.ProgramWord
 		}
 	}
 
-	// HypercubeGossip / in-kernel firmware can move the owner back to READY with a
-	// non-zero continuation when the program word region changed, requesting another
-	// scheduling pass without clearing the loaded program here.
-	if programChanged(owner, before) && owner.Status() == primitive.READY && owner.SchedulingNext() != 0 {
+	// HypercubeGossip / in-kernel firmware can move the owner back to READY
+	// with a non-zero continuation. That mark is the only cross-sweep control
+	// contract; the current sweep never changes its own PC.
+	if owner.Status() == primitive.READY && owner.SchedulingNext() != 0 {
 		return
 	}
 

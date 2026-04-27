@@ -1,36 +1,37 @@
 package cpu
 
 import (
+	"context"
 	"testing"
 	"unsafe"
 
+	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/program"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+const toyWorldFeedOrderingSkip = "TODO: re-enable once multi-instruction causal toy is validated under feed-only compilation ordering (tracking: file issue/PR when picking this up — pkg/compute/kernel/cpu/toy_world_test.go)"
+
 func TestToyWorld_CausalIntervention(t *testing.T) {
-	t.Skip("multi-instruction causal toy not yet validated under feed-only compilation ordering")
+	SkipConvey(toyWorldFeedOrderingSkip, t, func() {
+		Convey("Given layout and causal intervention feed program", func() {
+			lay := program.Layout{
+				Regions: map[string]program.RegionExtent{
+					"program":    {Start: 16, Words: 16},
+					"signals":    {Start: 32, Words: 8},
+					"context":    {Start: 40, Words: 8},
+					"properties": {Start: 56, Words: 16},
+					"id":         {Start: 122, Words: 1},
+				},
+				Properties: map[string]int{
+					"ttl":          3,
+					"continuation": 15,
+				},
+				Opcodes: program.Opcodes,
+			}
 
-	lay := program.Layout{
-		Regions: map[string]program.RegionExtent{
-			"program":    {Start: 16, Words: 16},
-			"signals":    {Start: 32, Words: 8},
-			"context":    {Start: 40, Words: 8},
-			"properties": {Start: 56, Words: 16},
-			"id":         {Start: 122, Words: 1},
-		},
-		Properties: map[string]int{
-			"ttl":          3,
-			"continuation": 15,
-		},
-		Opcodes: program.Opcodes,
-	}
-
-	// Scenario: "A -> B -> C"
-	// We intervene at B.
-	// Expected: Causal path changes, counterfactual TTL=3 dies after 3 hops.
-
-	src := `
+			src := `
 	[ { A(signals[7,1]) B(context) B(signals) -> any_zero } ]
 	[ { { A(signals[7,1]) 0 != } ? } ]
 	[ { A(properties.ttl) B(properties.ttl) 1 \ } ]
@@ -38,143 +39,95 @@ func TestToyWorld_CausalIntervention(t *testing.T) {
 	[ { A(properties.continuation) 0 B } ]
 	`
 
-	comp, err := program.Compile(src, lay)
-	if err != nil {
-		t.Fatalf("compile failed: %v", err)
-	}
+			comp, err := program.Compile(context.Background(), src, lay)
+			So(err, ShouldBeNil)
 
-	v1 := primitive.AllocValue()
-	v1.StampID()
-	frame := (*[128]uint64)(unsafe.Pointer(v1))
+			Convey("When HypercubeGossip runs with intervention state", func() {
+				v1 := primitive.AllocValue()
+				v1.StampID()
+				frame := (*[128]uint64)(unsafe.Pointer(v1))
 
-	// Copy program into frame
-	copy(frame[primitive.ProgramStartWord:primitive.ProgramStartWord+primitive.ProgramWords], comp.Words)
+				copy(frame[primitive.ProgramStartWord:primitive.ProgramStartWord+primitive.ProgramWords], comp.Words)
 
-	// Set initial state
-	frame[59] = 1       // TTL = 1
-	frame[71] = v1.ID() // continuation = own id (keep looping)
+				frame[59] = 1
+				frame[71] = v1.ID()
+				frame[40] = 1
+				frame[32] = 0
 
-	// Expectation (context) = 1 (A -> B)
-	// Reality (signals) = 0 (Intervention do(B=X), making B disappear)
-	frame[40] = 1
-	frame[32] = 0
+				HypercubeGossip(nil, []*primitive.Value{v1})
 
-	// Tick 1: evaluate falsification, decay TTL, and halt!
-	// Because HypercubeGossip now properly syncs after EACH instruction,
-	// the second instruction observes signals[7]=1, and the third observes TTL=0.
-	HypercubeGossip(nil, []*primitive.Value{v1})
-	if frame[39] != 1 {
-		t.Fatalf("expected signals[7]=1 after tick 1, got %d", frame[39])
-	}
-	if frame[59] != 0 {
-		t.Fatalf("expected TTL 0 to decay in same tick, got %d", frame[59])
-	}
-	if frame[71] != 0 {
-		t.Fatalf("expected continuation 0 (halted) when TTL hit 0 in same tick, got %d", frame[71])
-	}
+				So(frame[39], ShouldEqual, 1)
+				So(frame[59], ShouldEqual, 0)
+				So(frame[71], ShouldEqual, 0)
+			})
+		})
+	})
 }
 
 func TestToyWorld_SpawnedLineage(t *testing.T) {
-	t.Skip("multi-instruction causal toy not yet validated under feed-only compilation ordering")
+	SkipConvey(toyWorldFeedOrderingSkip, t, func() {
+		Convey("Given layout and spawn-on-falsify feed program", func() {
+			lay := program.Layout{
+				Regions: map[string]program.RegionExtent{
+					"program":    {Start: 16, Words: 16},
+					"signals":    {Start: 32, Words: 8},
+					"context":    {Start: 40, Words: 8},
+					"properties": {Start: 56, Words: 16},
+					"id":         {Start: 122, Words: 1},
+				},
+				Properties: map[string]int{
+					"ttl":          3,
+					"continuation": 15,
+				},
+				Opcodes: program.Opcodes,
+			}
 
-	lay := program.Layout{
-		Regions: map[string]program.RegionExtent{
-			"program":    {Start: 16, Words: 16},
-			"signals":    {Start: 32, Words: 8},
-			"context":    {Start: 40, Words: 8},
-			"properties": {Start: 56, Words: 16},
-			"id":         {Start: 122, Words: 1},
-		},
-		Properties: map[string]int{
-			"ttl":          3,
-			"continuation": 15,
-		},
-		Opcodes: program.Opcodes,
-	}
-
-	// Spawn a new Value when falsified.
-	src := `
+			src := `
 	[ { A(signals[7,1]) B(context) B(signals) -> any_zero } ]
 	[ { { A(signals[7,1]) 0 != } ? } ]
 	[ { A(context) 0 spawn } ]
 	`
 
-	comp, err := program.Compile(src, lay)
-	if err != nil {
-		t.Fatalf("compile failed: %v", err)
-	}
+			comp, err := program.Compile(context.Background(), src, lay)
+			So(err, ShouldBeNil)
 
-	v1 := primitive.AllocValue()
-	v1.StampID()
-	frame := (*[128]uint64)(unsafe.Pointer(v1))
+			Convey("When gossip runs until spawn", func() {
+				v1 := primitive.AllocValue()
+				v1.StampID()
+				frame := (*[128]uint64)(unsafe.Pointer(v1))
 
-	copy(frame[primitive.ProgramStartWord:primitive.ProgramStartWord+primitive.ProgramWords], comp.Words)
-	frame[40] = 1
-	frame[32] = 0  // falsified
-	frame[59] = 10 // TTL
+				copy(frame[primitive.ProgramStartWord:primitive.ProgramStartWord+primitive.ProgramWords], comp.Words)
+				frame[40] = 1
+				frame[32] = 0
+				frame[59] = 10
 
-	// Tick 1: evaluates falsification
-	HypercubeGossip(nil, []*primitive.Value{v1})
+				HypercubeGossip(nil, []*primitive.Value{v1})
+				spawned := HypercubeGossip(nil, []*primitive.Value{v1})
 
-	// Tick 2: falsified is 1, so spawn happens
-	spawned := HypercubeGossip(nil, []*primitive.Value{v1})
-	if len(spawned) != 1 {
-		t.Fatalf("expected 1 spawned value, got %d", len(spawned))
-	}
+				So(len(spawned), ShouldEqual, 1)
 
-	sFrame := (*[128]uint64)(unsafe.Pointer(spawned[0]))
-	if sFrame[122] == 0 || sFrame[122] == v1.ID() {
-		t.Fatalf("expected spawned value to have a new ID")
-	}
-	if sFrame[59] != 10 {
-		t.Fatalf("expected spawned value to inherit TTL 10, got %d", sFrame[59])
-	}
-	if spawned[0].HasProgram() {
-		t.Fatalf("expected spawned value to start without an inherited program")
-	}
-	if spawned[0].SchedulingNext() != 0 {
-		t.Fatalf("expected spawned value to start without an inherited continuation")
-	}
-	if spawned[0].Status() != primitive.PENDING {
-		t.Fatalf("expected spawned value to start pending, got %d", spawned[0].Status())
-	}
+				sFrame := (*[128]uint64)(unsafe.Pointer(spawned[0]))
+				So(sFrame[122] == 0 || sFrame[122] == v1.ID(), ShouldBeFalse)
+				So(sFrame[59], ShouldEqual, 10)
+				So(spawned[0].HasProgram(), ShouldBeFalse)
+				So(spawned[0].SchedulingNext(), ShouldEqual, 0)
+				So(spawned[0].Status(), ShouldEqual, primitive.PENDING)
+			})
+		})
+	})
 }
 
 func TestStructuralComponentEmitsThroughProgram(t *testing.T) {
+	loadHypercubeGossipConfig(t)
+
 	owner := primitive.Emit()
 	defer owner.Close()
 	candidate := primitive.Emit()
 	defer candidate.Close()
 
-	compiled, err := program.Compile(`
-	<[
-	  { B(prev) B(id) ^ }
-	  { B(next) B(id) ^ }
-	] <= [
-	  { B(tokens) B(signals[0,1]) ^ }
-	  { B(tokens) B(signals[1,1]) ^ }
-	  { B(tokens) B(signals[2,1]) ^ }
-	]> [
-	  { B(signals) }
-	] <= [
-	  { B(tokens[0,16]) B(tokens[0,16]) & }
-	  { B(tokens[0,16]) { B(tokens[0,16] 8 <<) } & }
-	]
-	`, program.Layout{
-		Regions: map[string]program.RegionExtent{
-			"tokens":  {Start: primitive.TokensStartWord, Words: primitive.TokensWords},
-			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
-			"prev":    {Start: primitive.PrevStartWord, Words: 1},
-			"next":    {Start: primitive.NextStartWord, Words: 1},
-			"id":      {Start: primitive.IDStartWord, Words: 1},
-		},
-		Opcodes: program.Opcodes,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	compiled := core.Cfg.Programs[core.FOLD_SUBSTRATE].Compiled()
 
-	if !owner.InstallProgram(compiled.Words) {
+	if !owner.InstallProgram(compiled) {
 		t.Fatal("install structural_component failed")
 	}
 

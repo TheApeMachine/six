@@ -10,6 +10,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/compute/program"
 )
 
 func resolveCoreTestConfigPath() string {
@@ -161,6 +162,49 @@ func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
 	for iteration := 0; iteration < b.N; iteration++ {
 		_ = large.MaxTokenIngestBytes()
 		_ = small.MaxTokenIngestBytes()
+	}
+}
+
+func TestRecruitCommunityGuardPredicateWord(t *testing.T) {
+	t.Helper()
+
+	commIdx := -1
+	for i, name := range Cfg.Value.PropertiesList {
+		if strings.EqualFold(strings.TrimSpace(name), "COMMUNITY") {
+			commIdx = i
+			break
+		}
+	}
+	if commIdx < 0 {
+		t.Fatal("COMMUNITY not in properties list")
+	}
+	wantWord := Cfg.Value.Region.Properties.Start + commIdx
+
+	words := Cfg.Programs[RECRUIT_COMMUNITY].Compiled()
+	specs := program.PredicateDeviceSpecs()
+	found := false
+	var predRefs strings.Builder
+	for pc, enc := range words {
+		if enc == 0 {
+			continue
+		}
+		_, _, _, _, _, _, _, _, _, predStart, predCond, _, _ := program.DecodeInstruction(enc)
+		if predCond != 3 {
+			continue
+		}
+		si := int(predStart)
+		fmt.Fprintf(&predRefs, " pc%d->slot%d(kind=%d)", pc, si, specs[si].Kind)
+		if si < 0 || si >= len(specs) {
+			continue
+		}
+		spec := specs[si]
+		if spec.Kind == program.PredKindHammingLTAndScalarEq0 && int(spec.AndWord) == wantWord {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no instruction refs compound slot (want AndWord=%d). predRefs:%s words:%v", wantWord, predRefs.String(), words)
 	}
 }
 

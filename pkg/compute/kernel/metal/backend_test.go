@@ -3,6 +3,7 @@
 package metal
 
 import (
+	"context"
 	"testing"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -24,7 +25,12 @@ func TestHypercubeGossip(t *testing.T) {
 				"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 			},
 		}
-		compiled, err := program.Compile(`[ { A(signals[0,1]) A(tokens[0,1]) A(tokens[1,1]) ^ } ]`, layout)
+		compiled, err := program.Compile(context.Background(), `
+program xor_signals_tokens {
+  write A.signals[0,1] <- xor(A.signals[0,1], A.tokens[0,1])
+  write A.signals[0,1] <- xor(A.signals[0,1], A.tokens[1,1])
+}
+`, layout)
 		So(err, ShouldBeNil)
 
 		actual := primitive.Emit()
@@ -65,7 +71,12 @@ func BenchmarkHypercubeGossip(b *testing.B) {
 			"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 		},
 	}
-	compiled, err := program.Compile(`[ { A(signals[0,1]) A(tokens[0,1]) A(tokens[1,1]) ^ } ]`, layout)
+	compiled, err := program.Compile(context.Background(), `
+program xor_signals_tokens {
+  write A.signals[0,1] <- xor(A.signals[0,1], A.tokens[0,1])
+  write A.signals[0,1] <- xor(A.signals[0,1], A.tokens[1,1])
+}
+`, layout)
 	if err != nil {
 		b.Fatal(err)
 	}

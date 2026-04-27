@@ -30,8 +30,7 @@ type Machine struct {
 	telemetry        *telemetry.Bridge
 	telemetryCopyBuf []byte
 	community        []*primitive.Value
-	ready            []*primitive.Value
-	resolved         []*primitive.Value
+	ephemeral        map[uint64]struct{}
 }
 
 type machineOpts func(*Machine)
@@ -160,8 +159,12 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 		return nil, nil
 	}
 
-	if len(machine.ready) > 1 {
-		if err := machine.backend.Submit(machine.ready[0], machine.ready[1:]); err != nil {
+	machine.ensureCommunityRecruiter()
+	machine.markEphemeral(machine.community)
+
+	owner := machine.nextReadyValue()
+	if owner != nil {
+		if err := machine.backend.Submit(owner, machine.community); err != nil {
 			return nil, errnie.Error(err)
 		}
 	}
@@ -171,19 +174,162 @@ func (machine *Machine) Cycle() (resolved []*primitive.Value, err error) {
 			continue
 		}
 
-		if machine.telemetry != nil {
-			_, _ = io.CopyBuffer(machine.telemetry, spawned, machine.telemetryCopyBuf)
-		}
-
-		if spawned.Status() != primitive.READY {
-			machine.ready = append(machine.ready, spawned)
-			continue
-		}
-
 		machine.community = append(machine.community, spawned)
 	}
 
-	return machine.resolved, nil
+	if err = machine.publishTelemetry(machine.community); err != nil {
+		return nil, err
+	}
+
+	machine.pruneExpiredEphemeral()
+
+	return machine.resolvedValues(), nil
+}
+
+func (machine *Machine) publishTelemetry(values []*primitive.Value) error {
+	if machine.telemetry == nil || !core.Cfg.TelemetryEnabled {
+		return nil
+	}
+
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		if _, err := io.CopyBuffer(machine.telemetry, value, machine.telemetryCopyBuf); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (machine *Machine) ensureCommunityRecruiter() bool {
+	if machine == nil || len(machine.community) == 0 || core.Cfg == nil {
+		return false
+	}
+	if machine.nextReadyValue() != nil {
+		return false
+	}
+
+	seed := machine.firstUnassignedCommunityValue()
+	if seed == nil {
+		return false
+	}
+
+	recruiter := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
+	if !recruiter.ReadyForALU() {
+		recruiter.Close()
+		return false
+	}
+
+	copy(recruiter.Get(primitive.AffinityRegion), seed.Get(primitive.AffinityRegion))
+	recruiter.NormalizeAffinity()
+	machine.community = append(machine.community, recruiter)
+
+	return true
+}
+
+func (machine *Machine) nextReadyValue() *primitive.Value {
+	for _, value := range machine.community {
+		if value != nil && value.ReadyForALU() {
+			return value
+		}
+	}
+
+	return nil
+}
+
+func (machine *Machine) firstUnassignedCommunityValue() *primitive.Value {
+	for _, value := range machine.community {
+		if value == nil || value.HasProgram() {
+			continue
+		}
+
+		community, err := value.Property(primitive.COMMUNITY)
+		if err != nil || community != 0 {
+			continue
+		}
+
+		return value
+	}
+
+	return nil
+}
+
+func (machine *Machine) unassignedCommunityValues() int {
+	count := 0
+	for _, value := range machine.community {
+		if value == nil || value.HasProgram() {
+			continue
+		}
+
+		community, err := value.Property(primitive.COMMUNITY)
+		if err == nil && community == 0 {
+			count++
+		}
+	}
+
+	return count
+}
+
+func (machine *Machine) resolvedValues() []*primitive.Value {
+	resolved := make([]*primitive.Value, 0)
+	for _, value := range machine.community {
+		if value == nil {
+			continue
+		}
+
+		switch value.Status() {
+		case primitive.DONE, primitive.RESOLVED:
+			resolved = append(resolved, value)
+		}
+	}
+
+	return resolved
+}
+
+func (machine *Machine) markEphemeral(values []*primitive.Value) {
+	for _, value := range values {
+		if value == nil || value.TTL() == 0 {
+			continue
+		}
+
+		if machine.ephemeral == nil {
+			machine.ephemeral = make(map[uint64]struct{})
+		}
+
+		machine.ephemeral[value.ID()] = struct{}{}
+	}
+}
+
+func (machine *Machine) pruneExpiredEphemeral() {
+	if len(machine.ephemeral) == 0 || len(machine.community) == 0 {
+		return
+	}
+
+	kept := machine.community[:0]
+	for _, value := range machine.community {
+		if value == nil {
+			continue
+		}
+
+		if _, ok := machine.ephemeral[value.ID()]; ok && valueExpired(value) {
+			delete(machine.ephemeral, value.ID())
+			value.Close()
+			continue
+		}
+
+		kept = append(kept, value)
+	}
+
+	clear(machine.community[len(kept):])
+	machine.community = kept
+}
+
+func valueExpired(value *primitive.Value) bool {
+	ttl := value.TTL()
+	return ttl == 0 || ttl == compute.TTLExpiredSentinel()
 }
 
 /*
@@ -199,53 +345,31 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		return errors.Join(machine.err, errnie.Error(err))
 	}
 
-	var segments []*primitive.Value
-
-	// Spark the community forming by emitting a recruiter Value.
-	machine.ready = append(machine.ready, primitive.Emit(
-		primitive.WithFirmware(core.RECRUIT_COMMUNITY),
-		primitive.WithStatus(uint64(primitive.READY)),
-	))
-
 	for sample := range dataset.Generate() {
-		if segments, err = machine.tokenizer.IngestSample(
+		segments, err := machine.tokenizer.IngestSample(
 			machine.ctx, sample,
-		); err != nil {
+		)
+		if err != nil {
 			return errors.Join(machine.err, errnie.Error(err))
 		}
 
 		machine.community = append(machine.community, segments...)
-		machine.ready = append(machine.ready, segments...)
+	}
 
-		for _, value := range machine.ready {
-			value.SetStatus(primitive.READY)
-			if machine.telemetry != nil {
-				_, _ = io.CopyBuffer(machine.telemetry, value, machine.telemetryCopyBuf)
-			}
+	for {
+		before := machine.unassignedCommunityValues()
+		if before == 0 {
+			return nil
 		}
 
 		if _, err := machine.Cycle(); err != nil {
 			return errors.Join(machine.err, errnie.Error(err))
 		}
 
-		readers := make([]io.Reader, len(machine.community))
-
-		for i, value := range machine.community {
-			readers[i] = value
-		}
-
-		if machine.telemetry != nil {
-			_, _ = io.CopyBuffer(
-				machine.telemetry, io.MultiReader(readers...), machine.telemetryCopyBuf,
-			)
+		if machine.unassignedCommunityValues() >= before {
+			return nil
 		}
 	}
-
-	if _, err := machine.Cycle(); err != nil {
-		return errors.Join(machine.err, errnie.Error(err))
-	}
-
-	return nil
 }
 
 /*

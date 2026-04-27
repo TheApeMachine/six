@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"context"
 	"errors"
 	"math/bits"
 	"os"
@@ -32,7 +33,11 @@ func TestHypercubeGossip(t *testing.T) {
 				"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
 			},
 		}
-		compiled, err := program.Compile(`[ { A(signals[0,1]) B(tokens[0,1]) | fold } ]`, layout)
+		compiled, err := program.Compile(context.Background(), `
+program fold_xor {
+  write A.signals[0,1] <- xor(A.signals[0,1], B.tokens[0,1]) fold
+}
+`, layout)
 		So(err, ShouldBeNil)
 
 		first := primitive.Emit()
@@ -97,13 +102,16 @@ func TestHypercubeGossip(t *testing.T) {
 	})
 
 	Convey("Given a bare A/B implicit map pipeline", t, func() {
-		layout := program.Layout{
-			Regions: map[string]program.RegionExtent{
-				"signals": {Start: primitive.SignalsStartWord, Words: primitive.SignalsWords},
-			},
-		}
-		compiled, err := program.Compile(`[(B popcnt)] <= [(A B ^)]`, layout)
-		So(err, ShouldBeNil)
+		xorOp := program.Opcodes["xor"]
+		compiled := program.Compiled{Words: []uint64{
+			program.EncodeInstruction(
+				primitive.SignalsStartWord, 1,
+				primitive.SignalsStartWord, 1,
+				primitive.SignalsStartWord, 1,
+				xorOp, program.ModePopcnt, program.TopologySelf,
+				0, 0, 0, program.InstrBTypeDirect,
+			) | program.InstrFlagTargetB,
+		}}
 
 		owner := primitive.Emit()
 		defer owner.Close()
@@ -253,6 +261,9 @@ func TestHypercubeGossip(t *testing.T) {
 		}
 		rejected.NormalizeAffinity()
 
+		assignedFrame := (*[primitive.WordCount]uint64)(unsafe.Pointer(assigned))
+		So(assignedFrame[primitive.PropertyWord(primitive.COMMUNITY)], ShouldEqual, 999)
+
 		HypercubeGossip(recruiter, []*primitive.Value{recruiter, accepted, assigned, rejected})
 
 		recruiterCommunity, err := recruiter.Property(primitive.COMMUNITY)
@@ -289,7 +300,9 @@ func TestHypercubeGossip(t *testing.T) {
 
 		recruiter := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
 		defer recruiter.Close()
-		setAffinityPrefix(recruiter, 1)
+		// Low 56 bits: Hamming to accepted (119 low bits) is 63. Saturated uses bits [128,248) so OR-merge
+		// with the recruiter cannot collapse Hamming below 64 against the owner.
+		setAffinityPrefix(recruiter, 56)
 
 		accepted := primitive.Emit()
 		defer accepted.Close()
@@ -297,7 +310,7 @@ func TestHypercubeGossip(t *testing.T) {
 
 		saturated := primitive.Emit()
 		defer saturated.Close()
-		setAffinityPrefix(saturated, 120)
+		setAffinityRunFrom(saturated, 128, 121)
 
 		HypercubeGossip(recruiter, []*primitive.Value{recruiter, accepted, saturated})
 
@@ -311,7 +324,7 @@ func TestHypercubeGossip(t *testing.T) {
 
 		recruiterConfidence, err := recruiter.Property(primitive.CONFIDENCE)
 		So(err, ShouldBeNil)
-		So(recruiterConfidence, ShouldEqual, 119)
+		So(recruiterConfidence, ShouldEqual, 64)
 	})
 
 	Convey("Given a matching program carrier", t, func() {
@@ -397,6 +410,25 @@ func setAffinityPrefix(value *primitive.Value, bitCount int) {
 
 	for bit := 0; bit < bitCount && bit < primitive.AffinityBits; bit++ {
 		value.Set(primitive.AffinityStartWord+(bit/64), (*value)[primitive.AffinityStartWord+(bit/64)]|uint64(1<<(bit%64)))
+	}
+
+	value.NormalizeAffinity()
+}
+
+func setAffinityRunFrom(value *primitive.Value, startBit, bitCount int) {
+	if value == nil || bitCount <= 0 {
+		return
+	}
+
+	for bit := 0; bit < bitCount; bit++ {
+		global := startBit + bit
+		if global < 0 || global >= primitive.AffinityBits {
+			continue
+		}
+		wordIdx := primitive.AffinityStartWord + global/64
+		bitInWord := global % 64
+		cur := (*value)[wordIdx]
+		value.Set(wordIdx, cur|uint64(1)<<bitInWord)
 	}
 
 	value.NormalizeAffinity()

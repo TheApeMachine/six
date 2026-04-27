@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
-
 	"github.com/theapemachine/six/pkg/compute/program"
 )
 
@@ -459,6 +459,8 @@ firmware block is a programmer-authored bug we want caught at startup, not
 silently elided into a no-op program.
 */
 func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]ProgramConfig {
+	program.ResetPredicateSession()
+
 	out := make(map[FirmwareType]ProgramConfig)
 
 	raw, ok := viper.Get("programs").(map[string]any)
@@ -483,7 +485,7 @@ func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]Program
 			name = key
 		}
 
-		compiled, err := program.Compile(source, layout)
+		compiled, err := program.Compile(context.Background(), source, layout)
 		if err != nil {
 			panic(fmt.Errorf("config: program %q failed to compile: %w", key, err))
 		}
@@ -562,16 +564,38 @@ func buildProgramLayout(value ValueConfig) program.Layout {
 
 	propertiesMap := make(map[string]int)
 	for i, prop := range value.PropertiesList {
-		propertiesMap[strings.ToLower(prop)] = i
+		propertiesMap[strings.ToLower(strings.TrimSpace(prop))] = i
 	}
 
-	return program.Layout{Regions: regions, Properties: propertiesMap, Opcodes: opcodes}
+	statusValue := map[string]uint64{
+		"PENDING":  0,
+		"READY":    1,
+		"BUSY":     2,
+		"WAITING":  3,
+		"DONE":     4,
+		"RESOLVED": 5,
+		"ERROR":    6,
+		"pending":  0,
+		"ready":    1,
+		"busy":     2,
+		"waiting":  3,
+		"done":     4,
+		"resolved": 5,
+		"error":    6,
+	}
+
+	return program.Layout{
+		Regions:     regions,
+		Properties:  propertiesMap,
+		Opcodes:     opcodes,
+		StatusValue: statusValue,
+	}
 }
 
 func extentFor(cfg ValueOffsetConfig) program.RegionExtent {
 	start, words := cfg.WordExtent()
 
-	return program.RegionExtent{Start: start, Words: words}
+	return program.RegionExtent{Start: start, Words: words, Bits: cfg.Bits}
 }
 
 // nibbleOf parses a 4-character binary string from the YAML opcode table

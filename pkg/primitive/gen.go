@@ -26,6 +26,7 @@ config.yml (or properties.go for property types) only; re-running
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -418,7 +419,7 @@ func writePropertiesTS(propertyNames, roleNames []string, propertiesStartWord in
 func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved) (program.Layout, error) {
 	regionsMap := make(map[string]program.RegionExtent, len(loaded))
 	for _, r := range loaded {
-		regionsMap[r.yamlKey] = program.RegionExtent{Start: r.start, Words: r.words}
+		regionsMap[r.yamlKey] = program.RegionExtent{Start: r.start, Words: r.words, Bits: r.bits}
 	}
 
 	// Opcode default table mirrors pkg/core/config.go nibbleOf fallbacks. If
@@ -460,11 +461,21 @@ func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved) 
 
 	propertiesMap := make(map[string]int)
 	for i, prop := range viper.GetStringSlice("value.properties") {
-		propertiesMap[strings.ToLower(prop)] = i
+		propertiesMap[strings.ToLower(strings.TrimSpace(prop))] = i
+	}
+
+	statusValue := map[string]uint64{
+		"PENDING": 0, "READY": 1, "BUSY": 2, "WAITING": 3, "DONE": 4, "RESOLVED": 5, "ERROR": 6,
+		"pending": 0, "ready": 1, "busy": 2, "waiting": 3, "done": 4, "resolved": 5, "error": 6,
 	}
 
 	_ = byStem // reserved for future cross-checks
-	return program.Layout{Regions: regionsMap, Properties: propertiesMap, Opcodes: opcodes}, nil
+	return program.Layout{
+		Regions:     regionsMap,
+		Properties:  propertiesMap,
+		Opcodes:     opcodes,
+		StatusValue: statusValue,
+	}, nil
 }
 
 // compiledProgram is one row of the generated TS table.
@@ -477,6 +488,8 @@ type compiledProgram struct {
 // compilePrograms walks viper's `programs:` map (sorted for stable output)
 // and lowers each DSL block through the same compiler the runtime uses.
 func compilePrograms(lay program.Layout) ([]compiledProgram, error) {
+	program.ResetPredicateSession()
+
 	raw, ok := viper.Get("programs").(map[string]any)
 	if !ok || raw == nil {
 		return nil, nil
@@ -496,7 +509,7 @@ func compilePrograms(lay program.Layout) ([]compiledProgram, error) {
 		}
 		source = expandProgramConstants(source)
 
-		c, err := program.Compile(source, lay)
+		c, err := program.Compile(context.Background(), source, lay)
 		if err != nil {
 			return nil, fmt.Errorf("program %q: %w", key, err)
 		}

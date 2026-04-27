@@ -3,6 +3,7 @@ module github.com/theapemachine/six
 go 1.26
 
 require (
+	github.com/alexaandru/go-tree-sitter-bare v1.11.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/smartystreets/goconvey v1.8.1
@@ -15,7 +16,6 @@ require (
 )
 
 require (
-	github.com/alexaandru/go-tree-sitter-bare v1.11.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.8.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

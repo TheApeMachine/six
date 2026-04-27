@@ -1,196 +1,170 @@
 package program
 
 import (
-	"fmt"
 	"math/bits"
-	"strconv"
 	"sync"
 )
 
-const predExtended = 3
-
-type predicateKind uint8
+const valueWordCount = 128
 
 const (
-	predicatePopcntLTE predicateKind = 1
-	predicatePopcntLT  predicateKind = 2
+	PredKindPopcntLTE uint64 = 1
+	PredKindPopcntLT  uint64 = 2
+	PredKindHammingLT uint64 = 4
+	// Hamming distance < Threshold on (Start,Span), and scalar guard on AndWord (B operand frame).
+	PredKindHammingLTAndScalarEq0 uint64 = 8
+	PredKindHammingLTAndScalarNE0 uint64 = 9
 )
 
-type predicateSpec struct {
-	kind      predicateKind
-	start     int
-	span      int
-	threshold uint64
-}
-
-type PredicateNode struct {
-	Region    string
-	Op        string
-	Value     string
-	IsPopcnt  bool
-	Threshold string
-}
-
-/*
-PredicateDeviceSpec is the compact predicate table entry copied into native
-GPU kernels so extended predicates keep the same meaning as the CPU map.
-*/
 type PredicateDeviceSpec struct {
 	Kind      uint64
 	Start     uint64
 	Span      uint64
 	Threshold uint64
+	AndWord   uint64
 }
 
-var predicates = struct {
-	sync.RWMutex
-	next  uint64
-	ids   map[predicateSpec]uint64
-	specs map[uint64]predicateSpec
-}{
-	next:  1,
-	ids:   make(map[predicateSpec]uint64),
-	specs: make(map[uint64]predicateSpec),
+var (
+	predicateTableMu sync.RWMutex
+	predicateTable   [128]PredicateDeviceSpec
+
+	firmwarePredSlotMu   sync.Mutex
+	firmwareNextPredSlot = 1
+)
+
+/*
+ResetPredicateSession clears the predicate spec table and restarts monotonic
+pred slot allocation from 1. Call once before compiling each batch of
+programs (config precompile, go generate) so later programs do not overwrite
+table slots that earlier programs' instructions still reference.
+*/
+func ResetPredicateSession() {
+	firmwarePredSlotMu.Lock()
+	firmwareNextPredSlot = 1
+	firmwarePredSlotMu.Unlock()
+
+	predicateTableMu.Lock()
+	for idx := range predicateTable {
+		predicateTable[idx] = PredicateDeviceSpec{}
+	}
+	predicateTableMu.Unlock()
 }
 
-func compilePredicate(node *PredicateNode, lay Layout) (uint64, uint64, error) {
-	if node.IsPopcnt {
-		kind := predicatePopcntLTE
-		switch node.Op {
-		case "|":
-			kind = predicatePopcntLTE
-		case "<":
-			kind = predicatePopcntLT
-		default:
-			return 0, 0, fmt.Errorf("popcnt predicate must use '| Threshold' or feed threshold gate")
-		}
+func beginFirmwarePredCompile() int {
+	firmwarePredSlotMu.Lock()
+	defer firmwarePredSlotMu.Unlock()
 
-		threshold, err := strconv.ParseUint(node.Threshold, 10, 64)
-		if err != nil {
-			return 0, 0, fmt.Errorf("popcnt predicate threshold: %w", err)
-		}
-
-		start, span, _, err := parseRef(node.Region, lay)
-		if err != nil {
-			return 0, 0, fmt.Errorf("popcnt predicate region: %w", err)
-		}
-
-		id, err := registerPredicate(predicateSpec{
-			kind:      kind,
-			start:     start,
-			span:      span,
-			threshold: threshold,
-		})
-		if err != nil {
-			return 0, 0, err
-		}
-
-		return id, predExtended, nil
-	}
-
-	pStart, _, _, err := parseRef(node.Region, lay)
-	if err != nil {
-		return 0, 0, fmt.Errorf("predicate region: %w", err)
-	}
-
-	if node.Op == "!=" && node.Value == "0" {
-		return uint64(pStart), 1, nil
-	}
-	if node.Op == "==" && node.Value == "0" {
-		return uint64(pStart), 2, nil
-	}
-	if node.Op == ">" && node.Value == "0" {
-		return uint64(pStart), predExtended, nil
-	}
-
-	return 0, 0, fmt.Errorf("predicate condition %q %q not fully supported yet", node.Op, node.Value)
+	return firmwareNextPredSlot
 }
 
-func registerPredicate(spec predicateSpec) (uint64, error) {
-	predicates.Lock()
-	defer predicates.Unlock()
-
-	if id, ok := predicates.ids[spec]; ok {
-		return id, nil
+func finishFirmwarePredCompile(endExclusive int) {
+	firmwarePredSlotMu.Lock()
+	if endExclusive > firmwareNextPredSlot {
+		firmwareNextPredSlot = endExclusive
 	}
-	if predicates.next > InstrStartMask {
-		return 0, fmt.Errorf("too many extended predicates")
-	}
-
-	id := predicates.next
-	predicates.next++
-	predicates.ids[spec] = id
-	predicates.specs[id] = spec
-
-	return id, nil
+	firmwarePredSlotMu.Unlock()
 }
 
-func PredicateAllows(frame *[128]uint64, predStart, predCond uint64) bool {
-	switch predCond {
-	case 0:
-		return true
-	case 1:
-		return frame[predStart] != 0
-	case 2:
-		return frame[predStart] == 0
-	case predExtended:
-		predicates.RLock()
-		spec, ok := predicates.specs[predStart]
-		predicates.RUnlock()
-		if !ok {
-			return frame[predStart] > 0
-		}
-
-		switch spec.kind {
-		case predicatePopcntLTE:
-			count := predicatePopcnt(frame, spec.start, spec.span)
-
-			return uint64(count) <= spec.threshold
-		case predicatePopcntLT:
-			count := predicatePopcnt(frame, spec.start, spec.span)
-
-			return uint64(count) < spec.threshold
-		default:
-			return false
-		}
-	default:
-		return false
-	}
+func PredicateDeviceSpecs() []PredicateDeviceSpec {
+	predicateTableMu.RLock()
+	defer predicateTableMu.RUnlock()
+	out := make([]PredicateDeviceSpec, len(predicateTable))
+	copy(out[:], predicateTable[:])
+	return out
 }
 
-func predicatePopcnt(frame *[128]uint64, start, span int) int {
-	count := 0
-
-	for idx := start; idx < start+span && idx < len(frame); idx++ {
-		count += bits.OnesCount64(frame[idx])
+func SetPredicateSpecSlot(slot int, spec PredicateDeviceSpec) {
+	if slot < 0 || slot >= len(predicateTable) {
+		return
 	}
+	predicateTableMu.Lock()
+	predicateTable[slot] = spec
+	predicateTableMu.Unlock()
+}
 
+func hammingWords(frameA, frameB *[valueWordCount]uint64, start, span int) uint64 {
+	var dist uint64
+	for lane := 0; lane < span && start+lane < valueWordCount; lane++ {
+		idx := start + lane
+		dist += uint64(bits.OnesCount64(frameA[idx] ^ frameB[idx]))
+	}
+	return dist
+}
+
+func popcntWordsFrame(frame *[valueWordCount]uint64, start, span int) uint64 {
+	var count uint64
+	for lane := 0; lane < span && start+lane < valueWordCount; lane++ {
+		count += uint64(bits.OnesCount64(frame[start+lane]))
+	}
 	return count
 }
 
 /*
-PredicateDeviceSpecs snapshots the extended predicate registry for native
-substrates. IDs are direct table indices because predStart stores the registry
-ID when predCond is the extended predicate mode.
+PredicateAllows mirrors ast_predicate_allows in backend.cu: frame is the
+predicate frame for popcnt/scalar pred_cond 1–2; compound scalar uses frameB.
+frameA/frameB are ctx.a/ctx.b.
 */
-func PredicateDeviceSpecs() [128]PredicateDeviceSpec {
-	var out [128]PredicateDeviceSpec
-
-	predicates.RLock()
-	defer predicates.RUnlock()
-
-	for id, spec := range predicates.specs {
-		if id >= uint64(len(out)) {
-			continue
-		}
-
-		out[id] = PredicateDeviceSpec{
-			Kind:      uint64(spec.kind),
-			Start:     uint64(spec.start),
-			Span:      uint64(spec.span),
-			Threshold: spec.threshold,
-		}
+func PredicateAllows(
+	frame, frameA, frameB *[valueWordCount]uint64,
+	predStart uint64, predCond uint64,
+) bool {
+	if predCond == 0 {
+		return true
+	}
+	if frame == nil {
+		return false
+	}
+	if predStart >= valueWordCount {
+		return false
 	}
 
-	return out
+	slot := int(predStart)
+
+	if predCond == 1 {
+		return frame[slot] != 0
+	}
+	if predCond == 2 {
+		return frame[slot] == 0
+	}
+
+	predicateTableMu.RLock()
+	spec := predicateTable[slot]
+	predicateTableMu.RUnlock()
+
+	if spec.Kind == PredKindHammingLT {
+		if frameA == nil || frameB == nil {
+			return false
+		}
+		dist := hammingWords(frameA, frameB, int(spec.Start), int(spec.Span))
+		return dist < spec.Threshold
+	}
+	if spec.Kind == PredKindHammingLTAndScalarEq0 || spec.Kind == PredKindHammingLTAndScalarNE0 {
+		if frameA == nil || frameB == nil {
+			return false
+		}
+		dist := hammingWords(frameA, frameB, int(spec.Start), int(spec.Span))
+		if dist >= spec.Threshold {
+			return false
+		}
+		idx := int(spec.AndWord)
+		if idx < 0 || idx >= valueWordCount {
+			return false
+		}
+		// Scalar guard follows the B operand (e.g. when B.properties…), not the executing lane.
+		if spec.Kind == PredKindHammingLTAndScalarEq0 {
+			return frameB[idx] == 0
+		}
+		return frameB[idx] != 0
+	}
+	if spec.Kind != PredKindPopcntLTE && spec.Kind != PredKindPopcntLT {
+		// predStart indexes the device spec table for predCond==3; it is not a frame word.
+		// Treat missing or unknown kinds as deny (never read frame[slot] as a legacy scalar test).
+		return false
+	}
+
+	count := popcntWordsFrame(frame, int(spec.Start), int(spec.Span))
+	if spec.Kind == PredKindPopcntLT {
+		return count < spec.Threshold
+	}
+	return count <= spec.Threshold
 }

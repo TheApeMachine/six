@@ -10,7 +10,7 @@ If you come in to this project thinking that you need to fix mistakes, you must 
 
 This project has a different way of running code, which is through in-value programs, with in-band execution. This means you must at all times minimize the amount of Go code that is written, so we keep the in-Value/in-band story as true and pure as possible.
 
-> !NOTE
+> [!NOTE]
 > Just to re-iterate, it is extremely important to take the in-value programming and in-band execution model very seriously.
 > We must constantly be striving to remove any remaining Go code, if an opportunity exists to achieve the same functionality using the in-value programs.
 > If there is missing functionality in the in-value programming syntax, or the in-band execution ALU, we should expand those. However, we must also not bloat those systems, so it is very important that we think about the most generic ways to implement functionality in those systems, and not create all kinds of very special workarounds. A common failure mode is implementing specific program semantics in the ALU, which is like a CPU that implements Chrome, makes no sense.
@@ -113,6 +113,8 @@ Always keep the README.md in the root of the project up to date, and make sure t
 ---
 
 Follow these guidelines at all times.
+
+**Firmware:** the canonical representation is `ProgramIR` → `MachineOp` → sixteen packed words. New work should use `EncodeProgramIR` and the 16-slot sweep rule (see `docs/FIRMWARE_IR.md`). The feed compiler path is legacy for existing YAML `programs:` blocks.
 
 Now, start by reading the README.md in the root of this project, then reason through your current task step by step, sourcing additional context from the code where needed.
 

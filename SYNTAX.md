@@ -109,7 +109,8 @@ Any region or property name must exist on the `Layout` passed to `Compile` (norm
 
 - **Extended popcnt:** `popcnt(<region>) | <N>` → population count **≤ N** (`predicatePopcntLTE`).  
 - **Feed nested gate** (§5–§6): `popcnt` with operator `<` and threshold `N` → count **< N** (`predicatePopcntLT`).
-- **Word tests:** `!= 0`, `== 0`, or `> 0` on a scalar word (the `> 0` case uses extended predicate mode with `PredicateAllows` fallback `frame[predStart] > 0` when no table entry exists).
+- **Feed hamming gate:** `{ { A(affinity[0,5]) B(affinity[0,5]) hamming } 64 ? }` → Hamming distance **< N** over the resolved span.
+- **Word tests:** `!= 0`, `== 0`, or `> 0` on a scalar word (the `> 0` case uses extended predicate mode; a missing `predicateSpec` for that id falls back to a scalar greater-than-zero test).
 - Other combinations return a compile error (“not fully supported yet”).
 
 ---
@@ -143,7 +144,7 @@ Physical layout uses `<=` in the source only to select **reverse** compilation o
 
 ### Emit `<[ ... ]>`
 
-Emit brackets toggle emit mode for contained pipes. Emit operations set **continuation** from **id** with `ModeEmit` and spawn topology (`compileEmitSite` / `compileEmitOperationSite`).
+Bracketed `<[ ... ]>` toggles emit mode for the pipes it encloses. **Continuation** is taken from **id** under `ModeEmit` for those operations. The spawn topology is lowered through `compileEmitSite` and `compileEmitOperationSite`.
 
 ### Feed gates
 

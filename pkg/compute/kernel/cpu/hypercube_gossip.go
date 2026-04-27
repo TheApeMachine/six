@@ -113,6 +113,14 @@ func HypercubeGossip(
 			}
 			if bType == program.InstrBTypeNext {
 				bFrame = nextFrame
+			} else if bType == program.InstrBTypeDirect && ownerIdx >= 0 && i == ownerIdx &&
+				topology == program.TopologyNext && n > 1 &&
+				instr&program.InstrFlagBFromA == 0 {
+				dim := pc % bits.Len(uint(n-1))
+				peerIdx := i ^ (1 << dim)
+				if peerIdx < n && values[peerIdx] != nil {
+					bFrame = (*[128]uint64)(unsafe.Pointer(values[peerIdx]))
+				}
 			}
 
 			if aSpan == 0 {
@@ -127,7 +135,18 @@ func HypercubeGossip(
 
 			writeMask := ^uint64(0)
 			if predCond != 0 {
-				if frame == nil || !program.PredicateAllows(frame, predStart, predCond) {
+				predEvalFrame := frame
+				if ownerIdx >= 0 && ownerFrame != nil && predCond == 3 {
+					specs := program.PredicateDeviceSpecs()
+					si := int(predStart)
+					if si >= 0 && si < len(specs) {
+						kind := specs[si].Kind
+						if kind == program.PredKindPopcntLT || kind == program.PredKindPopcntLTE {
+							predEvalFrame = ownerFrame
+						}
+					}
+				}
+				if predEvalFrame == nil || !program.PredicateAllows(predEvalFrame, aFrame, bFrame, predStart, predCond) {
 					writeMask = 0
 				}
 			}
