@@ -290,15 +290,6 @@ struct AstParams {
     uint _pad1;
 };
 
-struct PredicateSpec {
-    ulong kind;
-    ulong start;
-    ulong span;
-    ulong threshold;
-    ulong and_word;
-    ulong threshold_b;
-};
-
 static inline bool ast_index_active(constant AstParams& params, device const uint* indices, uint idx) {
     return idx < params.value_count && indices[idx] != AST_INVALID_INDEX;
 }
@@ -326,6 +317,7 @@ static inline uint ast_bits_len(uint value) {
 #define CURRENT_PRED_ANY_ZERO        7ul
 #define CURRENT_REDUCE_ARGMIN        1ul
 #define CURRENT_REDUCE_MODE_EQ       2ul
+#define CURRENT_MODE_TABLE_SIZE      1024u
 #define CURRENT_REFERENCE_WORD       67u
 #define CURRENT_SPAWN_REGISTER_WORD  70u
 
@@ -447,42 +439,75 @@ static inline void current_reduce_mode_eq(
         return;
     }
 
+    uchar used[CURRENT_MODE_TABLE_SIZE];
+    ulong keys[CURRENT_MODE_TABLE_SIZE];
+    uint counts[CURRENT_MODE_TABLE_SIZE];
+    uint first_seen[CURRENT_MODE_TABLE_SIZE];
+
+    for (uint slot = 0u; slot < CURRENT_MODE_TABLE_SIZE; slot++) {
+        used[slot] = 0u;
+        keys[slot] = 0ul;
+        counts[slot] = 0u;
+        first_seen[slot] = 0xFFFFFFFFu;
+    }
+
+    uint seen = 0u;
+    for (uint idx = 0; idx < params.value_count; idx++) {
+        if (!ast_index_active(params, indices, idx)) {
+            continue;
+        }
+
+        device ulong* peer = ast_frame(arena, indices, idx);
+        if (peer[key_start & 127u] != match) {
+            continue;
+        }
+
+        ulong value = peer[value_start & 127u];
+        if (value == 0ul) {
+            continue;
+        }
+
+        uint slot = uint((value ^ (value >> 32ul)) & ulong(CURRENT_MODE_TABLE_SIZE - 1u));
+        for (uint probe = 0u; probe < CURRENT_MODE_TABLE_SIZE; probe++) {
+            if (used[slot] == 0u) {
+                used[slot] = 1u;
+                keys[slot] = value;
+                counts[slot] = 1u;
+                first_seen[slot] = seen;
+                break;
+            }
+
+            if (keys[slot] == value) {
+                counts[slot]++;
+                break;
+            }
+
+            slot = (slot + 1u) & (CURRENT_MODE_TABLE_SIZE - 1u);
+        }
+
+        seen++;
+    }
+
     ulong best_value = 0ul;
-    ulong best_count = 0ul;
+    uint best_count = 0u;
+    uint best_order = 0xFFFFFFFFu;
 
-    for (uint outer = 0; outer < params.value_count; outer++) {
-        if (!ast_index_active(params, indices, outer)) {
+    for (uint slot = 0u; slot < CURRENT_MODE_TABLE_SIZE; slot++) {
+        if (used[slot] == 0u) {
             continue;
         }
 
-        device ulong* candidate_frame = ast_frame(arena, indices, outer);
-        if (candidate_frame[key_start & 127u] != match) {
+        if (counts[slot] < best_count) {
             continue;
         }
 
-        ulong candidate = candidate_frame[value_start & 127u];
-        if (candidate == 0ul) {
+        if (counts[slot] == best_count && first_seen[slot] >= best_order) {
             continue;
         }
 
-        ulong count = 0ul;
-        for (uint inner = 0; inner < params.value_count; inner++) {
-            if (!ast_index_active(params, indices, inner)) {
-                continue;
-            }
-
-            device ulong* peer = ast_frame(arena, indices, inner);
-            if (peer[key_start & 127u] == match && peer[value_start & 127u] == candidate) {
-                count++;
-            }
-        }
-
-        if (count <= best_count) {
-            continue;
-        }
-
-        best_count = count;
-        best_value = candidate;
+        best_count = counts[slot];
+        best_order = first_seen[slot];
+        best_value = keys[slot];
     }
 
     if (best_value != 0ul) {
@@ -494,21 +519,15 @@ kernel void hypercube_gossip_kernel(
     device ulong* arena                 [[buffer(0)]],
     device const uint* indices          [[buffer(1)]],
     constant AstParams& params          [[buffer(2)]],
-    device const PredicateSpec* specs   [[buffer(3)]],
-    device const uint* spawn_indices    [[buffer(4)]],
-    device const ulong* spawn_ids       [[buffer(5)]],
-    device ulong* post                  [[buffer(6)]],
-    device uchar* spawn_active          [[buffer(7)]],
-    device uint* stage_indices          [[buffer(8)]],
-    device uint* stage_count            [[buffer(9)]],
+    device uint* stage_indices          [[buffer(3)]],
+    device uint* stage_count            [[buffer(4)]],
     uint lid                            [[thread_position_in_threadgroup]]
 ) {
-    (void)specs;
-    (void)spawn_indices;
-    (void)spawn_ids;
-    (void)post;
-    (void)spawn_active;
-
+    // Only lid 0 executes because the resident program mutates one owner
+    // frame, advances a shared pop(B) cursor, and may stage or emit in
+    // sequential instruction order. The same guard also rejects empty
+    // params.value_count and AST_INVALID_INDEX owner slots before any frame
+    // access occurs.
     if (lid != 0u || params.value_count == 0u || params.owner_slot == AST_INVALID_INDEX) {
         return;
     }

@@ -155,7 +155,15 @@ func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Va
 	backend.pool.Submit(func() {
 		defer backend.pending.Add(-1)
 		defer backend.clearStaging(owner)
-		spawned, _ := backend.executeSubstrate(backend.cpuSubstrate, owner, community)
+
+		spawned, err := backend.execute(owner, community)
+		if err != nil {
+			errnie.Error(err)
+			backend.failOwner(owner)
+
+			return
+		}
+
 		spawned = backend.stageResidual(owner, spawned, community)
 		backend.finishOwner(owner)
 
@@ -254,6 +262,88 @@ func isFirmware(value *primitive.Value, firmware core.FirmwareType) bool {
 	}
 
 	return true
+}
+
+func (backend *Backend) execute(
+	owner *primitive.Value,
+	community []*primitive.Value,
+) ([]*primitive.Value, error) {
+	if backend == nil || len(backend.substrates) == 0 {
+		return nil, errors.New("no compute substrates available")
+	}
+
+	var last error
+	var attempted uint64
+	offset := int(backend.nextSub.Add(1) % uint64(len(backend.substrates)))
+
+	for attempts := 0; attempts < len(backend.substrates); attempts++ {
+		state, bit := backend.nextSubstrate(offset, attempted)
+		if state == nil || bit == 0 {
+			break
+		}
+
+		attempted |= bit
+		spawned, err := backend.executeSubstrate(state, owner, community)
+		if err == nil {
+			return spawned, nil
+		}
+
+		last = err
+	}
+
+	if last != nil {
+		return nil, last
+	}
+
+	return nil, errors.New("no compute substrates available")
+}
+
+/*
+nextSubstrate finds the lowest-pressure substrate not yet attempted in this
+submission. Ties use a rotating offset so cold substrates do not starve each
+other, while the hot path stays allocation-free.
+*/
+func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateState, uint64) {
+	if backend == nil || len(backend.substrates) == 0 {
+		return nil, 0
+	}
+
+	bestIdx := -1
+	bestRank := 0
+	bestPressure := int64(1<<63 - 1)
+	n := len(backend.substrates)
+
+	for idx, state := range backend.substrates {
+		if idx >= 64 {
+			break
+		}
+
+		bit := uint64(1) << uint(idx)
+		if attempted&bit != 0 {
+			continue
+		}
+
+		if state == nil {
+			continue
+		}
+
+		pressure := state.pressure()
+		rank := (idx - offset + n) % n
+
+		if bestIdx >= 0 && (pressure > bestPressure || pressure == bestPressure && rank >= bestRank) {
+			continue
+		}
+
+		bestIdx = idx
+		bestRank = rank
+		bestPressure = pressure
+	}
+
+	if bestIdx < 0 {
+		return nil, 0
+	}
+
+	return backend.substrates[bestIdx], uint64(1) << uint(bestIdx)
 }
 
 /*
@@ -452,11 +542,38 @@ func (backend *Backend) executeSubstrate(
 	state.inflight.Add(-1)
 	state.observe(time.Since(start))
 
+	if err != nil {
+		return spawned, err
+	}
+
 	for _, req := range staged {
 		backend.StageInto(req.OwnerID, req.Value)
 	}
 
 	return spawned, err
+}
+
+func (backend *Backend) failOwner(owner *primitive.Value) {
+	if owner == nil {
+		return
+	}
+
+	owner.ClearProgram()
+	owner.SetSchedulingNext(0)
+	owner.SetStatus(primitive.ERROR)
+}
+
+func (state *substrateState) pressure() int64 {
+	if state == nil {
+		return 1<<63 - 1
+	}
+
+	serviceNanos := state.serviceNanos.Load()
+	if serviceNanos < 1 {
+		serviceNanos = 1
+	}
+
+	return (state.inflight.Load() + 1) * serviceNanos
 }
 
 func (state *substrateState) observe(elapsed time.Duration) {

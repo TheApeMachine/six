@@ -73,46 +73,50 @@ func TestHypercubeGossipRot8(t *testing.T) {
 	}
 
 	Convey("Given a resident program that rotates the mapped B operand", t, func() {
-		compiled, err := program.Compile(context.Background(), `
+		source := `
 program align {
   pop(B) {
     write A.signals[0,1] <- rot8(B.tokens[0,2], 1)
   }
 }
-`, program.Layout{})
-		So(err, ShouldBeNil)
+`
 
-		metalOwner := primitive.Emit()
-		defer metalOwner.Close()
-		metalPeer := primitive.Emit()
-		defer metalPeer.Close()
-		cpuOwner := primitive.Emit()
-		defer cpuOwner.Close()
-		cpuPeer := primitive.Emit()
-		defer cpuPeer.Close()
+		Convey("It should produce the same signals on metal and cpu", func() {
+			compiled, err := program.Compile(context.Background(), source, program.Layout{})
+			So(err, ShouldBeNil)
 
-		So(installCompiledProgram(metalOwner, compiled), ShouldBeTrue)
-		So(installCompiledProgram(cpuOwner, compiled), ShouldBeTrue)
+			metalOwner := primitive.Emit()
+			defer metalOwner.Close()
+			metalPeer := primitive.Emit()
+			defer metalPeer.Close()
+			cpuOwner := primitive.Emit()
+			defer cpuOwner.Close()
+			cpuPeer := primitive.Emit()
+			defer cpuPeer.Close()
 
-		metalPeer.Set(primitive.TokensStartWord, 0x0807060504030201)
-		metalPeer.Set(primitive.TokensStartWord+1, 0x100f0e0d0c0b0a09)
-		cpuPeer.Set(primitive.TokensStartWord, 0x0807060504030201)
-		cpuPeer.Set(primitive.TokensStartWord+1, 0x100f0e0d0c0b0a09)
+			So(installCompiledProgram(metalOwner, compiled), ShouldBeTrue)
+			So(installCompiledProgram(cpuOwner, compiled), ShouldBeTrue)
 
-		backend := NewBackend(0)
-		defer backend.Close()
+			metalPeer.Set(primitive.TokensStartWord, 0x0807060504030201)
+			metalPeer.Set(primitive.TokensStartWord+1, 0x100f0e0d0c0b0a09)
+			cpuPeer.Set(primitive.TokensStartWord, 0x0807060504030201)
+			cpuPeer.Set(primitive.TokensStartWord+1, 0x100f0e0d0c0b0a09)
 
-		spawned, _, err := backend.HypercubeGossip(metalOwner, []*primitive.Value{metalPeer})
-		defer primitive.CloseAll(spawned)
-		So(err, ShouldBeNil)
+			backend := NewBackend(0)
+			defer backend.Close()
 
-		cpuBackend := cpu.NewBackend(context.Background())
-		defer cpuBackend.Close()
-		_, _, err = cpuBackend.HypercubeGossip(cpuOwner, []*primitive.Value{cpuPeer})
-		So(err, ShouldBeNil)
+			spawned, _, err := backend.HypercubeGossip(metalOwner, []*primitive.Value{metalPeer})
+			defer primitive.CloseAll(spawned)
+			So(err, ShouldBeNil)
 
-		So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, cpuOwner.Get(primitive.SignalsRegion)[0])
-		So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, uint64(0x0908070605040302))
+			cpuBackend := cpu.NewBackend(context.Background())
+			defer cpuBackend.Close()
+			_, _, err = cpuBackend.HypercubeGossip(cpuOwner, []*primitive.Value{cpuPeer})
+			So(err, ShouldBeNil)
+
+			So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, cpuOwner.Get(primitive.SignalsRegion)[0])
+			So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, uint64(0x0908070605040302))
+		})
 	})
 }
 
@@ -159,6 +163,12 @@ program xor_signals_tokens {
 	}
 }
 
+/*
+installCompiledProgram applies a compiled in-value program to a Value for
+kernel tests. It stages the optional mask word, writes compiler constants at
+their frame offsets, then installs the packed program words; callers observe
+those mutations directly and receive the InstallProgram success value.
+*/
 func installCompiledProgram(value *primitive.Value, compiled program.Compiled) bool {
 	if compiled.MaskTrueWord != 0 {
 		value.Set(int(compiled.MaskTrueWord), ^uint64(0))

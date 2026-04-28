@@ -142,11 +142,17 @@ var StatusEnum = map[string]uint64{
 // RoleEnum mirrors ValueRole in primitive.
 var RoleEnum = map[string]uint64{
 	"NONE":        0,
+	"None":        0,
 	"PROGRAMMER":  1,
+	"Programmer":  1,
 	"LEARNER":     2,
+	"Learner":     2,
 	"READOUT":     3,
+	"Readout":     3,
 	"ASSOCIATION": 4,
+	"Association": 4,
 	"PROMPT":      5,
+	"Prompt":      5,
 }
 
 /*
@@ -227,10 +233,10 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 	instr |= (builder.emitFlag & 1) << 54
 	instr |= (builder.currentTopo & 3) << 55
 	instr |= (builder.predicateEnable & 1) << 57
+	instr |= (builder.bRotate & 7) << 58
 	if builder.predicateEnable == 1 {
+		instr &^= uint64(7) << 58
 		instr |= (builder.predCond & 7) << 58
-	} else {
-		instr |= (builder.bRotate & 7) << 58
 	}
 	instr |= (builder.srcAFromB & 1) << 61
 	instr |= (builder.stageFlag & 1) << 62

@@ -245,7 +245,6 @@ func (experiment *TextClassificationExperiment) TableData() any {
 
 func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 	numSamples := len(experiment.tableData)
-	score := experiment.Score()
 	metrics := experiment.evaluator.Metrics(experiment.tableData, numSamples)
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
@@ -279,11 +278,12 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
     Sample Size       & $N = %d$ \\
     \bottomrule
   \end{tabular}
+  {\footnotesize Exact Score is the exact-label match rate, computed as correct predictions divided by $N$; for this single-label task it matches Overall Accuracy. Balanced Accuracy is the unweighted mean of per-class recalls computed from the confusion matrix.}
 \end{table}`,
-			projector.F3(metrics.MacroF1),
-			fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
-			fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
-			projector.F4(score),
+			projector.Pct(metrics.MacroF1),
+			projector.Pct(metrics.Accuracy),
+			projector.Pct(metrics.BalancedAcc),
+			projector.Pct(metrics.Accuracy),
 			numSamples),
 	}
 

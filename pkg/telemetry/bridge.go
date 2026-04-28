@@ -75,6 +75,14 @@ func NewBridge(ctx context.Context, url string) (*Bridge, error) {
 	}, nil
 }
 
+/*
+Enabled reports whether the bridge has an outbound WebSocket target.
+Callers still keep a Bridge around when disabled so io.Copy hot paths stay nil-free.
+*/
+func (bridge *Bridge) Enabled() bool {
+	return bridge != nil && bridge.url != ""
+}
+
 func newBridgeFingerprintCache(max int) bridgeFingerprintCache {
 	if max <= 0 {
 		max = bridgeSentCacheCapacity

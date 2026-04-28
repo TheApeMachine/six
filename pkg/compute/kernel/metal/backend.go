@@ -28,6 +28,12 @@ import (
 //go:embed backend.metallib
 var backendMetallib []byte
 
+const (
+	frameWords        = primitive.WordCount
+	maxMetalSpawn     = 1024
+	spawnRegisterWord = 70
+)
+
 var metalReady atomic.Bool
 var metalRuntimeInit sync.Once
 var metalRuntimeErr error
@@ -194,15 +200,10 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		}
 	}
 
-	predicates := make([]C.predicate_device_spec_t, 128)
-	spawnIndices := make([]uint32, n)
-	spawnIDs := make([]uint64, n)
-	spawnActive := make([]uint8, n)
 	stageIndices := make([]uint32, n)
 	stageCount := uint32(0)
 
-	for idx := range spawnIndices {
-		spawnIndices[idx] = invalidIndex
+	for idx := range stageIndices {
 		stageIndices[idx] = invalidIndex
 	}
 
@@ -211,10 +212,6 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		C.uint32_t(n),
 		C.uint32_t(ownerIndex),
 		C.uint32_t(ownerSlot),
-		(*C.predicate_device_spec_t)(unsafe.Pointer(&predicates[0])),
-		(*C.uint32_t)(unsafe.Pointer(&spawnIndices[0])),
-		(*C.uint64_t)(unsafe.Pointer(&spawnIDs[0])),
-		(*C.uint8_t)(unsafe.Pointer(&spawnActive[0])),
 		(*C.uint32_t)(unsafe.Pointer(&stageIndices[0])),
 		(*C.uint32_t)(unsafe.Pointer(&stageCount)),
 	)
@@ -223,7 +220,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	}
 
 	staged := make([]kernel.StageRequest, 0, stageCount)
-	ownerFrame := (*[128]uint64)(unsafe.Pointer(value))
+	ownerFrame := (*[frameWords]uint64)(unsafe.Pointer(value))
 	ownerRef := ownerFrame[primitive.PropertiesStartWord+int(primitive.REFERENCE)]
 	for idx := uint32(0); idx < stageCount && idx < uint32(len(stageIndices)); idx++ {
 		stageIdx := stageIndices[idx]
@@ -237,29 +234,43 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		})
 	}
 
-	spawned := metalSpawnedValues(ownerFrame)
+	spawned := backend.metalSpawnedValues(ownerFrame)
 
 	return spawned, staged, nil
 }
 
-func metalSpawnedValues(ownerFrame *[128]uint64) []*primitive.Value {
-	const spawnRegisterWord = 70
-
+/*
+metalSpawnedValues materializes children requested by the Metal kernel after
+the in-band program increments the owner spawn register. The owner frame is
+copied into each child, then child-local identity and scheduling status are
+re-derived so callers receive ready children only when a resident program was
+copied into the emitted Value.
+*/
+func (backend *Backend) metalSpawnedValues(ownerFrame *[frameWords]uint64) []*primitive.Value {
 	spawnCount := ownerFrame[spawnRegisterWord]
 	if spawnCount == 0 {
 		return nil
 	}
 
+	if spawnCount > maxMetalSpawn {
+		fmt.Fprintf(os.Stderr, "metal: spawn count %d exceeds max %d; clamping\n", spawnCount, maxMetalSpawn)
+		spawnCount = maxMetalSpawn
+	}
+
 	ownerFrame[spawnRegisterWord] = 0
 
-	spawned := make([]*primitive.Value, 0, spawnCount)
-	for range spawnCount {
+	allocFailures := uint64(0)
+	spawned := make([]*primitive.Value, 0, int(spawnCount))
+	for spawnIdx := uint64(0); spawnIdx < spawnCount; spawnIdx++ {
 		child := primitive.AllocValue()
 		if child == nil {
+			allocFailures++
+			fmt.Fprintf(os.Stderr, "metal: AllocValue failed for spawn %d/%d\n", spawnIdx+1, spawnCount)
+
 			continue
 		}
 
-		childFrame := (*[128]uint64)(unsafe.Pointer(child))
+		childFrame := (*[frameWords]uint64)(unsafe.Pointer(child))
 		copy(childFrame[:], ownerFrame[:])
 
 		child.StampID()
@@ -267,12 +278,18 @@ func metalSpawnedValues(ownerFrame *[128]uint64) []*primitive.Value {
 		if child.HasProgram() {
 			child.SetSchedulingNext(child.ID())
 			child.SetStatus(primitive.READY)
-		} else {
-			child.SetSchedulingNext(0)
-			child.SetStatus(primitive.PENDING)
+			spawned = append(spawned, child)
+
+			continue
 		}
 
+		child.SetSchedulingNext(0)
+		child.SetStatus(primitive.PENDING)
 		spawned = append(spawned, child)
+	}
+
+	if allocFailures != 0 {
+		fmt.Fprintf(os.Stderr, "metal: %d/%d spawned value allocations failed\n", allocFailures, spawnCount)
 	}
 
 	return spawned
@@ -284,7 +301,7 @@ func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool
 	}
 
 	target := (*primitive.Value)(value)
-	frame := (*[128]uint64)(value)
+	frame := (*[frameWords]uint64)(value)
 	prev := frame[primitive.ProgramStartWord]
 	frame[primitive.ProgramStartWord] = opcode
 	defer func() {

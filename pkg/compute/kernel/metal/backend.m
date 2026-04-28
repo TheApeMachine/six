@@ -177,18 +177,14 @@ typedef struct {
 } AstParamsHost;
 
 int hypercube_gossip_metal_indices(
-    const uint32_t*                 indices,
-    uint32_t                        value_count,
-    uint32_t                        owner_index,
-    uint32_t                        owner_slot,
-    const predicate_device_spec_t*  predicates,
-    const uint32_t*                 spawn_indices,
-    const uint64_t*                 spawn_ids,
-    uint8_t*                        spawn_active,
-    uint32_t*                       stage_indices,
-    uint32_t*                       stage_count
+    const uint32_t* indices,
+    uint32_t        value_count,
+    uint32_t        owner_index,
+    uint32_t        owner_slot,
+    uint32_t*       stage_indices,
+    uint32_t*       stage_count
 ) {
-    if (!pipelineGossip || !indices || value_count == 0 || !bufArena || !predicates || !spawn_indices || !spawn_ids || !spawn_active || !stage_indices || !stage_count) return -1;
+    if (!pipelineGossip || !indices || value_count == 0 || !bufArena || !stage_indices || !stage_count) return -1;
 
     NSUInteger maxThreads = pipelineGossip.maxTotalThreadsPerThreadgroup;
     if ((NSUInteger)value_count > maxThreads) return -2;
@@ -197,32 +193,11 @@ int hypercube_gossip_metal_indices(
     id<MTLBuffer> idxBuf = [device newBufferWithBytes:indices length:idxBytes options:MTLResourceStorageModeShared];
     if (!idxBuf) return -3;
 
-    NSUInteger predBytes = 128 * sizeof(predicate_device_spec_t);
-    id<MTLBuffer> predBuf = [device newBufferWithBytes:predicates length:predBytes options:MTLResourceStorageModeShared];
-    if (!predBuf) { [idxBuf release]; return -4; }
-
-    id<MTLBuffer> spawnIdxBuf = [device newBufferWithBytes:spawn_indices length:idxBytes options:MTLResourceStorageModeShared];
-    if (!spawnIdxBuf) { [idxBuf release]; [predBuf release]; return -5; }
-
-    NSUInteger idBytes = (NSUInteger)value_count * sizeof(uint64_t);
-    id<MTLBuffer> spawnIDBuf = [device newBufferWithBytes:spawn_ids length:idBytes options:MTLResourceStorageModeShared];
-    if (!spawnIDBuf) { [idxBuf release]; [predBuf release]; [spawnIdxBuf release]; return -6; }
-
-    id<MTLBuffer> spawnActiveBuf = [device newBufferWithBytes:spawn_active length:value_count options:MTLResourceStorageModeShared];
-    if (!spawnActiveBuf) { [idxBuf release]; [predBuf release]; [spawnIdxBuf release]; [spawnIDBuf release]; return -7; }
-
     id<MTLBuffer> stageIdxBuf = [device newBufferWithBytes:stage_indices length:idxBytes options:MTLResourceStorageModeShared];
-    if (!stageIdxBuf) { [idxBuf release]; [predBuf release]; [spawnIdxBuf release]; [spawnIDBuf release]; [spawnActiveBuf release]; return -8; }
+    if (!stageIdxBuf) { [idxBuf release]; return -4; }
 
     id<MTLBuffer> stageCountBuf = [device newBufferWithBytes:stage_count length:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-    if (!stageCountBuf) { [idxBuf release]; [predBuf release]; [spawnIdxBuf release]; [spawnIDBuf release]; [spawnActiveBuf release]; [stageIdxBuf release]; return -9; }
-
-    NSUInteger postBytes = (NSUInteger)value_count * WORDS * sizeof(uint64_t);
-    id<MTLBuffer> postBuf = [device newBufferWithLength:postBytes options:MTLResourceStorageModeShared];
-    if (!postBuf) {
-        [idxBuf release]; [predBuf release]; [spawnIdxBuf release]; [spawnIDBuf release]; [spawnActiveBuf release]; [stageIdxBuf release]; [stageCountBuf release];
-        return -10;
-    }
+    if (!stageCountBuf) { [idxBuf release]; [stageIdxBuf release]; return -5; }
 
     AstParamsHost params;
     params.value_count = value_count;
@@ -238,30 +213,19 @@ int hypercube_gossip_metal_indices(
         [enc setBuffer:bufArena offset:0 atIndex:0];
         [enc setBuffer:idxBuf  offset:0 atIndex:1];
         [enc setBytes:&params length:sizeof(params) atIndex:2];
-        [enc setBuffer:predBuf offset:0 atIndex:3];
-        [enc setBuffer:spawnIdxBuf offset:0 atIndex:4];
-        [enc setBuffer:spawnIDBuf offset:0 atIndex:5];
-        [enc setBuffer:postBuf offset:0 atIndex:6];
-        [enc setBuffer:spawnActiveBuf offset:0 atIndex:7];
-        [enc setBuffer:stageIdxBuf offset:0 atIndex:8];
-        [enc setBuffer:stageCountBuf offset:0 atIndex:9];
+        [enc setBuffer:stageIdxBuf offset:0 atIndex:3];
+        [enc setBuffer:stageCountBuf offset:0 atIndex:4];
 
         [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1)
             threadsPerThreadgroup:MTLSizeMake((NSUInteger)value_count, 1, 1)];
         [enc endEncoding];
 
         int r = commitAndWait(cb);
-        memcpy(spawn_active, [spawnActiveBuf contents], value_count);
         memcpy(stage_indices, [stageIdxBuf contents], idxBytes);
         memcpy(stage_count, [stageCountBuf contents], sizeof(uint32_t));
         [idxBuf release];
-        [predBuf release];
-        [spawnIdxBuf release];
-        [spawnIDBuf release];
-        [spawnActiveBuf release];
         [stageIdxBuf release];
         [stageCountBuf release];
-        [postBuf release];
         return r;
     }
 }

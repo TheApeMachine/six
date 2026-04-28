@@ -182,7 +182,7 @@ programs:
         ; The program only says "xor two regions, then popcount that witness";
         ; the reducer below decides over arbitrary value/key regions.
         pop(B) {
-          (B.properties.role == PROMPT) {
+          (B.properties.role == Prompt) {
             write A.affinity <- or(A.affinity, B.affinity)
           }
 

@@ -111,6 +111,23 @@ func TestBridge_Connect(t *testing.T) {
 	})
 }
 
+func TestBridge_Enabled(t *testing.T) {
+	t.Parallel()
+
+	Convey("Enabled reflects whether a WebSocket URL is configured", t, func() {
+		disabled, disabledErr := NewBridge(context.Background(), "")
+		enabled, enabledErr := NewBridge(context.Background(), "ws://127.0.0.1:6600/ws")
+
+		So(disabledErr, ShouldBeNil)
+		So(enabledErr, ShouldBeNil)
+		defer disabled.Close()
+		defer enabled.Close()
+
+		So(disabled.Enabled(), ShouldBeFalse)
+		So(enabled.Enabled(), ShouldBeTrue)
+	})
+}
+
 func TestBridge_Close(t *testing.T) {
 	t.Parallel()
 

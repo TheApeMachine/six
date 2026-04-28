@@ -479,3 +479,17 @@ program reducers {
 		_, _ = Compile(source)
 	}
 }
+
+func BenchmarkCompileRot8(b *testing.B) {
+	source := `
+program align {
+  pop(B) {
+    write A.signals[0,2] <- xor(A.tokens[0,2], rot8(B.tokens[0,2], 3))
+  }
+}
+`
+
+	for i := 0; i < b.N; i++ {
+		_, _ = Compile(source)
+	}
+}

@@ -1,6 +1,8 @@
 package primitive
 
 import (
+	"fmt"
+
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -124,7 +126,11 @@ func WithProgram(words []uint64) EmitOptions {
 // WithFirmware lowers named config firmware into the program region (same bits Dispatch executes).
 func WithFirmware(firmware core.FirmwareType) EmitOptions {
 	return func(value *Value) {
-		value.InstallFirmware(firmware)
+		if value.InstallFirmware(firmware) {
+			return
+		}
+
+		panic(fmt.Errorf("primitive: firmware %q is missing or empty", firmware))
 	}
 }
 

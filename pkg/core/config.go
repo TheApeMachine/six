@@ -491,21 +491,14 @@ func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]Program
 
 		compiled, err := program.Compile(context.Background(), source, layout)
 		if err != nil {
-			// During the new-ALU rewrite, program blocks that fail to
-			// lower are skipped rather than crashing the runtime; the
-			// firmware map simply won't contain them. Callers that
-			// depend on a missing firmware will surface a clearer
-			// error at the point of use.
-			fmt.Fprintf(os.Stderr, "config: program %q failed to compile: %v\n", key, err)
-			continue
+			panic(fmt.Errorf("config: program %q failed to compile: %w", key, err))
 		}
 
 		if maxWords > 0 && len(compiled.Words) > maxWords {
-			fmt.Fprintf(os.Stderr,
-				"config: program %q lowered to %d instructions but program region only holds %d words; skipping\n",
+			panic(fmt.Errorf(
+				"config: program %q lowered to %d instructions but program region only holds %d words",
 				key, len(compiled.Words), maxWords,
-			)
-			continue
+			))
 		}
 
 		out[ft] = ProgramConfig{

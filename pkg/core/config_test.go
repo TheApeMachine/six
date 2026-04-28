@@ -96,6 +96,27 @@ func TestNewConfig(t *testing.T) {
 	})
 }
 
+func TestPrecompile(t *testing.T) {
+	Convey("Given a malformed firmware block", t, func() {
+		originalPrograms := viper.Get("programs")
+
+		Reset(func() {
+			viper.Set("programs", originalPrograms)
+			NewConfig()
+		})
+
+		viper.Set("programs", map[string]any{
+			"broken": "not valid firmware",
+		})
+
+		Convey("It should fail at config construction instead of creating a missing program", func() {
+			So(func() {
+				NewConfig()
+			}, ShouldPanic)
+		})
+	})
+}
+
 func TestValueRegionConfigMaxTokenIngestBytes(t *testing.T) {
 	Convey("Given a ValueRegionConfig", t, func() {
 		Convey("It should compute MaxTokenIngestBytes as four Morton slots per token word", func() {

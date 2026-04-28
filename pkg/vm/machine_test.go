@@ -164,6 +164,37 @@ func TestCycle(t *testing.T) {
 	})
 }
 
+func TestNewMachine(t *testing.T) {
+	loadConfigForTests(t)
+
+	Convey("Given telemetry is disabled with a configured URL", t, func() {
+		enabled := core.Cfg.TelemetryEnabled
+		url := core.Cfg.TelemetryWebSocketURL
+
+		core.Cfg.TelemetryEnabled = false
+		core.Cfg.TelemetryWebSocketURL = "ws://127.0.0.1:1/ws"
+
+		Reset(func() {
+			core.Cfg.TelemetryEnabled = enabled
+			core.Cfg.TelemetryWebSocketURL = url
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine, err := NewMachine(ctx)
+		So(err, ShouldBeNil)
+		So(machine, ShouldNotBeNil)
+		Reset(func() {
+			machine.Close()
+		})
+
+		Convey("It should keep the bridge inert", func() {
+			So(machine.telemetry.Enabled(), ShouldBeFalse)
+		})
+	})
+}
+
 func TestPromptClassifyReadout(t *testing.T) {
 	loadConfigForTests(t)
 
@@ -262,9 +293,6 @@ func TestPrompt(t *testing.T) {
 
 		_, err = machine.Prompt(firstPrompt)
 		So(err, ShouldBeNil)
-
-		firstPrompt.Set(affinityStart, 0x01)
-		firstPrompt.NormalizeAffinity()
 
 		secondPrompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
 		secondPrompt.Set(affinityStart, 0x01)

@@ -44,7 +44,12 @@ func NewMachine(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	bridge, err := telemetry.NewBridge(ctx, core.Cfg.TelemetryWebSocketURL)
+	telemetryURL := ""
+	if core.Cfg.TelemetryEnabled {
+		telemetryURL = core.Cfg.TelemetryWebSocketURL
+	}
+
+	bridge, err := telemetry.NewBridge(ctx, telemetryURL)
 
 	if err != nil {
 		cancel()
