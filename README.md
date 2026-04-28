@@ -183,11 +183,13 @@ So: **one compiled firmware stream → one program region on one Value**. Chaini
 
 Predicate conditions may reduce direct regions or materialized truth-table expressions. For example, `popcnt(xor(A.context[0,5], B.affinity)) < 64` lowers to a scratch `xor` over the recruiter's seed window and the candidate affinity window followed by a scalar popcount witness and predicate compare. Recruitment also uses `popcnt(or(A.affinity, B.affinity)) <= 121` so the candidate is accepted only if the post-write union remains inside the 257-bit Shannon budget.
 
+Truth-table operands may align the mapped peer span with `rot8(B.region[start,span], n)`, where `n` is a byte step from 0 to 7. The packed instruction stores that byte rotation in the predicate-condition field only when the predicate bit is clear, so the kernel still performs the same universal operation: read A, read byte-rotated SrcB, apply the 4-bit truth table, and write the destination. The rotation is B-side operand addressing, not a signal or task-specific opcode.
+
 ### The ALU
 
 The Boolean **universal bitwise** path has been completely rewritten to execute the new 64-bit AST Instructions using **Tick Semantics (Double Buffering)** across a community vector. It reads the source spans, executes the 4-bit truth table, applies optional scalar reductions (`popcnt`, `any_zero`, `all_ones`), evaluates the predicate mask, and stages the result into a `post` buffer, guaranteeing deterministic, data-race-free state updates per instruction. Multi-word `popcnt(...)` predicate expressions materialize a one-word scalar witness before comparison; single-word predicate comparisons use the word as a scalar.
 
-The high-level **source lines** under `programs:` are **not** the same as raw machine words — the compiler lowers them into the program region; CPU, Metal, and CUDA share the same interpretation: opcode, mode, topology, predicate, indirection, and spans packed into single 64-bit words.
+The high-level **source lines** under `programs:` are **not** the same as raw machine words — the compiler lowers them into the program region. The packed field contract remains substrate-neutral: opcode, mode, topology, predicate, operand alignment, and spans are encoded into single 64-bit words. The active CPU and Metal gossip paths decode the current inline ALU contract; CUDA gossip is the remaining disabled accelerator path until its source is ported and validated against the same word contract.
 
 Scheduling hops (branching, looping via `properties.continuation`) are executed by the **kernels themselves** via native bitwise writes. There is no separate external orchestration needed for re-entry.
 
@@ -508,15 +510,15 @@ them against the live community arena with deterministic tick barriers.
 
 ## Compute Substrate
 
-Values execute their programs on a multi-substrate backend that automatically selects the best available hardware:
+Values execute their programs through a multi-substrate backend:
 
 1. **CPU**: Universal bitwise executor with SIMD affinity distance kernels and hand-written ARM64/AMD64 assembly for the PGA product. Supports all 16 boolean truth-table operations plus geometric `Compose`, `Sandwich`, and `Reverse`.
 
-2. **Apple Metal**: GPU compute shaders for macOS. Compiled from Metal Shading Language at build time. The geometric lane preserves the 64-bit frame ABI and uses native `float32` arithmetic in the shader.
+2. **Apple Metal**: GPU compute shaders for macOS. Compiled from Metal Shading Language at build time. The gossip shader decodes the current inline ALU word contract, including SrcB byte-rotation metadata and in-band stage emission. The geometric lane preserves the 64-bit frame ABI and uses native `float32` arithmetic in the shader.
 
-3. **NVIDIA CUDA**: GPU kernels for NVIDIA hardware. Generated via cgo bindings. The geometric lane uses native `float64`.
+3. **NVIDIA CUDA**: GPU kernels for NVIDIA hardware. Generated via cgo bindings. The geometric lane uses native `float64`; the gossip kernel source still needs the same inline-ALU port now restored in Metal before it should be selected for resident programs.
 
-The `compute.Backend` load-balancer probes available substrates at startup and routes work to whichever has the least in-flight depth and lowest exponential moving average service time. When all accelerators are saturated, work overflows to CPU.
+The `compute.Backend` probes available substrates and tracks in-flight depth plus exponential moving average service time. Resident `Submit` currently keeps CPU as the scheduling default while accelerator gossip parity is being restored and validated; direct substrate tests exercise the native Metal gossip path.
 
 ---
 
@@ -636,8 +638,10 @@ Datasets must follow the Provider interface.
 machine.Load(dataset)
 
 /*
-Prompt — forwards to Machine.Cycle (see vm/machine.go). Returned
-Values are the field snapshot after that cycle; cancel the context to bound work.
+Prompt — forwards to Machine.Cycle (see vm/machine.go). Prompt Values are
+marked in-band with the prompt role, staged against the resident community,
+and the return slice only contains Values that settled during that prompt turn.
+Cancel the context to bound work.
 */
 segments, _ := primitive.NewValue([]byte("the cat sat on the"))
 // Production uses in-band continuation plus backend.Submit over the active community.

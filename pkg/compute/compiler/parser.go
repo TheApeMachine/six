@@ -156,8 +156,9 @@ into a predicate-store (popcnt / any_zero), Predicate is set so the
 caller can emit it in place of a regular AssignNode.
 */
 type sideRegion struct {
-	side byte
-	reg  Region
+	side   byte
+	reg    Region
+	rotate uint64
 	// predicate set when the RHS is a popcnt/any-zero reduction; if so
 	// the destination receives a folded scalar from the popcount engine
 	// instead of a bitwise truth-table op.
@@ -184,11 +185,12 @@ their truth-table result into scratch asset words before the predicate folds it.
 type predicateSource struct {
 	side    byte
 	reg     Region
+	rotate  uint64
 	prelude BlockNode
 }
 
 func (source predicateSource) sideRegion() sideRegion {
-	return sideRegion{side: source.side, reg: source.reg}
+	return sideRegion{side: source.side, reg: source.reg, rotate: source.rotate}
 }
 
 func (parser *parser) parseProgram() (BlockNode, error) {
@@ -320,6 +322,15 @@ func (parser *parser) parseComparison() (cond uint64, region predicateSource, th
 		return 0, predicateSource{}, sideRegion{}, err
 	}
 
+	lhs, err = parser.materializePredicateSource(lhs)
+	if err != nil {
+		return 0, predicateSource{}, sideRegion{}, err
+	}
+
+	if rhs.rotate != 0 {
+		return 0, predicateSource{}, sideRegion{}, fmt.Errorf("compiler: rot8 cannot be used as a predicate threshold")
+	}
+
 	return cond, lhs, rhs, nil
 }
 
@@ -340,7 +351,7 @@ func (parser *parser) parsePredicateSource() (predicateSource, error) {
 			return predicateSource{}, err
 		}
 
-		return parser.forcePopcntSource(source), nil
+		return parser.forcePopcntSource(source)
 	}
 
 	region, err := parser.parseRegion()
@@ -348,10 +359,19 @@ func (parser *parser) parsePredicateSource() (predicateSource, error) {
 		return predicateSource{}, err
 	}
 
-	return predicateSource{side: region.side, reg: region.reg}, nil
+	return predicateSource{side: region.side, reg: region.reg, rotate: region.rotate}, nil
 }
 
 func (parser *parser) parsePredicateExpr() (predicateSource, error) {
+	if parser.peek().kind == "ident" && parser.peek().text == "rot8" {
+		region, err := parser.parseRegion()
+		if err != nil {
+			return predicateSource{}, err
+		}
+
+		return predicateSource{side: region.side, reg: region.reg, rotate: region.rotate}, nil
+	}
+
 	if parser.peek().kind == "ident" && parser.lookahead(1).kind == "(" {
 		return parser.parsePredicateCall()
 	}
@@ -361,7 +381,7 @@ func (parser *parser) parsePredicateExpr() (predicateSource, error) {
 		return predicateSource{}, err
 	}
 
-	return predicateSource{side: region.side, reg: region.reg}, nil
+	return predicateSource{side: region.side, reg: region.reg, rotate: region.rotate}, nil
 }
 
 func (parser *parser) parsePredicateCall() (predicateSource, error) {
@@ -416,7 +436,33 @@ func (parser *parser) parsePredicateCall() (predicateSource, error) {
 	return scratch, nil
 }
 
-func (parser *parser) forcePopcntSource(source predicateSource) predicateSource {
+func (parser *parser) materializePredicateSource(source predicateSource) (predicateSource, error) {
+	if source.rotate == 0 {
+		return source, nil
+	}
+
+	scratch := parser.builder.AllocScratch(source.reg.Span)
+	node, err := parser.makeCopyAssign(sideRegion{side: 'A', reg: scratch}, source.sideRegion())
+	if err != nil {
+		return predicateSource{}, err
+	}
+
+	source.prelude.Statements = append(source.prelude.Statements, node)
+
+	return predicateSource{
+		side:    'A',
+		reg:     scratch,
+		prelude: source.prelude,
+	}, nil
+}
+
+func (parser *parser) forcePopcntSource(source predicateSource) (predicateSource, error) {
+	var err error
+	source, err = parser.materializePredicateSource(source)
+	if err != nil {
+		return predicateSource{}, err
+	}
+
 	scratch := parser.builder.AllocScratch(1)
 	source.prelude.Statements = append(source.prelude.Statements, PredicateAssignNode{
 		Dst:        scratch,
@@ -430,7 +476,7 @@ func (parser *parser) forcePopcntSource(source predicateSource) predicateSource 
 		side:    'A',
 		reg:     scratch,
 		prelude: source.prelude,
-	}
+	}, nil
 }
 
 func condOf(op string) (uint64, bool) {
@@ -498,6 +544,10 @@ func (parser *parser) parseAssign() (ASTNode, error) {
 
 func (parser *parser) parseRHS() (sideRegion, error) {
 	tok := parser.peek()
+
+	if tok.kind == "ident" && tok.text == "rot8" {
+		return parser.parseRegion()
+	}
 
 	if tok.kind == "ident" && parser.lookahead(1).kind == "(" {
 		return parser.parseRHSCall()
@@ -752,6 +802,10 @@ func (parser *parser) makeBinAssign(dst sideRegion, opcode uint64, a, b sideRegi
 		srcA, srcB = b, a
 	}
 
+	if srcA.rotate != 0 {
+		return nil, fmt.Errorf("compiler: rot8 can only be applied to the SrcB operand")
+	}
+
 	srcAFromB := uint64(0)
 	if srcA.side == 'B' {
 		srcAFromB = 1
@@ -764,6 +818,7 @@ func (parser *parser) makeBinAssign(dst sideRegion, opcode uint64, a, b sideRegi
 		Opcode:    opcode,
 		Target:    targetOf(dst.side),
 		SrcAFromB: srcAFromB,
+		BRotate:   srcB.rotate,
 	}, nil
 }
 
@@ -788,11 +843,12 @@ func (parser *parser) makeCopyAssign(dst, src sideRegion) (ASTNode, error) {
 	}
 
 	return AssignNode{
-		Dst:    dst.reg,
-		SrcA:   src.reg,
-		SrcB:   src.reg,
-		Opcode: opcode,
-		Target: targetOf(dst.side),
+		Dst:     dst.reg,
+		SrcA:    src.reg,
+		SrcB:    src.reg,
+		Opcode:  opcode,
+		Target:  targetOf(dst.side),
+		BRotate: src.rotate,
 	}, nil
 }
 
@@ -941,6 +997,10 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 		return parser.constRegion(value), nil
 	}
 
+	if tok.text == "rot8" {
+		return parser.parseRot8Region()
+	}
+
 	if tok.text == "program" {
 		return parser.maybeIndex(sideRegion{side: 'A', reg: Program})
 	}
@@ -956,6 +1016,51 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 	}
 
 	return sideRegion{}, fmt.Errorf("compiler: unknown region root %q", tok.text)
+}
+
+func (parser *parser) parseRot8Region() (sideRegion, error) {
+	if _, err := parser.expect("("); err != nil {
+		return sideRegion{}, err
+	}
+
+	region, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, err
+	}
+
+	if region.side != 'B' {
+		return sideRegion{}, fmt.Errorf("compiler: rot8 only accepts B-side regions")
+	}
+
+	if region.rotate != 0 {
+		return sideRegion{}, fmt.Errorf("compiler: nested rot8 is not supported")
+	}
+
+	if _, err := parser.expect(","); err != nil {
+		return sideRegion{}, err
+	}
+
+	stepsTok, err := parser.expect("num")
+	if err != nil {
+		return sideRegion{}, err
+	}
+
+	if _, err := parser.expect(")"); err != nil {
+		return sideRegion{}, err
+	}
+
+	steps, err := strconv.ParseUint(stepsTok.text, 10, 64)
+	if err != nil {
+		return sideRegion{}, err
+	}
+
+	if steps > 7 {
+		return sideRegion{}, fmt.Errorf("compiler: rot8 step must be in [0,7]")
+	}
+
+	region.rotate = steps
+
+	return region, nil
 }
 
 func (parser *parser) constRegion(value uint64) sideRegion {
@@ -1067,7 +1172,8 @@ func (parser *parser) maybeIndex(base sideRegion) (sideRegion, error) {
 	}
 
 	return sideRegion{
-		side: base.side,
-		reg:  Region{Start: base.reg.Start + start, Span: span},
+		side:   base.side,
+		reg:    Region{Start: base.reg.Start + start, Span: span},
+		rotate: base.rotate,
 	}, nil
 }

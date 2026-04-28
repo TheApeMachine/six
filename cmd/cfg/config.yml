@@ -175,23 +175,36 @@ programs:
     }
   classify_readout: |
     program classify_readout {
-      ; First pass: each candidate writes its own generic distance witness.
-      ; The program only says "xor two regions, then popcount that witness";
-      ; the reducer below decides over arbitrary value/key regions.
-      pop(B) {
-        (B.properties.community != 0) {
-          write B.signals[0,5] <- xor(A.affinity, B.affinity)
-          set B.properties.surprisal <- popcnt(B.signals[0,5])
+      ; A linked prompt should emit one answer. The head Value owns readout;
+      ; tails execute the same firmware but retire without contributing labels.
+      (A.prev == 0) {
+        ; First pass: each candidate writes its own generic distance witness.
+        ; The program only says "xor two regions, then popcount that witness";
+        ; the reducer below decides over arbitrary value/key regions.
+        pop(B) {
+          (B.properties.role == PROMPT) {
+            write A.affinity <- or(A.affinity, B.affinity)
+          }
+
+          (B.properties.community != 0) {
+            write B.signals[0,5] <- xor(A.affinity, B.affinity)
+            set B.properties.surprisal <- popcnt(B.signals[0,5])
+          }
         }
+
+        ; Select the non-zero categorical value whose key is minimal.
+        set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
+
+        ; Select the modal non-zero categorical value where the peer key equals
+        ; the owner key selected above.
+        set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
+
+        set A.properties.status <- RESOLVED
       }
 
-      ; Select the non-zero categorical value whose key is minimal.
-      set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
+      (A.prev != 0) {
+        set A.properties.status <- DONE
+      }
 
-      ; Select the modal non-zero categorical value where the peer key equals
-      ; the owner key selected above.
-      set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
-
-      set A.properties.status <- RESOLVED
       set A.properties.continuation <- 0
     }

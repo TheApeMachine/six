@@ -29,19 +29,23 @@ type AssignNode struct {
 	Opcode    uint64
 	Target    uint64 // 0 for A, 1 for B
 	SrcAFromB uint64 // 1 = read SrcA from popped (target-B blocks)
+	BRotate   uint64 // truth-table SrcB byte rotation, 0..7
 }
 
 func (assign AssignNode) Walk(b *Builder) {
 	prevTarget := b.currentTarget
 	prevSrcA := b.srcAFromB
+	prevBRotate := b.bRotate
 
 	b.currentTarget = assign.Target
 	b.srcAFromB = assign.SrcAFromB
+	b.bRotate = assign.BRotate
 
 	b.Pack(assign.Opcode, assign.SrcA, assign.SrcB, assign.Dst)
 
 	b.currentTarget = prevTarget
 	b.srcAFromB = prevSrcA
+	b.bRotate = prevBRotate
 }
 
 /*

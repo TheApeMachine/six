@@ -4,7 +4,6 @@ package metal
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -43,8 +42,8 @@ program xor_signals_tokens {
 		reference := primitive.Emit()
 		defer reference.Close()
 
-		So(actual.InstallProgram(compiled.Words), ShouldBeTrue)
-		So(reference.InstallProgram(compiled.Words), ShouldBeTrue)
+		So(installCompiledProgram(actual, compiled), ShouldBeTrue)
+		So(installCompiledProgram(reference, compiled), ShouldBeTrue)
 
 		actual.Set(primitive.TokensStartWord, 0b1010)
 		actual.Set(primitive.TokensStartWord+1, 0b1100)
@@ -54,14 +53,8 @@ program xor_signals_tokens {
 		backend := NewBackend(0)
 		defer backend.Close()
 
-		spawned, _, err := backend.HypercubeGossip(nil, []*primitive.Value{actual})
+		spawned, _, err := backend.HypercubeGossip(actual, []*primitive.Value{actual})
 		defer primitive.CloseAll(spawned)
-
-		if err != nil {
-			if strings.Contains(err.Error(), "substrate disabled") {
-				t.Skipf("metal: %v", err)
-			}
-		}
 
 		So(err, ShouldBeNil)
 		So(spawned, ShouldBeEmpty)
@@ -71,6 +64,55 @@ program xor_signals_tokens {
 		_, _, err = cpuBackend.HypercubeGossip(reference, []*primitive.Value{reference})
 		So(err, ShouldBeNil)
 		So(actual.Get(primitive.SignalsRegion)[0], ShouldEqual, reference.Get(primitive.SignalsRegion)[0])
+	})
+}
+
+func TestHypercubeGossipRot8(t *testing.T) {
+	if Available() == 0 {
+		t.Skip("metal unavailable")
+	}
+
+	Convey("Given a resident program that rotates the mapped B operand", t, func() {
+		compiled, err := program.Compile(context.Background(), `
+program align {
+  pop(B) {
+    write A.signals[0,1] <- rot8(B.tokens[0,2], 1)
+  }
+}
+`, program.Layout{})
+		So(err, ShouldBeNil)
+
+		metalOwner := primitive.Emit()
+		defer metalOwner.Close()
+		metalPeer := primitive.Emit()
+		defer metalPeer.Close()
+		cpuOwner := primitive.Emit()
+		defer cpuOwner.Close()
+		cpuPeer := primitive.Emit()
+		defer cpuPeer.Close()
+
+		So(installCompiledProgram(metalOwner, compiled), ShouldBeTrue)
+		So(installCompiledProgram(cpuOwner, compiled), ShouldBeTrue)
+
+		metalPeer.Set(primitive.TokensStartWord, 0x0807060504030201)
+		metalPeer.Set(primitive.TokensStartWord+1, 0x100f0e0d0c0b0a09)
+		cpuPeer.Set(primitive.TokensStartWord, 0x0807060504030201)
+		cpuPeer.Set(primitive.TokensStartWord+1, 0x100f0e0d0c0b0a09)
+
+		backend := NewBackend(0)
+		defer backend.Close()
+
+		spawned, _, err := backend.HypercubeGossip(metalOwner, []*primitive.Value{metalPeer})
+		defer primitive.CloseAll(spawned)
+		So(err, ShouldBeNil)
+
+		cpuBackend := cpu.NewBackend(context.Background())
+		defer cpuBackend.Close()
+		_, _, err = cpuBackend.HypercubeGossip(cpuOwner, []*primitive.Value{cpuPeer})
+		So(err, ShouldBeNil)
+
+		So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, cpuOwner.Get(primitive.SignalsRegion)[0])
+		So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, uint64(0x0908070605040302))
 	})
 }
 
@@ -98,7 +140,7 @@ program xor_signals_tokens {
 	values := make([]*primitive.Value, 64)
 	for idx := range values {
 		values[idx] = primitive.Emit()
-		if !values[idx].InstallProgram(compiled.Words) {
+		if !installCompiledProgram(values[idx], compiled) {
 			b.Fatal("install program failed")
 		}
 		values[idx].Set(primitive.TokensStartWord, uint64(idx))
@@ -109,14 +151,22 @@ program xor_signals_tokens {
 	backend := NewBackend(0)
 	defer backend.Close()
 
-	
 	for b.Loop() {
-		_, _, err := backend.HypercubeGossip(nil, values)
+		_, _, err := backend.HypercubeGossip(values[0], values)
 		if err != nil {
-			if strings.Contains(err.Error(), "substrate disabled") {
-				b.Skipf("metal: %v", err)
-			}
 			b.Fatal(err)
 		}
 	}
+}
+
+func installCompiledProgram(value *primitive.Value, compiled program.Compiled) bool {
+	if compiled.MaskTrueWord != 0 {
+		value.Set(int(compiled.MaskTrueWord), ^uint64(0))
+	}
+
+	for _, init := range compiled.Constants {
+		value.Set(int(init.Offset), init.Value)
+	}
+
+	return value.InstallProgram(compiled.Words)
 }

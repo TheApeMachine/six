@@ -16,7 +16,7 @@ import (
 
 var configOnce sync.Once
 
-func loadConfigForTests(t *testing.T) {
+func loadConfigForTests(t testing.TB) {
 	t.Helper()
 
 	configOnce.Do(func() {
@@ -222,6 +222,120 @@ func TestPromptClassifyReadout(t *testing.T) {
 			})
 		})
 	})
+}
+
+func TestPrompt(t *testing.T) {
+	loadConfigForTests(t)
+
+	Convey("Given a machine that already produced a prompt readout", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine, err := NewMachine(ctx)
+		So(err, ShouldBeNil)
+		So(machine, ShouldNotBeNil)
+		Reset(func() {
+			machine.Close()
+		})
+
+		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+		nearSecond := primitive.Emit(
+			primitive.WithCommunity(10),
+			primitive.WithLabels(1),
+		)
+		nearSecond.Set(affinityStart, 0x03)
+		nearSecond.NormalizeAffinity()
+		machine.community.Store(nearSecond.ID(), nearSecond)
+
+		nearFirst := primitive.Emit(
+			primitive.WithCommunity(20),
+			primitive.WithLabels(2),
+		)
+		nearFirst.Set(affinityStart, 1<<20)
+		nearFirst.NormalizeAffinity()
+		machine.community.Store(nearFirst.ID(), nearFirst)
+
+		firstPrompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
+		firstPrompt.Set(affinityStart, 1<<20)
+		firstPrompt.NormalizeAffinity()
+
+		_, err = machine.Prompt(firstPrompt)
+		So(err, ShouldBeNil)
+
+		firstPrompt.Set(affinityStart, 0x01)
+		firstPrompt.NormalizeAffinity()
+
+		secondPrompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
+		secondPrompt.Set(affinityStart, 0x01)
+		secondPrompt.NormalizeAffinity()
+
+		Convey("When another prompt runs over the same machine", func() {
+			resolved, err := machine.Prompt(secondPrompt)
+			So(err, ShouldBeNil)
+			So(len(resolved), ShouldBeGreaterThan, 0)
+
+			Convey("Then only the new prompt result is reported and prior prompt values are not candidates", func() {
+				for _, value := range resolved {
+					So(value.ID(), ShouldNotEqual, firstPrompt.ID())
+				}
+
+				community, communityErr := secondPrompt.Property(primitive.COMMUNITY)
+				label, labelErr := secondPrompt.Property(primitive.LABELS)
+
+				So(communityErr, ShouldBeNil)
+				So(labelErr, ShouldBeNil)
+				So(community, ShouldEqual, 10)
+				So(label, ShouldEqual, 1)
+				So(secondPrompt.Role(), ShouldEqual, primitive.ValueRolePrompt)
+			})
+		})
+	})
+}
+
+func BenchmarkPrompt(b *testing.B) {
+	loadConfigForTests(b)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	machine, err := NewMachine(ctx)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer machine.Close()
+
+	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+
+	for idx := 0; idx < 8; idx++ {
+		member := primitive.Emit(
+			primitive.WithCommunity(10),
+			primitive.WithLabels(1),
+		)
+		member.Set(affinityStart, uint64(idx+1))
+		member.NormalizeAffinity()
+		machine.community.Store(member.ID(), member)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		prompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
+		prompt.Set(affinityStart, 1)
+		prompt.NormalizeAffinity()
+
+		resolved, err := machine.Prompt(prompt)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if len(resolved) == 0 {
+			b.Fatal("prompt produced no resolved values")
+		}
+
+		machine.community.Delete(prompt.ID())
+	}
 }
 
 func TestCycleRecruitResidual(t *testing.T) {

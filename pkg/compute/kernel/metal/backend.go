@@ -153,7 +153,7 @@ func Available() int {
 
 func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []kernel.StageRequest, error) {
 	n := len(community)
-	if n == 0 {
+	if value == nil || n == 0 {
 		return nil, nil, nil
 	}
 
@@ -162,6 +162,11 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	}
 
 	const invalidIndex = ^uint32(0)
+
+	ownerSlot, ok := primitive.ArenaIndex(value)
+	if !ok {
+		return nil, nil, fmt.Errorf("metal: owner value is outside the arena")
+	}
 
 	indices := make([]uint32, n)
 	for idx := range indices {
@@ -182,25 +187,95 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	}
 
 	ownerIndex := invalidIndex
-	if value != nil {
-		for idx, candidate := range community {
-			if candidate == value {
-				ownerIndex = uint32(idx)
-				break
-			}
+	for idx, candidate := range community {
+		if candidate == value {
+			ownerIndex = uint32(idx)
+			break
 		}
 	}
 
-	_ = indices
-	_ = ownerIndex
-	_ = n
+	predicates := make([]C.predicate_device_spec_t, 128)
+	spawnIndices := make([]uint32, n)
+	spawnIDs := make([]uint64, n)
+	spawnActive := make([]uint8, n)
+	stageIndices := make([]uint32, n)
+	stageCount := uint32(0)
 
-	// The Metal kernel was authored against the previous ALU's
-	// instruction format and predicate-spec uniform layout. The new
-	// inline-predicate ALU is incompatible with that kernel; until the
-	// .metal source is rewritten, surface a sentinel error so the
-	// orchestrator falls back to the CPU substrate.
-	return nil, nil, fmt.Errorf("metal: substrate disabled pending kernel rewrite for new ALU")
+	for idx := range spawnIndices {
+		spawnIndices[idx] = invalidIndex
+		stageIndices[idx] = invalidIndex
+	}
+
+	res := C.hypercube_gossip_metal_indices(
+		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
+		C.uint32_t(n),
+		C.uint32_t(ownerIndex),
+		C.uint32_t(ownerSlot),
+		(*C.predicate_device_spec_t)(unsafe.Pointer(&predicates[0])),
+		(*C.uint32_t)(unsafe.Pointer(&spawnIndices[0])),
+		(*C.uint64_t)(unsafe.Pointer(&spawnIDs[0])),
+		(*C.uint8_t)(unsafe.Pointer(&spawnActive[0])),
+		(*C.uint32_t)(unsafe.Pointer(&stageIndices[0])),
+		(*C.uint32_t)(unsafe.Pointer(&stageCount)),
+	)
+	if res != 0 {
+		return nil, nil, fmt.Errorf("metal: hypercube_gossip_metal_indices failed with code %d", int(res))
+	}
+
+	staged := make([]kernel.StageRequest, 0, stageCount)
+	ownerFrame := (*[128]uint64)(unsafe.Pointer(value))
+	ownerRef := ownerFrame[primitive.PropertiesStartWord+int(primitive.REFERENCE)]
+	for idx := uint32(0); idx < stageCount && idx < uint32(len(stageIndices)); idx++ {
+		stageIdx := stageIndices[idx]
+		if stageIdx >= uint32(len(community)) {
+			continue
+		}
+
+		staged = append(staged, kernel.StageRequest{
+			OwnerID: ownerRef,
+			Value:   community[stageIdx],
+		})
+	}
+
+	spawned := metalSpawnedValues(ownerFrame)
+
+	return spawned, staged, nil
+}
+
+func metalSpawnedValues(ownerFrame *[128]uint64) []*primitive.Value {
+	const spawnRegisterWord = 70
+
+	spawnCount := ownerFrame[spawnRegisterWord]
+	if spawnCount == 0 {
+		return nil
+	}
+
+	ownerFrame[spawnRegisterWord] = 0
+
+	spawned := make([]*primitive.Value, 0, spawnCount)
+	for range spawnCount {
+		child := primitive.AllocValue()
+		if child == nil {
+			continue
+		}
+
+		childFrame := (*[128]uint64)(unsafe.Pointer(child))
+		copy(childFrame[:], ownerFrame[:])
+
+		child.StampID()
+		childFrame[spawnRegisterWord] = 0
+		if child.HasProgram() {
+			child.SetSchedulingNext(child.ID())
+			child.SetStatus(primitive.READY)
+		} else {
+			child.SetSchedulingNext(0)
+			child.SetStatus(primitive.PENDING)
+		}
+
+		spawned = append(spawned, child)
+	}
+
+	return spawned
 }
 
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {

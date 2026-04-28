@@ -88,7 +88,7 @@ const (
 	InstrEmitShift      = 54
 	InstrTopologyShift  = 55
 	InstrPredBitShift   = 57 // 1 = popcount-driven predicate instruction
-	InstrPredCondShift  = 58 // 3-bit comparison or reduction selector
+	InstrPredCondShift  = 58 // predicate=1: comparison/reduction; predicate=0: SrcB rot8 steps
 	InstrSrcAFromBShift = 61 // 1 = read SrcA from popped frame too
 
 	InstrSpanMask  = 0x7F

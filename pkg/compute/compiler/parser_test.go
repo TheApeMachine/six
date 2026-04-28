@@ -176,6 +176,113 @@ program query {
 	})
 }
 
+func TestCompileRot8(t *testing.T) {
+	Convey("Given source that rotates the B operand by byte steps", t, func() {
+		source := `
+program align {
+  pop(B) {
+    write A.signals[0,2] <- xor(A.tokens[0,2], rot8(B.tokens[0,2], 3))
+  }
+}
+`
+
+		Convey("It should encode rot8 into the truth-table operand metadata", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			found := false
+			for _, word := range result.Words {
+				if word == 0 || word&0xF != OpXor {
+					continue
+				}
+
+				So(word>>57&1, ShouldEqual, 0)
+				So(word>>58&7, ShouldEqual, 3)
+				found = true
+			}
+
+			So(found, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given source that directly copies a rotated B operand", t, func() {
+		source := `
+program align {
+  write A.signals[0,1] <- rot8(B.tokens[0,2], 1)
+}
+`
+
+		Convey("It should encode rot8 on the copy-B instruction", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			found := false
+			for _, word := range result.Words {
+				if word == 0 || word&0xF != OpCopyB {
+					continue
+				}
+
+				So(word>>57&1, ShouldEqual, 0)
+				So(word>>58&7, ShouldEqual, 1)
+				found = true
+			}
+
+			So(found, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given source that rotates B inside a predicate expression", t, func() {
+		source := `
+program align {
+  (popcnt(xor(A.tokens[0,2], rot8(B.tokens[0,2], 2))) < 64) {
+    write A.signals[0,1] <- A.tokens[0,1]
+  }
+}
+`
+
+		Convey("It should materialize the rotated truth-table expression before the predicate", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			foundRotatedXor := false
+			foundPredicate := false
+			for _, word := range result.Words {
+				if word == 0 {
+					continue
+				}
+
+				opcode := word & 0xF
+				predicate := word >> 57 & 1
+				condOrRotate := word >> 58 & 7
+
+				if opcode == OpXor && predicate == 0 && condOrRotate == 2 {
+					foundRotatedXor = true
+				}
+
+				if predicate == 1 && condOrRotate == PredLT {
+					foundPredicate = true
+				}
+			}
+
+			So(foundRotatedXor, ShouldBeTrue)
+			So(foundPredicate, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given source that rotates A", t, func() {
+		source := `
+program align {
+  write A.signals[0,1] <- rot8(A.tokens[0,1], 1)
+}
+`
+
+		Convey("It should reject non-B operand rotation", func() {
+			_, err := Compile(source)
+			So(err, ShouldNotBeNil)
+		})
+	})
+}
+
 func TestCompileHammingPredicate(t *testing.T) {
 	Convey("Given the current recruit_community source", t, func() {
 		source := `

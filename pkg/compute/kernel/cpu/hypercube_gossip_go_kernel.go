@@ -3,11 +3,12 @@ package cpu
 import "math/bits"
 
 /*
-Predicate condition codes packed into instr[58:61]. The first six are
-classic comparisons against a 1-word threshold into a canonical full-word
-mask (^0 / 0). Multi-word sources compare their popcount witness; single-word
-sources compare the raw scalar so property guards can use direct values. The
-last two are reductions that store a value rather than a mask:
+Predicate condition codes are packed into instr[58:61] when the predicate
+bit is set. The first six are classic comparisons against a 1-word threshold
+into a canonical full-word mask (^0 / 0). Multi-word sources compare their
+popcount witness; single-word sources compare the raw scalar so property
+guards can use direct values. The last two are reductions that store a value
+rather than a mask:
 
   - PredStorePopcnt: write popcount(A) as an integer scalar to dst[0].
     Lets `set X <- popcnt(Y)` collapse into one instruction without a
@@ -15,6 +16,10 @@ last two are reductions that store a value rather than a mask:
   - PredAnyZero: write ^0 to dst[0] if any word in A is zero, else 0.
     Implements the legacy `any_zero(...)` primitive used by falsification
     / open-ended-generation programs.
+
+When the predicate bit is clear, the same three bits are SrcB byte-rotation
+metadata for truth-table instructions. That keeps alignment in the operand
+read path instead of creating a semantic ALU operation.
 */
 const (
 	PredLT          = 0
@@ -91,6 +96,7 @@ func (backend *Backend) executeKernelGo(
 		topology := (instr >> 55) & 3
 		predicate := (instr >> PredicateBitShift) & 1
 		predCond := (instr >> PredicateCondShift) & 7
+		bRotate := predCond
 		srcAFromB := (instr >> SrcAFromBShift) & 1
 		stageBit := (instr >> StageBitShift) & 1
 		popEnd := (instr >> PopEndBitShift) & 1
@@ -264,7 +270,7 @@ func (backend *Backend) executeKernelGo(
 				peer := community[k]
 				for lane := uint64(0); lane < dstSpan; lane++ {
 					wordA := ptrA[(aStart+(lane%aSpan))&127]
-					wordB := peer[(bStart+(lane%bSpan))&127]
+					wordB := rotatedWord(peer, bStart, bSpan, lane, bRotate)
 
 					res := (wordA & wordB & m0) |
 						(wordA & ^wordB & m1) |
@@ -298,7 +304,7 @@ func (backend *Backend) executeKernelGo(
 						peer = community[k]
 					}
 
-					wordB := peer[(bStart+(lane%bSpan))&127]
+					wordB := rotatedWord(peer, bStart, bSpan, lane, bRotate)
 
 					acc = (acc & wordB & m0) |
 						(acc & ^wordB & m1) |
@@ -338,6 +344,20 @@ func (backend *Backend) executeKernelGo(
 	}
 
 	return stagedIdx
+}
+
+func rotatedWord(frame *[128]uint64, start, span, lane, rotate uint64) uint64 {
+	idx := lane % span
+	word := frame[(start+idx)&127]
+
+	if rotate == 0 {
+		return word
+	}
+
+	shift := rotate * 8
+	next := frame[(start+((idx+1)%span))&127]
+
+	return (word >> shift) | (next << (64 - shift))
 }
 
 func reduceArgMinNonZero(

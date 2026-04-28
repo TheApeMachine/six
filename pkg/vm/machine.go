@@ -278,7 +278,7 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 /*
 Prompt injects prompt segment Values into the community, cycles until settled,
-and returns every community member that retired in the RESOLVED or DONE state.
+and returns Values that newly settled in the RESOLVED or DONE state.
 */
 func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitive.Value, err error) {
 	if err := validate.Require(map[string]any{
@@ -288,17 +288,35 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 	}
 
 	var community []*primitive.Value
+	settled := make(map[uint64]struct{})
+
 	machine.community.Range(func(key, value any) bool {
-		community = append(community, value.(*primitive.Value))
+		member := value.(*primitive.Value)
+
+		switch member.Status() {
+		case primitive.RESOLVED, primitive.DONE:
+			settled[member.ID()] = struct{}{}
+		}
+
+		if member.Role() != primitive.ValueRolePrompt {
+			community = append(community, member)
+		}
 
 		return true
 	})
 
 	for _, value := range values {
+		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
 		machine.community.Store(value.ID(), value)
+	}
 
+	for _, value := range values {
 		if !value.ReadyForALU() {
 			continue
+		}
+
+		for _, prompt := range values {
+			machine.backend.StageInto(value.ID(), prompt)
 		}
 
 		for _, member := range community {
@@ -314,6 +332,10 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 		member := value.(*primitive.Value)
 		switch member.Status() {
 		case primitive.RESOLVED, primitive.DONE:
+			if _, ok := settled[member.ID()]; ok {
+				return true
+			}
+
 			resolved = append(resolved, member)
 		}
 		return true

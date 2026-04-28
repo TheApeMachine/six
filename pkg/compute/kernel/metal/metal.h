@@ -42,10 +42,13 @@ int hypercube_gossip_metal_indices(
     const uint32_t*                 indices,
     uint32_t                        value_count,
     uint32_t                        owner_index,
+    uint32_t                        owner_slot,
     const predicate_device_spec_t*  predicates,
     const uint32_t*                 spawn_indices,
     const uint64_t*                 spawn_ids,
-    uint8_t*                        spawn_active
+    uint8_t*                        spawn_active,
+    uint32_t*                       stage_indices,
+    uint32_t*                       stage_count
 );
 
 void cleanup_metal_pools(void);

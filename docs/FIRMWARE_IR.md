@@ -10,4 +10,6 @@ The **stable product** is `ProgramIR` in `pkg/compute/program/ir.go`, not feed t
 
 **Milestone program:** `RecruitMinimalProgramIR` + `lowerRecruitMinimalToMachineOps` implement §24 of the firmware plan (`recruit_minimal`).
 
+**Operand alignment:** truth-table instructions may use the predicate-condition bits as SrcB byte-rotation metadata when `predicate = 0`. This is exposed in source as `rot8(B.region[start,span], n)` for `n in [0,7]`; predicate instructions keep the same bits for comparison and reduction selection.
+
 See `SYNTAX.md` for the feed language; see the root implementation plan for phases 8–11 (JSON/YAML, scheduler contract, self-programming API).

@@ -190,6 +190,7 @@ type Builder struct {
 	emitFlag        uint64
 	predicateEnable uint64
 	predCond        uint64
+	bRotate         uint64 // truth-table instructions: rotate SrcB span by N bytes before the op
 	stageFlag       uint64 // 1 = push currentB into backend.staging[A.properties.reference]
 	popEndFlag      uint64 // 1 = last instruction of a pop(B) body; kernel rewinds to body start if more Bs remain
 }
@@ -226,7 +227,11 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 	instr |= (builder.emitFlag & 1) << 54
 	instr |= (builder.currentTopo & 3) << 55
 	instr |= (builder.predicateEnable & 1) << 57
-	instr |= (builder.predCond & 7) << 58
+	if builder.predicateEnable == 1 {
+		instr |= (builder.predCond & 7) << 58
+	} else {
+		instr |= (builder.bRotate & 7) << 58
+	}
 	instr |= (builder.srcAFromB & 1) << 61
 	instr |= (builder.stageFlag & 1) << 62
 	instr |= (builder.popEndFlag & 1) << 63
