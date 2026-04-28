@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -75,6 +76,10 @@ func (experiment *TextClassificationExperiment) Name() string {
 
 func (experiment *TextClassificationExperiment) Section() string {
 	return "classification"
+}
+
+func (experiment *TextClassificationExperiment) PromptFirmware() core.FirmwareType {
+	return core.CLASSIFY_READOUT
 }
 
 func (experiment *TextClassificationExperiment) Dataset() data.Provider {

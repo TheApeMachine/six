@@ -55,19 +55,19 @@ func TestNewConfig(t *testing.T) {
 		Convey("When NewConfig merges viper after TestMain loaded cmd/cfg/config.yml", func() {
 			cfg := NewConfig()
 
-			Convey("It should lower the link DSL into 64-bit instruction words", func() {
-				src := cfg.Programs[LINK].Source
-				rules := cfg.Programs[LINK].Compiled()
+			Convey("It should lower the query DSL into 64-bit instruction words", func() {
+				src := cfg.Programs[QUERY].Source
+				rules := cfg.Programs[QUERY].Compiled()
 
 				So(len(src), ShouldBeGreaterThan, 0)
 				So(len(rules), ShouldBeGreaterThan, 0)
 				So(rules[0], ShouldNotEqual, uint64(0))
 			})
 
-			Convey("It should include the LINK program with Name \"link\" and non-empty Compiled", func() {
+			Convey("It should include the query program with Name \"query\" and non-empty Compiled", func() {
 				So(len(cfg.Programs), ShouldBeGreaterThan, 0)
-				So(cfg.Programs[LINK].Name, ShouldEqual, "link")
-				So(len(cfg.Programs[LINK].Compiled()), ShouldBeGreaterThan, 0)
+				So(cfg.Programs[QUERY].Name, ShouldEqual, "query")
+				So(len(cfg.Programs[QUERY].Compiled()), ShouldBeGreaterThan, 0)
 			})
 		})
 
@@ -165,47 +165,105 @@ func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
 }
 
 /*
-TestRecruitCommunityGuardPredicate verifies that the canonical
-recruit_community block lowers its Shannon-limit guard to a real inline
-predicate instruction. The guard reads `(A.affinity >= 121)` (the 47%
-ceiling for a 257-bit affinity window), so the lowered instruction must
-carry the GE condition code with 121 staged into the constants table.
+TestRecruitCommunityPredicate verifies that recruitment remains guarded in
+firmware: the Hamming-distance budget must compile to a scratch xor followed by
+an in-band popcount predicate.
 */
-func TestRecruitCommunityGuardPredicate(t *testing.T) {
+func TestRecruitCommunityPredicate(t *testing.T) {
 	Convey("Given the compiled recruit_community firmware", t, func() {
 		entry := Cfg.Programs[RECRUIT_COMMUNITY]
 		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
-		Convey("It encodes at least one GE-predicate instruction", func() {
-			foundGE := false
+		Convey("It encodes the Hamming-distance scratch xor and LT predicate", func() {
+			foundXor := false
+			foundPredicate := false
+			foundUnionOr := false
+			foundUnionPredicate := false
+
 			for _, word := range entry.Words {
 				if word == 0 {
 					continue
 				}
 
-				if (word>>57)&1 != 1 {
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+				cond := (word >> 58) & 7
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				dstSpan := ((word >> 39) & 0x7F) + 1
+
+				if opcode == 0x6 && aStart == 40 && aSpan == 5 && dstStart >= 73 && dstSpan == 5 {
+					foundXor = true
+				}
+
+				if predicate == 1 && cond == 0 && aStart >= 73 && aSpan == 1 {
+					foundPredicate = true
+				}
+
+				if opcode == 0x7 && aStart == 123 && aSpan == 5 && dstStart >= 73 && dstSpan == 5 {
+					foundUnionOr = true
+				}
+
+				if predicate == 1 && cond == 1 && aStart >= 73 && aSpan == 1 {
+					foundUnionPredicate = true
+				}
+			}
+
+			So(foundXor, ShouldBeTrue)
+			So(foundPredicate, ShouldBeTrue)
+			So(foundUnionOr, ShouldBeTrue)
+			So(foundUnionPredicate, ShouldBeTrue)
+		})
+
+		Convey("And the constants table stages the Hamming and Shannon budgets", func() {
+			hasHammingBudget := false
+			hasShannonBudget := false
+
+			for _, init := range entry.Constants {
+				if init.Value == 64 {
+					hasHammingBudget = true
+				}
+
+				if init.Value == 121 {
+					hasShannonBudget = true
+				}
+			}
+
+			So(hasHammingBudget, ShouldBeTrue)
+			So(hasShannonBudget, ShouldBeTrue)
+		})
+	})
+}
+
+func TestClassifyReadoutReducers(t *testing.T) {
+	Convey("Given the compiled classify_readout firmware", t, func() {
+		entry := Cfg.Programs[CLASSIFY_READOUT]
+		So(len(entry.Words), ShouldBeGreaterThan, 0)
+
+		Convey("It uses generic categorical lane reducers", func() {
+			foundArgMin := false
+			foundMode := false
+
+			for _, word := range entry.Words {
+				if word == 0 {
 					continue
 				}
 
-				if (word>>58)&7 == 3 { // PredGE
-					foundGE = true
-					break
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+
+				if predicate == 1 && opcode == 0x1 {
+					foundArgMin = true
+				}
+
+				if predicate == 1 && opcode == 0x2 {
+					foundMode = true
 				}
 			}
 
-			So(foundGE, ShouldBeTrue)
-		})
-
-		Convey("And the constants table stages 121 for the Shannon threshold", func() {
-			has121 := false
-			for _, init := range entry.Constants {
-				if init.Value == 121 {
-					has121 = true
-					break
-				}
-			}
-
-			So(has121, ShouldBeTrue)
+			So(foundArgMin, ShouldBeTrue)
+			So(foundMode, ShouldBeTrue)
 		})
 	})
 }

@@ -23,6 +23,11 @@ const (
 	OpTrue     = 0b1111 // 1
 )
 
+const (
+	OpReduceArgMinNonZero = OpAnd
+	OpReduceModeEq        = OpAandNotB
+)
+
 // Topologies
 const (
 	TopoLocal     = 0b00
@@ -78,8 +83,8 @@ const (
 	affinityStart   = 123
 	affinityWords   = 5
 
-	maskTrueWord     = 72 // first word of the asset region; reserved
-	assetConstStart  = 73 // compiler-allocated constants begin here
+	maskTrueWord      = 72 // first word of the asset region; reserved
+	assetConstStart   = 73 // compiler-allocated constants begin here
 	spawnRegisterWord = 70
 )
 
@@ -235,17 +240,47 @@ Predicate emits a single popcount-driven instruction. cond selects the
 comparison/reduction; threshold is the 1-word comparand region (ignored
 when cond is StorePopcnt or AnyZero); dst is where the result lands.
 */
-func (builder *Builder) Predicate(cond uint64, region, threshold, dst Region) {
+func (builder *Builder) Predicate(cond uint64, region, threshold, dst Region, srcAFromB uint64) {
 	prevPred := builder.predicateEnable
 	prevCond := builder.predCond
+	prevSrcA := builder.srcAFromB
 
 	builder.predicateEnable = 1
 	builder.predCond = cond
+	builder.srcAFromB = srcAFromB
 
 	builder.Pack(OpFalse, region, threshold, dst)
 
 	builder.predicateEnable = prevPred
 	builder.predCond = prevCond
+	builder.srcAFromB = prevSrcA
+}
+
+/*
+Reduce emits a lane-level categorical reducer. SrcA is the per-peer value
+region, SrcB is the per-peer key region, dst is the owner output, and match is
+an owner-side key used by reducers that need an equality filter.
+*/
+func (builder *Builder) Reduce(op uint64, value, key, match, dst Region) {
+	prevPred := builder.predicateEnable
+	prevCond := builder.predCond
+	prevMask := builder.currentMask
+	prevTopo := builder.currentTopo
+	prevSrcA := builder.srcAFromB
+
+	builder.predicateEnable = 1
+	builder.predCond = PredEQ
+	builder.currentMask = match
+	builder.currentTopo = TopoHypercube
+	builder.srcAFromB = 1
+
+	builder.Pack(op, value, key, dst)
+
+	builder.predicateEnable = prevPred
+	builder.predCond = prevCond
+	builder.currentMask = prevMask
+	builder.currentTopo = prevTopo
+	builder.srcAFromB = prevSrcA
 }
 
 /*
@@ -262,6 +297,22 @@ func (builder *Builder) AllocConstant(val uint64) Region {
 	})
 
 	builder.assetOffset++
+
+	return reg
+}
+
+/*
+AllocScratch reserves transient asset words for compiler-lowered expressions.
+The host does not initialize them; each sweep writes the scratch span before
+any predicate reads it.
+*/
+func (builder *Builder) AllocScratch(span uint64) Region {
+	if span == 0 {
+		span = 1
+	}
+
+	reg := Region{Start: builder.assetOffset, Span: span}
+	builder.assetOffset += span
 
 	return reg
 }

@@ -49,10 +49,11 @@ PredicateAssignNode lowers `set X <- popcnt(Y)` and `set X <- any_zero(Y)`
 into a single predicate instruction whose result lands directly in X.
 */
 type PredicateAssignNode struct {
-	Dst    Region
-	Cond   uint64
-	Region Region
-	Target uint64
+	Dst        Region
+	Cond       uint64
+	Region     Region
+	RegionSide byte
+	Target     uint64
 }
 
 func (node PredicateAssignNode) Walk(b *Builder) {
@@ -62,9 +63,27 @@ func (node PredicateAssignNode) Walk(b *Builder) {
 	// Threshold operand is unused for store / any-zero kinds. Pass dst
 	// as a harmless filler so the bStart bits at least decode to a
 	// real word.
-	b.Predicate(node.Cond, node.Region, node.Dst, node.Dst)
+	b.Predicate(node.Cond, node.Region, node.Dst, node.Dst, srcAFromSide(node.RegionSide))
 
 	b.currentTarget = prevTarget
+}
+
+/*
+ReduceAssignNode lowers lane-level categorical reducers such as
+argmin_nonzero(value, key) and mode_eq(value, key, match). These reducers are
+generic ALU operations over region references; they do not know what the
+regions mean.
+*/
+type ReduceAssignNode struct {
+	Dst   Region
+	Op    uint64
+	Value Region
+	Key   Region
+	Match Region
+}
+
+func (node ReduceAssignNode) Walk(b *Builder) {
+	b.Reduce(node.Op, node.Value, node.Key, node.Match, node.Dst)
 }
 
 /*
@@ -73,15 +92,18 @@ the per-block predication mask. Body writes are gated by that mask
 all-or-nothing.
 */
 type IfNode struct {
-	Cond      uint64
-	Region    Region
-	Threshold Region
-	Mask      Region
-	Body      BlockNode
+	Cond       uint64
+	Prelude    BlockNode
+	Region     Region
+	RegionSide byte
+	Threshold  Region
+	Mask       Region
+	Body       BlockNode
 }
 
 func (ifStmt IfNode) Walk(b *Builder) {
-	b.Predicate(ifStmt.Cond, ifStmt.Region, ifStmt.Threshold, ifStmt.Mask)
+	ifStmt.Prelude.Walk(b)
+	b.Predicate(ifStmt.Cond, ifStmt.Region, ifStmt.Threshold, ifStmt.Mask, srcAFromSide(ifStmt.RegionSide))
 
 	prevMask := b.currentMask
 	b.currentMask = ifStmt.Mask
@@ -89,6 +111,14 @@ func (ifStmt IfNode) Walk(b *Builder) {
 	ifStmt.Body.Walk(b)
 
 	b.currentMask = prevMask
+}
+
+func srcAFromSide(side byte) uint64 {
+	if side == 'B' {
+		return 1
+	}
+
+	return 0
 }
 
 /*
@@ -162,17 +192,20 @@ func (stage StageNode) Walk(b *Builder) {
 	b.stageFlag = prevStage
 }
 
-// EmitNode raises the spawn signal across its body so the kernel adds
-// a child to the spawn register.
+/*
+EmitNode runs its body and marks the final body instruction as the spawn
+edge. This keeps `emit { ... }` as one child allocation no matter how many
+assignments are needed to shape the emitted frame.
+*/
 type EmitNode struct {
 	Body BlockNode
 }
 
 func (emit EmitNode) Walk(b *Builder) {
-	prev := b.emitFlag
-	b.emitFlag = 1
-
+	start := b.pc
 	emit.Body.Walk(b)
 
-	b.emitFlag = prev
+	if b.pc > start {
+		b.instructions[b.pc-1] |= uint64(1) << 54
+	}
 }

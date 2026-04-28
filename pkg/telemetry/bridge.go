@@ -21,6 +21,7 @@ const bridgeInitialBackoff = 200 * time.Millisecond
 const bridgeHashOffset64 uint64 = 14695981039346656037
 const bridgeHashPrime64 uint64 = 1099511628211
 const bridgeSentCacheCapacity = 1 << 16
+const bridgeRunMarkerMagic uint64 = 0x73697872756e3031
 
 /*
 Bridge is the runtime uplink for raw primitive.Value wire frames.
@@ -244,6 +245,29 @@ func (bridge *Bridge) Close() error {
 	bridge.connMu.Unlock()
 
 	return nil
+}
+
+/*
+BeginRun publishes an ID-zero control frame on the same binary path as Value
+telemetry. The browser treats this frame as a run boundary and clears any
+previous Value images before applying the new run's frames.
+*/
+func (bridge *Bridge) BeginRun() error {
+	if bridge == nil {
+		return errnie.Error(io.ErrClosedPipe, errors.New("bridge is nil"))
+	}
+
+	_, err := bridge.Write(bridgeRunMarkerFrame(uint64(time.Now().UnixNano())))
+
+	return err
+}
+
+func bridgeRunMarkerFrame(runID uint64) []byte {
+	frame := make([]byte, primitive.FrameByteLength)
+	binary.LittleEndian.PutUint64(frame[0:], bridgeRunMarkerMagic)
+	binary.LittleEndian.PutUint64(frame[8:], runID)
+
+	return frame
 }
 
 /*

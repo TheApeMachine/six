@@ -1,8 +1,10 @@
 import http from "node:http";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer } from "ws";
+import YAML from "yaml";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +37,26 @@ app.get("/", (_req, res) => {
 		ingest: "websocket",
 		path: "/ws",
 	});
+});
+
+app.get("/api/programs", async (_req, res) => {
+	try {
+		const source = await readFile(CONFIG_PATH, "utf8");
+		const doc = YAML.parse(source) as { programs?: Record<string, unknown> };
+		const programs: Record<string, string> = {};
+
+		for (const [name, value] of Object.entries(doc.programs ?? {})) {
+			if (typeof value === "string" && value.trim() !== "") {
+				programs[name] = value;
+			}
+		}
+
+		res.json(programs);
+	} catch (error) {
+		res.status(500).json({
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
 });
 
 const server = http.createServer(app);

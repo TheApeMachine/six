@@ -22,6 +22,10 @@ import (
 
 var reporter = NewProjectorReporter()
 
+type promptFirmwareProvider interface {
+	PromptFirmware() core.FirmwareType
+}
+
 func TestMain(m *testing.M) {
 	if err := tryLoadConfigForTaskTests(); err != nil {
 		fmt.Fprintf(os.Stderr, "experiment/task tests: tryLoadConfigForTaskTests: %v\n", err)
@@ -154,8 +158,13 @@ func TestPipeline(t *testing.T) {
 							So(err, ShouldBeNil)
 							So(len(values), ShouldBeGreaterThan, 0)
 
+							firmware := core.FOLD_SUBSTRATE
+							if provider, ok := experiment.(promptFirmwareProvider); ok {
+								firmware = provider.PromptFirmware()
+							}
+
 							for _, value := range values {
-								value.InstallFirmware(core.FOLD_SUBSTRATE)
+								value.InstallFirmware(firmware)
 							}
 
 							resolved, err := machine.Prompt(values...)

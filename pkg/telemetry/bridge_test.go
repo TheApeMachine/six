@@ -131,6 +131,19 @@ func TestBridge_Close(t *testing.T) {
 	})
 }
 
+func TestBridge_BeginRun(t *testing.T) {
+	t.Parallel()
+
+	Convey("BeginRun emits an ID-zero run marker frame", t, func() {
+		frame := bridgeRunMarkerFrame(7)
+
+		So(len(frame), ShouldEqual, primitive.FrameByteLength)
+		So(binary.LittleEndian.Uint64(frame[0:]), ShouldEqual, bridgeRunMarkerMagic)
+		So(binary.LittleEndian.Uint64(frame[8:]), ShouldEqual, uint64(7))
+		So(binary.LittleEndian.Uint64(frame[primitive.IDStartWord*8:]), ShouldEqual, uint64(0))
+	})
+}
+
 func TestBridge_Read(t *testing.T) {
 	t.Parallel()
 

@@ -142,6 +142,201 @@ program recruit_community {
 	})
 }
 
+func TestCompileBPredicate(t *testing.T) {
+	Convey("Given a query source that predicates on popped B state", t, func() {
+		source := `
+program query {
+  pop(B) {
+    (B.properties.community == 0) {
+      write B.properties.reference <- A.properties.reference
+      stage(B)
+    }
+  }
+}
+`
+
+		Convey("It should encode the predicate with SrcAFromB", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			found := false
+			for _, word := range result.Words {
+				if word == 0 {
+					continue
+				}
+
+				if (word>>57)&1 == 1 && (word>>61)&1 == 1 {
+					found = true
+					break
+				}
+			}
+
+			So(found, ShouldBeTrue)
+		})
+	})
+}
+
+func TestCompileHammingPredicate(t *testing.T) {
+	Convey("Given the current recruit_community source", t, func() {
+		source := `
+program recruit_community {
+  pop(B) {
+    (A.context[0,5] == 0) {
+      write A.context[0,5] <- B.affinity
+    }
+
+    (popcnt(or(A.affinity, B.affinity)) <= 121) {
+      (popcnt(xor(A.context[0,5], B.affinity)) < 64) {
+        write A.affinity <- or(A.affinity, B.affinity)
+        set B.properties.community <- A.id
+      }
+    }
+  }
+
+  (popcnt(A.affinity) >= 121) {
+    emit {
+      set program <- A.program
+      set A.affinity <- 0
+      set A.context[0,5] <- 0
+    }
+  }
+}
+`
+
+		Convey("It should lower the Hamming distance predicate into scratch xor plus popcount compare", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			foundXor := false
+			foundPredicate := false
+
+			for _, word := range result.Words {
+				if word == 0 {
+					continue
+				}
+
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+				cond := (word >> 58) & 7
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				dstSpan := ((word >> 39) & 0x7F) + 1
+
+				if opcode == OpXor && aStart == contextStart && aSpan == affinityWords && dstStart >= assetConstStart && dstSpan == affinityWords {
+					foundXor = true
+				}
+
+				if predicate == 1 && cond == PredLT && aStart >= assetConstStart && aSpan == 1 {
+					foundPredicate = true
+				}
+			}
+
+			So(foundXor, ShouldBeTrue)
+			So(foundPredicate, ShouldBeTrue)
+		})
+
+		Convey("It should reject candidates whose post-write union exceeds the Shannon limit", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			foundUnionOr := false
+			foundUnionPredicate := false
+
+			for _, word := range result.Words {
+				if word == 0 {
+					continue
+				}
+
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+				cond := (word >> 58) & 7
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				dstSpan := ((word >> 39) & 0x7F) + 1
+
+				if opcode == OpOr && aStart == affinityStart && aSpan == affinityWords && dstStart >= assetConstStart && dstSpan == affinityWords {
+					foundUnionOr = true
+				}
+
+				if predicate == 1 && cond == PredLE && aStart >= assetConstStart && aSpan == 1 {
+					foundUnionPredicate = true
+				}
+			}
+
+			So(foundUnionOr, ShouldBeTrue)
+			So(foundUnionPredicate, ShouldBeTrue)
+		})
+
+		Convey("It should guard the nested predicate with the outer saturation mask", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			foundNestedPredicate := false
+			for _, word := range result.Words {
+				if word == 0 {
+					continue
+				}
+
+				predicate := (word >> 57) & 1
+				cond := (word >> 58) & 7
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				maskStart := (word >> 46) & 0x7F
+
+				if predicate == 1 && cond == PredLT && aStart >= assetConstStart && aSpan == 1 && maskStart != MaskTrue.Start {
+					foundNestedPredicate = true
+				}
+			}
+
+			So(foundNestedPredicate, ShouldBeTrue)
+		})
+
+		Convey("It should emit only one child for the multi-instruction emit body", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			emits := 0
+			for _, word := range result.Words {
+				if word != 0 && (word>>54)&1 == 1 {
+					emits++
+				}
+			}
+
+			So(emits, ShouldEqual, 1)
+		})
+	})
+}
+
+func TestCompileReducers(t *testing.T) {
+	Convey("Given generic lane reducer source", t, func() {
+		source := `
+program reducers {
+  set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
+  set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
+}
+`
+
+		Convey("It should lower reducers without task-specific operands", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			argmin := result.Words[0]
+			mode := result.Words[1]
+
+			So(argmin&0xF, ShouldEqual, OpReduceArgMinNonZero)
+			So(argmin>>57&1, ShouldEqual, 1)
+			So(argmin>>61&1, ShouldEqual, 1)
+
+			So(mode&0xF, ShouldEqual, OpReduceModeEq)
+			So(mode>>46&0x7F, ShouldEqual, PropertyOffsets["community"])
+			So(mode>>57&1, ShouldEqual, 1)
+			So(mode>>61&1, ShouldEqual, 1)
+		})
+	})
+}
+
 func BenchmarkCompile(b *testing.B) {
 	source := `
 program recruit_community {
@@ -157,6 +352,19 @@ program recruit_community {
     set B.properties.community <- A.id
     set B.properties.status <- DONE
   }
+}
+`
+
+	for b.Loop() {
+		_, _ = Compile(source)
+	}
+}
+
+func BenchmarkCompileReducers(b *testing.B) {
+	source := `
+program reducers {
+  set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
+  set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
 }
 `
 

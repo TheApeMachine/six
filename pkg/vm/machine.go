@@ -233,6 +233,12 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		return errors.Join(machine.err, errnie.Error(err))
 	}
 
+	if machine.telemetry != nil {
+		_ = machine.telemetry.BeginRun()
+	}
+
+	var loaded []*primitive.Value
+
 	for sample := range dataset.Generate() {
 		segments, err := machine.tokenizer.IngestSample(
 			machine.ctx, sample,
@@ -244,6 +250,7 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 		for _, segment := range segments {
 			machine.community.Store(segment.ID(), segment)
+			loaded = append(loaded, segment)
 			io.Copy(machine.telemetry, segment)
 		}
 	}
@@ -259,15 +266,12 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	machine.community.Store(recruiter.ID(), recruiter)
 	machine.community.Store(query.ID(), query)
+	io.Copy(machine.telemetry, recruiter)
+	io.Copy(machine.telemetry, query)
 
-	machine.community.Range(func(key, value any) bool {
-		if key.(uint64) == query.ID() {
-			return true
-		}
-
-		machine.backend.StageInto(query.ID(), value.(*primitive.Value))
-		return true
-	})
+	for _, segment := range loaded {
+		machine.backend.StageInto(query.ID(), segment)
+	}
 
 	return machine.Cycle()
 }
@@ -283,8 +287,23 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 		return nil, errors.Join(machine.err, errnie.Error(err))
 	}
 
+	var community []*primitive.Value
+	machine.community.Range(func(key, value any) bool {
+		community = append(community, value.(*primitive.Value))
+
+		return true
+	})
+
 	for _, value := range values {
 		machine.community.Store(value.ID(), value)
+
+		if !value.ReadyForALU() {
+			continue
+		}
+
+		for _, member := range community {
+			machine.backend.StageInto(value.ID(), member)
+		}
 	}
 
 	if err = machine.Cycle(); err != nil {

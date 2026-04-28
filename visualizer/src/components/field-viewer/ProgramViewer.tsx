@@ -129,9 +129,27 @@ const OP_THEME: Record<string, { bg: string; border: string; text: string }> = {
 		border: "rgba(251,191,36,0.22)",
 		text: "#fcd34d",
 	},
+	stage: {
+		bg: "rgba(45,212,191,0.06)",
+		border: "rgba(45,212,191,0.22)",
+		text: "#5eead4",
+	},
+	predicate: {
+		bg: "rgba(251,113,133,0.06)",
+		border: "rgba(251,113,133,0.22)",
+		text: "#fda4af",
+	},
 };
 
-const OP_SYMBOL: Record<string, string> = { xor: "⊕", and: "∧", or: "∨" };
+const OP_SYMBOL: Record<string, string> = {
+	xor: "⊕",
+	and: "∧",
+	or: "∨",
+	copy: "→",
+	set: "→",
+	stage: "⇥",
+	predicate: "?",
+};
 
 // ── DSL parsing ───────────────────────────────────────────────────────────────
 
@@ -158,41 +176,108 @@ interface ParsedProgram {
 }
 
 function parseRef(raw: string): RegionRef {
-	const m = /^(\w+)\[(\d+)(?:,(\d+))?\]$/.exec(raw);
-	if (!m) return { name: raw, start: 0, span: 1, raw };
+	const trimmed = raw.trim().replace(/,$/, "");
+
+	if (/^\d+$/.test(trimmed) || /^[A-Z_]+$/.test(trimmed)) {
+		return { name: "reserved", start: 0, span: 1, raw: trimmed };
+	}
+
+	if (trimmed === "staging" || trimmed === "mask") {
+		return { name: "reserved", start: 0, span: 1, raw: trimmed };
+	}
+
+	const m = /^(?:[AB]\.)?(\w+)(?:\.(\w+))?(?:\[(\d+)(?:,(\d+))?\])?$/.exec(trimmed);
+	if (!m) return { name: trimmed, start: 0, span: 1, raw: trimmed };
+
+	const regionName = m[1] === "properties" ? "properties" : m[1];
+
 	return {
-		name: m[1],
-		start: Number(m[2]),
-		span: m[3] !== undefined ? Number(m[3]) : 1,
-		raw,
+		name: regionName,
+		start: m[3] !== undefined ? Number(m[3]) : 0,
+		span: m[4] !== undefined ? Number(m[4]) : 1,
+		raw: trimmed,
 	};
 }
 
 function parseDSL(name: string, source: string): ParsedProgram {
 	const instructions: Instruction[] = [];
 	let loopsSelf = false;
+	let mode = "local";
+
+	const push = (srcA: string, srcB: string, dst: string, op: string, opMode = mode) => {
+		instructions.push({
+			index: instructions.length,
+			srcA: parseRef(srcA),
+			srcB: parseRef(srcB),
+			dst: parseRef(dst),
+			op,
+			mode: opMode,
+		});
+	};
 
 	for (const rawLine of source.split("\n")) {
-		const line = rawLine.replace(/#.*$/, "").trim();
+		const line = rawLine.replace(/;.*/, "").replace(/#.*$/, "").trim();
 		if (!line) continue;
 
-		const fields = line.split(/\s+/);
-
-		if (fields[0] === "next") {
-			if (fields[1] === "self") loopsSelf = true;
+		if (line === "}" || line === "};") {
+			mode = "local";
 			continue;
 		}
 
-		if (fields.length >= 5) {
-			instructions.push({
-				index: instructions.length,
-				srcA: parseRef(fields[0]),
-				srcB: parseRef(fields[1]),
-				dst: parseRef(fields[2]),
-				op: fields[3].toLowerCase(),
-				mode: fields[4].toLowerCase(),
-			});
+		if (/^program\s+/.test(line) || line === "{") {
+			continue;
 		}
+
+		if (/^pop\(/.test(line)) {
+			mode = "pop";
+			continue;
+		}
+
+		if (/^gossip\(/.test(line)) {
+			mode = "gossip";
+			continue;
+		}
+
+		const fields = line.split(/\s+/);
+		if (fields[0] === "next") {
+			if (fields[1] === "self") {
+				loopsSelf = true;
+			}
+			continue;
+		}
+
+		const predicate = /^\((.+?)\s*(==|!=|>=|<=|>|<)\s*(.+?)\)\s*\{?$/.exec(line);
+		if (predicate) {
+			push(predicate[1], predicate[3], "mask", "predicate", `${mode} ${predicate[2]}`);
+			continue;
+		}
+
+		const stage = /^stage\((.+?)\)$/.exec(line);
+		if (stage) {
+			push(stage[1], "A.properties.reference", "staging", "stage");
+			continue;
+		}
+
+		const assign = /^(set|write)\s+(.+?)\s+<-\s+(.+)$/.exec(line);
+		if (!assign) {
+			continue;
+		}
+
+		const dst = assign[2];
+		const rhs = assign[3].trim();
+		const call = /^(\w+)\((.+?)\s*,\s*(.+?)\)$/.exec(rhs);
+		if (call) {
+			push(call[2], call[3], dst, call[1].toLowerCase());
+			continue;
+		}
+
+		const unary = /^(\w+)\((.+?)\)$/.exec(rhs);
+		if (unary) {
+			push(unary[2], unary[2], dst, unary[1].toLowerCase());
+			continue;
+		}
+
+		push(rhs, rhs, dst, assign[1] === "set" ? "set" : "copy");
 	}
 
 	return { name, instructions, loopsSelf };

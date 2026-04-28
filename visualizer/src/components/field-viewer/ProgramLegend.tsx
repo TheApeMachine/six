@@ -28,6 +28,7 @@ resident) → util. Putting the active categories first keeps the eye on
 the behaviour that actually drives the system.
 */
 const CATEGORY_ORDER: ProgramCategory[] = [
+	"query",
 	"structural",
 	"beam",
 	"classify",

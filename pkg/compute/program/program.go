@@ -129,7 +129,7 @@ components. Returns the canonical 13-tuple shape the visualizer codegen
 already consumes; the trailing aIndirect / bType slots are always zero.
 */
 func DecodeInstruction(word uint64) (
-	aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aIndirect, bType uint64,
+	aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aIndirect, bType, predicate, emit, srcAFromB, stage, popEnd uint64,
 ) {
 	opcode = word & 0xF
 	aStart = (word >> InstrAStartShift) & InstrStartMask
@@ -140,8 +140,13 @@ func DecodeInstruction(word uint64) (
 	dstSpan = ((word >> InstrDstSpanShift) & InstrSpanMask) + 1
 	predStart = (word >> InstrPredStartShift) & InstrStartMask
 	mode = (word >> InstrModeShift) & 1
+	emit = (word >> InstrEmitShift) & 1
 	topology = (word >> InstrTopologyShift) & 3
+	predicate = (word >> InstrPredBitShift) & 1
 	predCond = (word >> InstrPredCondShift) & 7
+	srcAFromB = (word >> InstrSrcAFromBShift) & 1
+	stage = (word >> 62) & 1
+	popEnd = (word >> 63) & 1
 	aIndirect = 0
 	bType = 0
 

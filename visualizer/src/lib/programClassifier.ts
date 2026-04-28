@@ -28,6 +28,7 @@ colour are chosen per category, not per program, so families that share
 an ALU primitive remain readable in the canvas.
 */
 export type ProgramCategory =
+	| "query" // query — staged handoff into a resident program lane
 	| "plumbing" // link, affinity — bootstrap rules
 	| "structural" // fold_substrate — README "Signals" cancel/merge sweep
 	| "beam" // beam_swarm_step — directional explore
@@ -72,6 +73,13 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			color: [120, 120, 150],
 			shape: "circle",
 			description: "link / affinity bootstrap",
+		},
+		query: {
+			category: "query",
+			label: "query",
+			color: [120, 210, 255],
+			shape: "diamond",
+			description: "query — stage unassigned Values into a resident lane",
 		},
 		/*
 		structural is the README "Signals" algorithm: an XOR-cancel sweep
@@ -196,6 +204,7 @@ deliberate failure mode: the substrate runs the program either way; the
 visualiser just doesn't paint a special glyph for it.
 */
 const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
+	query: "query",
 	link: "plumbing",
 	affinity: "plumbing",
 	structural_component: "structural",
@@ -264,6 +273,11 @@ function instructionsEqual(
 		a.predCond === b.predCond &&
 		a.aInd === b.aInd &&
 		a.bType === b.bType &&
+		a.predicate === b.predicate &&
+		a.emit === b.emit &&
+		a.srcAFromB === b.srcAFromB &&
+		a.stage === b.stage &&
+		a.popEnd === b.popEnd &&
 		a.aStart === b.aStart &&
 		a.aSpan === b.aSpan &&
 		a.bStart === b.bStart &&
@@ -325,6 +339,7 @@ export const ROLE_BY_CATEGORY: Record<
 	"data" | "action" | "reaction" | "prompt"
 > = {
 	plumbing: "data",
+	query: "action",
 	structural: "action",
 	beam: "action",
 	inference: "action",

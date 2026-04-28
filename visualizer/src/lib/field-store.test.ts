@@ -35,6 +35,7 @@ const SIGNALS_FALSIFIED_WORD = SIGNALS_START_WORD + 7;
 const ASSET_GRADIENT_WORD = 88; // kernel AssetStartWord + 16
 const CONTEXT_START_WORD = 40;
 const TTL_EXPIRED_SENTINEL_WORD = (1n << 64n) - 1n;
+const TELEMETRY_RUN_MARKER_MAGIC = 0x73697872756e3031n;
 
 function writeWord(frame: Uint8Array, wordIndex: number, word: bigint) {
 	const offset = wordIndex * 8;
@@ -150,6 +151,13 @@ function makeValueFrame(init?: {
 	return frame;
 }
 
+function makeRunMarkerFrame() {
+	const frame = new Uint8Array(VALUE_FRAME_BYTE_LENGTH);
+	writeWord(frame, 0, TELEMETRY_RUN_MARKER_MAGIC);
+
+	return frame;
+}
+
 beforeEach(resetFieldStore);
 
 function applyFrame(valueId: bigint, bytes: Uint8Array) {
@@ -241,6 +249,19 @@ test("fieldStore keys updates by ValueID instead of creating decoded-id copies",
 	assert.equal(storedValue("0000000000000099"), undefined);
 });
 
+test("fieldStore clears stale Values when a run marker arrives", () => {
+	applyFrame(0x1n, makeValueFrame({ id: 0x1n, content: "old" }));
+	applyFrame(0x2n, makeValueFrame({ id: 0x2n, communityId: 0x20n }));
+
+	assert.equal(storeSize(), 2);
+
+	applyValueFrames([{ valueId: 0n, bytes: makeRunMarkerFrame() }]);
+
+	assert.equal(storeSize(), 0);
+	assert.equal(currentSnapshot().orphanValues.length, 0);
+	assert.equal(currentSnapshot().fields.length, 0);
+});
+
 test("fieldStore reads community id from the on-wire properties word", () => {
 
 	applyFrame(0x1n, makeValueFrame({ id: 0x1n, communityId: 7n }));
@@ -265,12 +286,22 @@ test("fieldStore reads community id from the on-wire properties word", () => {
 
 test("Values without a community word land in orphanValues", () => {
 
-	applyFrame(0x1n, makeValueFrame({ id: 0x1n }));
+	applyFrame(0x1n, makeValueFrame({ id: 0x1n, content: "payload" }));
 
 	const snapshot = currentSnapshot();
 
 	assert.equal(snapshot.fields.length, 0);
 	assert.equal(snapshot.orphanValues.length, 1);
+});
+
+test("Settled empty frames are not rendered as data orphans", () => {
+	applyFrame(0x1n, makeValueFrame({ id: 0x1n }));
+
+	const snapshot = currentSnapshot();
+
+	assert.equal(storeSize(), 1);
+	assert.equal(snapshot.fields.length, 0);
+	assert.equal(snapshot.orphanValues.length, 0);
 });
 
 test("A Value that joins a community is not also rendered as an orphan", () => {

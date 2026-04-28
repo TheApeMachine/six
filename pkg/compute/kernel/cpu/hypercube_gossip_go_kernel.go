@@ -4,9 +4,10 @@ import "math/bits"
 
 /*
 Predicate condition codes packed into instr[58:61]. The first six are
-classic comparisons that fold popcount(A) against a 1-word threshold
-into a canonical full-word mask (^0 / 0). The last two are reductions
-that store a value rather than a mask:
+classic comparisons against a 1-word threshold into a canonical full-word
+mask (^0 / 0). Multi-word sources compare their popcount witness; single-word
+sources compare the raw scalar so property guards can use direct values. The
+last two are reductions that store a value rather than a mask:
 
   - PredStorePopcnt: write popcount(A) as an integer scalar to dst[0].
     Lets `set X <- popcnt(Y)` collapse into one instruction without a
@@ -24,6 +25,11 @@ const (
 	PredNE          = 5
 	PredStorePopcnt = 6
 	PredAnyZero     = 7
+)
+
+const (
+	OpReduceArgMinNonZero = 0x1
+	OpReduceModeEq        = 0x2
 )
 
 const (
@@ -89,6 +95,17 @@ func (backend *Backend) executeKernelGo(
 		stageBit := (instr >> StageBitShift) & 1
 		popEnd := (instr >> PopEndBitShift) & 1
 
+		if predicate == 1 {
+			switch opcode {
+			case OpReduceArgMinNonZero:
+				reduceArgMinNonZero(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
+				continue
+			case OpReduceModeEq:
+				reduceModeEq(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
+				continue
+			}
+		}
+
 		if topology == 1 && bQueueIdx < communitySize {
 			currentB = community[bQueueIdx]
 			currentBIdx = bQueueIdx
@@ -145,7 +162,7 @@ func (backend *Backend) executeKernelGo(
 		}
 
 		if predicate == 1 {
-			// Fold the A region into a popcount over its full span.
+			guard := ownerFrame[maskStart]
 			var pop uint64
 			for lane := uint64(0); lane < aSpan; lane++ {
 				pop += uint64(bits.OnesCount64(ptrA[(aStart+lane)&127]))
@@ -153,7 +170,9 @@ func (backend *Backend) executeKernelGo(
 
 			switch predCond {
 			case PredStorePopcnt:
-				ptrDst[dstStart&127] = pop
+				dstIdx := dstStart & 127
+				prevDst := ptrDst[dstIdx]
+				ptrDst[dstIdx] = (pop & guard) | (prevDst & ^guard)
 			case PredAnyZero:
 				// Tracks whether any single word in the A range is zero.
 				zeroSeen := false
@@ -163,35 +182,41 @@ func (backend *Backend) executeKernelGo(
 						break
 					}
 				}
+				var result uint64
 				if zeroSeen {
-					ptrDst[dstStart&127] = ^uint64(0)
-				} else {
-					ptrDst[dstStart&127] = 0
+					result = ^uint64(0)
 				}
+				dstIdx := dstStart & 127
+				prevDst := ptrDst[dstIdx]
+				ptrDst[dstIdx] = (result & guard) | (prevDst & ^guard)
 			default:
-				threshold := ptrA[bStart&127]
+				threshold := ownerFrame[bStart&127]
+				witness := pop
+				if aSpan == 1 {
+					witness = ptrA[aStart&127]
+				}
 
 				var hit bool
 				switch predCond {
 				case PredLT:
-					hit = pop < threshold
+					hit = witness < threshold
 				case PredLE:
-					hit = pop <= threshold
+					hit = witness <= threshold
 				case PredGT:
-					hit = pop > threshold
+					hit = witness > threshold
 				case PredGE:
-					hit = pop >= threshold
+					hit = witness >= threshold
 				case PredEQ:
-					hit = pop == threshold
+					hit = witness == threshold
 				case PredNE:
-					hit = pop != threshold
+					hit = witness != threshold
 				}
 
 				var maskValue uint64
 				if hit {
 					maskValue = ^uint64(0)
 				}
-				ptrDst[dstStart&127] = maskValue
+				ptrDst[dstStart&127] = maskValue & guard
 			}
 
 			if popEnd == 1 && popActive {
@@ -315,30 +340,107 @@ func (backend *Backend) executeKernelGo(
 	return stagedIdx
 }
 
-/*
-frameHasGoOnlyFeature scans the program slab for any instruction that
-the asm fast path can't decode (predicate bit or SrcA-from-B routing).
-Such frames must be dispatched to executeKernelGo to preserve semantics.
-*/
-func frameHasGoOnlyFeature(ownerFrame *[128]uint64) bool {
-	for pc := 0; pc < ProgramWords; pc++ {
-		instr := ownerFrame[ProgramStartWord+pc]
-		topology := (instr >> 55) & 3
-
-		if (instr>>PredicateBitShift)&1 == 1 ||
-			(instr>>SrcAFromBShift)&1 == 1 ||
-			(instr>>StageBitShift)&1 == 1 ||
-			(instr>>PopEndBitShift)&1 == 1 ||
-			topology == 2 {
-			return true
-		}
+func reduceArgMinNonZero(
+	ownerFrame *[128]uint64,
+	community []*[128]uint64,
+	communitySize uint64,
+	valueStart uint64,
+	keyStart uint64,
+	dstStart uint64,
+	guardStart uint64,
+) {
+	if ownerFrame == nil || communitySize == 0 || ownerFrame[guardStart&127] == 0 {
+		return
 	}
 
-	return false
+	bestValue := uint64(0)
+	bestKey := ^uint64(0)
+
+	for idx := uint64(0); idx < communitySize; idx++ {
+		peer := community[idx]
+		if peer == nil {
+			continue
+		}
+
+		value := peer[valueStart&127]
+		if value == 0 {
+			continue
+		}
+
+		key := peer[keyStart&127]
+		if key >= bestKey {
+			continue
+		}
+
+		bestKey = key
+		bestValue = value
+	}
+
+	if bestValue == 0 {
+		return
+	}
+
+	ownerFrame[dstStart&127] = bestValue
 }
 
-// frameHasPredicate is retained as a thin wrapper for the original
-// dispatch decision; the broader Go-only check is the new gate.
-func frameHasPredicate(ownerFrame *[128]uint64) bool {
-	return frameHasGoOnlyFeature(ownerFrame)
+func reduceModeEq(
+	ownerFrame *[128]uint64,
+	community []*[128]uint64,
+	communitySize uint64,
+	valueStart uint64,
+	keyStart uint64,
+	dstStart uint64,
+	matchStart uint64,
+) {
+	if ownerFrame == nil || communitySize == 0 {
+		return
+	}
+
+	match := ownerFrame[matchStart&127]
+	if match == 0 {
+		return
+	}
+
+	var counts [256]uint64
+	var overflow map[uint64]uint64
+	bestValue := uint64(0)
+	bestCount := uint64(0)
+
+	for idx := uint64(0); idx < communitySize; idx++ {
+		peer := community[idx]
+		if peer == nil || peer[keyStart&127] != match {
+			continue
+		}
+
+		value := peer[valueStart&127]
+		if value == 0 {
+			continue
+		}
+
+		var count uint64
+		if value < uint64(len(counts)) {
+			counts[value]++
+			count = counts[value]
+		} else {
+			if overflow == nil {
+				overflow = make(map[uint64]uint64)
+			}
+
+			overflow[value]++
+			count = overflow[value]
+		}
+
+		if count <= bestCount {
+			continue
+		}
+
+		bestCount = count
+		bestValue = value
+	}
+
+	if bestValue == 0 {
+		return
+	}
+
+	ownerFrame[dstStart&127] = bestValue
 }

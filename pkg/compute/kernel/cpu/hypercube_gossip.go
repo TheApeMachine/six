@@ -50,22 +50,9 @@ func (backend *Backend) HypercubeGossip(
 	communitySize := uint64(len(community))
 	dimCount := uint64(bits.Len64(communitySize - 1))
 
-	// DISPATCH TO KERNEL
-	// Predicate (folded compare) instructions live only in the Go kernel;
-	// frames that use them bypass the asm fast path so semantics stay in
-	// one place. Pure truth-table frames stay on asm. The Go kernel is
-	// also the only path that observes stage-bit instructions, so any
-	// program using stage(...) takes that path through frameHasPredicate.
-	var stageIdx []uint64
-	if frameHasPredicate(ownerFrame) {
-		stageIdx = backend.executeKernelGo(
-			ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
-		)
-	} else {
-		executeKernel(
-			backend, ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
-		)
-	}
+	stageIdx := backend.executeKernelGo(
+		ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
+	)
 
 	// Translate kernel-side index requests into Value-pointer pairs the
 	// compute backend can hand to StageInto.
@@ -98,9 +85,14 @@ func (backend *Backend) HypercubeGossip(
 				copy(childFrame[:], ownerFrame[:])
 
 				child.StampID()
-				child.ClearProgram()
-				child.SetStatus(primitive.PENDING)
 				childFrame[SpawnRegisterWord] = 0
+				if child.HasProgram() {
+					child.SetSchedulingNext(child.ID())
+					child.SetStatus(primitive.READY)
+				} else {
+					child.SetSchedulingNext(0)
+					child.SetStatus(primitive.PENDING)
+				}
 				spawned = append(spawned, child)
 			}
 		}

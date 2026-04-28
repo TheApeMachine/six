@@ -119,63 +119,79 @@ value:
 programs:
   query: |
     program query {
-      ; For every popped B: stamp it with the recruiter's id (carried
-      ; in A.properties.reference) and push it into staging[recruiter.id]
-      ; via the kernel's stage instruction. Selection is fully in-band:
-      ; no Go-side scan reads these markers, the recruiter receives its
-      ; lane directly from this sweep's stage emissions.
+      ; For every unassigned popped B: stamp it with the recruiter's id
+      ; (carried in A.properties.reference) and push it into
+      ; staging[recruiter.id] via the kernel's stage instruction.
       pop(B) {
-        write B.properties.reference <- A.properties.reference
-        stage(B)
+        (B.properties.community == 0) {
+          write B.properties.reference <- A.properties.reference
+          stage(B)
+        }
       }
+
+      set A.properties.continuation <- 0
+      set A.properties.status <- DONE
     }
 
   structural_component: |
     program structural_component {
       ; Pop the next B value from the community.
       pop(B) {
-        ; Find the longest run of zeros when comparing A.tokens with B.tokens.
-        A.signals[0,1] <- and(A.tokens, B.tokens)
-        A.signals[1,1] <- xor(A.tokens, rot_left(B.tokens, 8))
-        A.signals[2,1] <- xor(A.tokens, rot_left(B.tokens, 16))
-        A.signals[3,1] <- xor(A.tokens, rot_left(B.tokens, 24))
-        A.signals[4,1] <- xor(A.tokens, rot_left(B.tokens, 32))
-        A.signals[5,1] <- xor(A.tokens, rot_left(B.tokens, 40))
-        A.signals[6,1] <- xor(A.tokens, rot_left(B.tokens, 48))
-        A.signals[7,1] <- xor(A.tokens, rot_left(B.tokens, 56))
-        A.signals[8,1] <- xor(A.tokens, rot_left(B.tokens, 64))
-        A.signals[9,1] <- xor(A.tokens, rot_left(B.tokens, 72))
-        A.signals[10,1] <- xor(A.tokens, rot_left(B.tokens, 80))
-        A.signals[11,1] <- xor(A.tokens, rot_left(B.tokens, 88))
-        A.signals[12,1] <- xor(A.tokens, rot_left(B.tokens, 96))
-        A.signals[13,1] <- xor(A.tokens, rot_left(B.tokens, 104))
-        A.signals[14,1] <- xor(A.tokens, rot_left(B.tokens, 112))
-        A.signals[15,1] <- xor(A.tokens, rot_left(B.tokens, 120))
+        ; Keep cancel and merge witnesses in the 8-word signal lane so
+        ; downstream readout can scan zero-runs and one-runs directly.
+        write A.signals[0,4] <- xor(A.tokens[0,4], B.tokens[0,4])
+        write A.signals[4,4] <- and(A.tokens[4,4], B.tokens[4,4])
       }
     }
 
   recruit_community: |
     program recruit_community {
-      ; Hypercube gossip: one OR folds the affinity bit-union over every
-      ; staged peer in a single instruction. After the sweep, A.affinity
-      ; reflects the merged Hamming neighborhood of self plus the whole
-      ; community lane.
-      gossip(B) {
-        write A.affinity <- or(A.affinity, B.affinity)
+      ; The first candidate becomes the seed in context[0,5]. Every later
+      ; candidate is compared to that seed by Hamming distance. Recruitment
+      ; only accepts candidates whose resulting affinity union stays inside
+      ; the Shannon limit.
+      pop(B) {
+        (A.context[0,5] == 0) {
+          write A.context[0,5] <- B.affinity
+        }
 
-        ; Stamp every peer's community word with the recruiter's id so
-        ; downstream code can see who joined which community.
-        write B.properties.community <- A.id
-      }
-
-      ; If popcount(A.affinity) >= 121 the recruiter has reached the
-      ; Shannon ceiling for a 257-bit window. Stamp DONE and emit a
-      ; fresh recruiter to keep the chain going.
-      (A.affinity >= 121) {
-        set A.properties.status <- DONE
-
-        emit {
-          set program <- A.program
+        (popcnt(or(A.affinity, B.affinity)) <= 121) {
+          (popcnt(xor(A.context[0,5], B.affinity)) < 64) {
+            write A.affinity <- or(A.affinity, B.affinity)
+            set B.properties.community <- A.id
+          }
         }
       }
+
+      ; Once the affinity union reaches the 47% Shannon limit for the
+      ; 257-bit window, emit a fresh recruiter carrying this same program.
+      (popcnt(A.affinity) >= 121) {
+        emit {
+          set program <- A.program
+          set A.affinity <- 0
+          set A.context[0,5] <- 0
+        }
+      }
+    }
+  classify_readout: |
+    program classify_readout {
+      ; First pass: each candidate writes its own generic distance witness.
+      ; The program only says "xor two regions, then popcount that witness";
+      ; the reducer below decides over arbitrary value/key regions.
+      pop(B) {
+        (B.properties.community != 0) {
+          write B.signals[0,5] <- xor(A.affinity, B.affinity)
+          set B.properties.surprisal <- popcnt(B.signals[0,5])
+        }
+      }
+
+      ; Select the non-zero categorical value whose key is minimal.
+      set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
+
+      ; Select the modal non-zero categorical value where the peer key equals
+      ; the owner key selected above.
+      set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
+
+      set A.properties.status <- RESOLVED
+      set A.properties.continuation <- 0
     }

@@ -8,6 +8,7 @@ import {
 	storedValueFromDecoded,
 	valueFrameExpired,
 } from "./value-frame";
+import { readWordU64LE } from "./valueRegions";
 import type { RawValueFrame } from "./wire";
 
 export interface FieldStoreState {
@@ -23,6 +24,8 @@ export const fieldStore = createStore<FieldStoreState>({
 	graphSeq: 0,
 	connectionError: null,
 });
+
+const TELEMETRY_RUN_MARKER_MAGIC = 0x73697872756e3031n;
 
 let snapshotCache:
 	| {
@@ -125,6 +128,13 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 		let changed = false;
 
 		for (const frame of frames) {
+			if (isTelemetryRunMarker(frame)) {
+				values = new Map();
+				selectedId = null;
+				changed = true;
+				continue;
+			}
+
 			const rawId = formatValueId(frame.valueId);
 
 			if (!rawId) {
@@ -168,6 +178,14 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 			graphSeq: state.graphSeq + 1,
 		};
 	});
+}
+
+function isTelemetryRunMarker(frame: RawValueFrame): boolean {
+	return (
+		frame.valueId === 0n &&
+		frame.bytes.byteLength >= 8 &&
+		readWordU64LE(frame.bytes, 0) === TELEMETRY_RUN_MARKER_MAGIC
+	);
 }
 
 export function setFieldConnectionError(connectionError: string | null) {

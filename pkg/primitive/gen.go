@@ -553,9 +553,14 @@ func writeProgramsTS(programs []compiledProgram) error {
 	fmt.Fprintf(&b, "export const INSTR_B_START_SHIFT   = %d;\n", program.InstrBStartShift)
 	fmt.Fprintf(&b, "export const INSTR_OPCODE_SHIFT    = %d;\n", program.InstrOpcodeShift)
 	fmt.Fprintf(&b, "export const INSTR_MODE_SHIFT      = %d;\n", program.InstrModeShift)
+	fmt.Fprintf(&b, "export const INSTR_EMIT_SHIFT      = %d;\n", program.InstrEmitShift)
 	fmt.Fprintf(&b, "export const INSTR_TOPOLOGY_SHIFT  = %d;\n", program.InstrTopologyShift)
 	fmt.Fprintf(&b, "export const INSTR_PRED_START_SHIFT= %d;\n", program.InstrPredStartShift)
+	fmt.Fprintf(&b, "export const INSTR_PRED_BIT_SHIFT  = %d;\n", program.InstrPredBitShift)
 	fmt.Fprintf(&b, "export const INSTR_PRED_COND_SHIFT = %d;\n", program.InstrPredCondShift)
+	fmt.Fprintf(&b, "export const INSTR_SRC_A_FROM_B_SHIFT = %d;\n", program.InstrSrcAFromBShift)
+	b.WriteString("export const INSTR_STAGE_SHIFT     = 62;\n")
+	b.WriteString("export const INSTR_POP_END_SHIFT   = 63;\n")
 	fmt.Fprintf(&b, "export const INSTR_A_IND_SHIFT     = %d;\n", program.InstrAIndirectShift)
 	fmt.Fprintf(&b, "export const INSTR_B_TYPE_SHIFT    = %d;\n", program.InstrBTypeShift)
 	fmt.Fprintf(&b, "export const INSTR_SPAN_MASK       = 0x%xn;\n", program.InstrSpanMask)
@@ -575,6 +580,11 @@ func writeProgramsTS(programs []compiledProgram) error {
 	b.WriteString("\tpredCond: number;\n")
 	b.WriteString("\taInd: number;\n")
 	b.WriteString("\tbType: number;\n")
+	b.WriteString("\tpredicate: number;\n")
+	b.WriteString("\temit: number;\n")
+	b.WriteString("\tsrcAFromB: number;\n")
+	b.WriteString("\tstage: number;\n")
+	b.WriteString("\tpopEnd: number;\n")
 	b.WriteString("}\n\n")
 
 	b.WriteString("export interface ProgramSignature {\n")
@@ -590,10 +600,14 @@ func writeProgramsTS(programs []compiledProgram) error {
 	for _, p := range programs {
 		fmt.Fprintf(&b, "\t{\n\t\tname: %q,\n\t\tinstructions: [\n", p.name)
 		for _, w := range p.words {
-			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType := program.DecodeInstruction(w)
+			if w == 0 {
+				break
+			}
+
+			aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType, predicate, emit, srcAFromB, stage, popEnd := program.DecodeInstruction(w)
 			fmt.Fprintf(&b,
-				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, topology: %d, predStart: %d, predCond: %d, aInd: %d, bType: %d },\n",
-				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType,
+				"\t\t\t{ aStart: %d, aSpan: %d, bStart: %d, bSpan: %d, dstStart: %d, dstSpan: %d, opcode: 0x%x, mode: %d, topology: %d, predStart: %d, predCond: %d, aInd: %d, bType: %d, predicate: %d, emit: %d, srcAFromB: %d, stage: %d, popEnd: %d },\n",
+				aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aInd, bType, predicate, emit, srcAFromB, stage, popEnd,
 			)
 		}
 		b.WriteString("\t\t],\n\t},\n")

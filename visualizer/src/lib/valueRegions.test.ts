@@ -48,31 +48,41 @@ function encodeInstruction(opts: {
 	predCond?: number;
 	aInd?: number;
 	bType?: number;
+	predicate?: number;
+	emit?: number;
+	srcAFromB?: number;
+	stage?: number;
+	popEnd?: number;
 }): bigint {
 	const f = (v: number) => BigInt(v) & 0x7fn;
-	const s = (v: number) => BigInt(v) & 0x3fn;
 	const op = BigInt(opts.opcode ?? 0) & 0xfn;
-	const mode = BigInt(opts.mode ?? 0) & 0x7n;
+	const mode = BigInt(opts.mode ?? 0) & 0x1n;
 	const topology = BigInt(opts.topology ?? 0) & 0x3n;
 	const predStart = BigInt(opts.predStart ?? 0) & 0x7fn;
-	const predCond = BigInt(opts.predCond ?? 0) & 0x3n;
-	const aInd = BigInt(opts.aInd ?? 0) & 0x1n;
-	const bType = BigInt(opts.bType ?? 0) & 0x3n;
+	const predCond = BigInt(opts.predCond ?? 0) & 0x7n;
+	const predicate = BigInt(opts.predicate ?? 0) & 0x1n;
+	const emit = BigInt(opts.emit ?? 0) & 0x1n;
+	const srcAFromB = BigInt(opts.srcAFromB ?? 0) & 0x1n;
+	const stage = BigInt(opts.stage ?? 0) & 0x1n;
+	const popEnd = BigInt(opts.popEnd ?? 0) & 0x1n;
 
 	return (
-		s((opts.dstSpan ?? 1) - 1) |
-		(f(opts.dstStart ?? 0) << 6n) |
-		(s((opts.aSpan ?? 1) - 1) << 13n) |
-		(f(opts.aStart ?? 0) << 19n) |
-		(s((opts.bSpan ?? 1) - 1) << 26n) |
-		(f(opts.bStart ?? 0) << 32n) |
-		(op << 39n) |
-		(mode << 43n) |
-		(topology << 46n) |
-		(predStart << 48n) |
-		(predCond << 55n) |
-		(aInd << 57n) |
-		(bType << 58n)
+		op |
+		(f(opts.aStart ?? 0) << 4n) |
+		(f((opts.aSpan ?? 1) - 1) << 11n) |
+		(f(opts.bStart ?? 0) << 18n) |
+		(f((opts.bSpan ?? 1) - 1) << 25n) |
+		(f(opts.dstStart ?? 0) << 32n) |
+		(f((opts.dstSpan ?? 1) - 1) << 39n) |
+		(predStart << 46n) |
+		(mode << 53n) |
+		(emit << 54n) |
+		(topology << 55n) |
+		(predicate << 57n) |
+		(predCond << 58n) |
+		(srcAFromB << 61n) |
+		(stage << 62n) |
+		(popEnd << 63n)
 	);
 }
 
@@ -109,6 +119,11 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		predCond: 0,
 		aInd: 0,
 		bType: 0,
+		predicate: 0,
+		emit: 0,
+		srcAFromB: 0,
+		stage: 0,
+		popEnd: 0,
 	});
 });
 

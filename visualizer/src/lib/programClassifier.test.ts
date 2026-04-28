@@ -39,6 +39,11 @@ test("every generated program matches a signature with the same instruction stre
 						instr.predCond === o.predCond &&
 						instr.aInd === o.aInd &&
 						instr.bType === o.bType &&
+						instr.predicate === o.predicate &&
+						instr.emit === o.emit &&
+						instr.srcAFromB === o.srcAFromB &&
+						instr.stage === o.stage &&
+						instr.popEnd === o.popEnd &&
 						instr.aStart === o.aStart &&
 						instr.aSpan === o.aSpan &&
 						instr.bStart === o.bStart &&
@@ -86,6 +91,11 @@ test("classifyInstructionStream falls through to unknown for an unrecognised tup
 			predCond: 0,
 			aInd: 0,
 			bType: 0,
+			predicate: 0,
+			emit: 0,
+			srcAFromB: 0,
+			stage: 0,
+			popEnd: 0,
 		},
 	]);
 

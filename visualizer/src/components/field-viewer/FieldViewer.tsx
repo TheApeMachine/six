@@ -116,6 +116,10 @@ export function FieldViewer({ className }: { className?: string }) {
 						</Badge>
 					</div>
 					<div>values: {stats?.values ?? 0}</div>
+					<div>
+						communities: {snapshot?.totalCommunities ?? 0} | orphans:{" "}
+						{snapshot?.orphanValues.length ?? 0}
+					</div>
 					<div className="text-white/45">raw Value frames (1024 B)</div>
 					<div className="mt-2 text-white/45">
 						wheel: zoom | drag: pan | click: inspect

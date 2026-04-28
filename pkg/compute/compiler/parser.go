@@ -165,10 +165,30 @@ type sideRegion struct {
 	predicateOp   uint64
 	predicateSrc  Region
 	predicateSide byte
+	reduce        bool
+	reduceOp      uint64
+	reduceValue   Region
+	reduceKey     Region
+	reduceMatch   Region
 	// literalZero distinguishes `set X <- 0` (which lowers to OpFalse
 	// across the full destination span) from a generic single-word
 	// constant allocation that happens to hold zero.
 	literalZero bool
+}
+
+/*
+predicateSource is the left side of an if-comparison. Simple sources point
+directly at a region. Expression sources carry a short prelude that materializes
+their truth-table result into scratch asset words before the predicate folds it.
+*/
+type predicateSource struct {
+	side    byte
+	reg     Region
+	prelude BlockNode
+}
+
+func (source predicateSource) sideRegion() sideRegion {
+	return sideRegion{side: source.side, reg: source.reg}
 }
 
 func (parser *parser) parseProgram() (BlockNode, error) {
@@ -248,6 +268,10 @@ func (parser *parser) parseIf() (ASTNode, error) {
 		return nil, err
 	}
 
+	if threshold.side == 'B' {
+		return nil, fmt.Errorf("compiler: B-side predicate thresholds are not supported")
+	}
+
 	if _, err := parser.expect(")"); err != nil {
 		return nil, err
 	}
@@ -268,33 +292,145 @@ func (parser *parser) parseIf() (ASTNode, error) {
 	}
 
 	return IfNode{
-		Cond:      cond,
-		Region:    region,
-		Threshold: threshold,
-		Mask:      mask,
-		Body:      body,
+		Cond:       cond,
+		Prelude:    region.prelude,
+		Region:     region.reg,
+		RegionSide: region.side,
+		Threshold:  threshold.reg,
+		Mask:       mask,
+		Body:       body,
 	}, nil
 }
 
-func (parser *parser) parseComparison() (cond uint64, region, threshold Region, err error) {
-	lhs, err := parser.parseRegion()
+func (parser *parser) parseComparison() (cond uint64, region predicateSource, threshold sideRegion, err error) {
+	lhs, err := parser.parsePredicateSource()
 	if err != nil {
-		return 0, Region{}, Region{}, err
+		return 0, predicateSource{}, sideRegion{}, err
 	}
 
 	cmpTok := parser.advance()
 
 	cond, ok := condOf(cmpTok.text)
 	if !ok {
-		return 0, Region{}, Region{}, fmt.Errorf("compiler: unknown comparison %q", cmpTok.text)
+		return 0, predicateSource{}, sideRegion{}, fmt.Errorf("compiler: unknown comparison %q", cmpTok.text)
 	}
 
 	rhs, err := parser.parseRegion()
 	if err != nil {
-		return 0, Region{}, Region{}, err
+		return 0, predicateSource{}, sideRegion{}, err
 	}
 
-	return cond, lhs.reg, rhs.reg, nil
+	return cond, lhs, rhs, nil
+}
+
+func (parser *parser) parsePredicateSource() (predicateSource, error) {
+	if parser.peek().kind == "ident" && parser.peek().text == "popcnt" && parser.lookahead(1).kind == "(" {
+		parser.advance()
+
+		if _, err := parser.expect("("); err != nil {
+			return predicateSource{}, err
+		}
+
+		source, err := parser.parsePredicateExpr()
+		if err != nil {
+			return predicateSource{}, err
+		}
+
+		if _, err := parser.expect(")"); err != nil {
+			return predicateSource{}, err
+		}
+
+		return parser.forcePopcntSource(source), nil
+	}
+
+	region, err := parser.parseRegion()
+	if err != nil {
+		return predicateSource{}, err
+	}
+
+	return predicateSource{side: region.side, reg: region.reg}, nil
+}
+
+func (parser *parser) parsePredicateExpr() (predicateSource, error) {
+	if parser.peek().kind == "ident" && parser.lookahead(1).kind == "(" {
+		return parser.parsePredicateCall()
+	}
+
+	region, err := parser.parseRegion()
+	if err != nil {
+		return predicateSource{}, err
+	}
+
+	return predicateSource{side: region.side, reg: region.reg}, nil
+}
+
+func (parser *parser) parsePredicateCall() (predicateSource, error) {
+	opName := parser.advance().text
+	opcode, ok := opcodeOf(opName)
+	if !ok {
+		return predicateSource{}, fmt.Errorf("compiler: unknown predicate expression %q", opName)
+	}
+
+	if _, err := parser.expect("("); err != nil {
+		return predicateSource{}, err
+	}
+
+	lhs, err := parser.parsePredicateExpr()
+	if err != nil {
+		return predicateSource{}, err
+	}
+
+	if _, err := parser.expect(","); err != nil {
+		return predicateSource{}, err
+	}
+
+	rhs, err := parser.parsePredicateExpr()
+	if err != nil {
+		return predicateSource{}, err
+	}
+
+	if _, err := parser.expect(")"); err != nil {
+		return predicateSource{}, err
+	}
+
+	span := lhs.reg.Span
+	if rhs.reg.Span > span {
+		span = rhs.reg.Span
+	}
+
+	scratch := predicateSource{
+		side:    'A',
+		reg:     parser.builder.AllocScratch(span),
+		prelude: BlockNode{Statements: append([]ASTNode{}, lhs.prelude.Statements...)},
+	}
+
+	scratch.prelude.Statements = append(scratch.prelude.Statements, rhs.prelude.Statements...)
+
+	node, err := parser.makeBinAssign(sideRegion{side: 'A', reg: scratch.reg}, opcode, lhs.sideRegion(), rhs.sideRegion())
+	if err != nil {
+		return predicateSource{}, err
+	}
+
+	scratch.prelude.Statements = append(scratch.prelude.Statements, node)
+
+	return scratch, nil
+}
+
+func (parser *parser) forcePopcntSource(source predicateSource) predicateSource {
+	scratch := parser.builder.AllocScratch(1)
+	source.prelude.Statements = append(source.prelude.Statements, PredicateAssignNode{
+		Dst:        scratch,
+		Cond:       PredStorePopcnt,
+		Region:     source.reg,
+		RegionSide: source.side,
+		Target:     0,
+	})
+
+	return predicateSource{
+		side:    'A',
+		reg:     scratch,
+		prelude: source.prelude,
+	}
 }
 
 func condOf(op string) (uint64, bool) {
@@ -335,10 +471,25 @@ func (parser *parser) parseAssign() (ASTNode, error) {
 
 	if rhs.predicate {
 		return PredicateAssignNode{
-			Dst:    dst.reg,
-			Cond:   rhs.predicateOp,
-			Region: rhs.predicateSrc,
-			Target: targetOf(dst.side),
+			Dst:        dst.reg,
+			Cond:       rhs.predicateOp,
+			Region:     rhs.predicateSrc,
+			RegionSide: rhs.predicateSide,
+			Target:     targetOf(dst.side),
+		}, nil
+	}
+
+	if rhs.reduce {
+		if dst.side != 'A' {
+			return nil, fmt.Errorf("compiler: lane reducers must write to A-side destinations")
+		}
+
+		return ReduceAssignNode{
+			Dst:   dst.reg,
+			Op:    rhs.reduceOp,
+			Value: rhs.reduceValue,
+			Key:   rhs.reduceKey,
+			Match: rhs.reduceMatch,
 		}, nil
 	}
 
@@ -385,6 +536,36 @@ func (parser *parser) parseRHSCall() (sideRegion, error) {
 		}, nil
 	}
 
+	if opName == "argmin_nonzero" {
+		value, key, err := parser.parseTwoBRegions()
+		if err != nil {
+			return sideRegion{}, err
+		}
+
+		return sideRegion{
+			reduce:      true,
+			reduceOp:    OpReduceArgMinNonZero,
+			reduceValue: value.reg,
+			reduceKey:   key.reg,
+			reduceMatch: MaskTrue,
+		}, nil
+	}
+
+	if opName == "mode_eq" {
+		value, key, match, err := parser.parseModeEqRegions()
+		if err != nil {
+			return sideRegion{}, err
+		}
+
+		return sideRegion{
+			reduce:      true,
+			reduceOp:    OpReduceModeEq,
+			reduceValue: value.reg,
+			reduceKey:   key.reg,
+			reduceMatch: match.reg,
+		}, nil
+	}
+
 	// Two-argument truth-table ops.
 	lhs, err := parser.parseRegion()
 	if err != nil {
@@ -422,6 +603,88 @@ func (parser *parser) parseRHSCall() (sideRegion, error) {
 		// by stashing rhs into reg + a marker side; the caller checks for
 		// predicateOp != 0 to know it's a binary op.
 	}, parser.stashBinop(opcode, lhs, rhs)
+}
+
+func (parser *parser) parseTwoBRegions() (sideRegion, sideRegion, error) {
+	lhs, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	if lhs.side != 'B' {
+		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer value source must be B-side")
+	}
+
+	if _, err := parser.expect(","); err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	rhs, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	if rhs.side != 'B' {
+		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer key source must be B-side")
+	}
+
+	if _, err := parser.expect(")"); err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	return lhs, rhs, nil
+}
+
+func (parser *parser) parseModeEqRegions() (sideRegion, sideRegion, sideRegion, error) {
+	value, key, err := parser.parseTwoBRegionsPrefix()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	if _, err := parser.expect(","); err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	match, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	if match.side != 'A' {
+		return sideRegion{}, sideRegion{}, sideRegion{}, fmt.Errorf("compiler: mode_eq match source must be A-side")
+	}
+
+	if _, err := parser.expect(")"); err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	return value, key, match, nil
+}
+
+func (parser *parser) parseTwoBRegionsPrefix() (sideRegion, sideRegion, error) {
+	value, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	if value.side != 'B' {
+		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer value source must be B-side")
+	}
+
+	if _, err := parser.expect(","); err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	key, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, err
+	}
+
+	if key.side != 'B' {
+		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer key source must be B-side")
+	}
+
+	return value, key, nil
 }
 
 // stashBinop is a small helper trick: the parser hands a single
@@ -643,12 +906,12 @@ func (parser *parser) parseEmit() (ASTNode, error) {
 /*
 parseRegion accepts:
 
-	  - numeric literal:                      120
-	  - status / role / property enums:       DONE, READOUT
-	  - bare A-side regions:                  program, child
-	  - dotted region paths:                  A.affinity, B.signals
-	  - property paths:                       A.properties.status
-	  - sliced regions:                       A.signals[0,8]
+  - numeric literal:                      120
+  - status / role / property enums:       DONE, READOUT
+  - bare A-side regions:                  program, child
+  - dotted region paths:                  A.affinity, B.signals
+  - property paths:                       A.properties.status
+  - sliced regions:                       A.signals[0,8]
 */
 func (parser *parser) parseRegion() (sideRegion, error) {
 	tok := parser.advance()
@@ -808,4 +1071,3 @@ func (parser *parser) maybeIndex(base sideRegion) (sideRegion, error) {
 		reg:  Region{Start: base.reg.Start + start, Span: span},
 	}, nil
 }
-

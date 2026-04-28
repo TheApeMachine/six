@@ -13,6 +13,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -154,10 +155,105 @@ func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Va
 	backend.pool.Submit(func() {
 		defer backend.pending.Add(-1)
 		defer backend.clearStaging(owner)
-		backend.executeSubstrate(backend.cpuSubstrate, owner, community)
+		spawned, _ := backend.executeSubstrate(backend.cpuSubstrate, owner, community)
+		spawned = backend.stageResidual(owner, spawned, community)
+		backend.finishOwner(owner)
+
+		for _, child := range spawned {
+			if child != nil {
+				backend.cache.Store(child.ID(), child)
+			}
+		}
 	})
 
 	return nil
+}
+
+/*
+stageResidual hands recruiter continuations the still-unclaimed input lane.
+The kernel already wrote every accepted candidate's community word in-band; the
+finalizer only preserves the remaining B frames as the next recruiter's workset.
+If the recruiter did not saturate enough to emit on its own, residual work still
+needs a fresh seed, so the finalizer mints one carrying the same firmware.
+*/
+func (backend *Backend) stageResidual(owner *primitive.Value, spawned, community []*primitive.Value) []*primitive.Value {
+	if backend == nil || len(community) == 0 {
+		return spawned
+	}
+
+	var residual []*primitive.Value
+	for _, value := range community {
+		if value == nil {
+			continue
+		}
+
+		communityID, err := value.Property(primitive.COMMUNITY)
+		if err != nil || communityID != 0 {
+			continue
+		}
+
+		residual = append(residual, value)
+	}
+
+	if len(residual) == 0 {
+		return spawned
+	}
+
+	if len(residual) == len(community) {
+		return spawned
+	}
+
+	staged := false
+	for _, child := range spawned {
+		if child == nil || !child.ReadyForALU() {
+			continue
+		}
+
+		backend.stage(child, residual)
+		staged = true
+	}
+
+	if staged || !isFirmware(owner, core.RECRUIT_COMMUNITY) {
+		return spawned
+	}
+
+	child := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
+	if child == nil || !child.ReadyForALU() {
+		return spawned
+	}
+
+	backend.stage(child, residual)
+
+	return append(spawned, child)
+}
+
+func isFirmware(value *primitive.Value, firmware core.FirmwareType) bool {
+	if value == nil || core.Cfg == nil {
+		return false
+	}
+
+	entry, ok := core.Cfg.Programs[firmware]
+	if !ok {
+		return false
+	}
+
+	words := value.Get(primitive.ProgramRegion)
+	compiled := entry.Compiled()
+	if len(words) == 0 || len(compiled) == 0 {
+		return false
+	}
+
+	for idx, word := range compiled {
+		if idx >= len(words) {
+			return false
+		}
+
+		if words[idx] != word {
+			return false
+		}
+	}
+
+	return true
 }
 
 /*
@@ -269,6 +365,29 @@ func (backend *Backend) clearStaging(owner *primitive.Value) {
 	}
 
 	backend.staging.Delete(owner.ID())
+}
+
+/*
+finishOwner enforces single-use firmware. A program may keep itself alive only
+by explicitly restoring READY and leaving a continuation word; every other pass
+settles to DONE with an empty program slab.
+*/
+func (backend *Backend) finishOwner(owner *primitive.Value) {
+	if owner == nil {
+		return
+	}
+
+	if owner.Status() == primitive.READY && owner.SchedulingNext() != 0 && owner.HasProgram() {
+		return
+	}
+
+	owner.ClearProgram()
+	owner.SetSchedulingNext(0)
+
+	switch owner.Status() {
+	case primitive.PENDING, primitive.READY, primitive.BUSY, primitive.WAITING:
+		owner.SetStatus(primitive.DONE)
+	}
 }
 
 /*

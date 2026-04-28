@@ -155,6 +155,10 @@ export function buildGraphSnapshot(
 	const orphanValues: FieldValueSnapshot[] = [];
 
 	for (const stored of values.values()) {
+		if (!graphVisible(stored)) {
+			continue;
+		}
+
 		if (stored.communityId < 0) {
 			orphanValues.push(fieldSnapshotFromStored(stored, ""));
 			continue;
@@ -223,6 +227,24 @@ export function buildGraphSnapshot(
 		totalValues,
 		totalCommunities: fields.length,
 	};
+}
+
+function graphVisible(stored: StoredValue): boolean {
+	if (stored.communityId >= 0 || stored.classification.program) {
+		return true;
+	}
+
+	return hasTokenPayload(stored);
+}
+
+function hasTokenPayload(stored: StoredValue): boolean {
+	for (const word of stored.decoded?.regions.tokens.words ?? []) {
+		if (word !== 0n) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 export function inspectFromStored(stored: StoredValue): VizInspectSnapshot {
