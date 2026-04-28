@@ -38,29 +38,3 @@ func TestDatasetDownloadShardReturnsErrorInsteadOfPanickingOnCacheMiss(t *testin
 		})
 	})
 }
-
-func TestDatasetLabelAsText(t *testing.T) {
-	t.Parallel()
-
-	dataset := New(
-		DatasetWithLabelAppend([]string{"neg", "pos"}),
-	)
-
-	Convey("Given a labeled dataset", t, func() {
-		Convey("When labels are present it should resolve known indexes via labelAppend", func() {
-			So(dataset.labelAsText(1, true), ShouldEqual, "pos")
-		})
-
-		Convey("When labels are one-based it should still resolve via labelAppend", func() {
-			So(dataset.labelAsText(2, true), ShouldEqual, "pos")
-		})
-
-		Convey("When labels are out of range it should fall back to numeric index", func() {
-			So(dataset.labelAsText(3, true), ShouldEqual, "3")
-		})
-
-		Convey("When label is absent it should return an empty value", func() {
-			So(dataset.labelAsText(0, false), ShouldEqual, "")
-		})
-	})
-}

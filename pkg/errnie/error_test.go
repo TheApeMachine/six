@@ -1,6 +1,7 @@
 package errnie
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -37,13 +38,15 @@ func TestErrnieError_Unwrap(t *testing.T) {
 func TestErrnieError_Join(t *testing.T) {
 	t.Parallel()
 
-	Convey("Join keeps the receiver usable", t, func() {
+	Convey("Join keeps both errors observable", t, func() {
 		base := errors.New("a")
+		next := errors.New("b")
 		err := NewErrnieError(base)
 
-		_ = err.Join(errors.New("b"))
+		_ = err.Join(next)
 
-		So(errors.Unwrap(err), ShouldEqual, base)
+		So(errors.Is(err, base), ShouldBeTrue)
+		So(errors.Is(err, next), ShouldBeTrue)
 	})
 }
 
@@ -64,7 +67,16 @@ func TestIsReschedulable(t *testing.T) {
 func TestHasContext(t *testing.T) {
 	t.Parallel()
 
-	Convey("HasContext is currently a placeholder", t, func() {
-		So(HasContext(NewErrnieError(errors.New("z"))), ShouldBeNil)
+	Convey("HasContext returns nil for standard errors", t, func() {
+		So(HasContext(errors.New("z")), ShouldBeNil)
+	})
+
+	Convey("HasContext reads ErrnieError context", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := NewErrnieError(errors.New("z")).WithContext(ctx)
+
+		So(HasContext(err), ShouldEqual, ctx)
 	})
 }

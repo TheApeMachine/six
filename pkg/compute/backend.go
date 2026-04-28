@@ -13,42 +13,25 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
-
-type QueueType uint
-
-const (
-	QueueTypeNormal QueueType = iota
-	QueueTypePriority
-)
-
-const ttlExpiredSentinel = uint64(1) << 63
-
-func TTLExpiredSentinel() uint64 {
-	return ttlExpiredSentinel
-}
 
 /*
 Backend is a small load balancer over compute substrates (CUDA, Metal, CPU).
 It picks the lowest-pressure candidate using inflight × EMA service time.
 */
 type Backend struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	err          error
-	queues       map[QueueType]*Queue
-	pool         *pool.Pool
-	substrates   []*substrateState
-	cpuSubstrate *substrateState
-	popped       atomic.Int64
-	nextSub      atomic.Uint64
-	pending      atomic.Int64
-	cache        sync.Map
-	staging      sync.Map
+	ctx        context.Context
+	cancel     context.CancelFunc
+	err        error
+	pool       *pool.Pool
+	substrates []*substrateState
+	nextSub    atomic.Uint64
+	pending    atomic.Int64
+	cache      sync.Map
+	staging    sync.Map
 }
 
 /*
@@ -63,20 +46,16 @@ type substrateState struct {
 }
 
 /*
-NewBackend creates a new Backend instance.
+NewBackend creates a Backend with every available substrate registered. CPU is
+always added last so accelerators get first crack at low-pressure work.
 */
 func NewBackend(ctx context.Context) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	backend := &Backend{
-		ctx:        ctx,
-		cancel:     cancel,
-		err:        nil,
-		queues:     make(map[QueueType]*Queue),
-		pool:       pool.NewPool(uint64(runtime.NumCPU())),
-		substrates: make([]*substrateState, 0),
-		cache:      sync.Map{},
-		staging:    sync.Map{},
+		ctx:    ctx,
+		cancel: cancel,
+		pool:   pool.NewPool(uint64(runtime.NumCPU())),
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -87,69 +66,34 @@ func NewBackend(ctx context.Context) *Backend {
 		backend.addSubstrate(metal.NewBackend(device))
 	}
 
-	backend.cpuSubstrate = backend.addSubstrate(cpu.NewBackend(ctx))
-
-	if !createAndAssignQueue(ctx, backend, QueueTypeNormal) {
-		return nil
-	}
-
-	if !createAndAssignQueue(ctx, backend, QueueTypePriority) {
-		return nil
-	}
+	backend.addSubstrate(cpu.NewBackend(ctx))
 
 	return backend
 }
 
 /*
-createAndAssignQueue builds one scheduler ring and binds it to backend.queues.
-Centralizes the shared NewQueue + errnie.Error path used for normal and priority lanes.
+Submit runs owner's program over its staged community on the lowest-pressure
+substrate. Spawned children land in the cache for Sync to drain; in-band stage
+requests emitted by the kernel are dispatched into the matching owner's lane
+via StageInto. The owner is single-use unless its program rewrote itself READY
+with a non-zero continuation before the sweep returned.
 */
-func createAndAssignQueue(ctx context.Context, backend *Backend, queueType QueueType) bool {
-	queue, err := NewQueue(ctx)
-
-	if err != nil {
-		errnie.Error(err)
-
-		return false
-	}
-
-	backend.queues[queueType] = queue
-
-	return true
-}
-
-/*
-Schedule a new job to be executed on the backend.
-*/
-func (backend *Backend) Schedule(job func()) {
-	backend.pool.Submit(job)
-}
-
-/*
-Submit schedules in-value execution over a community.
-
-The community values are parked under the owner's ValueID inside backend.staging
-as the B-pool the kernel sweep will pop from. Programs are linear sweeps over
-the program region (select A, select B, apply truth table, write to DST); the
-only way to branch or loop is for the value to set the spawn/reschedule word
-and fall back into the ALU on the priority queue for another sweep.
-*/
-func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Value) (err error) {
-	if backend == nil || len(community) == 0 {
-		return errors.New("backend is nil or community is empty")
-	}
-
-	if owner == nil {
-		return errors.New("owner is nil")
+func (backend *Backend) Submit(owner *primitive.Value) error {
+	if backend == nil || owner == nil {
+		return errors.New("backend or owner is nil")
 	}
 
 	if owner.Status() != primitive.READY {
 		return errors.New("owner is not ready")
 	}
 
-	owner.SetStatus(primitive.WAITING)
+	community := backend.Lane(owner)
+	
+	if len(community) == 0 {
+		return errors.New("owner has no staged community")
+	}
 
-	backend.stage(owner, community)
+	owner.SetStatus(primitive.WAITING)
 	backend.pending.Add(1)
 
 	backend.pool.Submit(func() {
@@ -164,7 +108,6 @@ func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Va
 			return
 		}
 
-		spawned = backend.stageResidual(owner, spawned, community)
 		backend.finishOwner(owner)
 
 		for _, child := range spawned {
@@ -178,97 +121,14 @@ func (backend *Backend) Submit(owner *primitive.Value, community []*primitive.Va
 }
 
 /*
-stageResidual hands recruiter continuations the still-unclaimed input lane.
-The kernel already wrote every accepted candidate's community word in-band; the
-finalizer only preserves the remaining B frames as the next recruiter's workset.
-If the recruiter did not saturate enough to emit on its own, residual work still
-needs a fresh seed, so the finalizer mints one carrying the same firmware.
+execute walks substrates in pressure order and returns on the first success.
+A failed substrate is bit-marked so the same submission does not retry it.
 */
-func (backend *Backend) stageResidual(owner *primitive.Value, spawned, community []*primitive.Value) []*primitive.Value {
-	if backend == nil || len(community) == 0 {
-		return spawned
-	}
-
-	var residual []*primitive.Value
-	for _, value := range community {
-		if value == nil {
-			continue
-		}
-
-		communityID, err := value.Property(primitive.COMMUNITY)
-		if err != nil || communityID != 0 {
-			continue
-		}
-
-		residual = append(residual, value)
-	}
-
-	if len(residual) == 0 {
-		return spawned
-	}
-
-	if len(residual) == len(community) {
-		return spawned
-	}
-
-	staged := false
-	for _, child := range spawned {
-		if child == nil || !child.ReadyForALU() {
-			continue
-		}
-
-		backend.stage(child, residual)
-		staged = true
-	}
-
-	if staged || !isFirmware(owner, core.RECRUIT_COMMUNITY) {
-		return spawned
-	}
-
-	child := primitive.Emit(primitive.WithFirmware(core.RECRUIT_COMMUNITY))
-	if child == nil || !child.ReadyForALU() {
-		return spawned
-	}
-
-	backend.stage(child, residual)
-
-	return append(spawned, child)
-}
-
-func isFirmware(value *primitive.Value, firmware core.FirmwareType) bool {
-	if value == nil || core.Cfg == nil {
-		return false
-	}
-
-	entry, ok := core.Cfg.Programs[firmware]
-	if !ok {
-		return false
-	}
-
-	words := value.Get(primitive.ProgramRegion)
-	compiled := entry.Compiled()
-	if len(words) == 0 || len(compiled) == 0 {
-		return false
-	}
-
-	for idx, word := range compiled {
-		if idx >= len(words) {
-			return false
-		}
-
-		if words[idx] != word {
-			return false
-		}
-	}
-
-	return true
-}
-
 func (backend *Backend) execute(
 	owner *primitive.Value,
 	community []*primitive.Value,
 ) ([]*primitive.Value, error) {
-	if backend == nil || len(backend.substrates) == 0 {
+	if len(backend.substrates) == 0 {
 		return nil, errors.New("no compute substrates available")
 	}
 
@@ -283,6 +143,7 @@ func (backend *Backend) execute(
 		}
 
 		attempted |= bit
+
 		spawned, err := backend.executeSubstrate(state, owner, community)
 		if err == nil {
 			return spawned, nil
@@ -304,14 +165,14 @@ submission. Ties use a rotating offset so cold substrates do not starve each
 other, while the hot path stays allocation-free.
 */
 func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateState, uint64) {
-	if backend == nil || len(backend.substrates) == 0 {
+	if len(backend.substrates) == 0 {
 		return nil, 0
 	}
 
 	bestIdx := -1
 	bestRank := 0
 	bestPressure := int64(1<<63 - 1)
-	n := len(backend.substrates)
+	count := len(backend.substrates)
 
 	for idx, state := range backend.substrates {
 		if idx >= 64 {
@@ -319,6 +180,7 @@ func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateS
 		}
 
 		bit := uint64(1) << uint(idx)
+
 		if attempted&bit != 0 {
 			continue
 		}
@@ -328,7 +190,7 @@ func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateS
 		}
 
 		pressure := state.pressure()
-		rank := (idx - offset + n) % n
+		rank := (idx - offset + count) % count
 
 		if bestIdx >= 0 && (pressure > bestPressure || pressure == bestPressure && rank >= bestRank) {
 			continue
@@ -347,38 +209,19 @@ func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateS
 }
 
 /*
-stagingLane is the per-owner B-pool that programs pop from during a sweep.
-PopB advances the read cursor with a CAS so kernels share the pool without
-a mutex on the consume side. The producer side (StageInto) protects append
-with a small mutex because Go slice growth is not safe under concurrent
-appends; lanes are partitioned by owner ID so contention is per-owner, not
-global, and the only contenders are sweeps that explicitly target the same
-owner — rare in practice.
+stagingLane is the per-owner B-pool that programs sweep over. Append is mutex-
+protected because Go slice growth is not safe under concurrent appends; lanes
+are partitioned by owner ID so contention is per-owner, not global.
 */
 type stagingLane struct {
 	mu     sync.Mutex
 	values []*primitive.Value
-	cursor atomic.Uint64
 }
 
 /*
-stage parks the community under the owner's ValueID. Re-staging the same owner
-overwrites the prior lane (a fresh sweep starts from a fresh cursor).
-*/
-func (backend *Backend) stage(owner *primitive.Value, community []*primitive.Value) {
-	if backend == nil || owner == nil {
-		return
-	}
-
-	lane := &stagingLane{values: community}
-	backend.staging.Store(owner.ID(), lane)
-}
-
-/*
-Lane returns a snapshot of the staging slice for the given owner. The host
-scheduler uses this to decide whether a Value has work to do: empty lane,
-nothing to dispatch. Programs are the only thing that fills lanes (via the
-kernel's stage instruction), so the host stays out of selection logic.
+Lane returns a snapshot of the staging slice for the given owner. Cycle uses
+this to fetch the community a READY owner should sweep over; tests use it for
+inspection.
 */
 func (backend *Backend) Lane(owner *primitive.Value) []*primitive.Value {
 	if backend == nil || owner == nil {
@@ -391,6 +234,7 @@ func (backend *Backend) Lane(owner *primitive.Value) []*primitive.Value {
 	}
 
 	lane := entry.(*stagingLane)
+
 	lane.mu.Lock()
 	out := make([]*primitive.Value, len(lane.values))
 	copy(out, lane.values)
@@ -403,8 +247,7 @@ func (backend *Backend) Lane(owner *primitive.Value) []*primitive.Value {
 StageInto pushes a Value into the staging lane keyed by ownerID. The kernel's
 stage instruction calls this from inside a program sweep, so reference-style
 selection happens entirely inside Value-space — no Go side decides which Bs
-go where, the program does. Contention is per-owner; the per-lane mutex only
-serializes the rare case where two sweeps target the same owner at once.
+go where, the program does.
 */
 func (backend *Backend) StageInto(ownerID uint64, value *primitive.Value) {
 	if backend == nil || value == nil {
@@ -419,38 +262,8 @@ func (backend *Backend) StageInto(ownerID uint64, value *primitive.Value) {
 	lane.mu.Unlock()
 }
 
-/*
-PopB returns the next community Value parked under the owner's ValueID, or nil
-when the lane is exhausted. This is the host-side counterpart to the kernel's
-pop(B) topology — every program is a linear sweep that consumes its B span by
-calling here.
-*/
-func (backend *Backend) PopB(owner *primitive.Value) *primitive.Value {
-	if backend == nil || owner == nil {
-		return nil
-	}
-
-	entry, ok := backend.staging.Load(owner.ID())
-	if !ok {
-		return nil
-	}
-
-	lane := entry.(*stagingLane)
-	idx := lane.cursor.Add(1) - 1
-
-	if idx >= uint64(len(lane.values)) {
-		return nil
-	}
-
-	return lane.values[idx]
-}
-
-/*
-clearStaging drops the owner's lane. Called when a submission fails before the
-sweep runs and after the sweep retires so the map does not retain dead frames.
-*/
 func (backend *Backend) clearStaging(owner *primitive.Value) {
-	if backend == nil || owner == nil {
+	if owner == nil {
 		return
 	}
 
@@ -458,9 +271,19 @@ func (backend *Backend) clearStaging(owner *primitive.Value) {
 }
 
 /*
-finishOwner enforces single-use firmware. A program may keep itself alive only
-by explicitly restoring READY and leaving a continuation word; every other pass
-settles to DONE with an empty program slab.
+finishOwner enforces single-use firmware with two opt-in escape hatches.
+
+  - Self-continuation (status=READY, continuation=self.id, program intact):
+    the firmware wants another sweep on this same owner; leave everything.
+  - Wake-target continuation (status=DONE, continuation=other_id != 0):
+    the firmware is finished here but is signalling that another value
+    should run next. Drop the program slab so this owner does not get
+    scheduled again, but PRESERVE the continuation word so the runtime
+    can read it as a wake target and flip the matching WAITING value to
+    READY (machine.wakeWaiting).
+
+Anything else falls through to the standard retire: clear program, clear
+continuation, force DONE.
 */
 func (backend *Backend) finishOwner(owner *primitive.Value) {
 	if owner == nil {
@@ -471,6 +294,12 @@ func (backend *Backend) finishOwner(owner *primitive.Value) {
 		return
 	}
 
+	if owner.Status() == primitive.DONE && owner.SchedulingNext() != 0 && owner.SchedulingNext() != owner.ID() {
+		owner.ClearProgram()
+
+		return
+	}
+
 	owner.ClearProgram()
 	owner.SetSchedulingNext(0)
 
@@ -478,6 +307,16 @@ func (backend *Backend) finishOwner(owner *primitive.Value) {
 	case primitive.PENDING, primitive.READY, primitive.BUSY, primitive.WAITING:
 		owner.SetStatus(primitive.DONE)
 	}
+}
+
+func (backend *Backend) failOwner(owner *primitive.Value) {
+	if owner == nil {
+		return
+	}
+
+	owner.ClearProgram()
+	owner.SetSchedulingNext(0)
+	owner.SetStatus(primitive.ERROR)
 }
 
 /*
@@ -550,17 +389,7 @@ func (backend *Backend) executeSubstrate(
 		backend.StageInto(req.OwnerID, req.Value)
 	}
 
-	return spawned, err
-}
-
-func (backend *Backend) failOwner(owner *primitive.Value) {
-	if owner == nil {
-		return
-	}
-
-	owner.ClearProgram()
-	owner.SetSchedulingNext(0)
-	owner.SetStatus(primitive.ERROR)
+	return spawned, nil
 }
 
 func (state *substrateState) pressure() int64 {
@@ -589,6 +418,7 @@ func (state *substrateState) observe(elapsed time.Duration) {
 	for {
 		previous := state.serviceNanos.Load()
 		next := nanos
+
 		if previous > 0 {
 			next = ((previous * 7) + nanos) / 8
 		}
@@ -604,18 +434,13 @@ Close closes the Backend and all its substrates.
 */
 func (backend *Backend) Close() error {
 	errnie.Trace("compute.Backend.Close")
+
 	if backend == nil {
 		return nil
 	}
 
 	if backend.cancel != nil {
 		backend.cancel()
-	}
-
-	for _, queue := range backend.queues {
-		if queue != nil {
-			_ = queue.Close()
-		}
 	}
 
 	if backend.pool != nil {
@@ -627,6 +452,7 @@ func (backend *Backend) Close() error {
 			errnie.Error(err)
 		}
 	}
+
 	return nil
 }
 

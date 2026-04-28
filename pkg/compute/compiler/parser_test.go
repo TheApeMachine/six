@@ -422,6 +422,7 @@ func TestCompileReducers(t *testing.T) {
 program reducers {
   set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
   set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
+  set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
 }
 `
 
@@ -431,6 +432,7 @@ program reducers {
 
 			argmin := result.Words[0]
 			mode := result.Words[1]
+			zipf := result.Words[2]
 
 			So(argmin&0xF, ShouldEqual, OpReduceArgMinNonZero)
 			So(argmin>>57&1, ShouldEqual, 1)
@@ -440,6 +442,11 @@ program reducers {
 			So(mode>>46&0x7F, ShouldEqual, PropertyOffsets["community"])
 			So(mode>>57&1, ShouldEqual, 1)
 			So(mode>>61&1, ShouldEqual, 1)
+
+			So(zipf&0xF, ShouldEqual, OpReduceZipfSelect)
+			So(zipf>>46&0x7F, ShouldEqual, PropertyOffsets["temperature"])
+			So(zipf>>57&1, ShouldEqual, 1)
+			So(zipf>>61&1, ShouldEqual, 1)
 		})
 	})
 }
@@ -472,12 +479,90 @@ func BenchmarkCompileReducers(b *testing.B) {
 program reducers {
   set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
   set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
+  set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
 }
 `
 
 	for b.Loop() {
 		_, _ = Compile(source)
 	}
+}
+
+/*
+TestCompileIndirectOperands pins down the contract for `B.{{addr}}` /
+`{{addr}}` operands inside a gossip predicate: the parser must record
+one Substitution for the B-side LHS so InstallFirmware can patch the
+predicate instruction's bStart per Value, the predicate itself must
+land on TopoHypercubePerPeer so the kernel runs it per peer, and the
+body instructions inside the predicate must inherit that topology and
+read their mask from the per-peer scratch slot.
+*/
+func TestCompileIndirectOperands(t *testing.T) {
+	Convey("Given a gossip predicate with indirect operands", t, func() {
+		source := `
+program query {
+  gossip(B) {
+    (B.{{A.context[0,1]}} == {{A.context[1,1]}}) {
+      write B.properties.reference <- A.properties.reference
+      stage(B)
+    }
+  }
+}
+`
+
+		result, err := Compile(source)
+		So(err, ShouldBeNil)
+
+		predicateWord := result.Words[0]
+		bodyWord := result.Words[1]
+		stageWord := result.Words[2]
+
+		Convey("It should emit the predicate on TopoHypercubePerPeer", func() {
+			topology := (predicateWord >> 55) & 3
+			predicate := (predicateWord >> 57) & 1
+
+			So(topology, ShouldEqual, uint64(TopoHypercubePerPeer))
+			So(predicate, ShouldEqual, uint64(1))
+		})
+
+		Convey("It should record one substitution for the B-side LHS", func() {
+			lhsSubs := 0
+			for _, sub := range result.Substitutions {
+				if sub.PC == 0 && sub.FieldShift == SubstAStartShift {
+					lhsSubs++
+					So(sub.Addr, ShouldEqual, uint64(contextStart))
+				}
+			}
+
+			So(lhsSubs, ShouldEqual, 1)
+		})
+
+		Convey("It should point the threshold operand at A.context[1] without substitution", func() {
+			bStart := (predicateWord >> 18) & 0x7F
+			So(bStart, ShouldEqual, uint64(contextStart+1))
+		})
+
+		Convey("It should retarget the predicate result slot to the per-peer scratch word", func() {
+			dstStart := (predicateWord >> 32) & 0x7F
+			So(dstStart, ShouldEqual, uint64(PerPeerMaskWord))
+		})
+
+		Convey("It should emit the body write on TopoHypercubePerPeer with the per-peer mask", func() {
+			topology := (bodyWord >> 55) & 3
+			maskStart := (bodyWord >> 46) & 0x7F
+
+			So(topology, ShouldEqual, uint64(TopoHypercubePerPeer))
+			So(maskStart, ShouldEqual, uint64(PerPeerMaskWord))
+		})
+
+		Convey("It should emit stage(B) on TopoHypercubePerPeer", func() {
+			topology := (stageWord >> 55) & 3
+			stage := (stageWord >> 62) & 1
+
+			So(topology, ShouldEqual, uint64(TopoHypercubePerPeer))
+			So(stage, ShouldEqual, uint64(1))
+		})
+	})
 }
 
 func BenchmarkCompileRot8(b *testing.B) {

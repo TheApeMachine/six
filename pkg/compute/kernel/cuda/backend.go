@@ -29,6 +29,19 @@ int hypercube_gossip_cuda(
     uint8_t*                    spawn_active_host
 );
 
+int hypercube_gossip_v2_cuda(
+    int        device_id,
+    uint64_t*  value_frames_host,
+    uint8_t*   active_host,
+    uint32_t   value_count,
+    uint32_t   owner_index,
+    uint32_t*  stage_indices_host,
+    uint32_t*  stage_count_host,
+    uint64_t*  spawn_frames_host,
+    uint64_t*  spawn_ids_host,
+    uint8_t*   spawn_active_host
+);
+
 int geometric_cuda(
     int device_id,
     void* a_host,
@@ -43,7 +56,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/compute/program"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -115,16 +127,103 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		return nil, nil, nil
 	}
 
-	_ = value
-	_ = n
+	frames := make([]primitive.Value, n)
+	active := make([]uint8, n)
 
-	// The CUDA kernel was authored against the previous ALU's
-	// instruction format and predicate-spec uniform layout. The new
-	// inline-predicate ALU is incompatible with that kernel; until the
-	// .cu source is rewritten, surface a sentinel error so the
-	// orchestrator falls back to the CPU substrate.
-	return nil, nil, fmt.Errorf("cuda: substrate disabled pending kernel rewrite for new ALU")
+	for i, member := range community {
+		if member == nil {
+			continue
+		}
+
+		frames[i] = *member
+		active[i] = 1
+	}
+
+	ownerIndex := ^uint32(0)
+	if value != nil {
+		for idx, candidate := range community {
+			if candidate == value {
+				ownerIndex = uint32(idx)
+				break
+			}
+		}
+	}
+
+	stageIndices := make([]uint32, n)
+	var stageCount uint32
+
+	spawnValues, spawnFrames, spawnIDs := cudaSpawnBuffers(value, community)
+	spawnActive := make([]uint8, n)
+
+	res := C.hypercube_gossip_v2_cuda(
+		C.int(backend.deviceIdx),
+		(*C.uint64_t)(unsafe.Pointer(&frames[0])),
+		(*C.uint8_t)(unsafe.Pointer(&active[0])),
+		C.uint32_t(n),
+		C.uint32_t(ownerIndex),
+		(*C.uint32_t)(unsafe.Pointer(&stageIndices[0])),
+		(*C.uint32_t)(unsafe.Pointer(&stageCount)),
+		(*C.uint64_t)(unsafe.Pointer(&spawnFrames[0])),
+		(*C.uint64_t)(unsafe.Pointer(&spawnIDs[0])),
+		(*C.uint8_t)(unsafe.Pointer(&spawnActive[0])),
+	)
+	if res != 0 {
+		primitive.CloseAll(spawnValues)
+		return nil, nil, fmt.Errorf("cuda: hypercube_gossip_v2_cuda failed with code %d", int(res))
+	}
+
+	for idx, member := range community {
+		if member == nil {
+			continue
+		}
+
+		*member = frames[idx]
+	}
+
+	// Translate kernel-side index requests into Value-pointer pairs the
+	// compute backend can hand to StageInto. The owner's reference word
+	// names the staging lane.
+	var staged []kernel.StageRequest
+	if stageCount > 0 && value != nil {
+		ownerRef := uint64((*[128]uint64)(unsafe.Pointer(value))[ReferenceWord])
+
+		staged = make([]kernel.StageRequest, 0, stageCount)
+		for idx := uint32(0); idx < stageCount && idx < uint32(n); idx++ {
+			peerIdx := stageIndices[idx]
+			if int(peerIdx) >= n || community[peerIdx] == nil {
+				continue
+			}
+
+			staged = append(staged, kernel.StageRequest{
+				OwnerID: ownerRef,
+				Value:   community[peerIdx],
+			})
+		}
+	}
+
+	var spawned []*primitive.Value
+	for idx, child := range spawnValues {
+		if child == nil {
+			continue
+		}
+
+		if idx < len(spawnActive) && spawnActive[idx] != 0 {
+			*child = spawnFrames[idx]
+			spawned = append(spawned, child)
+			continue
+		}
+
+		child.Close()
+		spawnValues[idx] = nil
+	}
+
+	return spawned, staged, nil
 }
+
+// ReferenceWord mirrors the absolute frame word for the REFERENCE
+// property (propertiesStart + REFERENCE offset). Hardcoded to keep this
+// file standalone — the canonical source is pkg/primitive/properties.go.
+const ReferenceWord = 67
 
 // HypercubeGossipLegacy preserves the original CUDA dispatch path so
 // the kernel can be reactivated once the .cu kernel is rewritten for

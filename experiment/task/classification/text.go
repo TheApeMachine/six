@@ -48,13 +48,11 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			huggingface.DatasetWithSplit("test"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
-			huggingface.DatasetWithLabelAppend(agNewsLabels),
 			// ag_news ships labels in [1, 4] (1=World, 2=Sports, 3=Business,
 			// 4=Sci/Tech). Declare the origin so the streaming layer
-			// normalizes to [0, 3] internally and TrueLabel ends up
-			// referring to the same offsets agNewsLabels uses.
-			// We MUST NOT map these to 0-3 because 0 is the "unlabeled" slot in the substrate!
-			// We keep the original 1-based labels.
+			// normalizes to [0, 3] internally; the substrate then re-shifts
+			// to 1-indexed when writing the LABELS property word so slot
+			// value 0 stays reserved as the unlabeled sentinel.
 			huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(

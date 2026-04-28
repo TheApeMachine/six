@@ -150,80 +150,66 @@ func (machine *Machine) Error() string {
 }
 
 /*
-Cycle is a dumb scheduler: it submits every Value whose program is READY
-against the staging lane its program (or another program upstream) wrote
-into the backend, syncs, and repeats until no Value is left to dispatch.
-The host makes no decisions about what goes where — programs do, by
-emitting stage instructions inside the kernel.
+Cycle submits READY Values against the staging lanes their programs wrote into
+the backend, syncs, and repeats until no Value is left to dispatch.
+
+Submissions that touch disjoint owner/lane frame sets run together. Overlapping
+sets are split across batches so two kernels never mutate the same Value frame
+at the same time.
 */
 func (machine *Machine) Cycle() (err error) {
 	if machine.backend == nil {
 		return nil
 	}
 
-	for {
-		select {
-		case <-machine.ctx.Done():
-			return machine.ctx.Err()
-		default:
+	machine.wakeWaiting()
+
+	machine.community.Range(func(key, value any) bool {
+		if value.(*primitive.Value).Status() == primitive.READY {
+			io.Copy(machine.telemetry, value.(*primitive.Value))
+			machine.backend.Submit(value.(*primitive.Value))
 		}
 
-		submitted := 0
+		return true
+	})
 
-		type submission struct {
-			owner *primitive.Value
-			lane  []*primitive.Value
-		}
-
-		var submissions []submission
-
-		machine.community.Range(func(key, value any) bool {
-			owner := value.(*primitive.Value)
-
-			if !owner.ReadyForALU() {
-				return true
-			}
-
-			lane := machine.backend.Lane(owner)
-			if len(lane) == 0 {
-				return true
-			}
-
-			if err = machine.backend.Submit(owner, lane); err != nil {
-				return false
-			}
-
-			submissions = append(submissions, submission{owner: owner, lane: lane})
-			submitted++
-			return true
-		})
-
-		if err != nil {
-			return err
-		}
-
-		if submitted == 0 {
-			return nil
-		}
-
-		for spawned := range machine.backend.Sync(machine.ctx) {
-			machine.community.Store(spawned.ID(), spawned)
-			io.Copy(machine.telemetry, spawned)
-		}
-
-		// Emit telemetry for every submitted owner and every member of
-		// the lane it just consumed: gossip writes mutate peer frames
-		// (community markers, affinity merges, status flags) so the
-		// visualiser only sees community membership form if those peers
-		// re-publish after the sweep.
-		for _, sub := range submissions {
-			io.Copy(machine.telemetry, sub.owner)
-
-			for _, peer := range sub.lane {
-				io.Copy(machine.telemetry, peer)
-			}
-		}
+	for value := range machine.backend.Sync(machine.ctx) {
+		machine.community.Store(value.ID(), value)
+		io.Copy(machine.telemetry, value)
 	}
+
+	return errors.Join(machine.err, errnie.Error(err))
+}
+
+/*
+wakeWaiting flips WAITING values whose id is the continuation target of
+some DONE value into READY. This is the in-band handshake firmware uses
+to chain stages: a query Value runs, stamps the recruiter's id into its
+own continuation when it finishes, and the next Cycle pass sees "this
+DONE Value points at WAITING Value X — wake X so the next submission
+sweep picks it up". A self-pointing continuation is the "re-run me"
+signal handled inside backend.finishOwner; it never wakes another
+value.
+*/
+func (machine *Machine) wakeWaiting() {
+	machine.community.Range(func(_, value any) bool {
+		owner := value.(*primitive.Value)
+
+		if owner.Status() != primitive.DONE {
+			return true
+		}
+
+		next, ok := machine.community.Load(owner.SchedulingNext())
+
+		if !ok {
+			return true
+		}
+
+		next.(*primitive.Value).SetStatus(primitive.READY)
+		io.Copy(machine.telemetry, next.(*primitive.Value))
+
+		return true
+	})
 }
 
 /*
@@ -239,7 +225,9 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 	}
 
 	if machine.telemetry != nil {
-		_ = machine.telemetry.BeginRun()
+		if err := machine.telemetry.BeginRun(); err != nil {
+			return errors.Join(machine.err, errnie.Error(err))
+		}
 	}
 
 	var loaded []*primitive.Value
@@ -262,17 +250,28 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 	recruiter := primitive.Emit(
 		primitive.WithFirmware(core.RECRUIT_COMMUNITY),
+		primitive.WithStatus(uint64(primitive.WAITING)),
 	)
 
+	// The query firmware filters peers via `B.{{A.context[0,1]}} ==
+	// {{A.context[1,1]}}`. WithContext writes the operand offset and
+	// comparison literal BEFORE WithFirmware so InstallFirmware can
+	// patch the predicate's packed instruction with the resolved
+	// offset. For bootstrap recruitment we want B.properties.community
+	// (absolute word = propertiesStart + COMMUNITY offset) compared
+	// against 0 (the unclaimed sentinel).
+	communityWord := uint64(core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY))
+
 	query := primitive.Emit(
-		primitive.WithFirmware(core.QUERY),
 		primitive.WithReference(recruiter.ID()),
+		primitive.WithContext(0, communityWord),
+		primitive.WithContext(1, 0),
+		primitive.WithFirmware(core.QUERY),
+		primitive.WithStatus(uint64(primitive.READY)),
 	)
 
 	machine.community.Store(recruiter.ID(), recruiter)
 	machine.community.Store(query.ID(), query)
-	io.Copy(machine.telemetry, recruiter)
-	io.Copy(machine.telemetry, query)
 
 	for _, segment := range loaded {
 		machine.backend.StageInto(query.ID(), segment)
@@ -292,59 +291,30 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 		return nil, errors.Join(machine.err, errnie.Error(err))
 	}
 
-	var community []*primitive.Value
-	settled := make(map[uint64]struct{})
+	resolved = make([]*primitive.Value, 0)
+	done := false
 
-	machine.community.Range(func(key, value any) bool {
-		member := value.(*primitive.Value)
-
-		switch member.Status() {
-		case primitive.RESOLVED, primitive.DONE:
-			settled[member.ID()] = struct{}{}
-		}
-
-		if member.Role() != primitive.ValueRolePrompt {
-			community = append(community, member)
-		}
-
-		return true
-	})
-
-	for _, value := range values {
-		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
-		machine.community.Store(value.ID(), value)
-	}
-
-	for _, value := range values {
-		if !value.ReadyForALU() {
-			continue
-		}
-
-		for _, prompt := range values {
-			machine.backend.StageInto(value.ID(), prompt)
-		}
-
-		for _, member := range community {
-			machine.backend.StageInto(value.ID(), member)
-		}
-	}
-
-	if err = machine.Cycle(); err != nil {
-		return nil, err
-	}
-
-	machine.community.Range(func(key, value any) bool {
-		member := value.(*primitive.Value)
-		switch member.Status() {
-		case primitive.RESOLVED, primitive.DONE:
-			if _, ok := settled[member.ID()]; ok {
-				return true
+	for !done {
+		select {
+		case <-machine.ctx.Done():
+			return nil, machine.ctx.Err()
+		default:
+			if err := machine.Cycle(); err != nil {
+				return nil, err
 			}
 
-			resolved = append(resolved, member)
+			// Check for resolved values
+			for _, value := range values {
+				if value.Status() == primitive.RESOLVED {
+					resolved = append(resolved, value)
+				}
+			}
+
+			if len(resolved) == len(values) {
+				done = true
+			}
 		}
-		return true
-	})
+	}
 
 	return resolved, nil
 }

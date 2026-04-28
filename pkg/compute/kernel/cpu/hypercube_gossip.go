@@ -50,9 +50,27 @@ func (backend *Backend) HypercubeGossip(
 	communitySize := uint64(len(community))
 	dimCount := uint64(bits.Len64(communitySize - 1))
 
-	stageIdx := backend.executeKernelGo(
-		ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
-	)
+	// Dispatcher: programs that use only features the asm fast path
+	// supports today take the asm executeKernel; anything else (the
+	// remaining gates in programAsmCompatible) falls through to
+	// executeKernelGo. As asm grows to cover more features, the
+	// compatibility predicate shrinks.
+	var stageIdx []uint64
+
+	if programAsmCompatible(ownerFrame) {
+		var stageBuf [128]uint64
+		var stageCount uint64
+		executeKernel(backend, ownerFrame, ownerIdx, communityFrames, communitySize, dimCount, &stageBuf, &stageCount)
+
+		if stageCount > 0 {
+			stageIdx = make([]uint64, stageCount)
+			copy(stageIdx, stageBuf[:stageCount])
+		}
+	} else {
+		stageIdx = backend.executeKernelGo(
+			ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
+		)
+	}
 
 	// Translate kernel-side index requests into Value-pointer pairs the
 	// compute backend can hand to StageInto.

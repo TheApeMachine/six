@@ -167,11 +167,12 @@ before dispatch so the predicate primitive's threshold reads return the
 expected literal.
 */
 type ProgramConfig struct {
-	Name         string
-	Source       string
-	Words        []uint64
-	Constants    []program.ConstantInit
-	MaskTrueWord uint64
+	Name          string
+	Source        string
+	Words         []uint64
+	Constants     []program.ConstantInit
+	Substitutions []program.Substitution
+	MaskTrueWord  uint64
 }
 
 /*
@@ -502,11 +503,12 @@ func precompile(value ValueConfig, system SystemConfig) map[FirmwareType]Program
 		}
 
 		out[ft] = ProgramConfig{
-			Name:         name,
-			Source:       source,
-			Words:        compiled.Words,
-			Constants:    compiled.Constants,
-			MaskTrueWord: compiled.MaskTrueWord,
+			Name:          name,
+			Source:        source,
+			Words:         compiled.Words,
+			Constants:     compiled.Constants,
+			Substitutions: compiled.Substitutions,
+			MaskTrueWord:  compiled.MaskTrueWord,
 		}
 	}
 

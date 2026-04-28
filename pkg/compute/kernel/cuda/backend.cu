@@ -802,6 +802,622 @@ static int ensure_gossip_pool(uint32_t value_count) {
     return 0;
 }
 
+/*
+hypercube_gossip_v2_kernel mirrors pkg/compute/kernel/cpu/hypercube_gossip_go_kernel.go
+and pkg/compute/kernel/metal/backend.metal:hypercube_gossip_kernel. The
+new ALU's instruction format is decoded inline, supports the four
+topologies (Local, Pop, Hypercube, HypercubePerPeer), per-peer
+predicate evaluation under HypercubePerPeer, per-peer mask gating in
+the broadcast write, and per-peer stage selection. spawned children
+are surfaced via the spawn-register word; the host post-processes that
+into spawn_frames / spawn_ids the same way the CPU and Metal paths do.
+
+Keep this kernel byte-compatible with the Go reference: the kernel-host
+contract for stage_indices / stage_count / spawn_register is identical
+across substrates so the backend selector can fall over freely.
+*/
+
+#define HG_V2_TOPO_LOCAL              0u
+#define HG_V2_TOPO_POP                1u
+#define HG_V2_TOPO_HYPERCUBE          2u
+#define HG_V2_TOPO_HYPERCUBE_PER_PEER 3u
+
+#define HG_V2_PRED_LT             0u
+#define HG_V2_PRED_LE             1u
+#define HG_V2_PRED_GT             2u
+#define HG_V2_PRED_GE             3u
+#define HG_V2_PRED_EQ             4u
+#define HG_V2_PRED_NE             5u
+#define HG_V2_PRED_STORE_POPCNT   6u
+#define HG_V2_PRED_ANY_ZERO       7u
+#define HG_V2_REDUCE_ARGMIN       1ull
+#define HG_V2_REDUCE_MODE_EQ      2ull
+#define HG_V2_REDUCE_ZIPF_SELECT  3ull
+#define HG_V2_MODE_TABLE_SIZE     1024u
+#define HG_V2_ZIPF_WEIGHT_SCALE   281474976710656ull
+#define HG_V2_ZIPF_ID_WORD        122u
+#define HG_V2_ZIPF_EPOCH_WORD     58u
+#define HG_V2_ZIPF_COMMUNITY_WORD 64u
+#define HG_V2_ZIPF_SURPRISAL_WORD 68u
+
+static __device__ __forceinline__ uint64_t hg_v2_rotated_word(
+    uint64_t* frame, uint32_t start, uint32_t span, uint32_t lane, uint32_t rotate
+) {
+    uint32_t idx = lane % span;
+    uint64_t word = frame[(start + idx) & 127u];
+    if (rotate == 0u) return word;
+    uint32_t shift = rotate * 8u;
+    uint64_t next = frame[(start + ((idx + 1u) % span)) & 127u];
+    return (word >> shift) | (next << (64u - shift));
+}
+
+static __device__ __forceinline__ uint64_t hg_v2_popcount_span(
+    uint64_t* frame, uint32_t start, uint32_t span
+) {
+    uint64_t total = 0;
+    for (uint32_t lane = 0; lane < span; lane++) {
+        total += (uint64_t)__popcll(frame[(start + lane) & 127u]);
+    }
+    return total;
+}
+
+static __device__ __forceinline__ void hg_v2_reduce_argmin(
+    uint64_t* owner,
+    uint64_t* arena,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t value_start,
+    uint32_t key_start,
+    uint32_t dst_start,
+    uint32_t guard_start
+) {
+    if (owner == nullptr || value_count == 0u || owner[guard_start & 127u] == 0ull) return;
+
+    uint64_t best_value = 0ull;
+    uint64_t best_key = ~0ull;
+
+    for (uint32_t idx = 0; idx < value_count; idx++) {
+        if (active[idx] == 0) continue;
+
+        uint64_t* peer = arena + (size_t)idx * WORDS;
+        uint64_t value = peer[value_start & 127u];
+        if (value == 0ull) continue;
+
+        uint64_t key = peer[key_start & 127u];
+        if (key >= best_key) continue;
+
+        best_key = key;
+        best_value = value;
+    }
+
+    if (best_value != 0ull) owner[dst_start & 127u] = best_value;
+}
+
+static __device__ __forceinline__ void hg_v2_reduce_mode_eq(
+    uint64_t* owner,
+    uint64_t* arena,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t value_start,
+    uint32_t key_start,
+    uint32_t dst_start,
+    uint32_t match_start
+) {
+    if (owner == nullptr || value_count == 0u) return;
+
+    uint64_t match = owner[match_start & 127u];
+    if (match == 0ull) return;
+
+    uint8_t used[HG_V2_MODE_TABLE_SIZE];
+    uint64_t keys[HG_V2_MODE_TABLE_SIZE];
+    uint32_t counts[HG_V2_MODE_TABLE_SIZE];
+    uint32_t first_seen[HG_V2_MODE_TABLE_SIZE];
+
+    for (uint32_t slot = 0; slot < HG_V2_MODE_TABLE_SIZE; slot++) {
+        used[slot] = 0u;
+        keys[slot] = 0ull;
+        counts[slot] = 0u;
+        first_seen[slot] = 0xFFFFFFFFu;
+    }
+
+    uint32_t seen = 0u;
+    for (uint32_t idx = 0; idx < value_count; idx++) {
+        if (active[idx] == 0) continue;
+
+        uint64_t* peer = arena + (size_t)idx * WORDS;
+        if (peer[key_start & 127u] != match) continue;
+
+        uint64_t value = peer[value_start & 127u];
+        if (value == 0ull) continue;
+
+        uint32_t slot = (uint32_t)((value ^ (value >> 32ull)) & (uint64_t)(HG_V2_MODE_TABLE_SIZE - 1u));
+        for (uint32_t probe = 0u; probe < HG_V2_MODE_TABLE_SIZE; probe++) {
+            if (used[slot] == 0u) {
+                used[slot] = 1u;
+                keys[slot] = value;
+                counts[slot] = 1u;
+                first_seen[slot] = seen;
+                break;
+            }
+
+            if (keys[slot] == value) {
+                counts[slot]++;
+                break;
+            }
+
+            slot = (slot + 1u) & (HG_V2_MODE_TABLE_SIZE - 1u);
+        }
+
+        seen++;
+    }
+
+    uint64_t best_value = 0ull;
+    uint32_t best_count = 0u;
+    uint32_t best_order = 0xFFFFFFFFu;
+
+    for (uint32_t slot = 0; slot < HG_V2_MODE_TABLE_SIZE; slot++) {
+        if (used[slot] == 0u) continue;
+        if (counts[slot] < best_count) continue;
+        if (counts[slot] == best_count && first_seen[slot] >= best_order) continue;
+
+        best_count = counts[slot];
+        best_order = first_seen[slot];
+        best_value = keys[slot];
+    }
+
+    if (best_value != 0ull) owner[dst_start & 127u] = best_value;
+}
+
+static __device__ __forceinline__ uint32_t hg_v2_zipf_power(uint64_t temperature) {
+    if (temperature >= 1024ull) return 0u;
+    if (temperature >= 512ull) return 1u;
+    if (temperature >= 256ull) return 2u;
+    if (temperature >= 128ull) return 3u;
+    return 4u;
+}
+
+static __device__ __forceinline__ uint64_t hg_v2_zipf_weight(uint32_t rank, uint32_t power) {
+    if (rank == 0u) return 0ull;
+    if (power == 0u) return 1ull;
+
+    uint64_t weight = HG_V2_ZIPF_WEIGHT_SCALE;
+    uint64_t divisor = (uint64_t)rank;
+
+    for (uint32_t idx = 0u; idx < power; idx++) {
+        weight /= divisor;
+        if (weight == 0ull) return 1ull;
+    }
+
+    return weight == 0ull ? 1ull : weight;
+}
+
+static __device__ __forceinline__ uint64_t hg_v2_zipf_rotl(uint64_t value, uint32_t shift) {
+    return (value << shift) | (value >> (64u - shift));
+}
+
+static __device__ __forceinline__ uint64_t hg_v2_zipf_mix(uint64_t seed) {
+    seed += 0x9e3779b97f4a7c15ull;
+    seed = (seed ^ (seed >> 30u)) * 0xbf58476d1ce4e5b9ull;
+    seed = (seed ^ (seed >> 27u)) * 0x94d049bb133111ebull;
+    return seed ^ (seed >> 31u);
+}
+
+static __device__ __forceinline__ uint64_t hg_v2_zipf_seed(
+    uint64_t* owner, uint32_t count, uint64_t best_utility
+) {
+    uint64_t seed = owner[HG_V2_ZIPF_ID_WORD] ^
+        hg_v2_zipf_rotl(owner[HG_V2_ZIPF_EPOCH_WORD], 17u) ^
+        hg_v2_zipf_rotl(owner[HG_V2_ZIPF_COMMUNITY_WORD], 31u) ^
+        hg_v2_zipf_rotl(owner[HG_V2_ZIPF_SURPRISAL_WORD], 7u) ^
+        hg_v2_zipf_rotl(best_utility, 43u) ^
+        (uint64_t)count;
+
+    return hg_v2_zipf_mix(seed);
+}
+
+static __device__ __forceinline__ uint32_t hg_v2_zipf_candidate_count(
+    uint64_t* arena, const uint8_t* active, uint32_t value_count, uint32_t value_start
+) {
+    uint32_t count = 0u;
+
+    for (uint32_t idx = 0u; idx < value_count; idx++) {
+        if (active[idx] == 0) continue;
+
+        uint64_t* peer = arena + (size_t)idx * WORDS;
+        if (peer[value_start & 127u] == 0ull) continue;
+
+        count++;
+    }
+
+    return count;
+}
+
+static __device__ __forceinline__ bool hg_v2_zipf_best(
+    uint64_t* arena,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t value_start,
+    uint32_t utility_start,
+    uint64_t* best_value,
+    uint64_t* best_utility
+) {
+    uint32_t best_index = 0u;
+    bool found = false;
+    *best_value = 0ull;
+    *best_utility = 0ull;
+
+    for (uint32_t idx = 0u; idx < value_count; idx++) {
+        if (active[idx] == 0) continue;
+
+        uint64_t* peer = arena + (size_t)idx * WORDS;
+        uint64_t value = peer[value_start & 127u];
+        if (value == 0ull) continue;
+
+        uint64_t utility = peer[utility_start & 127u];
+        if (found && (utility < *best_utility || (utility == *best_utility && idx >= best_index))) continue;
+
+        *best_value = value;
+        *best_utility = utility;
+        best_index = idx;
+        found = true;
+    }
+
+    return found;
+}
+
+static __device__ __forceinline__ uint64_t hg_v2_zipf_candidate_at_rank(
+    uint64_t* arena,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t value_start,
+    uint32_t utility_start,
+    uint32_t target_rank
+) {
+    for (uint32_t idx = 0u; idx < value_count; idx++) {
+        if (active[idx] == 0) continue;
+
+        uint64_t* peer = arena + (size_t)idx * WORDS;
+        uint64_t value = peer[value_start & 127u];
+        if (value == 0ull) continue;
+
+        uint64_t utility = peer[utility_start & 127u];
+        uint32_t rank = 1u;
+
+        for (uint32_t other_idx = 0u; other_idx < value_count; other_idx++) {
+            if (other_idx == idx || active[other_idx] == 0) continue;
+
+            uint64_t* other = arena + (size_t)other_idx * WORDS;
+            if (other[value_start & 127u] == 0ull) continue;
+
+            uint64_t other_utility = other[utility_start & 127u];
+            if (other_utility > utility || (other_utility == utility && other_idx < idx)) {
+                rank++;
+            }
+        }
+
+        if (rank == target_rank) return value;
+    }
+
+    return 0ull;
+}
+
+static __device__ __forceinline__ void hg_v2_reduce_zipf_select(
+    uint64_t* owner,
+    uint64_t* arena,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t value_start,
+    uint32_t utility_start,
+    uint32_t dst_start,
+    uint32_t temperature_start
+) {
+    if (owner == nullptr || value_count == 0u) return;
+
+    uint32_t count = hg_v2_zipf_candidate_count(arena, active, value_count, value_start);
+    if (count == 0u) return;
+
+    uint64_t best_value = 0ull;
+    uint64_t best_utility = 0ull;
+    if (!hg_v2_zipf_best(arena, active, value_count, value_start, utility_start, &best_value, &best_utility)) return;
+
+    uint64_t temperature = owner[temperature_start & 127u];
+    if (temperature == 0ull || count == 1u) {
+        owner[dst_start & 127u] = best_value;
+        return;
+    }
+
+    uint32_t power = hg_v2_zipf_power(temperature);
+    uint64_t total = 0ull;
+    for (uint32_t rank = 1u; rank <= count; rank++) {
+        total += hg_v2_zipf_weight(rank, power);
+    }
+
+    if (total == 0ull) {
+        owner[dst_start & 127u] = best_value;
+        return;
+    }
+
+    uint64_t ticket = hg_v2_zipf_seed(owner, count, best_utility) % total;
+    uint64_t running = 0ull;
+
+    for (uint32_t rank = 1u; rank <= count; rank++) {
+        running += hg_v2_zipf_weight(rank, power);
+        if (ticket >= running) continue;
+
+        uint64_t selected = hg_v2_zipf_candidate_at_rank(arena, active, value_count, value_start, utility_start, rank);
+        owner[dst_start & 127u] = selected == 0ull ? best_value : selected;
+        return;
+    }
+
+    uint64_t selected = hg_v2_zipf_candidate_at_rank(arena, active, value_count, value_start, utility_start, count);
+    owner[dst_start & 127u] = selected == 0ull ? best_value : selected;
+}
+
+__global__ void hypercube_gossip_v2_kernel(
+    uint64_t* arena,
+    const uint8_t* active,
+    uint32_t value_count,
+    uint32_t owner_index,
+    uint32_t* stage_indices,
+    uint32_t* stage_count
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    uint64_t* owner = arena + (size_t)owner_index * WORDS;
+    if (owner_index == 0xFFFFFFFFu) {
+        // Sentinel owner: the orchestrator passes the owner separately from
+        // the community arena. We expect arena slot 0 to hold the owner in
+        // that case but the production wrapper always loads the owner
+        // explicitly, so this branch is only a safety pin for malformed
+        // launches.
+        return;
+    }
+
+    if (stage_count != nullptr) stage_count[0] = 0u;
+
+    uint32_t b_queue_idx = 0u;
+    uint32_t current_b_idx = 0u;
+    uint64_t* current_b = nullptr;
+    uint32_t pop_body_start = 0u;
+    bool pop_active = false;
+
+    for (uint32_t pc = 0; pc < PROGRAM_WORDS; pc++) {
+        uint64_t raw = owner[PROGRAM_START_WORD + pc];
+        if (raw == 0ull) continue;
+
+        uint64_t opcode = raw & 0xFull;
+        uint32_t a_start  = (uint32_t)((raw >> 4ull)  & 0x7Full);
+        uint32_t a_span   = (uint32_t)(((raw >> 11ull) & 0x7Full) + 1ull);
+        uint32_t b_start  = (uint32_t)((raw >> 18ull) & 0x7Full);
+        uint32_t b_span   = (uint32_t)(((raw >> 25ull) & 0x7Full) + 1ull);
+        uint32_t dst_start = (uint32_t)((raw >> 32ull) & 0x7Full);
+        uint32_t dst_span  = (uint32_t)(((raw >> 39ull) & 0x7Full) + 1ull);
+        uint32_t mask_start = (uint32_t)((raw >> 46ull) & 0x7Full);
+
+        uint64_t target_b   = (raw >> 53ull) & 1ull;
+        uint64_t emit_flag  = (raw >> 54ull) & 1ull;
+        uint32_t topology   = (uint32_t)((raw >> 55ull) & 3ull);
+        uint64_t predicate  = (raw >> 57ull) & 1ull;
+        uint64_t pred_cond  = (raw >> 58ull) & 7ull;
+        uint64_t b_rotate   = pred_cond;
+        uint64_t src_a_from_b = (raw >> 61ull) & 1ull;
+        uint64_t stage_bit  = (raw >> 62ull) & 1ull;
+        uint64_t pop_end    = (raw >> 63ull) & 1ull;
+
+        if (predicate == 1ull) {
+            if (opcode == HG_V2_REDUCE_ARGMIN) {
+                hg_v2_reduce_argmin(owner, arena, active, value_count, a_start, b_start, dst_start, mask_start);
+                continue;
+            }
+
+            if (opcode == HG_V2_REDUCE_MODE_EQ) {
+                hg_v2_reduce_mode_eq(owner, arena, active, value_count, a_start, b_start, dst_start, mask_start);
+                continue;
+            }
+
+            if (opcode == HG_V2_REDUCE_ZIPF_SELECT) {
+                hg_v2_reduce_zipf_select(owner, arena, active, value_count, a_start, b_start, dst_start, mask_start);
+                continue;
+            }
+        }
+
+        if (topology == HG_V2_TOPO_POP && b_queue_idx < value_count) {
+            // Find next active community frame.
+            while (b_queue_idx < value_count && active[b_queue_idx] == 0) b_queue_idx++;
+            if (b_queue_idx < value_count) {
+                current_b = arena + (size_t)b_queue_idx * WORDS;
+                current_b_idx = b_queue_idx;
+                b_queue_idx++;
+                pop_body_start = pc + 1u;
+                pop_active = true;
+            }
+        }
+
+        if (stage_bit == 1ull) {
+            if (topology == HG_V2_TOPO_HYPERCUBE_PER_PEER && value_count > 0u && stage_indices != nullptr && stage_count != nullptr) {
+                for (uint32_t k = 0; k < value_count; k++) {
+                    if (k == owner_index || active[k] == 0) continue;
+                    uint64_t* peer = arena + (size_t)k * WORDS;
+                    if (peer[mask_start & 127u] == 0ull) continue;
+                    uint32_t out_idx = stage_count[0];
+                    if (out_idx >= value_count) break;
+                    stage_indices[out_idx] = k;
+                    stage_count[0] = out_idx + 1u;
+                }
+            } else if (current_b != nullptr && stage_indices != nullptr && stage_count != nullptr) {
+                uint32_t out_idx = stage_count[0];
+                if (out_idx < value_count) {
+                    stage_indices[out_idx] = current_b_idx;
+                    stage_count[0] = out_idx + 1u;
+                }
+            }
+
+            if (pop_end == 1ull && pop_active) {
+                while (b_queue_idx < value_count && active[b_queue_idx] == 0) b_queue_idx++;
+                if (b_queue_idx < value_count) {
+                    current_b = arena + (size_t)b_queue_idx * WORDS;
+                    current_b_idx = b_queue_idx;
+                    b_queue_idx++;
+                    pc = pop_body_start - 1u;
+                    continue;
+                }
+                pop_active = false;
+            }
+
+            continue;
+        }
+
+        // Per-peer predicate (TopoHypercubePerPeer): evaluate per peer,
+        // write per-peer mask into peer[dst_start].
+        if (predicate == 1ull && topology == HG_V2_TOPO_HYPERCUBE_PER_PEER && value_count > 0u) {
+            uint64_t threshold = owner[b_start & 127u];
+            for (uint32_t k = 0; k < value_count; k++) {
+                if (k == owner_index || active[k] == 0) continue;
+                uint64_t* peer = arena + (size_t)k * WORDS;
+                uint64_t* witness_src = (src_a_from_b == 1ull) ? peer : owner;
+                uint64_t per_pop = hg_v2_popcount_span(witness_src, a_start, a_span);
+                uint64_t witness = (a_span == 1u) ? witness_src[a_start & 127u] : per_pop;
+
+                bool hit = false;
+                switch (pred_cond) {
+                    case HG_V2_PRED_LT: hit = witness <  threshold; break;
+                    case HG_V2_PRED_LE: hit = witness <= threshold; break;
+                    case HG_V2_PRED_GT: hit = witness >  threshold; break;
+                    case HG_V2_PRED_GE: hit = witness >= threshold; break;
+                    case HG_V2_PRED_EQ: hit = witness == threshold; break;
+                    case HG_V2_PRED_NE: hit = witness != threshold; break;
+                    default: hit = false; break;
+                }
+
+                peer[dst_start & 127u] = hit ? ~0ull : 0ull;
+            }
+            continue;
+        }
+
+        // Pointer setup for single-peer / owner-side paths.
+        uint64_t* ptr_b = current_b;
+        if (topology == HG_V2_TOPO_HYPERCUBE && value_count > 0u && owner_index != 0xFFFFFFFFu) {
+            uint32_t peer_idx = owner_index ^ 1u;
+            if (peer_idx < value_count && active[peer_idx] != 0) {
+                ptr_b = arena + (size_t)peer_idx * WORDS;
+            }
+        }
+        if (ptr_b == nullptr) ptr_b = owner;
+
+        uint64_t* ptr_a = (src_a_from_b == 1ull) ? ptr_b : owner;
+        uint64_t* ptr_dst = (target_b == 1ull) ? ptr_b : owner;
+
+        if (predicate == 1ull) {
+            uint64_t guard = owner[mask_start & 127u];
+            uint64_t pop = hg_v2_popcount_span(ptr_a, a_start, a_span);
+
+            if (pred_cond == HG_V2_PRED_STORE_POPCNT) {
+                uint32_t dst_idx = dst_start & 127u;
+                uint64_t prev_dst = ptr_dst[dst_idx];
+                ptr_dst[dst_idx] = (pop & guard) | (prev_dst & ~guard);
+            } else if (pred_cond == HG_V2_PRED_ANY_ZERO) {
+                bool zero_seen = false;
+                for (uint32_t lane = 0; lane < a_span; lane++) {
+                    if (ptr_a[(a_start + lane) & 127u] == 0ull) { zero_seen = true; break; }
+                }
+                uint64_t result = zero_seen ? ~0ull : 0ull;
+                uint32_t dst_idx = dst_start & 127u;
+                uint64_t prev_dst = ptr_dst[dst_idx];
+                ptr_dst[dst_idx] = (result & guard) | (prev_dst & ~guard);
+            } else {
+                uint64_t threshold = owner[b_start & 127u];
+                uint64_t witness = (a_span == 1u) ? ptr_a[a_start & 127u] : pop;
+                bool hit = false;
+                switch (pred_cond) {
+                    case HG_V2_PRED_LT: hit = witness <  threshold; break;
+                    case HG_V2_PRED_LE: hit = witness <= threshold; break;
+                    case HG_V2_PRED_GT: hit = witness >  threshold; break;
+                    case HG_V2_PRED_GE: hit = witness >= threshold; break;
+                    case HG_V2_PRED_EQ: hit = witness == threshold; break;
+                    case HG_V2_PRED_NE: hit = witness != threshold; break;
+                    default: hit = false; break;
+                }
+                ptr_dst[dst_start & 127u] = (hit ? ~0ull : 0ull) & guard;
+            }
+
+            if (pop_end == 1ull && pop_active) {
+                while (b_queue_idx < value_count && active[b_queue_idx] == 0) b_queue_idx++;
+                if (b_queue_idx < value_count) {
+                    current_b = arena + (size_t)b_queue_idx * WORDS;
+                    current_b_idx = b_queue_idx;
+                    b_queue_idx++;
+                    pc = pop_body_start - 1u;
+                    continue;
+                }
+                pop_active = false;
+            }
+
+            continue;
+        }
+
+        // Truth-table broadcast.
+        uint64_t mask = owner[mask_start & 127u];
+        uint64_t m0 = ((opcode >> 0) & 1ull) ? ~0ull : 0ull;
+        uint64_t m1 = ((opcode >> 1) & 1ull) ? ~0ull : 0ull;
+        uint64_t m2 = ((opcode >> 2) & 1ull) ? ~0ull : 0ull;
+        uint64_t m3 = ((opcode >> 3) & 1ull) ? ~0ull : 0ull;
+
+        bool hypercube = (topology == HG_V2_TOPO_HYPERCUBE || topology == HG_V2_TOPO_HYPERCUBE_PER_PEER) && value_count > 0u;
+        bool per_peer_mask = topology == HG_V2_TOPO_HYPERCUBE_PER_PEER;
+
+        if (hypercube && target_b == 1ull) {
+            for (uint32_t k = 0; k < value_count; k++) {
+                if (k == owner_index || active[k] == 0) continue;
+                uint64_t* peer = arena + (size_t)k * WORDS;
+                uint64_t peer_mask = per_peer_mask ? peer[mask_start & 127u] : mask;
+
+                for (uint32_t lane = 0; lane < dst_span; lane++) {
+                    uint64_t word_a = ptr_a[(a_start + (lane % a_span)) & 127u];
+                    uint64_t word_b = hg_v2_rotated_word(peer, b_start, b_span, lane, (uint32_t)b_rotate);
+                    uint64_t res = (word_a & word_b & m0)
+                                 | (word_a & ~word_b & m1)
+                                 | (~word_a & word_b & m2)
+                                 | (~word_a & ~word_b & m3);
+                    uint32_t dst_idx = (dst_start + lane) & 127u;
+                    uint64_t prev_dst = peer[dst_idx];
+                    peer[dst_idx] = (res & peer_mask) | (prev_dst & ~peer_mask);
+                }
+            }
+        } else {
+            uint32_t peers = hypercube ? value_count : 1u;
+            for (uint32_t lane = 0; lane < dst_span; lane++) {
+                uint64_t start_a = ptr_a[(a_start + (lane % a_span)) & 127u];
+                uint32_t dst_idx = (dst_start + lane) & 127u;
+                uint64_t prev_dst = ptr_dst[dst_idx];
+                uint64_t acc = start_a;
+                bool any = false;
+
+                for (uint32_t k = 0; k < peers; k++) {
+                    uint64_t* peer = ptr_b;
+                    if (hypercube) {
+                        if (k == owner_index || active[k] == 0) continue;
+                        peer = arena + (size_t)k * WORDS;
+                    }
+
+                    uint64_t word_b = hg_v2_rotated_word(peer, b_start, b_span, lane, (uint32_t)b_rotate);
+                    acc = (acc & word_b & m0)
+                        | (acc & ~word_b & m1)
+                        | (~acc & word_b & m2)
+                        | (~acc & ~word_b & m3);
+                    any = true;
+                }
+
+                if (!any) acc = start_a;
+                ptr_dst[dst_idx] = (acc & mask) | (prev_dst & ~mask);
+            }
+        }
+
+        if (emit_flag == 1ull && mask != 0ull) {
+            owner[70]++; // SpawnRegisterWord; matches CPU/Metal kernels.
+        }
+    }
+}
+
 extern "C" {
 
     int cuda_device_count() {
@@ -874,6 +1490,74 @@ extern "C" {
         if (cudaGetLastError()      != cudaSuccess) return -3;
         if (cudaDeviceSynchronize() != cudaSuccess) return -4;
         if (cudaMemcpy(value_frames_host, d_gossip_arena, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(spawn_frames_host, d_spawn_frames, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(spawn_active_host, d_spawn_active, active_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+
+        return 0;
+    }
+
+    /*
+    hypercube_gossip_v2_cuda runs the new ALU on device. It mirrors the
+    Go reference (executeKernelGo) and the Metal kernel: contiguous
+    community frames, an active mask, and output buffers for staged peer
+    indices and spawned children. Returns 0 on success, negative on
+    error. The host is responsible for reading stage_count[0] and
+    iterating stage_indices[0..count) afterwards.
+    */
+    int hypercube_gossip_v2_cuda(
+        int                device_id,
+        uint64_t*          value_frames_host,
+        uint8_t*           active_host,
+        uint32_t           value_count,
+        uint32_t           owner_index,
+        uint32_t*          stage_indices_host,
+        uint32_t*          stage_count_host,
+        uint64_t*          spawn_frames_host,
+        uint64_t*          spawn_ids_host,
+        uint8_t*           spawn_active_host
+    ) {
+        if (!value_frames_host || !active_host || !stage_indices_host || !stage_count_host
+            || !spawn_frames_host || !spawn_ids_host || !spawn_active_host
+            || value_count == 0) return -1;
+        if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+        if (ensure_gossip_pool(value_count) != 0)    return -1;
+        if (value_count > 1024) return -6;
+
+        size_t frames_bytes = (size_t)value_count * WORDS * sizeof(uint64_t);
+        size_t active_bytes = (size_t)value_count * sizeof(uint8_t);
+        size_t spawn_ids_bytes = (size_t)value_count * sizeof(uint64_t);
+
+        if (cudaMemcpy(d_gossip_arena, value_frames_host, frames_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemcpy(d_gossip_active, active_host, active_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemcpy(d_spawn_ids, spawn_ids_host, spawn_ids_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
+        if (cudaMemset(d_spawn_active, 0, active_bytes) != cudaSuccess) return -2;
+
+        // Stage indices output. We borrow the d_ast_post slab for the
+        // stage_indices array and a one-uint scratch for stage_count to
+        // avoid a third pool allocation. d_ast_post is sized at WORDS *
+        // sizeof(uint64_t) per value (128*8 = 1KB per value), so the
+        // value_count uint32 indices plus a single uint32 counter
+        // comfortably fit.
+        size_t stage_indices_bytes = (size_t)value_count * sizeof(uint32_t);
+        uint32_t* d_stage_indices = (uint32_t*)d_ast_post;
+        uint32_t* d_stage_count   = (uint32_t*)((uint8_t*)d_ast_post + stage_indices_bytes);
+        if (cudaMemset(d_stage_count, 0, sizeof(uint32_t)) != cudaSuccess) return -2;
+
+        hypercube_gossip_v2_kernel<<<1, 1>>>(
+            d_gossip_arena,
+            d_gossip_active,
+            value_count,
+            owner_index,
+            d_stage_indices,
+            d_stage_count
+        );
+
+        if (cudaGetLastError() != cudaSuccess) return -3;
+        if (cudaDeviceSynchronize() != cudaSuccess) return -4;
+
+        if (cudaMemcpy(value_frames_host, d_gossip_arena, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(stage_indices_host, d_stage_indices, stage_indices_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
+        if (cudaMemcpy(stage_count_host, d_stage_count, sizeof(uint32_t), cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
         if (cudaMemcpy(spawn_frames_host, d_spawn_frames, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
         if (cudaMemcpy(spawn_active_host, d_spawn_active, active_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
 

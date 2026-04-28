@@ -7,6 +7,11 @@ package cpu
 // symbol form. The receiver is passed explicitly as the first argument
 // to keep the call ergonomic from the orchestrator.
 //
+// stageBuf / stageCount give the kernel a place to record the indices
+// of peers it stages. Asm writes peer indices into stageBuf[0..*stageCount)
+// when stage(B) instructions fire; the host translates that into
+// kernel.StageRequest values after the kernel returns.
+//
 //go:noescape
 func executeKernel(
 	backend *Backend,
@@ -15,4 +20,6 @@ func executeKernel(
 	community []*[128]uint64,
 	communitySize uint64,
 	dimCount uint64,
+	stageBuf *[128]uint64,
+	stageCount *uint64,
 )

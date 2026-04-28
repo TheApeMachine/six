@@ -41,14 +41,14 @@ type Dataset struct {
 	textColumn  string
 	textColumns []string
 	labelColumn string
-	labelAppend []string // when set, appends " → <label_name>" to each sample's text
-	// labelOrigin is the integer value that corresponds to the FIRST class
-	// in labelAppend (0 for 0-indexed datasets like dair-ai/emotion, 1 for
-	// 1-indexed datasets like ag_news). Every raw label read from a shard
-	// is normalized via `raw - labelOrigin` before it touches any other
-	// part of the system, so downstream consumers can always treat
-	// dataset.labels[id] as a 0-indexed offset into labelAppend without
-	// having to guess the upstream convention. Defaults to 0.
+	// labelOrigin is the integer value the upstream shard uses for the
+	// FIRST class (0 for 0-indexed datasets like dair-ai/emotion, 1 for
+	// 1-indexed datasets like ag_news). Every raw label is normalized via
+	// `raw - labelOrigin` before it touches the labels map, so downstream
+	// consumers always see 0-indexed class ids regardless of the upstream
+	// convention. Defaults to 0. The substrate then re-shifts to 1-indexed
+	// when writing the LABELS property word so slot value 0 stays reserved
+	// as the unlabeled sentinel.
 	labelOrigin  int
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
@@ -221,24 +221,10 @@ what Read() exposes for this row’s bytes in order; Prompt is set when experime
 should surface a different string than the raw ingest line.
 */
 func (dataset *Dataset) materializeSample(sample rowSample, sampleIdx uint32) data.Sample {
-	var full strings.Builder
-
-	full.WriteString(sample.streamText)
-
-	if sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 &&
-		sample.labelInt >= 0 && sample.labelInt < len(dataset.labelAppend) {
-		full.WriteString(" → ")
-		full.WriteString(dataset.labelAppend[sample.labelInt])
-	}
-
 	var prompt []byte
 
 	if sample.promptText != "" {
 		prompt = []byte(sample.promptText)
-	}
-
-	if len(prompt) == 0 && sample.hasLabel && !sample.labelIsText && len(dataset.labelAppend) > 0 {
-		prompt = []byte(sample.streamText)
 	}
 
 	var label []byte
@@ -247,11 +233,9 @@ func (dataset *Dataset) materializeSample(sample rowSample, sampleIdx uint32) da
 		if sample.labelIsText {
 			label = []byte(strings.TrimSpace(sample.labelText))
 		} else {
-			label = []byte(dataset.labelAsText(sample.labelInt, true))
+			label = []byte(strconv.Itoa(sample.labelInt))
 		}
 	}
-
-	textBytes := []byte(full.String())
 
 	var labelInt uint64
 	if sample.hasLabel {
@@ -260,7 +244,7 @@ func (dataset *Dataset) materializeSample(sample rowSample, sampleIdx uint32) da
 
 	return data.Sample{
 		SampleID: sampleIdx,
-		Text:     textBytes,
+		Text:     []byte(sample.streamText),
 		Label:    label,
 		LabelInt: labelInt,
 		Prompt:   prompt,
@@ -317,34 +301,6 @@ func (dataset *Dataset) Close() error {
 	return nil
 }
 
-/*
-labelAsText resolves a label to its display string.
-
-The streaming path normalizes integer labels to 0-indexed before they are
-stored in Sample.Label, but some tests and call-sites still probe this helper
-with raw one-based labels. Keep the direct 0-indexed path first, then accept a
-single one-based compatibility fallback before returning the numeric form.
-*/
-func (dataset *Dataset) labelAsText(label int, hasLabel bool) string {
-	if !hasLabel {
-		return ""
-	}
-
-	if len(dataset.labelAppend) > 0 {
-		if label >= 0 && label < len(dataset.labelAppend) {
-			return dataset.labelAppend[label]
-		}
-
-		if label > 0 {
-			idx := label - 1
-			if idx < len(dataset.labelAppend) {
-				return dataset.labelAppend[idx]
-			}
-		}
-	}
-
-	return strconv.Itoa(label)
-}
 
 func (dataset *Dataset) snapshotCachedTokens() ([]byte, bool) {
 	dataset.cacheMu.Lock()
@@ -1117,21 +1073,11 @@ func DatasetWithLabelColumn(col string) datasetOpts {
 }
 
 /*
-DatasetWithLabelAppend appends " → <labels[label]>" to each labeled sample's stream.
-labels maps integer label index to string (e.g. []string{"world","sports","business"}).
-*/
-func DatasetWithLabelAppend(labels []string) datasetOpts {
-	return func(dataset *Dataset) {
-		dataset.labelAppend = labels
-	}
-}
-
-/*
-DatasetWithLabelOrigin declares the integer value used by the upstream shard
-for the FIRST class in DatasetWithLabelAppend. Pass 0 for canonical 0-indexed
-datasets and 1 for 1-indexed datasets like ag_news. Internal storage is
-always normalized to 0-indexed; experiments and reporters never have to
-guess. Defaults to 0 when the option is not used.
+DatasetWithLabelOrigin declares the integer value the upstream shard uses
+for the FIRST class. Pass 0 for canonical 0-indexed datasets and 1 for
+1-indexed datasets like ag_news. Internal storage is always normalized
+to 0-indexed; experiments and reporters never have to guess the upstream
+convention. Defaults to 0 when the option is not used.
 */
 func DatasetWithLabelOrigin(origin int) datasetOpts {
 	return func(dataset *Dataset) {

@@ -3,7 +3,6 @@ package compute
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"unsafe"
@@ -73,7 +72,8 @@ func TestSubmit(t *testing.T) {
 		defer peer.Close()
 
 		Convey("When Submit executes", func() {
-			err := backend.Submit(owner, []*primitive.Value{peer})
+			backend.StageInto(owner.ID(), peer)
+			err := backend.Submit(owner)
 			So(err, ShouldBeNil)
 
 			spawned := drainProbeBackend(backend)
@@ -106,7 +106,8 @@ func TestSubmit(t *testing.T) {
 		defer peer.Close()
 
 		Convey("When Submit exhausts candidates", func() {
-			err := backend.Submit(owner, []*primitive.Value{peer})
+			backend.StageInto(owner.ID(), peer)
+			err := backend.Submit(owner)
 			So(err, ShouldBeNil)
 
 			spawned := drainProbeBackend(backend)
@@ -151,11 +152,8 @@ func newProbeBackend(states ...*substrateState) *Backend {
 	return &Backend{
 		ctx:        ctx,
 		cancel:     cancel,
-		queues:     make(map[QueueType]*Queue),
 		pool:       pool.NewPool(1),
 		substrates: states,
-		cache:      sync.Map{},
-		staging:    sync.Map{},
 	}
 }
 

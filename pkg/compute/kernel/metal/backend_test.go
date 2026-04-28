@@ -120,6 +120,78 @@ program align {
 	})
 }
 
+func TestHypercubeGossipZipfSelect(t *testing.T) {
+	if Available() == 0 {
+		t.Skip("metal unavailable")
+	}
+
+	Convey("Given a resident Zipfian candidate selector", t, func() {
+		source := `
+program zipf {
+  set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
+}
+`
+
+		compiled, err := program.Compile(context.Background(), source, program.Layout{})
+		So(err, ShouldBeNil)
+
+		metalOwner := primitive.Emit()
+		defer metalOwner.Close()
+		cpuOwner := primitive.Emit()
+		defer cpuOwner.Close()
+
+		So(installCompiledProgram(metalOwner, compiled), ShouldBeTrue)
+		So(installCompiledProgram(cpuOwner, compiled), ShouldBeTrue)
+
+		for _, owner := range []*primitive.Value{metalOwner, cpuOwner} {
+			owner.Set(primitive.PropertyWord(primitive.TEMPERATURE), 256)
+			owner.Set(primitive.IDStartWord, 0x12345678)
+			owner.Set(primitive.PropertyWord(primitive.EPOCH), 7)
+			owner.Set(primitive.PropertyWord(primitive.COMMUNITY), 0x55)
+			owner.Set(primitive.PropertyWord(primitive.SURPRISAL), 0xAA)
+		}
+
+		makePeer := func(programID uint64, confidence uint64) *primitive.Value {
+			value := primitive.Emit()
+			value.Set(primitive.PropertyWord(primitive.PROGRAM_ID), programID)
+			value.Set(primitive.PropertyWord(primitive.CONFIDENCE), confidence)
+
+			return value
+		}
+
+		metalPeers := []*primitive.Value{
+			makePeer(11, 30),
+			makePeer(22, 90),
+			makePeer(33, 10),
+		}
+		defer primitive.CloseAll(metalPeers)
+
+		cpuPeers := []*primitive.Value{
+			makePeer(11, 30),
+			makePeer(22, 90),
+			makePeer(33, 10),
+		}
+		defer primitive.CloseAll(cpuPeers)
+
+		backend := NewBackend(0)
+		defer backend.Close()
+		spawned, _, err := backend.HypercubeGossip(metalOwner, metalPeers)
+		defer primitive.CloseAll(spawned)
+		So(err, ShouldBeNil)
+
+		cpuBackend := cpu.NewBackend(context.Background())
+		defer cpuBackend.Close()
+		_, _, err = cpuBackend.HypercubeGossip(cpuOwner, cpuPeers)
+		So(err, ShouldBeNil)
+
+		So(
+			metalOwner[primitive.PropertyWord(primitive.PROGRAM_ID)],
+			ShouldEqual,
+			cpuOwner[primitive.PropertyWord(primitive.PROGRAM_ID)],
+		)
+	})
+}
+
 func BenchmarkHypercubeGossip(b *testing.B) {
 	if Available() == 0 {
 		b.Skip("metal unavailable")

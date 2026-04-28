@@ -81,7 +81,7 @@ This is the actual end-to-end path the code implements today:
 6. **Backend executes** — `compute.Backend` marks the selected resident `WAITING`, dispatches its program to the lowest-pressure available ALU substrate with CPU fallback, and applies any stage requests emitted by the program. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. One-shot firmware clears `properties.continuation` and stamps `DONE` itself, so lifecycle retirement is a Value-side effect rather than a host finalizer.
 8. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
-9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send. Expired ephemeral Values are still published once with the TTL expired sentinel before pruning, which lets the visualizer treat that raw frame as a tombstone instead of leaving a stale orphan on screen.
+9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send. The local websocket bridge refuses unbounded peer buffers, and the visualizer coalesces pending frames by Value ID before mutating render state, so stale intermediate telemetry cannot force the browser to replay a finished run for minutes. Expired ephemeral Values are still published once with the TTL expired sentinel before pruning, which lets the visualizer treat that raw frame as a tombstone instead of leaving a stale orphan on screen.
 
 *(The old Gossip/Mesh routing layer has been removed from the active runtime. Routing now lives in the packed AST through `self`, `next`, `fold`, and `spawn`, executed by HypercubeGossip).*
 
@@ -168,7 +168,7 @@ Canonical **1024-bit** region, spanning words **56 to 71** (see `value.region.pr
 
 Named programs live in **`cmd/cfg/config.yml`** under **`programs:`** as multi-line strings. At runtime, `core.Cfg.Programs` exposes both the source text and the packed instruction words for each named firmware block.
 
-`pkg/compute/program` is the normalizer for the resident machine algebra. It supports the compact bracket/feed source used by config firmware and a canonical Go IR (`ProgramIR`, `SlotIR`, `OperationIR`, `ExprIR`, `MachineOp`) for agent/self-programming paths that should not emit text at all.
+`pkg/compute/program` is the normalizer for the resident machine algebra. It supports the compact bracket/feed source used by config firmware and a canonical Go IR (`ProgramIR`, `SlotIR`, `MachineOp`) for agent/self-programming paths that should not emit text at all.
 
 Pipeline in order:
 
@@ -327,7 +327,7 @@ Current firmware families:
 | `beam_swarm_step` | Candidate generation: witnesses local token/context gap, updates gradient, and spawns candidate frames. |
 | `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
 | `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
-| `program_select`, `program_carrier` | In-value program selection: selectors write the desired `program_id`; carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
+| `zipf_select`, `program_select`, `program_carrier` | Candidate-program pressure: eligibility firmware can expose candidate `program_id` Values, `zipf_select` ranks/samples them by utility and temperature, and carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
 | `query`, `recruit_community` | Ingress and affinity recruitment: query Values stage unassigned peers into a recruiter lane; recruiter Values seed from the first candidate, accept candidates under a Hamming-distance budget, stamp `community = recruiter.id`, fold accepted affinity into their own saturation witness, and continue residual lanes with fresh recruiters. |
 | `episodic_replay`, `memory_prune` | Memory pressure: compare mapped peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
 | `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure over in-band label/property witnesses. |
@@ -335,28 +335,34 @@ Current firmware families:
 
 Reducer operations use the direct RPN contract: `{ A(surprisal) A(signals) popcnt }` means "store `popcnt(A(signals))` in `A(surprisal)`." If a backend/lowerer drifts from that meaning, the compiler is wrong, not the source language.
 
-### Program Selection
+### Candidate Program Pressure
 
-Program selection is a two-stage in-value handshake, not a Go dispatcher:
+Program selection is still an in-value handshake, not a Go dispatcher. During
+the firmware syntax migration the older deterministic selector ladder is not
+assumed to be present in `cmd/cfg/config.yml`; the reusable substrate primitive
+is now the lane reducer:
 
-1. **`program_select`** is a resident selector. It clears each candidate's `continuation`, scans the candidate's own witness words, and writes only `B(program_id)` plus `B(continuation)` when a behavior is selected. The current ladder is:
+```text
+zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
+```
 
-| `program_id` | Selected behavior | Witness |
-|--------------|-------------------|---------|
-| 1 | `beam_swarm_step` | `surprisal != 0` |
-| 2 | `active_inference` | `delta_surprisal != 0` |
-| 3 | `hypothesis` | `delta_surprisal == 0` while `surprisal != 0` |
-| 4 | `falsification` | `target != 0` |
-| 5 | `causal_explore` | `ttl != 0` |
-| 6 | `causal_hub` | `noise != 0` |
-| 7 | `intervene` | `asset[16,1] != 0` |
-| 8 | `recruit_community` | `community == 0` |
-| 9 | `survey_community` | `asset[24,1] != 0` |
-| 10 | `classify_readout` | `labels != 0` |
+The reducer ignores zero `program_id` entries, ranks the remaining B-side
+candidates by the supplied utility word, and writes one selected ID to the
+A-side destination. `temperature = 0` is greedy and selects the highest-utility
+candidate. Positive temperature selects an integer Zipf power bucket; low
+values produce a steep head, while high values flatten toward uniform tail
+pressure.
+The draw is deterministic from in-band owner witnesses (`id`, `epoch`,
+`community`, `surprisal`) and candidate count, so exploration remains
+reproducible and changes when the resident state changes.
 
-2. **`program_carrier`** is a resident installer. A carrier carries one program payload in `asset[0,16]` and its own `program_id`. During gossip it compares that ID with each candidate's `program_id`; on equality it writes `B(program[0,16]) = A(asset[0,16])` and stamps `B(continuation) = B(id)`.
-
-The selector never knows program bytes, and the carrier never decides what should run. The Value's own witnesses choose a `program_id`; matching carriers make that choice executable.
+That keeps the missing policy out of Go. Eligibility firmware can decide which
+candidate Values exist and which utility lane they expose. Carrier firmware can
+still carry one program payload in `asset[0,16]` plus its own `program_id`, then
+install matching payloads into `program[0,16]` and stamp `continuation = id`.
+The selector never knows program bytes, and the carrier never decides what
+should run; the ranked economy only decides which eligible behavior receives
+execution pressure.
 
 Only Values with both a non-empty `program` region and non-zero `continuation` are eligible as resident program owners. A settled resident can keep its firmware bytes without monopolizing the next gossip pass.
 

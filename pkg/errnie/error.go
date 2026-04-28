@@ -26,11 +26,30 @@ func NewErrnieError(err error, keyvals ...any) *ErrnieError {
 }
 
 func (err *ErrnieError) Error() string {
+	if err == nil || err.wrapped == nil {
+		return ""
+	}
+
 	return err.wrapped.Error()
 }
 
 func (err *ErrnieError) Join(werr error) *ErrnieError {
-	errors.Join(err.wrapped, werr)
+	if err == nil || werr == nil {
+		return err
+	}
+
+	err.wrapped = errors.Join(err.wrapped, werr)
+
+	return err
+}
+
+func (err *ErrnieError) WithContext(ctx context.Context) *ErrnieError {
+	if err == nil {
+		return nil
+	}
+
+	err.ctx = ctx
+
 	return err
 }
 
@@ -50,5 +69,10 @@ func IsReschedulable(err error) bool {
 }
 
 func HasContext(err error) context.Context {
-	return nil // placeholder, not implemented cleanly in this branch yet
+	var target *ErrnieError
+	if !errors.As(err, &target) || target == nil {
+		return nil
+	}
+
+	return target.ctx
 }

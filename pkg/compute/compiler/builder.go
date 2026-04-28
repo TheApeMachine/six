@@ -26,14 +26,27 @@ const (
 const (
 	OpReduceArgMinNonZero = OpAnd
 	OpReduceModeEq        = OpAandNotB
+	OpReduceZipfSelect    = OpCopyA
 )
 
 // Topologies
 const (
-	TopoLocal     = 0b00
-	TopoPopQueue  = 0b01
-	TopoHypercube = 0b10
+	TopoLocal            = 0b00
+	TopoPopQueue         = 0b01
+	TopoHypercube        = 0b10
+	TopoHypercubePerPeer = 0b11
 )
+
+/*
+Per-peer mask scratch slot. When a gossip block carries a predicate,
+the predicate must fire per peer rather than once on the owner. The
+compiler emits the predicate with its destination pointing here, and
+body instructions in the same block read their mask from the same
+address. The kernel decides owner-side vs peer-side based on topology:
+TopoHypercubePerPeer reads/writes this word on the peer frame, all
+other topologies treat it as a normal owner-side scratch.
+*/
+const PerPeerMaskWord = signalsStart + 7
 
 /*
 Predicate condition codes (popcount(A) cmp threshold OR reduction). Must
@@ -167,22 +180,41 @@ type ConstantInit struct {
 }
 
 /*
+Substitution names a 7-bit operand field inside one packed instruction
+that must be patched at install time with a value the host has written
+into the Value frame. Source text uses `B.{{addr}}` to mark these:
+Addr is the indirection address (the inner region's start), the
+InstallFirmware path reads the live word at that address from the
+Value, masks the low 7 bits, and writes them into the named field of
+program word PC. The kernel never sees the indirection — by the time
+it reads the program region the field is already a concrete operand.
+*/
+type Substitution struct {
+	PC         int
+	FieldShift uint
+	Addr       uint64
+}
+
+/*
 Compiled is the artifact of a single program lowering: 16 packed ALU
-words, the constants that must be staged in the asset region, and the
-canonical MaskTrue word offset.
+words, the constants that must be staged in the asset region, the
+canonical MaskTrue word offset, and any install-time operand
+substitutions the source asked for via `{{...}}`.
 */
 type Compiled struct {
-	Words        [16]uint64
-	Constants    []ConstantInit
-	MaskTrueWord uint64
+	Words         [16]uint64
+	Constants     []ConstantInit
+	Substitutions []Substitution
+	MaskTrueWord  uint64
 }
 
 // Builder tracks emitted instructions and constant allocations.
 type Builder struct {
-	instructions [16]uint64
-	pc           int
-	assetOffset  uint64
-	constants    []ConstantInit
+	instructions  [16]uint64
+	pc            int
+	assetOffset   uint64
+	constants     []ConstantInit
+	substitutions []Substitution
 	// overflow records the count of instructions the program would
 	// have emitted past the 16-word budget. Compile surfaces it as a
 	// real error so config init can skip oversized programs without
@@ -199,6 +231,44 @@ type Builder struct {
 	bRotate         uint64 // truth-table instructions: rotate SrcB span by N bytes before the op
 	stageFlag       uint64 // 1 = push currentB into backend.staging[A.properties.reference]
 	popEndFlag      uint64 // 1 = last instruction of a pop(B) body; kernel rewinds to body start if more Bs remain
+}
+
+/*
+Field shifts for Substitution. They name the 7-bit windows in the packed
+instruction word that an install-time substitution can patch. Values
+mirror the bit positions Pack writes to.
+*/
+const (
+	SubstAStartShift = 4
+	SubstBStartShift = 18
+	SubstDstShift    = 32
+)
+
+/*
+RecordSubstitution queues an install-time patch for the operand field at
+fieldShift in the most recently packed instruction (pc-1). At install
+time the host reads the word at addr from the Value frame and writes its
+low 7 bits into that field, replacing the placeholder the encoder left
+behind.
+*/
+func (builder *Builder) RecordSubstitution(fieldShift uint, addr uint64) {
+	if builder.pc == 0 {
+		return
+	}
+
+	builder.substitutions = append(builder.substitutions, Substitution{
+		PC:         builder.pc - 1,
+		FieldShift: fieldShift,
+		Addr:       addr,
+	})
+}
+
+// Substitutions returns the install-time patch table as a fresh slice.
+func (builder *Builder) Substitutions() []Substitution {
+	out := make([]Substitution, len(builder.substitutions))
+	copy(out, builder.substitutions)
+
+	return out
 }
 
 func NewBuilder() *Builder {

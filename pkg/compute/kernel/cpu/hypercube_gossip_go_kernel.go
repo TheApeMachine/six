@@ -35,6 +35,15 @@ const (
 const (
 	OpReduceArgMinNonZero = 0x1
 	OpReduceModeEq        = 0x2
+	OpReduceZipfSelect    = 0x3
+)
+
+const (
+	zipfIDWord        = 122
+	zipfEpochWord     = 58
+	zipfCommunityWord = 64
+	zipfSurprisalWord = 68
+	zipfWeightScale   = 1 << 48
 )
 
 const (
@@ -53,6 +62,13 @@ const (
 	// and, if more Bs remain, rewinds pc to the body start so the body
 	// runs once per lane element in a single sweep.
 	PopEndBitShift = 63
+)
+
+const (
+	TopoLocal            = 0
+	TopoPopQueue         = 1
+	TopoHypercube        = 2
+	TopoHypercubePerPeer = 3
 )
 
 /*
@@ -109,6 +125,9 @@ func (backend *Backend) executeKernelGo(
 			case OpReduceModeEq:
 				reduceModeEq(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
 				continue
+			case OpReduceZipfSelect:
+				reduceZipfSelect(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
+				continue
 			}
 		}
 
@@ -121,7 +140,24 @@ func (backend *Backend) executeKernelGo(
 		}
 
 		if stageBit == 1 {
-			if currentB != nil {
+			if topology == TopoHypercubePerPeer && communitySize > 0 {
+				// Per-peer stage: every peer whose per-peer mask word is
+				// non-zero gets queued for staging. The mask was written
+				// by a preceding TopoHypercubePerPeer predicate in the
+				// same gossip block.
+				for k := uint64(0); k < communitySize; k++ {
+					if k == ownerIdx {
+						continue
+					}
+
+					peer := community[k]
+					if peer == nil || peer[maskStart&127] == 0 {
+						continue
+					}
+
+					stagedIdx = append(stagedIdx, k)
+				}
+			} else if currentB != nil {
 				stagedIdx = append(stagedIdx, currentBIdx)
 			}
 
@@ -165,6 +201,68 @@ func (backend *Backend) executeKernelGo(
 		ptrDst := ownerFrame
 		if targetB == 1 {
 			ptrDst = ptrB
+		}
+
+		if predicate == 1 && topology == TopoHypercubePerPeer && communitySize > 0 {
+			// Per-peer predicate: evaluate the comparison once for every
+			// peer using that peer's view of the source operand, and
+			// write the resulting all-ones / all-zeros mask into the
+			// peer's own dst slot (the per-peer scratch word the parser
+			// retargeted the IfNode mask to). Body instructions in the
+			// same gossip block read their per-peer mask from that slot
+			// via maskStart, so the broadcast write is naturally gated.
+			threshold := ownerFrame[bStart&127]
+
+			for k := uint64(0); k < communitySize; k++ {
+				if k == ownerIdx {
+					continue
+				}
+
+				peer := community[k]
+				if peer == nil {
+					continue
+				}
+
+				witnessSrc := ownerFrame
+				if srcAFromB == 1 {
+					witnessSrc = peer
+				}
+
+				var perPop uint64
+				for lane := uint64(0); lane < aSpan; lane++ {
+					perPop += uint64(bits.OnesCount64(witnessSrc[(aStart+lane)&127]))
+				}
+
+				witness := perPop
+				if aSpan == 1 {
+					witness = witnessSrc[aStart&127]
+				}
+
+				var hit bool
+				switch predCond {
+				case PredLT:
+					hit = witness < threshold
+				case PredLE:
+					hit = witness <= threshold
+				case PredGT:
+					hit = witness > threshold
+				case PredGE:
+					hit = witness >= threshold
+				case PredEQ:
+					hit = witness == threshold
+				case PredNE:
+					hit = witness != threshold
+				}
+
+				var maskValue uint64
+				if hit {
+					maskValue = ^uint64(0)
+				}
+
+				peer[dstStart&127] = maskValue
+			}
+
+			continue
 		}
 
 		if predicate == 1 {
@@ -259,7 +357,8 @@ func (backend *Backend) executeKernelGo(
 		//             stamps a per-peer marker (e.g. set
 		//             B.properties.community <- A.id) across the
 		//             whole gossip neighborhood in one instruction.
-		hypercube := topology == 2 && communitySize > 0
+		hypercube := (topology == TopoHypercube || topology == TopoHypercubePerPeer) && communitySize > 0
+		perPeerMask := topology == TopoHypercubePerPeer
 
 		if hypercube && targetB == 1 {
 			for k := uint64(0); k < communitySize; k++ {
@@ -268,6 +367,18 @@ func (backend *Backend) executeKernelGo(
 				}
 
 				peer := community[k]
+				if peer == nil {
+					continue
+				}
+
+				// Per-peer mode reads its mask from the peer frame, so a
+				// preceding TopoHypercubePerPeer predicate can gate the
+				// broadcast write per peer instead of all-or-nothing.
+				peerMask := mask
+				if perPeerMask {
+					peerMask = peer[maskStart&127]
+				}
+
 				for lane := uint64(0); lane < dstSpan; lane++ {
 					wordA := ptrA[(aStart+(lane%aSpan))&127]
 					wordB := rotatedWord(peer, bStart, bSpan, lane, bRotate)
@@ -279,7 +390,7 @@ func (backend *Backend) executeKernelGo(
 
 					dstIdx := (dstStart + lane) & 127
 					prevDst := peer[dstIdx]
-					peer[dstIdx] = (res & mask) | (prevDst & ^mask)
+					peer[dstIdx] = (res & peerMask) | (prevDst & ^peerMask)
 				}
 			}
 		} else {
@@ -463,4 +574,226 @@ func reduceModeEq(
 	}
 
 	ownerFrame[dstStart&127] = bestValue
+}
+
+func reduceZipfSelect(
+	ownerFrame *[128]uint64,
+	community []*[128]uint64,
+	communitySize uint64,
+	valueStart uint64,
+	utilityStart uint64,
+	dstStart uint64,
+	temperatureStart uint64,
+) {
+	if ownerFrame == nil || communitySize == 0 {
+		return
+	}
+
+	count := zipfCandidateCount(community, communitySize, valueStart)
+	if count == 0 {
+		return
+	}
+
+	bestValue, bestUtility, ok := zipfGreedyCandidate(community, communitySize, valueStart, utilityStart)
+	if !ok {
+		return
+	}
+
+	temperature := ownerFrame[temperatureStart&127]
+	if temperature == 0 || count == 1 {
+		ownerFrame[dstStart&127] = bestValue
+		return
+	}
+
+	power := zipfPower(temperature)
+	total := uint64(0)
+	for rank := 1; rank <= count; rank++ {
+		total += zipfWeight(uint64(rank), power)
+	}
+
+	if total == 0 {
+		ownerFrame[dstStart&127] = bestValue
+		return
+	}
+
+	seed := zipfSeed(ownerFrame, uint64(count), bestUtility)
+	ticket := seed % total
+	running := uint64(0)
+
+	for rank := 1; rank <= count; rank++ {
+		running += zipfWeight(uint64(rank), power)
+		if ticket >= running {
+			continue
+		}
+
+		if selected, ok := zipfCandidateAtRank(community, communitySize, valueStart, utilityStart, rank); ok {
+			ownerFrame[dstStart&127] = selected
+			return
+		}
+
+		ownerFrame[dstStart&127] = bestValue
+		return
+	}
+
+	if selected, ok := zipfCandidateAtRank(community, communitySize, valueStart, utilityStart, count); ok {
+		ownerFrame[dstStart&127] = selected
+		return
+	}
+
+	ownerFrame[dstStart&127] = bestValue
+}
+
+func zipfCandidateCount(community []*[128]uint64, communitySize uint64, valueStart uint64) int {
+	count := 0
+	for idx := uint64(0); idx < communitySize; idx++ {
+		peer := community[idx]
+		if peer == nil || peer[valueStart&127] == 0 {
+			continue
+		}
+
+		count++
+	}
+
+	return count
+}
+
+func zipfGreedyCandidate(
+	community []*[128]uint64,
+	communitySize uint64,
+	valueStart uint64,
+	utilityStart uint64,
+) (uint64, uint64, bool) {
+	bestValue := uint64(0)
+	bestUtility := uint64(0)
+	bestIndex := uint64(0)
+	found := false
+
+	for idx := uint64(0); idx < communitySize; idx++ {
+		peer := community[idx]
+		if peer == nil {
+			continue
+		}
+
+		value := peer[valueStart&127]
+		if value == 0 {
+			continue
+		}
+
+		utility := peer[utilityStart&127]
+		if found && (utility < bestUtility || utility == bestUtility && idx >= bestIndex) {
+			continue
+		}
+
+		bestValue = value
+		bestUtility = utility
+		bestIndex = idx
+		found = true
+	}
+
+	return bestValue, bestUtility, found
+}
+
+func zipfCandidateAtRank(
+	community []*[128]uint64,
+	communitySize uint64,
+	valueStart uint64,
+	utilityStart uint64,
+	targetRank int,
+) (uint64, bool) {
+	for idx := uint64(0); idx < communitySize; idx++ {
+		peer := community[idx]
+		if peer == nil {
+			continue
+		}
+
+		value := peer[valueStart&127]
+		if value == 0 {
+			continue
+		}
+
+		utility := peer[utilityStart&127]
+		rank := 1
+		for otherIdx := uint64(0); otherIdx < communitySize; otherIdx++ {
+			other := community[otherIdx]
+			if other == nil || otherIdx == idx {
+				continue
+			}
+
+			otherValue := other[valueStart&127]
+			if otherValue == 0 {
+				continue
+			}
+
+			otherUtility := other[utilityStart&127]
+			if otherUtility > utility || otherUtility == utility && otherIdx < idx {
+				rank++
+			}
+		}
+
+		if rank != targetRank {
+			continue
+		}
+
+		return value, true
+	}
+
+	return 0, false
+}
+
+func zipfPower(temperature uint64) uint64 {
+	switch {
+	case temperature >= 1024:
+		return 0
+	case temperature >= 512:
+		return 1
+	case temperature >= 256:
+		return 2
+	case temperature >= 128:
+		return 3
+	default:
+		return 4
+	}
+}
+
+func zipfWeight(rank uint64, power uint64) uint64 {
+	if rank == 0 {
+		return 0
+	}
+
+	if power == 0 {
+		return 1
+	}
+
+	weight := uint64(zipfWeightScale)
+	for idx := uint64(0); idx < power; idx++ {
+		weight /= rank
+		if weight == 0 {
+			return 1
+		}
+	}
+
+	if weight == 0 {
+		return 1
+	}
+
+	return weight
+}
+
+func zipfSeed(ownerFrame *[128]uint64, count uint64, bestUtility uint64) uint64 {
+	seed := ownerFrame[zipfIDWord] ^
+		bits.RotateLeft64(ownerFrame[zipfEpochWord], 17) ^
+		bits.RotateLeft64(ownerFrame[zipfCommunityWord], 31) ^
+		bits.RotateLeft64(ownerFrame[zipfSurprisalWord], 7) ^
+		bits.RotateLeft64(bestUtility, 43) ^
+		count
+
+	return zipfMix(seed)
+}
+
+func zipfMix(seed uint64) uint64 {
+	seed += 0x9e3779b97f4a7c15
+	seed = (seed ^ (seed >> 30)) * 0xbf58476d1ce4e5b9
+	seed = (seed ^ (seed >> 27)) * 0x94d049bb133111eb
+
+	return seed ^ (seed >> 31)
 }

@@ -1,41 +1,47 @@
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useRef,
-} from "react";
-import { useSelector } from "@tanstack/react-store";
+import { type ReactNode, useEffect, useRef } from "react";
 import { telemetryWebSocketURL } from "@/features/telemetry/endpoint";
-import type {
-	VizGraphSnapshot,
-	VizInspectSnapshot,
-	VizRuntimeStats,
-} from "@/features/telemetry/types";
 import {
 	applyValueFrames,
-	fieldStore,
-	selectFieldSelection,
-	selectFieldSnapshot,
-	selectFieldStats,
-	selectFieldValueById,
+	drainQueuedValueFrames,
+	queueValueFrames,
 	setFieldConnectionError,
 } from "@/lib/field-store";
-import { decodeValueWireMessage } from "@/lib/wire";
+import { type RawValueFrame, decodeValueWireMessage } from "@/lib/wire";
 
-interface FieldContextValue {
-	stats: VizRuntimeStats | null;
-	snapshot: VizGraphSnapshot;
-	selection: VizInspectSnapshot | null;
-	connectionError: string | null;
-	selectValueById: (id: string) => boolean;
-}
-
-export function FieldProvider({ children }: { children: ReactNode }) {
+/*
+TelemetryConnection owns the websocket lifecycle for the dashboard.
+Frames are queued by ID per animation frame and flushed into the
+TanStack store in one batch, so an inflight burst of telemetry causes
+exactly one render pass per RAF tick.
+*/
+export function TelemetryConnection({ children }: { children: ReactNode }) {
 	const socketRef = useRef<WebSocket | null>(null);
 	const retryTimerRef = useRef<number | null>(null);
+	const flushFrameRef = useRef<number | null>(null);
+	const pendingFramesRef = useRef<Map<string, RawValueFrame>>(new Map());
 
 	useEffect(() => {
 		let destroyed = false;
+
+		function flushFrames() {
+			flushFrameRef.current = null;
+
+			const frames = drainQueuedValueFrames(pendingFramesRef.current);
+
+			if (frames.length === 0) {
+				return;
+			}
+
+			applyValueFrames(frames);
+		}
+
+		function scheduleFlush() {
+			if (flushFrameRef.current !== null) {
+				return;
+			}
+
+			flushFrameRef.current = window.requestAnimationFrame(flushFrames);
+		}
 
 		function connect() {
 			if (destroyed) {
@@ -47,7 +53,6 @@ export function FieldProvider({ children }: { children: ReactNode }) {
 			socketRef.current = socket;
 
 			socket.onopen = () => {
-				console.log("telemetry bridge connected");
 				setFieldConnectionError(null);
 			};
 
@@ -57,17 +62,15 @@ export function FieldProvider({ children }: { children: ReactNode }) {
 				}
 
 				const decoded = decodeValueWireMessage(message.data);
-				applyValueFrames(decoded);
+				queueValueFrames(pendingFramesRef.current, decoded);
+				scheduleFlush();
 			};
 
-			socket.onerror = (e) => {
-				console.log("telemetry bridge error", e);
+			socket.onerror = () => {
 				setFieldConnectionError("telemetry bridge unavailable");
 			};
 
 			socket.onclose = () => {
-				console.log("telemetry bridge disconnected");
-
 				if (destroyed) {
 					return;
 				}
@@ -83,34 +86,20 @@ export function FieldProvider({ children }: { children: ReactNode }) {
 			destroyed = true;
 			socketRef.current?.close();
 			socketRef.current = null;
+
 			if (retryTimerRef.current !== null) {
 				window.clearTimeout(retryTimerRef.current);
 				retryTimerRef.current = null;
 			}
+
+			if (flushFrameRef.current !== null) {
+				window.cancelAnimationFrame(flushFrameRef.current);
+				flushFrameRef.current = null;
+			}
+
+			pendingFramesRef.current.clear();
 		};
 	}, []);
 
 	return <>{children}</>;
-}
-
-export function useField(): FieldContextValue {
-	const stats = useSelector(fieldStore, selectFieldStats);
-	const snapshot = useSelector(fieldStore, selectFieldSnapshot);
-	const selection = useSelector(fieldStore, selectFieldSelection);
-	const connectionError = useSelector(
-		fieldStore,
-		(state) => state.connectionError,
-	);
-	const selectValueById = useCallback(
-		(id: string) => selectFieldValueById(id),
-		[],
-	);
-
-	return {
-		stats,
-		snapshot,
-		selection,
-		connectionError,
-		selectValueById,
-	};
 }

@@ -119,17 +119,15 @@ value:
 programs:
   query: |
     program query {
-      ; For every unassigned popped B: stamp it with the recruiter's id
-      ; (carried in A.properties.reference) and push it into
-      ; staging[recruiter.id] via the kernel's stage instruction.
-      pop(B) {
-        (B.properties.community == 0) {
+      ; Select the community.
+      gossip(B) {
+        (B.{{A.context[0,1]}} == {{A.context[1,1]}}) {
           write B.properties.reference <- A.properties.reference
           stage(B)
         }
       }
 
-      set A.properties.continuation <- 0
+      set A.properties.continuation <- A.properties.reference
       set A.properties.status <- DONE
     }
 

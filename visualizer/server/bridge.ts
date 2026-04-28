@@ -17,13 +17,30 @@ const CONTROL_URL = (process.env.TELEMETRY_CONTROL_URL || "").trim();
 const CONFIG_PATH =
 	process.env.SIX_CONFIG_PATH ||
 	path.resolve(__dirname, "../../cmd/cfg/config.yml");
+const DEFAULT_MAX_PEER_BUFFER_BYTES = 8 * 1024 * 1024;
+const configuredMaxPeerBufferBytes = Number(
+	process.env.VIZ_BRIDGE_MAX_BUFFER_BYTES || DEFAULT_MAX_PEER_BUFFER_BYTES,
+);
+const MAX_PEER_BUFFER_BYTES =
+	Number.isFinite(configuredMaxPeerBufferBytes) &&
+	configuredMaxPeerBufferBytes >= 0
+		? configuredMaxPeerBufferBytes
+		: DEFAULT_MAX_PEER_BUFFER_BYTES;
 
 interface BridgeDiagnostics {
 	clients: number;
+	droppedMessages: number;
+	forwardedMessages: number;
+	highWaterBytes: number;
+	maxPeerBufferBytes: number;
 }
 
 const diagnostics: BridgeDiagnostics = {
 	clients: 0,
+	droppedMessages: 0,
+	forwardedMessages: 0,
+	highWaterBytes: 0,
+	maxPeerBufferBytes: MAX_PEER_BUFFER_BYTES,
 };
 
 const app = express();
@@ -80,7 +97,23 @@ websocketServer.on("connection", (client) => {
 		for (const peer of websocketServer.clients) {
 			if (peer === client) continue;
 			if (peer.readyState !== peer.OPEN) continue;
-			peer.send(data, { binary: isBinary });
+
+			diagnostics.highWaterBytes = Math.max(
+				diagnostics.highWaterBytes,
+				peer.bufferedAmount,
+			);
+
+			if (peer.bufferedAmount > MAX_PEER_BUFFER_BYTES) {
+				diagnostics.droppedMessages++;
+				continue;
+			}
+
+			peer.send(data, { binary: isBinary }, (error) => {
+				if (error) {
+					peer.terminate();
+				}
+			});
+			diagnostics.forwardedMessages++;
 		}
 	});
 

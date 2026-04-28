@@ -74,9 +74,9 @@ func (node PredicateAssignNode) Walk(b *Builder) {
 
 /*
 ReduceAssignNode lowers lane-level categorical reducers such as
-argmin_nonzero(value, key) and mode_eq(value, key, match). These reducers are
-generic ALU operations over region references; they do not know what the
-regions mean.
+argmin_nonzero(value, key), mode_eq(value, key, match), and
+zipf_select(value, utility, temperature). These reducers are generic ALU
+operations over region references; they do not know what the regions mean.
 */
 type ReduceAssignNode struct {
 	Dst   Region
@@ -92,22 +92,42 @@ func (node ReduceAssignNode) Walk(b *Builder) {
 
 /*
 IfNode emits a real popcount-compare instruction whose result becomes
-the per-block predication mask. Body writes are gated by that mask
-all-or-nothing.
+the per-block predication mask. Body writes are gated by that mask.
+
+Inside a TopoHypercubePerPeer block (a `gossip(B) { (...) { ... } }`
+shape) the predicate fires per peer and the mask lives on the peer
+frame; outside such a block the mask is owner-side and the predicate
+fires once per instruction.
+
+The two *IndirectAddr fields carry the indirection addresses for source
+operands written as `B.{{addr}}` / `{{addr}}` in the source. A non-zero
+value means "patch this operand's 7-bit field at install time with the
+low 7 bits of the word at addr on the Value frame". Zero means the
+operand is direct and the encoder leaves the packed bits alone.
 */
 type IfNode struct {
-	Cond       uint64
-	Prelude    BlockNode
-	Region     Region
-	RegionSide byte
-	Threshold  Region
-	Mask       Region
-	Body       BlockNode
+	Cond                  uint64
+	Prelude               BlockNode
+	Region                Region
+	RegionSide            byte
+	RegionIndirectAddr    uint64
+	Threshold             Region
+	ThresholdIndirectAddr uint64
+	Mask                  Region
+	Body                  BlockNode
 }
 
 func (ifStmt IfNode) Walk(b *Builder) {
 	ifStmt.Prelude.Walk(b)
 	b.Predicate(ifStmt.Cond, ifStmt.Region, ifStmt.Threshold, ifStmt.Mask, srcAFromSide(ifStmt.RegionSide))
+
+	if ifStmt.RegionIndirectAddr != 0 {
+		b.RecordSubstitution(SubstAStartShift, ifStmt.RegionIndirectAddr)
+	}
+
+	if ifStmt.ThresholdIndirectAddr != 0 {
+		b.RecordSubstitution(SubstBStartShift, ifStmt.ThresholdIndirectAddr)
+	}
 
 	prevMask := b.currentMask
 	b.currentMask = ifStmt.Mask
@@ -155,10 +175,14 @@ func (pop PopBNode) Walk(b *Builder) {
 }
 
 /*
-GossipNode lowers `gossip(B) { ... }`. Every body instruction runs with
-topology=Hypercube so the kernel rebinds currentB to the dim-d peer at
-each pc (d = pc % dimCount). No seed instruction is needed because the
-peer binding is pc-positional, not queue-popping.
+GossipNode lowers `gossip(B) { ... }`. The topology depends on whether
+the body wraps an IfNode: a plain gossip block stays on TopoHypercube
+(owner-side mask, broadcast write per peer); a predicated gossip block
+switches to TopoHypercubePerPeer so the kernel evaluates the predicate
+per peer, writes the per-peer mask to the peer frame, and gates body
+broadcasts on it. The compiler also rewrites the predicate's mask
+target into the per-peer scratch slot so the kernel knows where to
+read the mask from.
 */
 type GossipNode struct {
 	Body BlockNode
@@ -166,11 +190,45 @@ type GossipNode struct {
 
 func (gossip GossipNode) Walk(b *Builder) {
 	prevTopo := b.currentTopo
-	b.currentTopo = TopoHypercube
+
+	if gossipHasPredicate(gossip.Body) {
+		b.currentTopo = TopoHypercubePerPeer
+		retargetPredicateMasks(gossip.Body, Region{Start: PerPeerMaskWord, Span: 1})
+	} else {
+		b.currentTopo = TopoHypercube
+	}
 
 	gossip.Body.Walk(b)
 
 	b.currentTopo = prevTopo
+}
+
+func gossipHasPredicate(block BlockNode) bool {
+	for _, stmt := range block.Statements {
+		if _, ok := stmt.(IfNode); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+/*
+retargetPredicateMasks rewrites every IfNode mask in this gossip body
+to point at the per-peer scratch slot. The owner-side mask the parser
+allocated stays in the asset region but goes unused — the per-peer
+flow reads and writes the dedicated peer frame slot instead.
+*/
+func retargetPredicateMasks(block BlockNode, mask Region) {
+	for idx, stmt := range block.Statements {
+		ifNode, ok := stmt.(IfNode)
+		if !ok {
+			continue
+		}
+
+		ifNode.Mask = mask
+		block.Statements[idx] = ifNode
+	}
 }
 
 /*

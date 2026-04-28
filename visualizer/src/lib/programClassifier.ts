@@ -221,6 +221,7 @@ const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	falsification: "gap_probe",
 	hypothesis: "gap_probe",
 	program_select: "resident",
+	zipf_select: "resident",
 	program_carrier: "resident",
 	recruit_community: "recruiter",
 	measure_field: "resident",

@@ -5,8 +5,6 @@ import (
 	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
-var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
-
 type AGNewsDatasetBuilder struct {
 	samples uint32
 	split   string
@@ -42,10 +40,9 @@ func (builder *AGNewsDatasetBuilder) Build() data.Provider {
 		huggingface.DatasetWithSplit(builder.split),
 		huggingface.DatasetWithTextColumns("title", "description"),
 		huggingface.DatasetWithLabelColumn("label"),
-		huggingface.DatasetWithLabelAppend(agNewsLabels),
-		// ag_news labels are 1-indexed (1=World, 2=Sports, 3=Business,
-		// 4=Sci/Tech). Normalizing at the source means downstream
-		// experiments can index agNewsLabels directly.
+		// ag_news ships 1-indexed labels (1=World..4=Sci/Tech). Normalizing
+		// at the source means everything downstream sees a 0-indexed class
+		// id; the substrate re-shifts to keep 0 as the unlabeled sentinel.
 		huggingface.DatasetWithLabelOrigin(1),
 	)
 }

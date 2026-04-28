@@ -71,5 +71,31 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
 		value.Set(int(init.Offset), init.Value)
 	}
 
-	return value.InstallProgram(entry.Compiled())
+	// Apply install-time operand substitutions. The compiler emitted
+	// `B.{{addr}}` / `{{addr}}` operands as placeholders and recorded a
+	// patch table; we read the live word at addr from the Value (the
+	// caller is expected to have written the desired operand offset there
+	// before InstallFirmware) and splice its low 7 bits into the named
+	// 7-bit field of the corresponding program word. After this loop the
+	// program region holds concrete operand offsets the kernel can decode
+	// without any indirection logic.
+	words := append([]uint64(nil), entry.Compiled()...)
+
+	for _, sub := range entry.Substitutions {
+		if sub.PC < 0 || sub.PC >= len(words) {
+			continue
+		}
+
+		addr := int(sub.Addr)
+		if addr < 0 || addr >= len(*value) {
+			continue
+		}
+
+		operand := (*value)[addr] & 0x7F
+
+		words[sub.PC] &^= uint64(0x7F) << sub.FieldShift
+		words[sub.PC] |= operand << sub.FieldShift
+	}
+
+	return value.InstallProgram(words)
 }

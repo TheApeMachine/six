@@ -94,6 +94,58 @@ func TestBridge_Write(t *testing.T) {
 		So(n, ShouldEqual, len(batch))
 		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
 	})
+
+	Convey("Write filters duplicate unchanged frames inside one batch", t, func() {
+		url, messages, closeServer := newBridgeTestServer(t)
+		defer closeServer()
+
+		bridge, err := NewBridge(context.Background(), url)
+
+		So(err, ShouldBeNil)
+		So(bridge, ShouldNotBeNil)
+		defer bridge.Close()
+
+		batch := make([]byte, primitive.FrameByteLength*2)
+		first := batch[:primitive.FrameByteLength]
+		second := batch[primitive.FrameByteLength:]
+		binary.LittleEndian.PutUint64(first[primitive.IDStartWord*8:], 303)
+		copy(second, first)
+
+		n, writeErr := bridge.Write(batch)
+
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(batch))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+	})
+
+	Convey("Write keeps sent fingerprints across reconnects", t, func() {
+		url, messages, closeServer := newBridgeTestServer(t)
+		defer closeServer()
+
+		bridge, err := NewBridge(context.Background(), url)
+
+		So(err, ShouldBeNil)
+		So(bridge, ShouldNotBeNil)
+		defer bridge.Close()
+
+		frame := make([]byte, primitive.FrameByteLength)
+		binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 404)
+
+		n, writeErr := bridge.Write(frame)
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+
+		bridge.connMu.Lock()
+		_ = bridge.conn.Close()
+		bridge.conn = nil
+		bridge.connMu.Unlock()
+
+		n, writeErr = bridge.Write(frame)
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(noBridgeTestMessage(messages), ShouldBeTrue)
+	})
 }
 
 func TestBridge_Connect(t *testing.T) {
@@ -159,6 +211,38 @@ func TestBridge_BeginRun(t *testing.T) {
 		So(binary.LittleEndian.Uint64(frame[8:]), ShouldEqual, uint64(7))
 		So(binary.LittleEndian.Uint64(frame[primitive.IDStartWord*8:]), ShouldEqual, uint64(0))
 	})
+
+	Convey("BeginRun resets sent fingerprints only after publishing the run marker", t, func() {
+		url, messages, closeServer := newBridgeTestServer(t)
+		defer closeServer()
+
+		bridge, err := NewBridge(context.Background(), url)
+
+		So(err, ShouldBeNil)
+		So(bridge, ShouldNotBeNil)
+		defer bridge.Close()
+
+		frame := make([]byte, primitive.FrameByteLength)
+		binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 505)
+
+		n, writeErr := bridge.Write(frame)
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+
+		n, writeErr = bridge.Write(frame)
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(noBridgeTestMessage(messages), ShouldBeTrue)
+
+		So(bridge.BeginRun(), ShouldBeNil)
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+
+		n, writeErr = bridge.Write(frame)
+		So(writeErr, ShouldBeNil)
+		So(n, ShouldEqual, len(frame))
+		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+	})
 }
 
 func TestBridge_Read(t *testing.T) {
@@ -181,23 +265,34 @@ func TestBridge_Read(t *testing.T) {
 func TestBridgeFingerprintCache(t *testing.T) {
 	t.Parallel()
 
-	Convey("Add evicts the oldest fingerprint once capacity is reached", t, func() {
-		cache := newBridgeFingerprintCache(2)
+	Convey("Add keeps every fingerprint until an explicit reset", t, func() {
+		cache := newBridgeFingerprintCache()
 
 		cache.Add(1, 10)
 		cache.Add(2, 20)
 		cache.Add(3, 30)
 
-		_, ok := cache.Get(1)
-		So(ok, ShouldBeFalse)
+		hash, ok := cache.Get(1)
+		So(ok, ShouldBeTrue)
+		So(hash, ShouldEqual, 10)
 
-		hash, ok := cache.Get(2)
+		hash, ok = cache.Get(2)
 		So(ok, ShouldBeTrue)
 		So(hash, ShouldEqual, 20)
 
 		hash, ok = cache.Get(3)
 		So(ok, ShouldBeTrue)
 		So(hash, ShouldEqual, 30)
+	})
+
+	Convey("Reset clears every fingerprint", t, func() {
+		cache := newBridgeFingerprintCache()
+		cache.Add(1, 10)
+		cache.Reset()
+
+		_, ok := cache.Get(1)
+
+		So(ok, ShouldBeFalse)
 	})
 }
 

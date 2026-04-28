@@ -39,12 +39,17 @@ type RegionExtent struct {
 // lowering artifact without taking a direct compiler dep.
 type ConstantInit = compiler.ConstantInit
 
+// Substitution re-exports compiler.Substitution so InstallFirmware can
+// patch operands at install time without taking a direct compiler dep.
+type Substitution = compiler.Substitution
+
 // Compiled re-exports compiler.Compiled with a slice-shaped Words view
 // for callers that want the bytes without a fixed-size array.
 type Compiled struct {
-	Words        []uint64
-	Constants    []ConstantInit
-	MaskTrueWord uint64
+	Words         []uint64
+	Constants     []ConstantInit
+	Substitutions []Substitution
+	MaskTrueWord  uint64
 }
 
 /*
@@ -64,9 +69,10 @@ func Compile(_ context.Context, source string, _ Layout) (Compiled, error) {
 	}
 
 	return Compiled{
-		Words:        words,
-		Constants:    result.Constants,
-		MaskTrueWord: result.MaskTrueWord,
+		Words:         words,
+		Constants:     result.Constants,
+		Substitutions: result.Substitutions,
+		MaskTrueWord:  result.MaskTrueWord,
 	}, nil
 }
 

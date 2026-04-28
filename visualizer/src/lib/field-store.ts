@@ -1,10 +1,8 @@
 import { createStore } from "@tanstack/react-store";
-import type { StoredValue, TelemetryState } from "./value-frame";
 import {
-	buildGraphSnapshot,
 	decodeValueFrame,
 	formatValueId,
-	inspectFromStored,
+	type StoredValue,
 	storedValueFromDecoded,
 	valueFrameExpired,
 } from "./value-frame";
@@ -14,108 +12,23 @@ import type { RawValueFrame } from "./wire";
 export interface FieldStoreState {
 	values: Map<string, StoredValue>;
 	selectedId: string | null;
-	graphSeq: number;
 	connectionError: string | null;
 }
 
+/*
+fieldStore is the single source of truth for the dashboard. The
+TanStack store dedupes by Value id (Map), so the wire side only has
+to deliver raw frames — ones we have not seen are inserted, ones we
+have are overwritten in-place, expired frames (TTL sentinel) drop out.
+*/
 export const fieldStore = createStore<FieldStoreState>({
 	values: new Map(),
 	selectedId: null,
-	graphSeq: 0,
 	connectionError: null,
 });
 
 const TELEMETRY_RUN_MARKER_MAGIC = 0x73697872756e3031n;
-
-let snapshotCache:
-	| {
-			values: ReadonlyMap<string, StoredValue>;
-			graphSeq: number;
-			snapshot: TelemetryState["snapshot"];
-	  }
-	| undefined;
-
-let statsCache:
-	| {
-			size: number;
-			stats: TelemetryState["stats"];
-	  }
-	| undefined;
-
-let selectionCache:
-	| {
-			selectedId: string | null;
-			value: StoredValue | undefined;
-			selection: TelemetryState["selection"];
-	  }
-	| undefined;
-
-export function selectFieldSnapshot(
-	state: FieldStoreState,
-): TelemetryState["snapshot"] {
-	if (
-		snapshotCache &&
-		snapshotCache.values === state.values &&
-		snapshotCache.graphSeq === state.graphSeq
-	) {
-		return snapshotCache.snapshot;
-	}
-
-	const snapshot = buildGraphSnapshot(state.values, state.graphSeq);
-	snapshotCache = {
-		values: state.values,
-		graphSeq: state.graphSeq,
-		snapshot,
-	};
-
-	return snapshot;
-}
-
-export function selectFieldStats(state: FieldStoreState): TelemetryState["stats"] {
-	if (statsCache?.size === state.values.size) {
-		return statsCache.stats;
-	}
-
-	const stats = { values: state.values.size };
-	statsCache = { size: state.values.size, stats };
-
-	return stats;
-}
-
-export function selectFieldSelection(
-	state: FieldStoreState,
-): TelemetryState["selection"] {
-	const value = state.selectedId ? state.values.get(state.selectedId) : undefined;
-
-	if (
-		selectionCache &&
-		selectionCache.selectedId === state.selectedId &&
-		selectionCache.value === value
-	) {
-		return selectionCache.selection;
-	}
-
-	const selection = value ? inspectFromStored(value) : null;
-	selectionCache = {
-		selectedId: state.selectedId,
-		value,
-		selection,
-	};
-
-	return selection;
-}
-
-export function getFieldTelemetryState(): TelemetryState {
-	const state = fieldStore.get();
-	const selection = selectFieldSelection(state);
-
-	return {
-		selection,
-		selectedId: selection ? state.selectedId : null,
-		snapshot: selectFieldSnapshot(state),
-		stats: selectFieldStats(state),
-	};
-}
+const TELEMETRY_RUN_MARKER_QUEUE_KEY = "run-marker";
 
 export function applyValueFrames(frames: RawValueFrame[]) {
 	if (frames.length === 0) {
@@ -175,12 +88,39 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 			...state,
 			values,
 			selectedId,
-			graphSeq: state.graphSeq + 1,
 		};
 	});
 }
 
-function isTelemetryRunMarker(frame: RawValueFrame): boolean {
+export function queueValueFrames(
+	queue: Map<string, RawValueFrame>,
+	frames: RawValueFrame[],
+) {
+	for (const frame of frames) {
+		if (isTelemetryRunMarker(frame)) {
+			queue.clear();
+			queue.set(TELEMETRY_RUN_MARKER_QUEUE_KEY, frame);
+			continue;
+		}
+
+		const rawId = formatValueId(frame.valueId);
+
+		if (!rawId) {
+			continue;
+		}
+
+		queue.set(rawId, frame);
+	}
+}
+
+export function drainQueuedValueFrames(queue: Map<string, RawValueFrame>) {
+	const frames = Array.from(queue.values());
+	queue.clear();
+
+	return frames;
+}
+
+export function isTelemetryRunMarker(frame: RawValueFrame): boolean {
 	return (
 		frame.valueId === 0n &&
 		frame.bytes.byteLength >= 8 &&
@@ -195,6 +135,11 @@ export function setFieldConnectionError(connectionError: string | null) {
 	}));
 }
 
+/*
+selectFieldValueById flips the selection to id when known, clears it
+when not. Returns whether the selection landed on a real Value so the
+caller can decide whether to show "no such value" feedback.
+*/
 export function selectFieldValueById(id: string): boolean {
 	const state = fieldStore.get();
 	const selectedId = id && state.values.has(id) ? id : null;
@@ -211,10 +156,6 @@ export function resetFieldStore() {
 	fieldStore.setState(() => ({
 		values: new Map(),
 		selectedId: null,
-		graphSeq: 0,
 		connectionError: null,
 	}));
-	snapshotCache = undefined;
-	statsCache = undefined;
-	selectionCache = undefined;
 }

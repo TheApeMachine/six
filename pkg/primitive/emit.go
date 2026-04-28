@@ -139,3 +139,19 @@ func WithReference(reference uint64) EmitOptions {
 		value.Set(core.Cfg.Value.Region.Properties.Start+int(REFERENCE), reference)
 	}
 }
+
+/*
+WithContext writes one word into the Value's context region at the
+given offset. Firmware that uses `B.{{A.context[N,1]}}` /
+`{{A.context[N,1]}}` operands reads these words at install time to
+resolve the actual operand offset / threshold value, so the option
+must appear BEFORE WithFirmware in the option chain.
+
+Offset is the slot inside the context region (0 to contextWords-1),
+not the absolute frame word.
+*/
+func WithContext(offset int, word uint64) EmitOptions {
+	return func(value *Value) {
+		value.Set(core.Cfg.Value.Region.Context.Start+offset, word)
+	}
+}

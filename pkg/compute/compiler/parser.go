@@ -28,9 +28,10 @@ func Compile(source string) (Compiled, error) {
 	}
 
 	return Compiled{
-		Words:        parser.builder.Compile(),
-		Constants:    parser.builder.Constants(),
-		MaskTrueWord: MaskTrue.Start,
+		Words:         parser.builder.Compile(),
+		Constants:     parser.builder.Constants(),
+		Substitutions: parser.builder.Substitutions(),
+		MaskTrueWord:  MaskTrue.Start,
 	}, nil
 }
 
@@ -53,6 +54,12 @@ func tokenize(source string) ([]token, error) {
 			}
 		case unicode.IsSpace(rune(char)):
 			cursor++
+		case char == '{' && cursor+1 < len(source) && source[cursor+1] == '{':
+			out = append(out, token{"{{", "{{"})
+			cursor += 2
+		case char == '}' && cursor+1 < len(source) && source[cursor+1] == '}':
+			out = append(out, token{"}}", "}}"})
+			cursor += 2
 		case char == '(' || char == ')' || char == '{' || char == '}' || char == '.' || char == ',' || char == '[' || char == ']':
 			out = append(out, token{string(char), string(char)})
 			cursor++
@@ -175,6 +182,12 @@ type sideRegion struct {
 	// across the full destination span) from a generic single-word
 	// constant allocation that happens to hold zero.
 	literalZero bool
+	// indirect marks operands written as `{{expr}}` in the source. The
+	// reg field then holds the INDIRECTION ADDRESS (the word the host
+	// will read at install time to resolve the actual operand). The
+	// builder records a substitution slot so InstallFirmware can patch
+	// the packed instruction word per Value before the kernel sees it.
+	indirect bool
 }
 
 /*
@@ -183,14 +196,20 @@ directly at a region. Expression sources carry a short prelude that materializes
 their truth-table result into scratch asset words before the predicate folds it.
 */
 type predicateSource struct {
-	side    byte
-	reg     Region
-	rotate  uint64
-	prelude BlockNode
+	side         byte
+	reg          Region
+	rotate       uint64
+	prelude      BlockNode
+	indirectAddr uint64
 }
 
 func (source predicateSource) sideRegion() sideRegion {
-	return sideRegion{side: source.side, reg: source.reg, rotate: source.rotate}
+	return sideRegion{
+		side:     source.side,
+		reg:      source.reg,
+		rotate:   source.rotate,
+		indirect: source.indirectAddr != 0,
+	}
 }
 
 func (parser *parser) parseProgram() (BlockNode, error) {
@@ -294,14 +313,30 @@ func (parser *parser) parseIf() (ASTNode, error) {
 	}
 
 	return IfNode{
-		Cond:       cond,
-		Prelude:    region.prelude,
-		Region:     region.reg,
-		RegionSide: region.side,
-		Threshold:  threshold.reg,
-		Mask:       mask,
-		Body:       body,
+		Cond:                  cond,
+		Prelude:               region.prelude,
+		Region:                region.reg,
+		RegionSide:            region.side,
+		RegionIndirectAddr:    region.indirectAddr,
+		Threshold:             threshold.reg,
+		ThresholdIndirectAddr: indirectAddrOf(threshold),
+		Mask:                  mask,
+		Body:                  body,
 	}, nil
+}
+
+/*
+indirectAddrOf returns the indirection address recorded on a sideRegion,
+or 0 when the region is direct. Centralized so the parser does not have
+to peek at the .indirect bit and the .reg.Start field together at every
+construction site.
+*/
+func indirectAddrOf(region sideRegion) uint64 {
+	if !region.indirect {
+		return 0
+	}
+
+	return region.reg.Start
 }
 
 func (parser *parser) parseComparison() (cond uint64, region predicateSource, threshold sideRegion, err error) {
@@ -359,7 +394,12 @@ func (parser *parser) parsePredicateSource() (predicateSource, error) {
 		return predicateSource{}, err
 	}
 
-	return predicateSource{side: region.side, reg: region.reg, rotate: region.rotate}, nil
+	return predicateSource{
+		side:         region.side,
+		reg:          region.reg,
+		rotate:       region.rotate,
+		indirectAddr: indirectAddrOf(region),
+	}, nil
 }
 
 func (parser *parser) parsePredicateExpr() (predicateSource, error) {
@@ -381,7 +421,12 @@ func (parser *parser) parsePredicateExpr() (predicateSource, error) {
 		return predicateSource{}, err
 	}
 
-	return predicateSource{side: region.side, reg: region.reg, rotate: region.rotate}, nil
+	return predicateSource{
+		side:         region.side,
+		reg:          region.reg,
+		rotate:       region.rotate,
+		indirectAddr: indirectAddrOf(region),
+	}, nil
 }
 
 func (parser *parser) parsePredicateCall() (predicateSource, error) {
@@ -616,6 +661,21 @@ func (parser *parser) parseRHSCall() (sideRegion, error) {
 		}, nil
 	}
 
+	if opName == "zipf_select" {
+		value, key, temperature, err := parser.parseZipfSelectRegions()
+		if err != nil {
+			return sideRegion{}, err
+		}
+
+		return sideRegion{
+			reduce:      true,
+			reduceOp:    OpReduceZipfSelect,
+			reduceValue: value.reg,
+			reduceKey:   key.reg,
+			reduceMatch: temperature.reg,
+		}, nil
+	}
+
 	// Two-argument truth-table ops.
 	lhs, err := parser.parseRegion()
 	if err != nil {
@@ -709,6 +769,32 @@ func (parser *parser) parseModeEqRegions() (sideRegion, sideRegion, sideRegion, 
 	}
 
 	return value, key, match, nil
+}
+
+func (parser *parser) parseZipfSelectRegions() (sideRegion, sideRegion, sideRegion, error) {
+	value, key, err := parser.parseTwoBRegionsPrefix()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	if _, err := parser.expect(","); err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	temperature, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	if temperature.side != 'A' {
+		return sideRegion{}, sideRegion{}, sideRegion{}, fmt.Errorf("compiler: zipf_select temperature source must be A-side")
+	}
+
+	if _, err := parser.expect(")"); err != nil {
+		return sideRegion{}, sideRegion{}, sideRegion{}, err
+	}
+
+	return value, key, temperature, nil
 }
 
 func (parser *parser) parseTwoBRegionsPrefix() (sideRegion, sideRegion, error) {
@@ -970,6 +1056,10 @@ parseRegion accepts:
   - sliced regions:                       A.signals[0,8]
 */
 func (parser *parser) parseRegion() (sideRegion, error) {
+	if parser.peek().kind == "{{" {
+		return parser.parseIndirectRegion('A')
+	}
+
 	tok := parser.advance()
 
 	if tok.kind == "num" {
@@ -1016,6 +1106,48 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 	}
 
 	return sideRegion{}, fmt.Errorf("compiler: unknown region root %q", tok.text)
+}
+
+/*
+parseIndirectRegion handles the `{{ inner }}` form. The inner expression
+must resolve to a single-word region; its .Start is the INDIRECTION
+ADDRESS — the frame word the host will read at install time to fill in
+the actual operand. Two surface forms compose into this:
+
+  - `B.{{A.context[0,1]}}` — B-side operand whose start is read from
+    A.context[0] when the firmware is installed on a Value.
+  - `{{A.context[1,1]}}`   — A-side scalar (threshold) whose value is
+    read from A.context[1] at install and copied into the asset slot
+    the kernel uses as the comparison operand.
+
+The compiler does not interpret the inner reference at compile time. It
+records a substitution slot keyed off the inner region's start address;
+InstallFirmware reads the live word from the Value frame and patches
+the packed instruction (operand) or the asset slot (scalar) accordingly.
+*/
+func (parser *parser) parseIndirectRegion(side byte) (sideRegion, error) {
+	if _, err := parser.expect("{{"); err != nil {
+		return sideRegion{}, err
+	}
+
+	inner, err := parser.parseRegion()
+	if err != nil {
+		return sideRegion{}, err
+	}
+
+	if inner.indirect {
+		return sideRegion{}, fmt.Errorf("compiler: nested {{...}} is not supported")
+	}
+
+	if _, err := parser.expect("}}"); err != nil {
+		return sideRegion{}, err
+	}
+
+	return sideRegion{
+		side:     side,
+		reg:      Region{Start: inner.reg.Start, Span: 1},
+		indirect: true,
+	}, nil
 }
 
 func (parser *parser) parseRot8Region() (sideRegion, error) {
@@ -1081,6 +1213,10 @@ applied via maybeIndex, which trims an existing region down to the
 [start, span] window the source requested.
 */
 func (parser *parser) parseRegionPath(side byte) (sideRegion, error) {
+	if parser.peek().kind == "{{" {
+		return parser.parseIndirectRegion(side)
+	}
+
 	tok, err := parser.expect("ident")
 	if err != nil {
 		return sideRegion{}, err
