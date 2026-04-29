@@ -58,6 +58,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 
 	return backend.cpu.HypercubeGossip(value, community)
 }
+
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
 	return cpu.GeometricFrame(value, opcode)
 }

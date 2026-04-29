@@ -4,15 +4,19 @@ package cpu
 programAsmCompatible gates whether resident programs may use executeKernel asm
 or fall back to executeKernelGo.
 
-Today the emitted asm path mirrors the canonical Go semantics for firmware this
-repository loads; compatibility is a trivial pass-through. Re-introduce guards
-when a lowered opcode/topology intentionally remains Go-only.
+Today the asm path mirrors canonical Go semantics except for target-C child
+writes, which stay on the Go kernel until the assembly path materializes child
+frames directly.
 */
 func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
-	_ = backend
+	_ = backend // receiver kept so dispatch policy can use Backend state later
 
 	if ownerFrame == nil {
 		return true
+	}
+
+	if ProgramStartWord+ProgramWords > len(*ownerFrame) {
+		return false
 	}
 
 	for pc := uint64(0); pc < ProgramWords; pc++ {
@@ -21,7 +25,7 @@ func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
 			continue
 		}
 
-		if (instr>>TargetShift)&3 == TargetC {
+		if (instr>>TargetShift)&TargetMask == TargetC {
 			return false
 		}
 	}

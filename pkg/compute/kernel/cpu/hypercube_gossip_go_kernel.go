@@ -63,9 +63,9 @@ const (
 	// makes "operate entirely on B" (e.g. write B.x <- xor(B.x, B.y))
 	// expressible without reverse-engineering the operand routing.
 	SrcAFromBShift = 61
-	// StageBitShift marks an instruction as a stage(B) directive: instead
-	// of running the truth-table body, the kernel records the bound B
-	// for the host to push into staging[ownerFrame[ReferenceWord]].
+	// StageBitShift marks a legacy stage(B) directive: instead of running
+	// the truth-table body, the kernel records the bound B index in the
+	// stage output buffer.
 	StageBitShift = 62
 	// PopEndBitShift marks the last instruction of a pop(B) body. After
 	// executing such an instruction the kernel advances the lane cursor
@@ -74,10 +74,17 @@ const (
 	PopEndBitShift = 63
 )
 
+/*
+Target constants decode the 2-bit target selector in packed ALU words.
+TargetA writes to the resident owner frame, TargetB writes to the mapped peer
+frame, and TargetC writes to the emitted child frame staged by the Go kernel.
+TargetMask isolates the selector after shifting by TargetShift.
+*/
 const (
-	TargetA = 0
-	TargetB = 1
-	TargetC = 2
+	TargetMask = 3
+	TargetA    = 0
+	TargetB    = 1
+	TargetC    = 2
 )
 
 const (

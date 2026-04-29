@@ -102,14 +102,27 @@ func (machine *Machine) Close() (err error) {
 		machine.cancel()
 	}
 
-	for _, closer := range []io.Closer{
-		machine.telemetry,
-		machine.host,
-		machine.tokenizer,
-		machine.backend,
-	} {
-		if err := closer.Close(); err != nil {
-			err = errors.Join(err, errnie.Error(err))
+	if machine.telemetry != nil {
+		if e := machine.telemetry.Close(); e != nil {
+			err = errors.Join(err, errnie.Error(e))
+		}
+	}
+
+	if machine.host != nil {
+		if e := machine.host.Close(); e != nil {
+			err = errors.Join(err, errnie.Error(e))
+		}
+	}
+
+	if machine.tokenizer != nil {
+		if e := machine.tokenizer.Close(); e != nil {
+			err = errors.Join(err, errnie.Error(e))
+		}
+	}
+
+	if machine.backend != nil {
+		if e := machine.backend.Close(); e != nil {
+			err = errors.Join(err, errnie.Error(e))
 		}
 	}
 
@@ -128,37 +141,34 @@ func (machine *Machine) Error() string {
 }
 
 /*
-Cycle submits READY Values against the staging lanes their programs wrote into
-the backend, syncs, and repeats until no Value is left to dispatch.
-
-Submissions that touch disjoint owner/lane frame sets run together. Overlapping
-sets are split across batches so two kernels never mutate the same Value frame
-at the same time.
+Cycle runs one backend sweep. READY Values execute against their SELECTED
+reference lane when the query program tagged one; otherwise they see the full
+resident community.
 */
 func (machine *Machine) Cycle() (
-	resolved []*primitive.Value,
-	ready []*primitive.Value,
-	err error,
+	[]*primitive.Value,
+	[]*primitive.Value,
+	error,
 ) {
 	if machine.backend == nil {
 		return nil, nil, errors.New("backend is nil")
 	}
 
-	resolved = make([]*primitive.Value, 0)
-	ready = make([]*primitive.Value, 0)
+	resolved := make([]*primitive.Value, 0)
+	ready := make([]*primitive.Value, 0)
 
 	for result := range machine.backend.Sync(machine.ctx) {
 		resolved = append(resolved, result.Resolved...)
 		ready = append(ready, result.Ready...)
 	}
 
-	return resolved, ready, err
+	return resolved, ready, nil
 }
 
 /*
-Load ingests the dataset and seeds the bootstrap: the query is staged with the
-full community, and the recruiter waits for the query's reference markers to
-turn into its own pool. Cycle then drains the chain end-to-end.
+Load ingests the dataset and seeds the bootstrap query/recruiter pair. The
+query carries a key/value selector in context and wakes the recruiter after
+tagging matching residents in-band.
 */
 func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
@@ -184,29 +194,51 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 		for _, segment := range segments {
 			machine.backend.Submit(segment)
-			io.Copy(machine.telemetry, segment)
+
+			_, err := io.Copy(machine.telemetry, segment)
+
+			if err != nil {
+				return errnie.Error(err)
+			}
 		}
 	}
 
-	for _, value := range machine.firmware.Deploy(
+	deployed, err := machine.firmware.Deploy(
 		core.RECRUIT_COMMUNITY, []uint64{
 			uint64(primitive.PropertyWord(primitive.COMMUNITY)), 0,
 		},
 		nil,
-	) {
-		machine.backend.Submit(value)
-		io.Copy(machine.telemetry, value)
+	)
+	if err != nil {
+		return err
 	}
 
-	ready := []*primitive.Value{nil}
+	for _, value := range deployed {
+		machine.backend.Submit(value)
 
-	for len(ready) > 0 {
-		if _, ready, err = machine.Cycle(); err != nil {
+		_, err := io.Copy(machine.telemetry, value)
+
+		if err != nil {
+			return errnie.Error(err)
+		}
+	}
+
+	for {
+		_, ready, err := machine.Cycle()
+		if err != nil {
 			return err
 		}
 
 		for _, value := range ready {
-			io.Copy(machine.telemetry, value)
+			_, err := io.Copy(machine.telemetry, value)
+
+			if err != nil {
+				return errnie.Error(err)
+			}
+		}
+
+		if len(ready) == 0 {
+			break
 		}
 	}
 
@@ -215,7 +247,9 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 
 /*
 Prompt injects prompt segment Values into the community, cycles until settled,
-and returns Values that newly settled in the RESOLVED or DONE state.
+and returns Values that newly settled in the RESOLVED state. Linked prompt
+tails still retire DONE in resident state and are observable through the
+backend store.
 */
 func (machine *Machine) Prompt(
 	values ...*primitive.Value,
@@ -234,7 +268,11 @@ func (machine *Machine) Prompt(
 		}
 
 		for _, value := range resolved {
-			io.Copy(machine.telemetry, value)
+			_, err := io.Copy(machine.telemetry, value)
+
+			if err != nil {
+				return nil, errnie.Error(err)
+			}
 		}
 	}
 

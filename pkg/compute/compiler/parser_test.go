@@ -55,21 +55,21 @@ program recruit_community {
 			So(emitted, ShouldBeLessThanOrEqualTo, 16)
 		})
 
-		Convey("It should encode an emit instruction with the spawn flag set", func() {
+		Convey("It should encode emit body writes with the child target", func() {
 			result, _ := Compile(source)
 
-			foundEmit := false
+			foundChildTarget := false
 			for _, word := range result.Words {
 				if word == 0 {
 					continue
 				}
 
-				if (word>>54)&1 == 1 {
-					foundEmit = true
+				if (word>>53)&3 == 2 {
+					foundChildTarget = true
 				}
 			}
 
-			So(foundEmit, ShouldBeTrue)
+			So(foundChildTarget, ShouldBeTrue)
 		})
 
 		Convey("It should encode at least one pop instruction with topology=Pop", func() {
@@ -417,18 +417,18 @@ program recruit_community {
 			So(foundNestedPredicate, ShouldBeTrue)
 		})
 
-		Convey("It should emit only one child for the multi-instruction emit body", func() {
+		Convey("It should target the emitted child for the emit body", func() {
 			result, err := Compile(source)
 			So(err, ShouldBeNil)
 
-			emits := 0
+			childTargets := 0
 			for _, word := range result.Words {
-				if word != 0 && (word>>54)&1 == 1 {
-					emits++
+				if word != 0 && (word>>53)&3 == 2 {
+					childTargets++
 				}
 			}
 
-			So(emits, ShouldEqual, 1)
+			So(childTargets, ShouldBeGreaterThan, 0)
 		})
 	})
 }
@@ -592,9 +592,7 @@ program query {
 	})
 }
 
-func TestCompileQueryWake(t *testing.T) {
-	Convey("Given the direct id wake predicate", t, func() {
-		source := `
+const compileDirectWakeSource = `
 program query {
   gossip(B) {
     (B.id == A.properties.reference) {
@@ -604,14 +602,7 @@ program query {
 }
 `
 
-		Convey("It should compile the direct peer id comparison", func() {
-			_, err := Compile(source)
-			So(err, ShouldBeNil)
-		})
-	})
-
-	Convey("Given the query wake source", t, func() {
-		source := `
+const compileQueryWakeSource = `
 program query {
   gossip(B) {
     (B.{{A.context[0,1]}} == {{A.context[1,1]}}) {
@@ -628,9 +619,91 @@ program query {
 }
 `
 
-		Convey("It should compile the indirect selector and nested wake predicate", func() {
-			_, err := Compile(source)
+func TestCompileQueryWake(t *testing.T) {
+	Convey("Given the direct id wake predicate", t, func() {
+		Convey("It should compile the direct peer id comparison", func() {
+			result, err := Compile(compileDirectWakeSource)
 			So(err, ShouldBeNil)
+
+			predicateWord := result.Words[0]
+			bodyWord := result.Words[1]
+
+			So(predicateWord, ShouldNotEqual, uint64(0))
+			So((predicateWord>>55)&3, ShouldEqual, uint64(TopoHypercubePerPeer))
+			So((predicateWord>>57)&1, ShouldEqual, uint64(1))
+			So((predicateWord>>61)&1, ShouldEqual, uint64(1))
+			So((predicateWord>>4)&0x7F, ShouldEqual, uint64(idStart))
+			So((predicateWord>>18)&0x7F, ShouldEqual, uint64(propertiesStart+11))
+
+			So(bodyWord, ShouldNotEqual, uint64(0))
+			So((bodyWord>>53)&3, ShouldEqual, uint64(1))
+			So((bodyWord>>32)&0x7F, ShouldEqual, uint64(propertiesStart+5))
+
+			So(len(result.Constants), ShouldBeGreaterThan, 0)
+			So(len(result.Substitutions), ShouldEqual, 0)
 		})
 	})
+
+	Convey("Given the query wake source", t, func() {
+		Convey("It should compile the indirect selector and nested wake predicate", func() {
+			result, err := Compile(compileQueryWakeSource)
+			So(err, ShouldBeNil)
+
+			predicateWord := result.Words[0]
+			So(predicateWord, ShouldNotEqual, uint64(0))
+			So((predicateWord>>55)&3, ShouldEqual, uint64(TopoHypercubePerPeer))
+			So((predicateWord>>57)&1, ShouldEqual, uint64(1))
+			So((predicateWord>>32)&0x7F, ShouldEqual, uint64(PerPeerMaskWord))
+
+			thresholdStart := (predicateWord >> 18) & 0x7F
+			So(thresholdStart, ShouldBeGreaterThanOrEqualTo, uint64(assetConstStart))
+
+			foundOperandSub := false
+			foundConstantSub := false
+			for _, sub := range result.Substitutions {
+				if sub.PC == 0 && sub.FieldShift == SubstAStartShift {
+					foundOperandSub = true
+					So(sub.Addr, ShouldEqual, uint64(contextStart))
+				}
+
+				if sub.Constant && sub.ConstantOffset == thresholdStart {
+					foundConstantSub = true
+					So(sub.Addr, ShouldEqual, uint64(contextStart+1))
+				}
+			}
+
+			So(foundOperandSub, ShouldBeTrue)
+			So(foundConstantSub, ShouldBeTrue)
+
+			statusWritesToB := 0
+			nestedWakePredicate := false
+			for _, word := range result.Words {
+				if word == 0 {
+					continue
+				}
+
+				if (word>>53)&3 == 1 && (word>>32)&0x7F == uint64(propertiesStart+5) {
+					statusWritesToB++
+				}
+
+				if (word>>57)&1 == 1 && (word>>4)&0x7F == uint64(idStart) && (word>>18)&0x7F == uint64(propertiesStart+11) {
+					nestedWakePredicate = true
+				}
+			}
+
+			So(statusWritesToB, ShouldBeGreaterThanOrEqualTo, 2)
+			So(nestedWakePredicate, ShouldBeTrue)
+			So(len(result.Constants), ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
+func BenchmarkCompileQueryWake(b *testing.B) {
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if _, err := Compile(compileQueryWakeSource); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

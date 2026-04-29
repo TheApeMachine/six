@@ -75,14 +75,10 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) (bool, error) {
 		value.Set(int(init.Offset), init.Value)
 	}
 
-	// Apply install-time operand substitutions. The compiler emitted
-	// `B.{{addr}}` / `{{addr}}` operands as placeholders and recorded a
-	// patch table; we read the live word at addr from the Value (the
-	// caller is expected to have written the desired operand offset there
-	// before InstallFirmware) and splice its low 7 bits into the named
-	// 7-bit field of the corresponding program word. After this loop the
-	// program region holds concrete operand offsets the kernel can decode
-	// without any indirection logic.
+	// Apply install-time substitutions. B.{{addr}} patches an operand
+	// offset in the packed instruction word, while bare {{addr}} patches
+	// the value staged in a compiler-reserved constant slot. The caller
+	// must write those context words before installing firmware.
 	words := append([]uint64(nil), entry.Compiled()...)
 
 	const maxSubstitutionFieldShift = uint64(57)
@@ -107,7 +103,7 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) (bool, error) {
 				)
 			}
 
-			value.Set(offset, (*value)[addr])
+			value.Set(offset, value.Word(addr))
 			continue
 		}
 
@@ -127,7 +123,7 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) (bool, error) {
 			)
 		}
 
-		operand := (*value)[addr] & 0x7F
+		operand := value.Word(addr) & 0x7F
 
 		shift := uint64(substitution.FieldShift)
 		mask := uint64(0x7F) << shift

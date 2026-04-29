@@ -448,6 +448,22 @@ func (value *Value) Set(region int, data uint64) {
 }
 
 /*
+Word returns one frame word by absolute index. It is the single-word
+counterpart to Get, which returns a whole coarse region slice.
+*/
+func (value *Value) Word(region int) uint64 {
+	if value == nil {
+		return 0
+	}
+
+	if region < 0 || region >= len(*value) {
+		return 0
+	}
+
+	return (*value)[region]
+}
+
+/*
 WriteProgramWords copies words into the configured program region (clamped
 to region length). The bytes are exactly what the universal-bitwise kernel
 will execute next pass; callers that also have a continuation word should

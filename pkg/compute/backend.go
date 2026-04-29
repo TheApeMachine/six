@@ -31,6 +31,7 @@ type Backend struct {
 	nextSub    atomic.Uint64
 	pending    atomic.Int64
 	community  sync.Map
+	syncMu     sync.Mutex
 }
 
 /*
@@ -52,10 +53,9 @@ func NewBackend(ctx context.Context) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	backend := &Backend{
-		ctx:       ctx,
-		cancel:    cancel,
-		pool:      pool.NewPool(uint64(runtime.NumCPU())),
-		community: sync.Map{},
+		ctx:    ctx,
+		cancel: cancel,
+		pool:   pool.NewPool(uint64(runtime.NumCPU())),
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -93,34 +93,52 @@ Range visits the resident store without exposing its sync.Map machinery.
 Tests and readout code use this to inspect in-band state while keeping
 storage ownership inside Backend.
 */
-func (backend *Backend) Range(fn func(*primitive.Value) bool) {
-	if backend == nil || fn == nil {
+func (backend *Backend) Range(visitor func(*primitive.Value) bool) {
+	if backend == nil || visitor == nil {
 		return
 	}
 
 	backend.community.Range(func(key, value any) bool {
-		return fn(value.(*primitive.Value))
+		resident, ok := value.(*primitive.Value)
+		if !ok || resident == nil {
+			return true
+		}
+
+		return visitor(resident)
 	})
 }
 
 func (backend *Backend) getCommunity(owner *primitive.Value) []*primitive.Value {
+	if backend == nil || owner == nil {
+		return nil
+	}
+
 	all := make([]*primitive.Value, 0)
 	community := make([]*primitive.Value, 0)
 
 	backend.community.Range(func(key, value any) bool {
-		all = append(all, value.(*primitive.Value))
+		resident, ok := value.(*primitive.Value)
+		if !ok || resident == nil {
+			return true
+		}
 
-		if reference, err := value.(*primitive.Value).Property(
-			primitive.REFERENCE,
-		); err == nil && reference == owner.ID() {
-			if value.(*primitive.Value).Status() == primitive.SELECTED {
-				community = append(community, value.(*primitive.Value))
-			}
+		reference, err := resident.Property(primitive.REFERENCE)
+		if err != nil {
+			return true
+		}
+
+		all = append(all, resident)
+
+		if reference == owner.ID() && resident.Status() == primitive.SELECTED {
+			community = append(community, resident)
 		}
 
 		return true
 	})
 
+	// Many resident programs intentionally run over the whole live store.
+	// The SELECTED/reference lane is a narrowing optimization, not a
+	// prerequisite for execution.
 	if len(community) == 0 {
 		return all
 	}
@@ -217,6 +235,13 @@ func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateS
 	return backend.substrates[bestIdx], uint64(1) << uint(bestIdx)
 }
 
+/*
+SyncResult is the per-sweep readout from Backend.Sync. Resolved contains
+Values that reached RESOLVED during the sweep. Ready contains every resident
+still marked READY afterwards, including freshly spawned children and values
+restored after a substrate failure, so drain loops can continue until the
+runtime quiesces.
+*/
 type SyncResult struct {
 	Resolved []*primitive.Value
 	Ready    []*primitive.Value
@@ -236,52 +261,65 @@ func (backend *Backend) Sync(
 	}
 
 	return func(yield func(*SyncResult) bool) {
-		backend.community.Range(func(key, value any) bool {
-			owner := value.(*primitive.Value)
+		result := func() *SyncResult {
+			backend.syncMu.Lock()
+			defer backend.syncMu.Unlock()
 
-			if owner.Status() == primitive.READY {
-				owner.SetStatus(primitive.BUSY)
-
-				spawned, err := backend.execute(
-					owner, backend.getCommunity(owner),
-				)
-
-				if err != nil {
-					owner.SetStatus(primitive.READY)
-					errnie.Error(err)
+			backend.community.Range(func(key, value any) bool {
+				owner, ok := value.(*primitive.Value)
+				if !ok || owner == nil {
+					return true
 				}
 
-				for _, child := range spawned {
-					backend.community.Store(child.ID(), child)
+				if owner.Status() == primitive.READY {
+					owner.SetStatus(primitive.BUSY)
+
+					spawned, err := backend.execute(
+						owner, backend.getCommunity(owner),
+					)
+
+					if err != nil {
+						owner.SetStatus(primitive.READY)
+						errnie.Error(err)
+					}
+
+					for _, child := range spawned {
+						backend.community.Store(child.ID(), child)
+					}
+
+					if owner.Status() == primitive.BUSY {
+						owner.SetSchedulingNext(0)
+						owner.SetStatus(primitive.DONE)
+					}
 				}
 
-				if owner.Status() == primitive.BUSY {
-					owner.SetSchedulingNext(0)
-					owner.SetStatus(primitive.DONE)
+				return true
+			})
+
+			result := &SyncResult{
+				Resolved: make([]*primitive.Value, 0),
+				Ready:    make([]*primitive.Value, 0),
+			}
+
+			backend.community.Range(func(key, value any) bool {
+				owner, ok := value.(*primitive.Value)
+				if !ok || owner == nil {
+					return true
 				}
-			}
 
-			return true
-		})
+				if owner.Status() == primitive.RESOLVED {
+					result.Resolved = append(result.Resolved, owner)
+				}
 
-		result := &SyncResult{
-			Resolved: make([]*primitive.Value, 0),
-			Ready:    make([]*primitive.Value, 0),
-		}
+				if owner.Status() == primitive.READY {
+					result.Ready = append(result.Ready, owner)
+				}
 
-		backend.community.Range(func(key, value any) bool {
-			owner := value.(*primitive.Value)
+				return true
+			})
 
-			if owner.Status() == primitive.RESOLVED {
-				result.Resolved = append(result.Resolved, owner)
-			}
-
-			if owner.Status() == primitive.READY {
-				result.Ready = append(result.Ready, owner)
-			}
-
-			return true
-		})
+			return result
+		}()
 
 		yield(result)
 	}
@@ -323,9 +361,22 @@ func (backend *Backend) executeSubstrate(
 
 	state.observe(time.Since(start))
 
-	return results, err
+	return results, nil
 }
 
+const (
+	targetTagShift = 53
+	targetTagMask  = 0x3
+	targetTagChild = 0x2
+)
+
+/*
+valueTargetsChild reports whether any packed program word writes to the
+emitted child target. targetTagShift is the bit offset of the 2-bit target
+tag, and targetTagChild is the tag value that denotes the child frame. The
+backend uses this scan to keep child materialization on substrates that
+currently implement target-C writes.
+*/
 func valueTargetsChild(value *primitive.Value) bool {
 	if value == nil {
 		return false
@@ -336,7 +387,7 @@ func valueTargetsChild(value *primitive.Value) bool {
 			continue
 		}
 
-		if (word>>53)&3 == 2 {
+		if (word>>targetTagShift)&targetTagMask == targetTagChild {
 			return true
 		}
 	}

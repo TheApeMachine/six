@@ -96,11 +96,10 @@ func (op MachineOp) Pack() uint64 {
 	word |= (op.MaskStart & InstrStartMask) << InstrPredStartShift
 
 	target := uint64(0)
-	if op.TargetB {
-		target = 1
-	}
 	if op.TargetChild || op.Emit {
 		target = 2
+	} else if op.TargetB {
+		target = 1
 	}
 	word |= (target & 3) << InstrModeShift
 

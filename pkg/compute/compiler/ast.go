@@ -232,13 +232,10 @@ func retargetPredicateMasks(block BlockNode, mask Region) {
 }
 
 /*
-StageNode lowers `stage(B)`: a single instruction that, for the currently
-bound popped B, pushes that B into the backend's staging lane keyed by
-A.properties.reference. The kernel observes the stage bit and short-
-circuits the truth-table body; the instruction is purely a host-visible
-side effect on the staging map. Programs use this to declare "the next
-program belongs to whoever's id is in my reference word, and these are
-its inputs" entirely in-band, without any Go-side scanning.
+StageNode lowers `stage(B)`: a legacy side-effect instruction that queues
+the currently bound B index in the kernel stage output. The active community
+recruitment path uses in-frame SELECTED/reference tags, but stage remains in
+the wire contract for older firmware and parity tests.
 */
 type StageNode struct{}
 

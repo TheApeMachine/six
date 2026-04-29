@@ -231,7 +231,7 @@ type Builder struct {
 	predicateEnable uint64
 	predCond        uint64
 	bRotate         uint64 // truth-table instructions: rotate SrcB span by N bytes before the op
-	stageFlag       uint64 // 1 = push currentB into backend.staging[A.properties.reference]
+	stageFlag       uint64 // 1 = queue the current B index in the kernel stage output
 	popEndFlag      uint64 // 1 = last instruction of a pop(B) body; kernel rewinds to body start if more Bs remain
 }
 
@@ -265,6 +265,13 @@ func (builder *Builder) RecordSubstitution(fieldShift uint, addr uint64) {
 	})
 }
 
+/*
+RecordConstantSubstitution queues an install-time patch for a compiler-
+allocated constant slot. offset is the frame word reserved for the constant;
+addr is the source frame word read during firmware installation. Use this
+when `{{...}}` represents a scalar value copied into a constant slot. Use
+RecordSubstitution instead when patching an instruction operand field.
+*/
 func (builder *Builder) RecordConstantSubstitution(offset, addr uint64) {
 	builder.substitutions = append(builder.substitutions, Substitution{
 		Addr:           addr,
@@ -291,7 +298,7 @@ func NewBuilder() *Builder {
 /*
 Pack writes one 64-bit instruction with the bit layout the kernel
 decodes. The full set of fields — predicate, srcAFromB, target, topology,
-target — is composed from the Builder's transient state so callers
+bRotate/stageFlag/popEndFlag — is composed from the Builder's transient state so callers
 don't need to thread every option through Pack.
 */
 func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {

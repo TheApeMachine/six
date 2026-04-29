@@ -52,6 +52,38 @@ func TestExecuteKernelGoRot8(t *testing.T) {
 	})
 }
 
+func TestExecuteKernelGoEmitChildTarget(t *testing.T) {
+	Convey("Given a child-target instruction", t, func() {
+		var owner [128]uint64
+
+		owner[72] = ^uint64(0)
+		owner[122] = 42
+		owner[ProgramStartWord] = packTestInstruction(
+			0x3,
+			122,
+			1,
+			122,
+			1,
+			120,
+			1,
+			72,
+			TopoLocal,
+			0,
+		) | (TargetC << TargetShift)
+
+		Convey("When the Go ALU executes it", func() {
+			backend := &Backend{}
+			_, child, active := backend.executeKernelGo(&owner, ^uint64(0), nil, 0, 0)
+
+			Convey("Then the write lands on the emitted child frame only", func() {
+				So(active, ShouldBeTrue)
+				So(child[120], ShouldEqual, uint64(42))
+				So(owner[120], ShouldEqual, uint64(0))
+			})
+		})
+	})
+}
+
 func BenchmarkExecuteKernelGoRot8(b *testing.B) {
 	var owner [128]uint64
 	var peer [128]uint64

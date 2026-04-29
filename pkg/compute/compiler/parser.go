@@ -1058,8 +1058,11 @@ func (parser *parser) parseEmit() (ASTNode, error) {
 	}
 
 	parser.emitDepth++
+	defer func() {
+		parser.emitDepth--
+	}()
+
 	body, err := parser.parseStatements("}")
-	parser.emitDepth--
 	if err != nil {
 		return nil, err
 	}

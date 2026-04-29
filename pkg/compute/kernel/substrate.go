@@ -24,9 +24,9 @@ Memory: every *Value is a full 128-word frame owned by the caller.
 Substrates mutate in place and do not retain pointers after return.
 */
 /*
-StageRequest describes a stage(B) pairing (owner lane id and the bound B frame)
-for docs and future plumbing. compute.Backend queues community for Submit via
-its staging map; HypercubeGossip returns spawned children only.
+StageRequest describes a legacy stage(B) pairing for docs and future plumbing.
+Active recruitment uses in-frame SELECTED/reference tags; HypercubeGossip
+returns spawned children only.
 */
 type StageRequest struct {
 	OwnerID uint64

@@ -80,7 +80,7 @@ type MachineOp struct {
 	Opcode        uint64
 	TargetB       bool
 	Emit          bool
-	TargetChild   bool
+	TargetChild   bool // pack destination as target-C so writes land on the emitted child frame
 	Topology      uint64
 	Predicate     bool
 	PredicateCond uint64

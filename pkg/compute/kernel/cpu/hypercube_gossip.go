@@ -13,7 +13,6 @@ const (
 	SpawnRegisterWord = 70
 	// ReferenceWord is the absolute frame offset of properties.reference
 	// (properties region start = 56, REFERENCE = property index 11).
-	// stage(B) instructions push the bound B into staging[ownerFrame[ReferenceWord]].
 	ReferenceWord = 67
 )
 
@@ -71,31 +70,12 @@ func (backend *Backend) HypercubeGossip(
 		)
 	}
 
-	// stageIdx is produced by the ALU for peers that executed stage(B); callers
-	// keyed by compute.Backend Submit receive community via staging lanes, not
-	// via a second HypercubeGossip return value.
-
+	// stageIdx is produced by legacy stage(B) firmware. Current recruitment
+	// narrows lanes through SELECTED/reference tags in compute.Backend.
 	_ = stageIdx
 
-	// HOST MEMORY ALLOCATION (Post-Processing)
 	var spawned []*primitive.Value
-
-	if childActive {
-		child := primitive.AllocValue()
-
-		if child != nil {
-			childWords := (*[128]uint64)(unsafe.Pointer(child))
-			copy(childWords[:], childFrame[:])
-			child.StampID()
-			childWords[SpawnRegisterWord] = 0
-
-			if child.Status() == primitive.READY && child.HasProgram() && child.SchedulingNext() == 0 {
-				child.SetSchedulingNext(child.ID())
-			}
-
-			spawned = append(spawned, child)
-		}
-	}
+	spawned = append(spawned, backend.materializeChild(childFrame, childActive)...)
 
 	spawnCount := ownerFrame[SpawnRegisterWord]
 
@@ -124,6 +104,28 @@ func (backend *Backend) HypercubeGossip(
 	}
 
 	return spawned, nil
+}
+
+func (backend *Backend) materializeChild(frame [128]uint64, active bool) []*primitive.Value {
+	if !active {
+		return nil
+	}
+
+	child := primitive.AllocValue()
+	if child == nil {
+		return nil
+	}
+
+	childWords := (*[128]uint64)(unsafe.Pointer(child))
+	copy(childWords[:], frame[:])
+	child.StampID()
+	childWords[SpawnRegisterWord] = 0
+
+	if child.Status() == primitive.READY && child.HasProgram() && child.SchedulingNext() == 0 {
+		child.SetSchedulingNext(child.ID())
+	}
+
+	return []*primitive.Value{child}
 }
 
 /*

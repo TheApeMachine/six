@@ -9,8 +9,8 @@ package cpu
 //
 // stageBuf / stageCount give the kernel a place to record the indices
 // of peers it stages. Asm writes peer indices into stageBuf[0..*stageCount)
-// when stage(B) instructions fire; the orchestrator consumes those indices
-// alongside spawned children (staging lanes are compute.Backend.Submit keyed).
+// when legacy stage(B) instructions fire. Active recruitment uses in-frame
+// SELECTED/reference tags; child-target emit uses the Go kernel.
 //
 //go:noescape
 func executeKernel(

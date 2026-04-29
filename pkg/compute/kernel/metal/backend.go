@@ -157,8 +157,8 @@ func Available() int {
 }
 
 func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
-	n := len(community)
-	if value == nil || n == 0 {
+	communitySize := len(community)
+	if value == nil || communitySize == 0 {
 		return nil, nil
 	}
 
@@ -173,7 +173,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		return nil, fmt.Errorf("metal: owner value is outside the arena")
 	}
 
-	indices := make([]uint32, n)
+	indices := make([]uint32, communitySize)
 	for idx := range indices {
 		indices[idx] = invalidIndex
 	}
@@ -199,7 +199,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		}
 	}
 
-	stageIndices := make([]uint32, n)
+	stageIndices := make([]uint32, communitySize)
 	stageCount := uint32(0)
 
 	for idx := range stageIndices {
@@ -208,7 +208,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 
 	res := C.hypercube_gossip_metal_indices(
 		(*C.uint32_t)(unsafe.Pointer(&indices[0])),
-		C.uint32_t(n),
+		C.uint32_t(communitySize),
 		C.uint32_t(ownerIndex),
 		C.uint32_t(ownerSlot),
 		(*C.uint32_t)(unsafe.Pointer(&stageIndices[0])),

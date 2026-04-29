@@ -274,6 +274,10 @@ func TestLoad(t *testing.T) {
 	})
 }
 
+/*
+loadProvider is a test-only provider implementing Generate, Read, and Close
+so Load can exercise both the iter.Seq and io.Reader-facing scaffolding.
+*/
 type loadProvider struct {
 	samples []data.Sample
 }

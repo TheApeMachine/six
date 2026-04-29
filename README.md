@@ -77,10 +77,21 @@ This is the actual end-to-end path the code implements today:
 2. **Tokenizer chunks** — `vm.Tokenizer` calls `primitive.NewValue` to mint one or more `Value` segments per sample. Payload bytes are Morton-coded into 16-bit slot pairs in the token region.
 3. **Segments are linked** — Multi-segment Values are chained via `PrevID` / `NextID`. The tokenizer also links successive chunks: the previous tail's `NextID` points to the new head, and the new head's `PrevID` points back.
 4. **Firmware precompiled** — `core.NewConfig` lowers the `programs:` block through `pkg/compute/program`; Values install named firmware by copying packed instruction words into their own `program` region.
-5. **Published to Queue** — Values whose `properties.status` is `READY`, whose `program` region is non-empty, whose `properties.continuation` is non-zero, and whose staging lane is non-empty are eligible for backend execution. `vm.Machine.Load` seeds the bootstrap query with freshly tokenized Values, then drains the query → recruiter handoff so recruitment firmware performs filtering and community stamping before prompts run.
-6. **Backend executes** — `compute.Backend` marks the selected resident `WAITING`, dispatches its program to the lowest-pressure available ALU substrate with CPU fallback, and applies any stage requests emitted by the program. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
+5. **Published to Queue** — Executable resident Values are picked up by the backend:
+   - `properties.status == READY`.
+   - The `program` region is non-empty.
+   - `properties.continuation != 0`.
+   - A non-empty `SELECTED` / `properties.reference` lane narrows recruiter execution; no separate staging lane is required in the current path.
+   - `vm.Machine.Load` seeds the bootstrap query with tokenized Values.
+   - The drain loop carries the query → recruiter handoff through READY continuations.
+   - Recruiter filtering performs community stamping before prompts run.
+6. **Backend executes** — `compute.Backend` marks the selected resident `BUSY`, dispatches its program to the lowest-pressure available ALU substrate with CPU fallback, and narrows execution to peers tagged `SELECTED` with `properties.reference = owner.id` when such a lane exists. The universal-bitwise ALU reads the operand regions named by the program words and writes into the selected target frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. One-shot firmware clears `properties.continuation` and stamps `DONE` itself, so lifecycle retirement is a Value-side effect rather than a host finalizer.
-8. **Prompt Readout** — `vm.Machine.Prompt` marks injected Values as prompt roles, stages their linked prompt chain plus non-prompt residents with non-zero `properties.community`, and lets readout firmware resolve heads while tails retire `DONE`. Resolved and done prompt segments both count as settled execution.
+8. **Prompt Readout** — Prompt execution is a short in-band chain:
+   - `vm.Machine.Prompt` marks injected Values as prompt roles.
+   - It stages the linked prompt chain plus non-prompt residents with `properties.community > 0`.
+   - Readout firmware resolves prompt heads.
+   - Prompt tails retire with status `DONE`; both resolved heads and `DONE` tails count as settled execution.
 9. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
 10. **Telemetry bridge:**
    - After each backend tick **🔁 `vm.Machine.Cycle`** emits raw **Value** frames (`[128]uint64` words) into **`pkg/telemetry.Bridge`**.
@@ -334,7 +345,7 @@ Current firmware families:
 | `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
 | `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
 | `zipf_select`, `program_select`, `program_carrier` | Candidate-program pressure: eligibility firmware can expose candidate `program_id` Values, `zipf_select` ranks/samples them by utility and temperature, and carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
-| `query`, `recruit_community` | Ingress and affinity recruitment: query Values stage unassigned peers into a recruiter lane; recruiter Values seed from the first candidate, accept candidates under a Hamming-distance budget, stamp `community = recruiter.id`, fold accepted affinity into their own saturation witness, and continue residual lanes with fresh recruiters. |
+| `query`, `recruit_community` | Ingress and affinity recruitment: query Values select peers by an in-frame key/value predicate, tag matches with `SELECTED` and `reference = recruiter.id`, wake the recruiter, and let recruiter Values seed from the first candidate, accept candidates under a Hamming-distance budget, stamp `community = recruiter.id`, fold accepted affinity into their own saturation witness, and emit fresh recruiters when saturated. |
 | `episodic_replay`, `memory_prune` | Memory pressure: compare mapped peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
 | `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure over in-band label/property witnesses. |
 | `open_ended_generation` | Experimental generation path: mutate token coordinates by gradient and spawn only frames that survive the structural witness. |
@@ -370,9 +381,11 @@ Ranking and Zipf-band selection are deterministic from resident owner witnesses 
 
 ### Community Recruitment
 
-Communities are formed by query Values handing unassigned peers to recruiter Values. The `query` program predicates on `B.properties.community == 0`, stamps `B.properties.reference` with the recruiter id carried by the query, and emits `stage(B)` so the recruiter receives its lane without a Go-side peer scan.
+Communities are formed by query Values handing matching peers to recruiter Values. The `query` program uses a two-word selector in `A.context`: `context[0]` is the B-side frame word to inspect, and `context[1]` is the scalar value to compare. Source like `B.{{A.context[0,1]}} == {{A.context[1,1]}}` lowers to an install-time operand substitution for the selected B word and an install-time constant substitution for the threshold. The current bootstrap writes `properties.community` as the key and `0` as the value, so ingress selects unassigned peers without hardcoding that predicate in the compiler or backend.
 
-The `recruit_community` program pops the staged lane. The first candidate seeds `context[0,5]`; every candidate is then guarded by `popcnt(or(A.affinity, B.affinity)) <= 121` and `popcnt(xor(A.context[0,5], B.affinity)) < 64`. Accepted candidates receive `community = A.id`, and their affinity is folded back into the recruiter's own `affinity[0,5]`, which is the saturation witness. When `popcnt(A.affinity)` reaches `121`, the `emit { ... }` body copies the same program into a fresh recruiter and resets that child frame's affinity and context seed. The backend's single-use finalizer retires the consumed resident unless the firmware explicitly marks itself `READY` with a continuation, and it stages the residual `community == 0` lane into an emitted recruiter or, when the current recruiter made progress without saturating, into a fresh residual recruiter carrying the same firmware.
+Matching peers are tagged entirely in-band: the query writes `B.properties.reference <- A.properties.reference`, marks the peer `SELECTED`, and marks the referenced recruiter `READY` when `B.id == A.properties.reference`. `compute.Backend` then gives a READY resident only the peers whose `reference` points at that resident and whose status is `SELECTED`; if no such lane exists, the resident runs over the full live community.
+
+The `recruit_community` program pops the selected lane. The first candidate seeds `context[0,5]`; every candidate is then guarded by `popcnt(or(A.affinity, B.affinity)) <= 121` and `popcnt(xor(A.context[0,5], B.affinity)) < 64`. Accepted candidates receive `community = A.id`, and their affinity is folded back into the recruiter's own `affinity[0,5]`, which is the saturation witness. When `popcnt(A.affinity)` reaches `121`, the `emit { ... }` body writes only the lanes it names onto a fresh child frame, currently copying the resident program and marking the child `READY`. Bare destinations inside `emit` target the child; explicit `A.*` and `B.*` still target the resident and mapped peer.
 
 The VM does not assign communities itself. Its bootstrap responsibility is to allocate the initial query/recruiter pair and seed the query lane with freshly tokenized Values. The clustering rule remains resident firmware over `reference`, `affinity`, and `community`, not a Go-side assignment pass.
 

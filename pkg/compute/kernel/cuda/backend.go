@@ -131,13 +131,13 @@ func cudaTakeSpawnChild(childPool []*primitive.Value, spawnIdx uint64) *primitiv
 }
 
 func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
-	n := len(community)
-	if n == 0 {
+	communityCount := len(community)
+	if communityCount == 0 {
 		return nil, nil
 	}
 
-	frames := make([]primitive.Value, n)
-	active := make([]uint8, n)
+	frames := make([]primitive.Value, communityCount)
+	active := make([]uint8, communityCount)
 
 	for communityIdx, member := range community {
 		if member == nil {
@@ -158,17 +158,17 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		}
 	}
 
-	stageIndices := make([]uint32, n)
+	stageIndices := make([]uint32, communityCount)
 	var stageCount uint32
 
 	spawnValues, spawnFrames, spawnIDs := cudaSpawnBuffers(value, community)
-	spawnActive := make([]uint8, n)
+	spawnActive := make([]uint8, communityCount)
 
 	res := C.hypercube_gossip_v2_cuda(
 		C.int(backend.deviceIdx),
 		(*C.uint64_t)(unsafe.Pointer(&frames[0])),
 		(*C.uint8_t)(unsafe.Pointer(&active[0])),
-		C.uint32_t(n),
+		C.uint32_t(communityCount),
 		C.uint32_t(ownerIndex),
 		(*C.uint32_t)(unsafe.Pointer(&stageIndices[0])),
 		(*C.uint32_t)(unsafe.Pointer(&stageCount)),
@@ -178,7 +178,6 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	)
 	if res != 0 {
 		primitive.CloseAll(spawnValues)
-
 		return nil, fmt.Errorf("cuda: hypercube_gossip_v2_cuda failed with code %d", int(res))
 	}
 
@@ -269,13 +268,13 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 //
 //nolint:unused
 func (backend *Backend) hypercubeGossipLegacy(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
-	n := len(community)
-	if n == 0 {
+	communityCount := len(community)
+	if communityCount == 0 {
 		return nil, nil
 	}
 
-	frames := make([]primitive.Value, n)
-	active := make([]uint8, n)
+	frames := make([]primitive.Value, communityCount)
+	active := make([]uint8, communityCount)
 	for i, v := range community {
 		if v == nil {
 			continue
@@ -296,13 +295,13 @@ func (backend *Backend) hypercubeGossipLegacy(value *primitive.Value, community 
 	}
 
 	spawnValues, spawnFrames, spawnIDs := cudaSpawnBuffers(value, community)
-	spawnActive := make([]uint8, n)
+	spawnActive := make([]uint8, communityCount)
 
 	res := C.hypercube_gossip_cuda(
 		C.int(backend.deviceIdx),
 		(*C.uint64_t)(unsafe.Pointer(&frames[0])),
 		(*C.uint8_t)(unsafe.Pointer(&active[0])),
-		C.uint32_t(n),
+		C.uint32_t(communityCount),
 		C.uint32_t(ownerIndex),
 		nil,
 		(*C.uint64_t)(unsafe.Pointer(&spawnFrames[0])),
