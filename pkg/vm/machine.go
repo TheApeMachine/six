@@ -207,10 +207,12 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		for _, segment := range segments {
 			machine.backend.Submit(segment)
 
-			_, err := io.Copy(machine.telemetry, segment)
+			if machine.telemetry != nil {
+				_, err := io.Copy(machine.telemetry, segment)
 
-			if err != nil {
-				return errnie.Error(err)
+				if err != nil {
+					return errnie.Error(err)
+				}
 			}
 		}
 	}
@@ -228,10 +230,12 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 	for _, value := range deployed {
 		machine.backend.Submit(value)
 
-		_, err := io.Copy(machine.telemetry, value)
+		if machine.telemetry != nil {
+			_, err := io.Copy(machine.telemetry, value)
 
-		if err != nil {
-			return errnie.Error(err)
+			if err != nil {
+				return errnie.Error(err)
+			}
 		}
 	}
 
@@ -242,18 +246,25 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 
 		if machine.telemetry != nil {
-			frames := make([]byte, 0)
+			var telemetryErr error
 
 			machine.backend.Range(func(value *primitive.Value) bool {
-				frames = append(frames, value.Bytes()...)
+				if telemetryErr != nil {
+					return false
+				}
 
-				return true
+				frame := value.Bytes()
+				if len(frame) == 0 {
+					return true
+				}
+
+				_, telemetryErr = machine.telemetry.Write(frame)
+
+				return telemetryErr == nil
 			})
 
-			if len(frames) > 0 {
-				if _, err := machine.telemetry.Write(frames); err != nil {
-					return errnie.Error(err)
-				}
+			if telemetryErr != nil {
+				return errnie.Error(telemetryErr)
 			}
 		}
 
@@ -286,13 +297,16 @@ func (machine *Machine) Prompt(
 
 	resolved = make([]*primitive.Value, 0)
 	promptIDs := make(map[uint64]struct{}, len(values))
-	promptHeadID := values[0].ID()
 
 	for _, value := range values {
 		if value == nil {
 			return nil, errors.New("prompt value is nil")
 		}
+	}
 
+	promptHeadID := values[0].ID()
+
+	for _, value := range values {
 		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
 		value.SetProperty(primitive.REFERENCE, promptHeadID)
 		promptIDs[value.ID()] = struct{}{}
@@ -308,7 +322,21 @@ func (machine *Machine) Prompt(
 		}
 	}
 
+	const maxPromptSettleCycles = 1_000_000
+	settleIterations := 0
+
 	for len(resolved) == 0 {
+		select {
+		case <-machine.ctx.Done():
+			return nil, machine.ctx.Err()
+		default:
+		}
+
+		settleIterations++
+		if settleIterations > maxPromptSettleCycles {
+			return nil, errors.New("prompt settle exceeded maximum cycles")
+		}
+
 		var ready []*primitive.Value
 		var candidates []*primitive.Value
 
@@ -317,10 +345,10 @@ func (machine *Machine) Prompt(
 		}
 
 		for _, value := range candidates {
-			_, err := io.Copy(machine.telemetry, value)
-
-			if err != nil {
-				return nil, errnie.Error(err)
+			if machine.telemetry != nil {
+				if _, err := io.Copy(machine.telemetry, value); err != nil {
+					return nil, errnie.Error(err)
+				}
 			}
 
 			if _, ok := promptIDs[value.ID()]; ok && value.Role() == primitive.ValueRolePrompt {

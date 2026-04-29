@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"unsafe"
@@ -19,12 +20,13 @@ device. It records call counts and either errors out or returns one
 RESOLVED spawn so Sync's RESOLVED yield path is observable end-to-end.
 */
 type substrateProbe struct {
-	name    string
-	err     error
-	spawn   bool
-	calls   atomic.Int64
-	owners  []uint64
-	closeFn func() error
+	name     string
+	err      error
+	spawn    bool
+	calls    atomic.Int64
+	ownersMu sync.Mutex
+	owners   []uint64
+	closeFn  func() error
 }
 
 func (probe *substrateProbe) Name() string {
@@ -36,7 +38,9 @@ func (probe *substrateProbe) HypercubeGossip(
 	values []*primitive.Value,
 ) ([]*primitive.Value, error) {
 	probe.calls.Add(1)
+	probe.ownersMu.Lock()
 	probe.owners = append(probe.owners, value.ID())
+	probe.ownersMu.Unlock()
 
 	if probe.err != nil {
 		return nil, probe.err
@@ -270,6 +274,30 @@ func communityIDs(community []*primitive.Value) []uint64 {
 	}
 
 	return ids
+}
+
+func BenchmarkRange(b *testing.B) {
+	backend := newProbeBackend(&substrateState{Substrate: &substrateProbe{name: "cpu"}})
+	defer backend.Close()
+
+	const population = 64
+
+	for range population {
+		value := primitive.Emit()
+		if err := backend.Submit(value); err != nil {
+			value.Close()
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		backend.Range(func(value *primitive.Value) bool {
+			return true
+		})
+	}
 }
 
 func BenchmarkNextSubstrate(b *testing.B) {

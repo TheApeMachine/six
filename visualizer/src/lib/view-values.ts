@@ -41,6 +41,16 @@ export function useViewValues(): ViewValues {
 
 	return useMemo<ViewValues>(() => {
 		if (cursorTick === null) {
+			if (tickCount === 0) {
+				return {
+					values: liveValues,
+					ticksSinceTouch: new Map(),
+					cursorTick: null,
+					tickCount: 0,
+					atHead: true,
+				};
+			}
+
 			const head = tickCount - 1;
 			const ticksSinceTouch = new Map<string, number>();
 			for (const [id, lastTick] of lastTouchAtHead) {

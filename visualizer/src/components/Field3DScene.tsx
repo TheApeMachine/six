@@ -12,6 +12,7 @@ import type { StoredValue } from "@/lib/value-frame";
 
 const MAX_INSTANCES_PER_KIND = 4096;
 const DIM_FACTOR = 0.18;
+const PICK_RADIUS = 0.06;
 
 const GEOMETRY_KINDS: GeometryKind[] = [
 	"sphere",
@@ -44,6 +45,8 @@ interface SceneRefs {
 	accentLines: THREE.LineSegments;
 	highlightRing: THREE.Mesh;
 	fieldShell: THREE.Mesh;
+	scratchDummy: THREE.Object3D;
+	scratchDimColor: THREE.Color;
 	clock: THREE.Clock;
 	lastPreset: ScenePreset | null;
 	lastSelectedId: string | null;
@@ -69,8 +72,7 @@ export function Field3DScene({
 	const refs = useRef<SceneRefs | null>(null);
 
 	const snapshot = useMemo(
-		() =>
-			buildSnapshot(values, ticksSinceTouch, colorMode, preset, selectedId),
+		() => buildSnapshot(values, ticksSinceTouch, colorMode, preset, selectedId),
 		[values, ticksSinceTouch, colorMode, preset, selectedId],
 	);
 
@@ -94,7 +96,7 @@ export function Field3DScene({
 		camera.lookAt(0, 0, 0);
 
 		const renderer = new THREE.WebGLRenderer({ antialias: true });
-		renderer.setPixelRatio(window.devicePixelRatio);
+		renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		renderer.setSize(container.clientWidth, container.clientHeight);
 		container.appendChild(renderer.domElement);
 
@@ -200,6 +202,8 @@ export function Field3DScene({
 			accentLines,
 			highlightRing,
 			fieldShell,
+			scratchDummy: new THREE.Object3D(),
+			scratchDimColor: new THREE.Color(),
 			clock: new THREE.Clock(),
 			lastPreset: null,
 			lastSelectedId: null,
@@ -216,14 +220,13 @@ export function Field3DScene({
 
 			next.camera.aspect = width / Math.max(1, height);
 			next.camera.updateProjectionMatrix();
+			next.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 			next.renderer.setSize(width, height);
 		};
 
 		const observer = new ResizeObserver(handleResize);
 		observer.observe(container);
 
-		const raycaster = new THREE.Raycaster();
-		const pointer = new THREE.Vector2();
 		let pointerDownAt = 0;
 		let pointerStart = { x: 0, y: 0 };
 
@@ -232,11 +235,21 @@ export function Field3DScene({
 			pointerStart = { x: event.clientX, y: event.clientY };
 		};
 
-		const handlePointerUp = (event: PointerEvent) => {
+		/*
+		handleClick uses a closest-projected-instance pick instead of
+		strict raycast geometry. Each instance is projected into NDC; the
+		Value whose screen position is nearest the cursor (within a
+		forgiving radius) wins. This is dramatically more reliable than
+		raycasting tiny spheres at far camera distances and matches the
+		"lasso" approach used in scientific 3D viewers. We still bail if
+		the gesture was a drag, so OrbitControls keeps clean rotate / pan
+		semantics.
+		*/
+		const handleClick = (event: MouseEvent) => {
 			const elapsed = performance.now() - pointerDownAt;
 			const dx = event.clientX - pointerStart.x;
 			const dy = event.clientY - pointerStart.y;
-			if (elapsed > 450 || Math.hypot(dx, dy) > 8) {
+			if (elapsed > 600 || Math.hypot(dx, dy) > 12) {
 				return;
 			}
 
@@ -246,47 +259,41 @@ export function Field3DScene({
 			}
 
 			const rect = renderer.domElement.getBoundingClientRect();
-			pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-			pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+			const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+			const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-			raycaster.setFromCamera(pointer, next.camera);
+			const matrix = new THREE.Matrix4();
+			const position = new THREE.Vector3();
+			let bestId: string | null = null;
+			let bestDist = PICK_RADIUS;
 
-			const meshes: THREE.Object3D[] = [];
 			for (const entry of next.kindMeshes.values()) {
-				meshes.push(entry.mesh);
+				for (let idx = 0; idx < entry.mesh.count; idx++) {
+					entry.mesh.getMatrixAt(idx, matrix);
+					position.setFromMatrixPosition(matrix).project(next.camera);
+
+					if (position.z > 1 || position.z < -1) {
+						continue;
+					}
+
+					const screenDx = position.x - ndcX;
+					const screenDy = position.y - ndcY;
+					const dist = Math.hypot(screenDx, screenDy);
+
+					if (dist < bestDist) {
+						bestDist = dist;
+						bestId = entry.idByInstance[idx];
+					}
+				}
 			}
 
-			const intersects = raycaster.intersectObjects(meshes, false);
-			if (intersects.length === 0) {
-				return;
-			}
-
-			const hit = intersects[0];
-			const instanceId = hit.instanceId;
-			if (instanceId === undefined) {
-				return;
-			}
-
-			const kind = (hit.object as THREE.InstancedMesh).userData.kind as
-				| GeometryKind
-				| undefined;
-			if (!kind) {
-				return;
-			}
-
-			const entry = next.kindMeshes.get(kind);
-			if (!entry) {
-				return;
-			}
-
-			const id = entry.idByInstance[instanceId];
-			if (id) {
-				selectFieldValueById(id);
+			if (bestId) {
+				selectFieldValueById(bestId);
 			}
 		};
 
 		renderer.domElement.addEventListener("pointerdown", handlePointerDown);
-		renderer.domElement.addEventListener("pointerup", handlePointerUp);
+		renderer.domElement.addEventListener("click", handleClick);
 
 		let animationFrameHandle = 0;
 		const animate = () => {
@@ -313,7 +320,7 @@ export function Field3DScene({
 			window.cancelAnimationFrame(animationFrameHandle);
 			observer.disconnect();
 			renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
-			renderer.domElement.removeEventListener("pointerup", handlePointerUp);
+			renderer.domElement.removeEventListener("click", handleClick);
 			controls.dispose();
 			scene.traverse((obj) => {
 				if ((obj as THREE.Mesh).geometry) {
@@ -343,7 +350,12 @@ export function Field3DScene({
 		applySnapshot(next, snapshot, preset, selectedId);
 	}, [snapshot, preset, selectedId]);
 
-	return <div ref={containerRef} className="absolute inset-0 select-none" />;
+	return (
+		<div
+			ref={containerRef}
+			className="absolute inset-0 cursor-crosshair select-none"
+		/>
+	);
 }
 
 function makeGeometryForKind(kind: GeometryKind): THREE.BufferGeometry {
@@ -367,8 +379,8 @@ function applySnapshot(
 	preset: ScenePreset,
 	selectedId: string | null,
 ) {
-	const dummy = new THREE.Object3D();
-	const dimColor = new THREE.Color();
+	const dummy = refs.scratchDummy;
+	const dimColor = refs.scratchDimColor;
 
 	const buckets = new Map<GeometryKind, typeof snapshot.instances>();
 	for (const kind of GEOMETRY_KINDS) {
@@ -495,6 +507,33 @@ function updateChainGeometry(
 	geometry: THREE.BufferGeometry,
 	edges: ReturnType<typeof buildSnapshot>["chainEdges"],
 ) {
+	const vertexCount = edges.length * 3;
+	const existing = geometry.getAttribute("position") as
+		| THREE.BufferAttribute
+		| undefined;
+
+	if (
+		existing &&
+		existing.itemSize === 3 &&
+		existing.array instanceof Float32Array &&
+		existing.array.length === vertexCount
+	) {
+		const positions = existing.array as Float32Array;
+		for (let idx = 0; idx < edges.length; idx++) {
+			const edge = edges[idx];
+			positions[idx * 6 + 0] = edge.from.x;
+			positions[idx * 6 + 1] = edge.from.y;
+			positions[idx * 6 + 2] = edge.from.z;
+			positions[idx * 6 + 3] = edge.to.x;
+			positions[idx * 6 + 4] = edge.to.y;
+			positions[idx * 6 + 5] = edge.to.z;
+		}
+		existing.needsUpdate = true;
+		geometry.computeBoundingSphere();
+
+		return;
+	}
+
 	const positions = new Float32Array(edges.length * 6);
 	for (let idx = 0; idx < edges.length; idx++) {
 		const edge = edges[idx];

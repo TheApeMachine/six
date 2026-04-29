@@ -25,7 +25,7 @@ func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
 			continue
 		}
 
-		if geometricSlot(instr) {
+		if backend.geometricSlot(instr) {
 			return false
 		}
 

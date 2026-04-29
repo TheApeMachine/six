@@ -157,7 +157,20 @@ func (backend *Backend) snapshotCommunity() []*primitive.Value {
 		return nil
 	}
 
-	residents := make([]*primitive.Value, 0)
+	var residentCount int
+
+	backend.community.Range(func(key, value any) bool {
+		resident, ok := value.(*primitive.Value)
+		if !ok || resident == nil {
+			return true
+		}
+
+		residentCount++
+
+		return true
+	})
+
+	residents := make([]*primitive.Value, 0, residentCount)
 
 	backend.community.Range(func(key, value any) bool {
 		resident, ok := value.(*primitive.Value)

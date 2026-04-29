@@ -328,6 +328,12 @@ func stampFrameMultivector(value *Value) {
 	}
 }
 
+/*
+mixFrameWord applies the SplitMix64 finalizer (constants 0xbf58476d1ce4e5b9 and
+0x94d049bb133111eb per Vigna's splitmix64) to avalanche 64-bit token-derived
+entropy before context synthesis. Deterministic mixing for frame words, not
+a cryptographic PRF.
+*/
 func mixFrameWord(word uint64) uint64 {
 	word ^= word >> 30
 	word *= 0xbf58476d1ce4e5b9
@@ -338,6 +344,11 @@ func mixFrameWord(word uint64) uint64 {
 	return word
 }
 
+/*
+signedUnitFloat turns a mixed word into a uniform float on [-1,1): bits
+word>>11 supply 53 uniform bits in [0, 2^53), scaling by 1/2^53 maps to
+[0,1), then 2x-1 recenters to [-1,1) using the standard 53-bit float recipe.
+*/
 func signedUnitFloat(word uint64) float64 {
 	const inv53 = 1.0 / float64(1<<53)
 

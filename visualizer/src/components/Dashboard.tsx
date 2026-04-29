@@ -55,19 +55,22 @@ export function Dashboard() {
 					<div className="pointer-events-none absolute left-3 top-3 rounded border border-white/10 bg-black/40 px-2 py-1 font-mono text-[10px] text-white/70">
 						{atHead ? (
 							<span>
-								<span className="text-emerald-300">live</span> · {values.size} values
+								<span className="text-emerald-300">live</span> · {values.size}{" "}
+								values
 							</span>
 						) : (
 							<span>
 								<span className="text-cyan-300">tick {cursorTick}</span> /{" "}
-								{tickCount - 1} · {values.size} values
+								{tickCount > 0 ? tickCount - 1 : 0}
+								{tickCount === 0 ? (
+									<span className="text-white/45"> — no ticks</span>
+								) : null}{" "}
+								· {values.size} values
 							</span>
 						)}
 					</div>
 				</div>
-				<div
-					className={`min-h-0 w-[420px] shrink-0 overflow-auto border-l border-white/10 p-3 ${selected ? "" : "hidden"}`}
-				>
+				<div className="min-h-0 w-[420px] shrink-0 overflow-auto border-l border-white/10 p-3">
 					<ValueDetail stored={selected} values={values} />
 				</div>
 			</div>

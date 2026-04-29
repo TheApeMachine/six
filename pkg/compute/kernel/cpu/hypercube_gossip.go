@@ -91,13 +91,13 @@ func (backend *Backend) HypercubeGossip(
 
 				child.StampID()
 				childFrame[SpawnRegisterWord] = 0
+				child.SetSchedulingNext(0)
+				child.SetStatus(primitive.PENDING)
 				if child.HasProgram() {
 					child.SetSchedulingNext(child.ID())
 					child.SetStatus(primitive.READY)
-				} else {
-					child.SetSchedulingNext(0)
-					child.SetStatus(primitive.PENDING)
 				}
+
 				spawned = append(spawned, child)
 			}
 		}
@@ -121,15 +121,11 @@ func (backend *Backend) materializeChild(frame [128]uint64, active bool) []*prim
 	child.StampID()
 	childWords[SpawnRegisterWord] = 0
 
+	child.SetSchedulingNext(0)
+	child.SetStatus(primitive.PENDING)
 	if child.HasProgram() {
-		if child.SchedulingNext() == 0 {
-			child.SetSchedulingNext(child.ID())
-		}
-
+		child.SetSchedulingNext(child.ID())
 		child.SetStatus(primitive.READY)
-	} else {
-		child.SetSchedulingNext(0)
-		child.SetStatus(primitive.PENDING)
 	}
 
 	return []*primitive.Value{child}

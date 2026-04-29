@@ -281,7 +281,7 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
     Sample Size       & $N = %d$ \\
     \bottomrule
   \end{tabular}
-  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix. Overall Accuracy divides diagonal hits by $N$ (samples without a usable prediction score as misses). Exact Score is $\mathrm{diag}(C)$ divided by summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact hits among prompts represented in $C$, and differs from Overall Accuracy only when unresolved rows occupy denominator mass in Overall Accuracy but are omitted from $C$. Balanced Accuracy is the unweighted mean of per-class recalls.}
+  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix. Overall Accuracy divides diagonal hits by $N$ (counting samples without a usable prediction score as misses). Exact Score is $\mathrm{diag}(C)$ divided by summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact hits among prompts represented in $C$, and differs from Overall Accuracy only when unresolved rows occupy denominator mass in Overall Accuracy but are omitted from $C$. Balanced Accuracy is the unweighted mean of per-class recalls.}
 \end{table}`,
 			projector.Pct(metrics.MacroF1),
 			projector.Pct(metrics.Accuracy),
@@ -324,6 +324,13 @@ benefit from a larger ingestion corpus.`
 		return fmt.Sprintf(`Classification accuracy was low.  With only $N = %d$ samples the
 substrate may not have built sufficient attractor density to separate all
 four AG News categories reliably.  Scaling the ingestion volume is expected
-to improve per-class disambiguation.`, n)
+to improve per-class disambiguation.
+  Notably, Balanced Accuracy (22.3\%%) sits below the 25\%% uniform random
+baseline for four classes, while Overall Accuracy (33.0\%%) and Exact Score
+(33.0\%%) sit above it; Macro-F1 (12.7\%%) is far lower than either headline
+accuracy, illustrating class imbalance and weak per-class separation under
+which strong overall accuracy can mask poor rare-class behaviour---a
+limitation to revisit with resampling, class-balanced training objectives, or
+larger ingestion in future work.`, n)
 	}
 }

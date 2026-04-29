@@ -1,5 +1,5 @@
 import { useSelector } from "@tanstack/react-store";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	setCursorTick,
 	setPlaybackRate,
@@ -29,6 +29,7 @@ export function Timeline() {
 	const events = useSelector(timelineStore, (state) => state.events);
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const [canvasCssSize, setCanvasCssSize] = useState({ width: 0, height: 0 });
 
 	const densities = useMemo(() => {
 		if (tickCount === 0) {
@@ -51,14 +52,36 @@ export function Timeline() {
 			return;
 		}
 
+		const sync = () => {
+			setCanvasCssSize({
+				width: canvas.clientWidth,
+				height: canvas.clientHeight,
+			});
+		};
+
+		sync();
+		const observer = new ResizeObserver(sync);
+		observer.observe(canvas);
+
+		return () => {
+			observer.disconnect();
+		};
+	}, []);
+
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) {
+			return;
+		}
+
 		const ctx = canvas.getContext("2d");
 		if (!ctx) {
 			return;
 		}
 
-		const dpr = window.devicePixelRatio || 1;
-		const cssWidth = canvas.clientWidth;
-		const cssHeight = canvas.clientHeight;
+		const dpr = Math.min(window.devicePixelRatio || 1, 2);
+		const cssWidth = canvasCssSize.width || canvas.clientWidth;
+		const cssHeight = canvasCssSize.height || canvas.clientHeight;
 
 		canvas.width = cssWidth * dpr;
 		canvas.height = cssHeight * dpr;
@@ -109,7 +132,13 @@ export function Timeline() {
 			ctx.fillStyle = "#06b6d4";
 			ctx.fillRect(cursorColumn - 1, 0, 3, cssHeight);
 		}
-	}, [densities, tickCount, cursorTick]);
+	}, [
+		densities,
+		tickCount,
+		cursorTick,
+		canvasCssSize.width,
+		canvasCssSize.height,
+	]);
 
 	useEffect(() => {
 		if (!playing) {
@@ -164,6 +193,7 @@ export function Timeline() {
 			<div className="flex items-center gap-2">
 				<button
 					type="button"
+					aria-label="go to start"
 					onClick={() => setCursorTick(0)}
 					disabled={tickCount === 0}
 					className="rounded border border-white/15 px-2 py-1 text-white/80 hover:bg-white/5 disabled:opacity-40"
@@ -172,6 +202,7 @@ export function Timeline() {
 				</button>
 				<button
 					type="button"
+					aria-label="step back one tick"
 					onClick={() => stepCursor(-1)}
 					disabled={tickCount === 0}
 					className="rounded border border-white/15 px-2 py-1 text-white/80 hover:bg-white/5 disabled:opacity-40"
@@ -180,6 +211,7 @@ export function Timeline() {
 				</button>
 				<button
 					type="button"
+					aria-label={playing ? "pause playback" : "play forward"}
 					onClick={() => setPlaying(!playing)}
 					disabled={tickCount === 0}
 					className={`rounded border px-2 py-1 ${
@@ -192,6 +224,7 @@ export function Timeline() {
 				</button>
 				<button
 					type="button"
+					aria-label="step forward one tick"
 					onClick={() => stepCursor(1)}
 					disabled={tickCount === 0}
 					className="rounded border border-white/15 px-2 py-1 text-white/80 hover:bg-white/5 disabled:opacity-40"
@@ -200,6 +233,7 @@ export function Timeline() {
 				</button>
 				<button
 					type="button"
+					aria-label="go to live head"
 					onClick={() => setCursorTick(null)}
 					className={`rounded border px-2 py-1 ${
 						atHead
@@ -228,7 +262,9 @@ export function Timeline() {
 						}
 						className="accent-cyan-400"
 					/>
-					<span className="w-10 text-right text-white/85">{playbackRate}/s</span>
+					<span className="w-10 text-right text-white/85">
+						{playbackRate}/s
+					</span>
 				</div>
 			</div>
 			<canvas

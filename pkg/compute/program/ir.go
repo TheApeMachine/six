@@ -33,6 +33,13 @@ const (
 	OpReduceZipfSelect    = compiler.OpReduceZipfSelect
 )
 
+/*
+Geometric IR opcodes name PGA-style transforms the compiler lowers to raw
+slots: OpGeometricCompose chains multivector maps; OpGeometricSandwich is the
+conjugation map x -> r x r^-1 used for rotations/reflections; OpGeometricReverse
+reverses basis-vector order (reversion). Operands live in the Value program
+and token regions; MachineOp only stores Opcode while other fields stay zero.
+*/
 const (
 	OpGeometricCompose  = compiler.OpGeometricCompose
 	OpGeometricSandwich = compiler.OpGeometricSandwich

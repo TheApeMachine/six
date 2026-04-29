@@ -1,5 +1,5 @@
-import { useSelector } from "@tanstack/react-store";
-import { useMemo } from "react";
+import { shallow, useSelector } from "@tanstack/react-store";
+import { useMemo, useState } from "react";
 import { selectFieldValueById } from "@/lib/field-store";
 import { formatInstruction } from "@/lib/instructions";
 import { formatLabelsWord } from "@/lib/labels";
@@ -183,9 +183,17 @@ properties panel; clicking a bar pins the timeline cursor to that tick
 so the rest of the dashboard rebuilds the field as it looked then.
 */
 function ValueHistoryStrip({ valueId }: { valueId: string }) {
-	const events = useSelector(timelineStore, (state) => state.events);
-	const tickCount = useSelector(timelineStore, (state) => state.tickCount);
-	const cursorTick = useSelector(timelineStore, (state) => state.cursorTick);
+	const { events, tickCount, cursorTick } = useSelector(
+		timelineStore,
+		(state) => ({
+			events: state.events,
+			tickCount: state.tickCount,
+			cursorTick: state.cursorTick,
+		}),
+		{ compare: shallow },
+	);
+
+	const [openTick, setOpenTick] = useState<number | null>(null);
 
 	const trail = useMemo(() => {
 		const out: Array<{
@@ -219,6 +227,25 @@ function ValueHistoryStrip({ valueId }: { valueId: string }) {
 		return out;
 	}, [events, valueId]);
 
+	const grouped = useMemo(() => {
+		const map = new Map<
+			number,
+			Array<{
+				tick: number;
+				tombstone: boolean;
+				statusCode: number;
+			}>
+		>();
+
+		for (const entry of trail) {
+			const list = map.get(entry.tick) ?? [];
+			list.push(entry);
+			map.set(entry.tick, list);
+		}
+
+		return [...map.entries()].sort((a, b) => a[0] - b[0]);
+	}, [trail]);
+
 	if (trail.length === 0 || tickCount === 0) {
 		return (
 			<div className="rounded border border-white/10 bg-black/30 p-2 text-[10px] text-white/40">
@@ -232,37 +259,65 @@ function ValueHistoryStrip({ valueId }: { valueId: string }) {
 	return (
 		<div className="rounded border border-white/10 bg-black/30 p-2">
 			<div className="relative h-5 w-full">
-				{trail.map((entry) => {
-					const left = head === 0 ? 0 : (entry.tick / head) * 100;
+				{grouped.map(([tick, entries]) => {
+					const left = head === 0 ? 0 : (tick / head) * 100;
 					const isCursor =
-						cursorTick !== null
-							? entry.tick === cursorTick
-							: entry.tick === head;
-					const statusBg = entry.tombstone
+						cursorTick !== null ? tick === cursorTick : tick === head;
+					const lastEntry = entries[entries.length - 1];
+					const statusBg = lastEntry.tombstone
 						? "#ef4444"
-						: STATUS_BAR_COLOR[entry.statusCode] ?? "#64748b";
+						: (STATUS_BAR_COLOR[lastEntry.statusCode] ?? "#64748b");
+					const titleParts = entries.map(
+						(e) =>
+							`tick ${e.tick}${e.tombstone ? " · tombstone" : ` · ${statusName(e.statusCode)}`}`,
+					);
+					const title = titleParts.join("; ");
+					const wide = entries.length > 1;
 
 					return (
 						<button
-							key={`${entry.tick}-${entry.tombstone ? "x" : "o"}`}
+							key={tick}
 							type="button"
-							onClick={() => setCursorTick(entry.tick)}
-							title={`tick ${entry.tick}${entry.tombstone ? " · tombstone" : ` · ${statusName(entry.statusCode)}`}`}
+							onClick={() => {
+								setCursorTick(tick);
+								setOpenTick(openTick === tick ? null : tick);
+							}}
+							title={title}
+							aria-label={title}
 							style={{
 								left: `${left}%`,
 								backgroundColor: statusBg,
 								boxShadow: isCursor
 									? "0 0 0 1px #06b6d4, 0 0 6px #06b6d4"
 									: "none",
+								minWidth: wide ? 10 : 4,
 							}}
-							className="absolute h-5 w-1 -translate-x-1/2 cursor-pointer"
-						/>
+							className="absolute flex h-5 min-w-1 -translate-x-1/2 cursor-pointer items-center justify-center px-0.5 text-[8px] font-semibold text-white/90"
+						>
+							{wide ? entries.length : null}
+						</button>
 					);
 				})}
 			</div>
+			{openTick !== null ? (
+				<div className="mt-2 rounded border border-white/10 bg-black/50 p-2 text-[9px] text-white/70">
+					<div className="mb-1 text-white/45">tick {openTick}</div>
+					<ul className="space-y-0.5">
+						{grouped
+							.find(([t]) => t === openTick)?.[1]
+							?.map((e, idx) => (
+								<li key={`${e.tick}-${idx}-${e.tombstone ? "x" : "o"}`}>
+									{e.tombstone ? "tombstone" : statusName(e.statusCode)}
+								</li>
+							))}
+					</ul>
+				</div>
+			) : null}
 			<div className="mt-1 flex justify-between text-[9px] text-white/40">
 				<span>tick 0</span>
-				<span>{trail.length} change(s)</span>
+				<span>
+					{trail.length} change(s) · {grouped.length} tick(s)
+				</span>
 				<span>tick {head}</span>
 			</div>
 		</div>
@@ -270,14 +325,14 @@ function ValueHistoryStrip({ valueId }: { valueId: string }) {
 }
 
 const STATUS_BAR_COLOR: Record<number, string> = {
-	0: "#475569",
-	1: "#10b981",
-	2: "#f59e0b",
-	3: "#0ea5e9",
-	4: "#06b6d4",
-	5: "#64748b",
-	6: "#8b5cf6",
-	7: "#ef4444",
+	0: "#475569", // PENDING
+	1: "#10b981", // READY
+	2: "#f59e0b", // BUSY
+	3: "#0ea5e9", // WAITING
+	4: "#06b6d4", // SELECTED
+	5: "#64748b", // DONE
+	6: "#8b5cf6", // RESOLVED
+	7: "#ef4444", // ERROR
 };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {

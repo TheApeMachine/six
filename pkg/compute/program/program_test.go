@@ -36,6 +36,8 @@ func TestEncodeProgramIR(t *testing.T) {
 
 		Convey("It should reject the mixed slot shape", func() {
 			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "geometric opcode")
+			So(err.Error(), ShouldContainSubstring, "raw slot")
 		})
 	})
 

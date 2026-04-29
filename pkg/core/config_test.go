@@ -196,6 +196,22 @@ func TestRecruitCommunityPredicate(t *testing.T) {
 		entry := Cfg.Programs[RECRUIT_COMMUNITY]
 		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
+		const (
+			wordOpcodeXOR       = 0x6
+			wordOpcodeWrite     = 0x3 // copies register A into dest (COPYA / write paths)
+			wordOpcodeOR        = 0x7
+			tokensScratchStart  = 40
+			tokensXorSpan       = 5
+			affinityLaneStart   = 123
+			affinityLaneSpan    = 5
+			constPoolMinWord    = 73        // asset/const pool begins after mask word
+			headerSourceStart   = 122       // header scratch uses id word lane
+			headerCommunitySlot = 64        // route header community field
+			headerTargetSlot    = 65        // route header target field
+			predicateBit        = uint64(1) // InstrPredBitShift
+			popcountStoreCond   = uint64(0) // predicate uses cond=0 in this pattern
+		)
+
 		Convey("It encodes the Hamming-distance predicate and community header key", func() {
 			foundXor := false
 			foundPredicate := false
@@ -216,23 +232,23 @@ func TestRecruitCommunityPredicate(t *testing.T) {
 				dstStart := (word >> 32) & 0x7F
 				dstSpan := ((word >> 39) & 0x7F) + 1
 
-				if opcode == 0x6 && aStart == 40 && aSpan == 5 && dstStart >= 73 && dstSpan == 5 {
+				if opcode == wordOpcodeXOR && aStart == tokensScratchStart && aSpan == tokensXorSpan && dstStart >= constPoolMinWord && dstSpan == tokensXorSpan {
 					foundXor = true
 				}
 
-				if predicate == 1 && cond == 0 && aStart >= 73 && aSpan == 1 {
+				if predicate == predicateBit && cond == popcountStoreCond && aStart >= constPoolMinWord && aSpan == 1 {
 					foundPredicate = true
 				}
 
-				if opcode == 0x7 && aStart == 123 && aSpan == 5 && dstStart == 123 && dstSpan == 5 {
+				if opcode == wordOpcodeOR && aStart == affinityLaneStart && aSpan == affinityLaneSpan && dstStart == affinityLaneStart && dstSpan == affinityLaneSpan {
 					foundAffinityWrite = true
 				}
 
-				if opcode == 0x3 && aStart == 122 && aSpan == 1 && dstStart == 64 && dstSpan == 1 {
+				if opcode == wordOpcodeWrite && aStart == headerSourceStart && aSpan == 1 && dstStart == headerCommunitySlot && dstSpan == 1 {
 					foundHeaderCommunityWrite = true
 				}
 
-				if opcode == 0x3 && aStart == 122 && aSpan == 1 && dstStart == 65 && dstSpan == 1 {
+				if opcode == wordOpcodeWrite && aStart == headerSourceStart && aSpan == 1 && dstStart == headerTargetSlot && dstSpan == 1 {
 					foundHeaderTargetWrite = true
 				}
 			}
@@ -308,6 +324,9 @@ func TestClassifyReadoutReducers(t *testing.T) {
 			So(foundAffinityXor, ShouldBeTrue)
 			So(foundSignalPopcnt, ShouldBeTrue)
 			So(foundArgMin, ShouldBeTrue)
+			// Surprisal-side argmin (predicate bit, AND opcode, bStart==68) was
+			// removed from this firmware path; keep the fingerprint negative so a
+			// refactor cannot silently reattach a duplicate reducer on lane 68.
 			So(foundSurprisalArgMin, ShouldBeFalse)
 			So(foundMode, ShouldBeTrue)
 		})

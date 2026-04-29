@@ -170,10 +170,21 @@ func (op MachineOp) Validate() error {
 	return nil
 }
 
-func (op MachineOp) validateGeometric() error {
-	empty := MachineOp{Opcode: op.Opcode}
-	if op != empty {
-		return fmt.Errorf("geometric opcode 0x%x must occupy a raw slot without boolean operands", op.Opcode)
+/*
+validateGeometric insists geometric ProgramIR slots only carry Opcode; every
+packed operand bit must be zero because Pack would otherwise fold regions
+into a word the kernel would misread as truth-table data.
+*/
+func (machineOp MachineOp) validateGeometric() error {
+	if machineOp.AStart != 0 || machineOp.ASpan != 0 ||
+		machineOp.BStart != 0 || machineOp.BSpan != 0 ||
+		machineOp.DstStart != 0 || machineOp.DstSpan != 0 ||
+		machineOp.MaskStart != 0 || machineOp.TargetB ||
+		machineOp.Emit || machineOp.TargetChild ||
+		machineOp.Topology != 0 || machineOp.Predicate ||
+		machineOp.PredicateCond != 0 || machineOp.SrcAFromB ||
+		machineOp.Stage || machineOp.PopEnd {
+		return fmt.Errorf("geometric opcode 0x%x must occupy a raw slot without boolean operands", machineOp.Opcode)
 	}
 
 	return nil

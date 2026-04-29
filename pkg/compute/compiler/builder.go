@@ -29,12 +29,27 @@ const (
 	OpReduceZipfSelect    = OpCopyA
 )
 
+/*
+Geometric IR words use dedicated full-slot opcodes instead of the 4-bit
+truth-table encoding. OpGeometricCompose threads multivector transforms in
+sequence; OpGeometricSandwich applies the sandwich (conjugation) product
+used for reflections and rotations; OpGeometricReverse applies grade
+reversion (basis-vector order flip). They coexist with the boolean opcodes
+(OpAnd through OpTrue) only at the authoring layer; the kernel dispatches raw 0x10 /
+0x20 / 0x30 words before any nibble mask decode.
+*/
 const (
 	OpGeometricCompose  = 0x10
 	OpGeometricSandwich = 0x20
 	OpGeometricReverse  = 0x30
 )
 
+/*
+IsGeometricOpcode is package-level (not a Builder method) because IR packing
+in pkg/compute/program and runtime decode in DecodeInstruction must classify
+geometric words without a Builder instance. The Builder shares the same
+numeric constants when emitting geometric_probe firmware.
+*/
 func IsGeometricOpcode(opcode uint64) bool {
 	switch opcode {
 	case OpGeometricCompose, OpGeometricSandwich, OpGeometricReverse:
@@ -348,7 +363,19 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 	builder.pc++
 }
 
+/*
+Geometric appends a single raw machine word holding a geometric opcode
+(OpGeometricCompose, OpGeometricSandwich, OpGeometricReverse). Unlike Pack,
+no bitmasking of A/B/dst regions is applied; the word is stored verbatim for
+the kernel's geometricSlot path. Invalid opcode values increment overflow
+like a full instruction queue so corrupted IR cannot silently occupy a slot.
+*/
 func (builder *Builder) Geometric(op uint64) {
+	if !IsGeometricOpcode(op) {
+		builder.overflow++
+		return
+	}
+
 	if builder.pc >= 16 {
 		builder.overflow++
 		return

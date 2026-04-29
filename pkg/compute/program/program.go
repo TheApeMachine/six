@@ -135,10 +135,16 @@ var Opcodes = map[string]uint64{
 DecodeInstruction unpacks a 64-bit instruction back into its field-wise
 components. Returns the canonical 13-tuple shape the visualizer codegen
 already consumes; the trailing aIndirect / bType slots are always zero.
+
+Geometric opcodes reuse the full 64-bit word as the opcode limb; when
+IsGeometricOpcode(word) matches, only opcode is set and all other decoded
+fields remain zero—callers must branch on raw opcode before reading spans.
 */
 func DecodeInstruction(word uint64) (
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aIndirect, bType, predicate, emit, srcAFromB, stage, popEnd uint64,
 ) {
+	// Full-width geometric words self-describe the operation; do not mask the
+	// low nibble into opcode or callers would mix packed fields with GA slots.
 	if compiler.IsGeometricOpcode(word) {
 		opcode = word
 		return

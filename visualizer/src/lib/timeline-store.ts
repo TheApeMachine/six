@@ -1,10 +1,12 @@
 import { createStore } from "@tanstack/react-store";
+import { ID_START_WORD } from "./layoutGenerated";
 import {
 	decodeValueFrame,
 	type StoredValue,
 	storedValueFromDecoded,
 	valueFrameExpired,
 } from "./value-frame";
+import { readWordU64LE } from "./valueRegions";
 import type { RawValueFrame } from "./wire";
 
 /*
@@ -29,7 +31,6 @@ export interface TimelineEvent {
 export interface TimelineState {
 	events: TimelineEvent[];
 	tickCount: number;
-	tickStartIndex: number[];
 	cursorTick: number | null;
 	playing: boolean;
 	playbackRate: number;
@@ -49,7 +50,6 @@ const DEFAULT_PLAYBACK_RATE = 30;
 export const timelineStore = createStore<TimelineState>({
 	events: [],
 	tickCount: 0,
-	tickStartIndex: [],
 	cursorTick: null,
 	playing: false,
 	playbackRate: DEFAULT_PLAYBACK_RATE,
@@ -78,7 +78,6 @@ export function recordTick(frames: RecordedFrame[]) {
 	timelineStore.setState((state) => {
 		const tick = state.tickCount;
 		const recvAtMs = Date.now();
-		const tickStartIndex = [...state.tickStartIndex, state.events.length];
 		const events = state.events.slice();
 		const lastTouchAtHead = new Map(state.lastTouchAtHead);
 
@@ -101,21 +100,24 @@ export function recordTick(frames: RecordedFrame[]) {
 		const cap = state.maxEvents;
 		const trim = events.length > cap ? events.length - cap : 0;
 		const trimmedEvents = trim > 0 ? events.slice(trim) : events;
-		const trimmedStarts =
-			trim > 0
-				? tickStartIndex.map((idx) => idx - trim).filter((idx) => idx >= 0)
-				: tickStartIndex;
 
-		const cursorTick =
+		let cursorTick =
 			state.cursorTick !== null && state.cursorTick > tick
 				? tick
 				: state.cursorTick;
+
+		if (trim > 0 && trimmedEvents.length > 0 && cursorTick !== null) {
+			const oldestTick = trimmedEvents[0].tick;
+
+			if (cursorTick < oldestTick) {
+				cursorTick = oldestTick;
+			}
+		}
 
 		return {
 			...state,
 			events: trimmedEvents,
 			tickCount: tick + 1,
-			tickStartIndex: trimmedStarts,
 			cursorTick,
 			lastTouchAtHead,
 		};
@@ -127,7 +129,6 @@ export function resetTimeline() {
 		...state,
 		events: [],
 		tickCount: 0,
-		tickStartIndex: [],
 		cursorTick: null,
 		playing: false,
 		lastTouchAtHead: new Map(),
@@ -213,7 +214,7 @@ export function projectValuesAtCursor(
 		}
 
 		lastFrames.set(event.valueId, {
-			valueId: 0n,
+			valueId: readWordU64LE(event.frame, ID_START_WORD),
 			bytes: event.frame,
 		});
 		lastTouch.set(event.valueId, event.tick);
@@ -243,13 +244,5 @@ export function collectValueHistory(
 	state: TimelineState,
 	valueId: string,
 ): TimelineEvent[] {
-	const out: TimelineEvent[] = [];
-
-	for (const event of state.events) {
-		if (event.valueId === valueId) {
-			out.push(event);
-		}
-	}
-
-	return out;
+	return state.events.filter((event) => event.valueId === valueId);
 }

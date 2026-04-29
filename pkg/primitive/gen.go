@@ -175,7 +175,7 @@ func main() {
 		die("write TS properties: %v", err)
 	}
 
-	layout, err := buildProgramLayoutFromViper(loaded, byStem)
+	layout, err := buildProgramLayoutFromViper(loaded, byStem, statusTypes)
 	if err != nil {
 		die("build program layout: %v", err)
 	}
@@ -416,7 +416,9 @@ func writePropertiesTS(propertyNames, roleNames []string, propertiesStartWord in
 // for runtime program compilation, but without importing pkg/core (which
 // would create a generator → runtime cycle). Region offsets come from the
 // already-resolved region table; opcode names come straight off viper.
-func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved) (program.Layout, error) {
+// statusTypes is the same slice main() read from value.status so status maps
+// stay aligned with writePropertiesGo without another viper fetch.
+func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved, statusTypes []string) (program.Layout, error) {
 	regionsMap := make(map[string]program.RegionExtent, len(loaded))
 	for _, r := range loaded {
 		regionsMap[r.yamlKey] = program.RegionExtent{Start: r.start, Words: r.words, Bits: r.bits}
@@ -465,15 +467,29 @@ func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved) 
 	}
 
 	statusValue := make(map[string]uint64)
-	for idx, status := range viper.GetStringSlice("value.status") {
+	canonicalOrig := make(map[string]string)
+
+	for idx, status := range statusTypes {
 		name := strings.TrimSpace(status)
 		if name == "" {
 			continue
 		}
 
-		statusValue[name] = uint64(idx)
-		statusValue[strings.ToUpper(name)] = uint64(idx)
-		statusValue[strings.ToLower(name)] = uint64(idx)
+		canonical := strings.ToLower(name)
+		if orig, exists := canonicalOrig[canonical]; exists {
+			return program.Layout{}, fmt.Errorf(
+				"value.status: duplicate canonical status %q (%q vs %q)",
+				canonical,
+				orig,
+				name,
+			)
+		}
+
+		canonicalOrig[canonical] = name
+		u := uint64(idx)
+		statusValue[name] = u
+		statusValue[strings.ToUpper(canonical)] = u
+		statusValue[canonical] = u
 	}
 
 	_ = byStem // reserved for future cross-checks

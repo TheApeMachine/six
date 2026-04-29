@@ -8,7 +8,11 @@ interface SceneToolbarProps {
 }
 
 const COLOR_MODES: { value: ColorMode; label: string; hint: string }[] = [
-	{ value: "status", label: "status", hint: "PENDING/READY/BUSY/SELECTED/DONE" },
+	{
+		value: "status",
+		label: "status",
+		hint: "PENDING/READY/BUSY/SELECTED/DONE",
+	},
 	{ value: "community", label: "community", hint: "hashed community id" },
 	{ value: "role", label: "role", hint: "Programmer/Learner/Readout/Prompt" },
 	{ value: "firmware", label: "firmware", hint: "classified program" },
@@ -22,7 +26,11 @@ const PRESETS: { value: ScenePreset; label: string; hint: string }[] = [
 		label: "recruitment",
 		hint: "members → recruiter (community)",
 	},
-	{ value: "prompts", label: "prompts", hint: "prompt routing into communities" },
+	{
+		value: "prompts",
+		label: "prompts",
+		hint: "prompt routing into communities",
+	},
 ];
 
 /*
@@ -50,6 +58,7 @@ export function SceneToolbar({
 					<button
 						key={mode.value}
 						type="button"
+						aria-pressed={colorMode === mode.value}
 						onClick={() => onColorModeChange(mode.value)}
 						title={mode.hint}
 						className={`rounded border px-2 py-0.5 text-[10px] ${
@@ -70,6 +79,7 @@ export function SceneToolbar({
 					<button
 						key={entry.value}
 						type="button"
+						aria-pressed={preset === entry.value}
 						onClick={() => onPresetChange(entry.value)}
 						title={entry.hint}
 						className={`rounded border px-2 py-0.5 text-[10px] ${

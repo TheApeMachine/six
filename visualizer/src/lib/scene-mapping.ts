@@ -75,6 +75,14 @@ const ROLE_COLORS: Record<number, THREE.Color> = {
 
 const ORPHAN_COLOR = new THREE.Color(0x1f2937);
 
+function getStatusColor(status: number): THREE.Color {
+	return (STATUS_COLORS[status] ?? ORPHAN_COLOR).clone();
+}
+
+function getRoleColor(role: number): THREE.Color {
+	return (ROLE_COLORS[role] ?? ORPHAN_COLOR).clone();
+}
+
 export interface InstanceState {
 	id: string;
 	kind: GeometryKind;
@@ -220,6 +228,9 @@ function layoutByCommunity(
 		const localRadius =
 			COMMUNITY_LOCAL_BASE_RADIUS + Math.log2(bucket.length + 2) * 1.6;
 
+		const recruiterPresent = bucket.some((stored) => stored.id === communityHex);
+		const memberCount = Math.max(1, bucket.length - (recruiterPresent ? 1 : 0));
+
 		let memberIndex = 0;
 		for (const stored of bucket) {
 			if (stored.id === communityHex) {
@@ -227,7 +238,7 @@ function layoutByCommunity(
 				continue;
 			}
 
-			const offset = fibonacciSphere(memberIndex, bucket.length, localRadius);
+			const offset = fibonacciSphere(memberIndex, memberCount, localRadius);
 			positions.set(stored.id, center.clone().add(offset));
 			memberIndex++;
 		}
@@ -562,12 +573,12 @@ function colorForValue(
 
 	if (mode === "status") {
 		const code = Number(stored.decoded.words[STATUS_WORD] ?? 0n);
-		return (STATUS_COLORS[code] ?? ORPHAN_COLOR).clone();
+		return getStatusColor(code);
 	}
 
 	if (mode === "role") {
 		const role = Number(stored.decoded.words[ROLE_WORD] ?? 0n);
-		return (ROLE_COLORS[role] ?? ORPHAN_COLOR).clone();
+		return getRoleColor(role);
 	}
 
 	if (mode === "firmware") {
@@ -763,7 +774,6 @@ function collectChainEdges(
 	positions: Map<string, THREE.Vector3>,
 ) {
 	const seen = new Set<string>();
-	const color = new THREE.Color(0x4b5563);
 
 	for (const stored of values.values()) {
 		const from = positions.get(stored.id);
@@ -790,7 +800,11 @@ function collectChainEdges(
 			}
 			seen.add(key);
 
-			out.push({ from, to: target, color });
+			out.push({
+				from,
+				to: target,
+				color: new THREE.Color(0x4b5563),
+			});
 		}
 	}
 }

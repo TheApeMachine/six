@@ -6,6 +6,23 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 )
 
+func BenchmarkCompileGeometric(b *testing.B) {
+	source := `
+program geometric_probe {
+  geometric compose
+  geometric sandwich
+  geometric reverse
+}
+`
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for iteration := 0; iteration < b.N; iteration++ {
+		_, _ = Compile(source)
+	}
+}
+
 func TestCompile(t *testing.T) {
 	Convey("Given a geometric resident program", t, func() {
 		source := `

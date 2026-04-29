@@ -155,7 +155,7 @@ func (backend *Backend) executeKernelGo(
 			continue
 		}
 
-		if geometricSlot(instr) {
+		if backend.geometricSlot(instr) {
 			GeometricFrame(unsafe.Pointer(ownerFrame), instr)
 			continue
 		}
@@ -497,7 +497,17 @@ func (backend *Backend) executeKernelGo(
 	return stagedIdx, childFrame, childActive
 }
 
-func geometricSlot(instr uint64) bool {
+/*
+geometricSlot detects reserved geometric sweep words that bypass the 4-bit
+truth-table decoder. Instructions 0x10, 0x20, and 0x30 align with
+compiler.OpGeometricCompose, OpGeometricSandwich, and OpGeometricReverse; they
+occupy an entire program slot as opaque 64-bit payloads. programAsmCompatible
+uses this predicate to disable the asm fast path until geometric lowering
+matches executeKernelGo.
+*/
+func (backend *Backend) geometricSlot(instr uint64) bool {
+	_ = backend
+
 	switch instr {
 	case 0x10, 0x20, 0x30:
 		return true

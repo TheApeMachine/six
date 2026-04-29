@@ -112,6 +112,8 @@ func TestNewValue(t *testing.T) {
 				context := values[0].Get(ContextRegion)
 				againContext := again[0].Get(ContextRegion)
 
+				So(len(context), ShouldBeGreaterThan, 0)
+
 				nonZero := false
 				for _, word := range context {
 					if word != 0 {
@@ -121,7 +123,7 @@ func TestNewValue(t *testing.T) {
 				}
 
 				So(nonZero, ShouldBeTrue)
-				So(append([]uint64(nil), context...), ShouldResemble, append([]uint64(nil), againContext...))
+				So(context, ShouldResemble, againContext)
 			})
 
 			Reset(func() {

@@ -567,15 +567,25 @@ func buildProgramLayout(value ValueConfig) program.Layout {
 	}
 
 	statusValue := make(map[string]uint64)
+	seenCanonical := make(map[string]struct{})
+
 	for idx, status := range viper.GetStringSlice("value.status") {
 		name := strings.TrimSpace(status)
 		if name == "" {
 			continue
 		}
 
-		statusValue[name] = uint64(idx)
-		statusValue[strings.ToUpper(name)] = uint64(idx)
-		statusValue[strings.ToLower(name)] = uint64(idx)
+		canonical := strings.ToLower(name)
+		if _, dup := seenCanonical[canonical]; dup {
+			continue
+		}
+
+		seenCanonical[canonical] = struct{}{}
+		idxU := uint64(idx)
+
+		statusValue[name] = idxU
+		statusValue[strings.ToUpper(canonical)] = idxU
+		statusValue[canonical] = idxU
 	}
 
 	return program.Layout{
