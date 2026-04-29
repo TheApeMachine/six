@@ -8,11 +8,16 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+/*
+substrateProbe stands in for a real CUDA/Metal/CPU substrate so the
+backend's failover and store choreography can be exercised without a
+device. It records call counts and either errors out or returns one
+RESOLVED spawn so Sync's RESOLVED yield path is observable end-to-end.
+*/
 type substrateProbe struct {
 	name    string
 	err     error
@@ -28,18 +33,23 @@ func (probe *substrateProbe) Name() string {
 func (probe *substrateProbe) HypercubeGossip(
 	value *primitive.Value,
 	values []*primitive.Value,
-) ([]*primitive.Value, []kernel.StageRequest, error) {
+) ([]*primitive.Value, error) {
 	probe.calls.Add(1)
 
 	if probe.err != nil {
-		return nil, nil, probe.err
+		return nil, probe.err
 	}
 
 	if !probe.spawn {
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	return []*primitive.Value{primitive.Emit()}, nil, nil
+	// Spawn arrives RESOLVED so Sync surfaces it via the yield path —
+	// the test then sees end-to-end (Submit → Sync → yield) without a
+	// custom drain helper poking the store.
+	return []*primitive.Value{
+		primitive.Emit(primitive.WithStatus(uint64(primitive.RESOLVED))),
+	}, nil
 }
 
 func (probe *substrateProbe) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
@@ -55,6 +65,35 @@ func (probe *substrateProbe) Close() error {
 }
 
 func TestSubmit(t *testing.T) {
+	Convey("Given a backend with no values submitted yet", t, func() {
+		backend := newProbeBackend(&substrateState{Substrate: &substrateProbe{name: "cpu"}})
+		defer backend.Close()
+
+		owner := primitive.Emit(primitive.WithProgram([]uint64{1}))
+		defer owner.Close()
+
+		Convey("When Submit registers a value", func() {
+			err := backend.Submit(owner)
+			So(err, ShouldBeNil)
+
+			Convey("It should land in the community store keyed by ID", func() {
+				stored, ok := backend.community.Load(owner.ID())
+				So(ok, ShouldBeTrue)
+				So(stored, ShouldEqual, owner)
+			})
+		})
+
+		Convey("When Submit is called with a nil value", func() {
+			err := backend.Submit(nil)
+
+			Convey("It should refuse rather than panic", func() {
+				So(err, ShouldNotBeNil)
+			})
+		})
+	})
+}
+
+func TestSync(t *testing.T) {
 	Convey("Given a low-pressure substrate fails before CPU fallback", t, func() {
 		gpu := &substrateProbe{name: "gpu", err: errors.New("gpu failed")}
 		cpu := &substrateProbe{name: "cpu", spawn: true}
@@ -67,24 +106,24 @@ func TestSubmit(t *testing.T) {
 		defer backend.Close()
 
 		owner := primitive.Emit(primitive.WithProgram([]uint64{1}))
-		peer := primitive.Emit()
 		defer owner.Close()
-		defer peer.Close()
 
-		Convey("When Submit executes", func() {
-			backend.StageInto(owner.ID(), peer)
-			err := backend.Submit(owner)
-			So(err, ShouldBeNil)
+		So(backend.Submit(owner), ShouldBeNil)
 
-			spawned := drainProbeBackend(backend)
+		Convey("When Sync walks the store", func() {
+			yielded := drainSync(backend)
 
-			Convey("It should retry on CPU and retain the successful output", func() {
+			Convey("It should retry on CPU and surface the RESOLVED spawn", func() {
 				So(gpu.calls.Load(), ShouldEqual, int64(1))
 				So(cpu.calls.Load(), ShouldEqual, int64(1))
-				So(len(spawned), ShouldEqual, 1)
-				So(owner.Status(), ShouldEqual, primitive.DONE)
+				So(len(yielded), ShouldEqual, 1)
+				So(yielded[0].Status(), ShouldEqual, primitive.RESOLVED)
 
-				for _, value := range spawned {
+				stored, ok := backend.community.Load(yielded[0].ID())
+				So(ok, ShouldBeTrue)
+				So(stored, ShouldEqual, yielded[0])
+
+				for _, value := range yielded {
 					value.Close()
 				}
 			})
@@ -101,25 +140,64 @@ func TestSubmit(t *testing.T) {
 		defer backend.Close()
 
 		owner := primitive.Emit(primitive.WithProgram([]uint64{1}))
-		peer := primitive.Emit()
 		defer owner.Close()
-		defer peer.Close()
 
-		Convey("When Submit exhausts candidates", func() {
-			backend.StageInto(owner.ID(), peer)
-			err := backend.Submit(owner)
-			So(err, ShouldBeNil)
+		So(backend.Submit(owner), ShouldBeNil)
 
-			spawned := drainProbeBackend(backend)
+		Convey("When Sync walks the store", func() {
+			yielded := drainSync(backend)
 
-			Convey("It should settle the owner into ERROR without executable residue", func() {
+			Convey("It should exhaust substrates and yield nothing", func() {
 				So(gpu.calls.Load(), ShouldEqual, int64(1))
 				So(cpu.calls.Load(), ShouldEqual, int64(1))
-				So(len(spawned), ShouldEqual, 0)
-				So(owner.Status(), ShouldEqual, primitive.ERROR)
-				So(owner.SchedulingNext(), ShouldEqual, uint64(0))
-				So(owner.HasProgram(), ShouldBeFalse)
+				So(len(yielded), ShouldEqual, 0)
+				So(owner.HasProgram(), ShouldBeTrue)
 			})
+		})
+	})
+}
+
+func TestGetCommunity(t *testing.T) {
+	Convey("Given an owner with no SELECTED peers in the store", t, func() {
+		backend := newProbeBackend(&substrateState{Substrate: &substrateProbe{name: "cpu"}})
+		defer backend.Close()
+
+		owner := primitive.Emit()
+		bystander := primitive.Emit()
+		defer owner.Close()
+		defer bystander.Close()
+
+		So(backend.Submit(owner), ShouldBeNil)
+		So(backend.Submit(bystander), ShouldBeNil)
+
+		Convey("It should fall back to the entire community", func() {
+			community := backend.getCommunity(owner)
+			So(len(community), ShouldEqual, 2)
+		})
+	})
+
+	Convey("Given peers SELECTED with reference pointing at the owner", t, func() {
+		backend := newProbeBackend(&substrateState{Substrate: &substrateProbe{name: "cpu"}})
+		defer backend.Close()
+
+		owner := primitive.Emit()
+		picked := primitive.Emit(
+			primitive.WithStatus(uint64(primitive.SELECTED)),
+		)
+		picked.SetProperty(primitive.REFERENCE, owner.ID())
+		other := primitive.Emit()
+		defer owner.Close()
+		defer picked.Close()
+		defer other.Close()
+
+		So(backend.Submit(owner), ShouldBeNil)
+		So(backend.Submit(picked), ShouldBeNil)
+		So(backend.Submit(other), ShouldBeNil)
+
+		Convey("It should narrow to just the SELECTED peers", func() {
+			community := backend.getCommunity(owner)
+			So(len(community), ShouldEqual, 1)
+			So(community[0], ShouldEqual, picked)
 		})
 	})
 }
@@ -157,11 +235,12 @@ func newProbeBackend(states ...*substrateState) *Backend {
 	}
 }
 
-func drainProbeBackend(backend *Backend) []*primitive.Value {
-	var spawned []*primitive.Value
+func drainSync(backend *Backend) []*primitive.Value {
+	var yielded []*primitive.Value
+
 	for value := range backend.Sync(context.Background()) {
-		spawned = append(spawned, value)
+		yielded = append(yielded, value.Resolved...)
 	}
 
-	return spawned
+	return yielded
 }

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { VALUE_WORD_COUNT } from "@/lib/layoutGenerated";
 import { REGION_SPECS } from "@/lib/valueRegions";
 
 /*
@@ -8,27 +9,26 @@ full). Region boundaries (tokens / program / signals / context /
 gradient / properties / asset / prev / next / id / affinity) get small
 labelled ticks above the strip so the eye can find a region without a
 legend.
-*/
-const HEATMAP_COLUMNS = 128;
 
+The Tailwind arbitrary class `grid-cols-[repeat(128,1fr)]` is used as
+a literal string so the v4 JIT generates the rule. An earlier version
+moved the template to an inline style, which silently rendered as a
+single tall column whenever the JIT path was preferred — keeping the
+literal form is what the build pipeline expects.
+*/
 interface RegionHeatmapProps {
 	words: bigint[];
 }
 
 export function RegionHeatmap({ words }: RegionHeatmapProps) {
 	const normalizedWords = useMemo(
-		() => normalizeWords(words, HEATMAP_COLUMNS),
+		() => normalizeWords(words, VALUE_WORD_COUNT),
 		[words],
 	);
 
-	const gridCols = `repeat(${HEATMAP_COLUMNS},1fr)`;
-
 	return (
 		<div>
-			<div
-				className="mb-1 grid gap-px"
-				style={{ gridTemplateColumns: gridCols }}
-			>
+			<div className="mb-1 grid grid-cols-[repeat(128,1fr)] gap-px">
 				{REGION_SPECS.map((spec) => (
 					<div
 						key={spec.name}
@@ -41,7 +41,7 @@ export function RegionHeatmap({ words }: RegionHeatmapProps) {
 					</div>
 				))}
 			</div>
-			<div className="grid gap-px" style={{ gridTemplateColumns: gridCols }}>
+			<div className="grid grid-cols-[repeat(128,1fr)] gap-px">
 				{normalizedWords.map((word, idx) => {
 					const pop = popcount64(word);
 					const opacity = pop === 0 ? 0.05 : 0.2 + (pop / 64) * 0.8;

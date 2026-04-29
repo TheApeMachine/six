@@ -4,7 +4,6 @@ import (
 	"math/bits"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -25,9 +24,9 @@ the execution to the hardware kernel.
 */
 func (backend *Backend) HypercubeGossip(
 	owner *primitive.Value, community []*primitive.Value,
-) ([]*primitive.Value, []kernel.StageRequest, error) {
+) ([]*primitive.Value, error) {
 	if owner == nil || len(community) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	ownerFrame := (*[128]uint64)(unsafe.Pointer(owner))
@@ -54,6 +53,8 @@ func (backend *Backend) HypercubeGossip(
 	// otherwise executeKernelGo. Compatibility is currently permissive;
 	// tighten when new opcodes require Go-only lowering.
 	var stageIdx []uint64
+	var childFrame [128]uint64
+	var childActive bool
 
 	if backend.programAsmCompatible(ownerFrame) {
 		var stageBuf [128]uint64
@@ -65,29 +66,37 @@ func (backend *Backend) HypercubeGossip(
 			copy(stageIdx, stageBuf[:stageCount])
 		}
 	} else {
-		stageIdx = backend.executeKernelGo(
+		stageIdx, childFrame, childActive = backend.executeKernelGo(
 			ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
 		)
 	}
 
-	// Translate kernel-side index requests into Value-pointer pairs the
-	// compute backend can hand to StageInto.
-	var staged []kernel.StageRequest
-	if len(stageIdx) > 0 {
-		ownerRef := ownerFrame[ReferenceWord]
-		staged = make([]kernel.StageRequest, 0, len(stageIdx))
-		for _, idx := range stageIdx {
-			if idx < communitySize {
-				staged = append(staged, kernel.StageRequest{
-					OwnerID: ownerRef,
-					Value:   community[idx],
-				})
-			}
-		}
-	}
+	// stageIdx is produced by the ALU for peers that executed stage(B); callers
+	// keyed by compute.Backend Submit receive community via staging lanes, not
+	// via a second HypercubeGossip return value.
+
+	_ = stageIdx
 
 	// HOST MEMORY ALLOCATION (Post-Processing)
 	var spawned []*primitive.Value
+
+	if childActive {
+		child := primitive.AllocValue()
+
+		if child != nil {
+			childWords := (*[128]uint64)(unsafe.Pointer(child))
+			copy(childWords[:], childFrame[:])
+			child.StampID()
+			childWords[SpawnRegisterWord] = 0
+
+			if child.Status() == primitive.READY && child.HasProgram() && child.SchedulingNext() == 0 {
+				child.SetSchedulingNext(child.ID())
+			}
+
+			spawned = append(spawned, child)
+		}
+	}
+
 	spawnCount := ownerFrame[SpawnRegisterWord]
 
 	if spawnCount > 0 {
@@ -114,7 +123,7 @@ func (backend *Backend) HypercubeGossip(
 		}
 	}
 
-	return spawned, staged, nil
+	return spawned, nil
 }
 
 /*

@@ -174,6 +174,15 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 
+
+\usepackage{newunicodechar}
+\newunicodechar{₁}{\ensuremath{_1}}
+\newunicodechar{₂}{\ensuremath{_2}}
+\newunicodechar{α}{\ensuremath{\alpha}}
+\newunicodechar{ℓ}{\ensuremath{\ell}}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
 \begin{document}
 
 \maketitle
@@ -249,6 +258,9 @@
 
 \graphicspath{{include/logic/}}
 
+\InputIfFileExists{include/logic/babi_benchmark_summary.tex}{}{}
+\InputIfFileExists{include/logic/babi_section.tex}{}{}
+\InputIfFileExists{include/logic/babi_trial_map.tex}{}{}
 \FloatBarrier
 \clearpage
 

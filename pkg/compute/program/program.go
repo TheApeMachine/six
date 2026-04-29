@@ -90,8 +90,8 @@ const (
 	InstrDstStartShift  = 32
 	InstrDstSpanShift   = 39
 	InstrPredStartShift = 46 // mask-word offset
-	InstrModeShift      = 53 // 1 = write target is the popped B frame
-	InstrEmitShift      = 54
+	InstrModeShift      = 53 // two-bit target: 0=A, 1=B, 2=emitted child
+	InstrEmitShift      = 54 // retained as the high bit of the target field for older tooling
 	InstrTopologyShift  = 55
 	InstrPredBitShift   = 57 // 1 = popcount-driven predicate instruction
 	InstrPredCondShift  = 58 // predicate=1: comparison/reduction; predicate=0: SrcB rot8 steps
@@ -147,8 +147,10 @@ func DecodeInstruction(word uint64) (
 	dstStart = (word >> InstrDstStartShift) & InstrStartMask
 	dstSpan = ((word >> InstrDstSpanShift) & InstrSpanMask) + 1
 	predStart = (word >> InstrPredStartShift) & InstrStartMask
-	mode = (word >> InstrModeShift) & 1
-	emit = (word >> InstrEmitShift) & 1
+	mode = (word >> InstrModeShift) & 3
+	if mode == 2 {
+		emit = 1
+	}
 	topology = (word >> InstrTopologyShift) & 3
 	predicate = (word >> InstrPredBitShift) & 1
 	predCond = (word >> InstrPredCondShift) & 7

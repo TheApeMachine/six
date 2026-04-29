@@ -74,12 +74,11 @@ export const PROGRAM_SIGNATURES: ReadonlyArray<ProgramSignature> = [
 	{
 		name: "query",
 		instructions: [
-			{ aStart: 122, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 122, dstSpan: 1, opcode: 0x3, mode: 0, topology: 1, predStart: 72, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
-			{ aStart: 64, aSpan: 1, bStart: 73, bSpan: 1, dstStart: 74, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 72, predCond: 4, aInd: 0, bType: 0, predicate: 1, emit: 0, srcAFromB: 1, stage: 0, popEnd: 0 },
-			{ aStart: 67, aSpan: 1, bStart: 67, bSpan: 1, dstStart: 67, dstSpan: 1, opcode: 0x3, mode: 1, topology: 0, predStart: 74, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
-			{ aStart: 122, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 122, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 74, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 1, popEnd: 1 },
-			{ aStart: 71, aSpan: 1, bStart: 71, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x0, mode: 0, topology: 0, predStart: 72, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
-			{ aStart: 76, aSpan: 1, bStart: 76, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 72, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
+			{ aStart: 40, aSpan: 1, bStart: 41, bSpan: 1, dstStart: 39, dstSpan: 1, opcode: 0x0, mode: 0, topology: 3, predStart: 72, predCond: 4, aInd: 0, bType: 0, predicate: 1, emit: 0, srcAFromB: 1, stage: 0, popEnd: 0 },
+			{ aStart: 67, aSpan: 1, bStart: 67, bSpan: 1, dstStart: 67, dstSpan: 1, opcode: 0x3, mode: 1, topology: 3, predStart: 39, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
+			{ aStart: 122, aSpan: 1, bStart: 122, bSpan: 1, dstStart: 122, dstSpan: 1, opcode: 0x0, mode: 0, topology: 3, predStart: 39, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 1, popEnd: 0 },
+			{ aStart: 67, aSpan: 1, bStart: 67, bSpan: 1, dstStart: 71, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 72, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
+			{ aStart: 74, aSpan: 1, bStart: 74, bSpan: 1, dstStart: 61, dstSpan: 1, opcode: 0x3, mode: 0, topology: 0, predStart: 72, predCond: 0, aInd: 0, bType: 0, predicate: 0, emit: 0, srcAFromB: 0, stage: 0, popEnd: 0 },
 		],
 	},
 	{

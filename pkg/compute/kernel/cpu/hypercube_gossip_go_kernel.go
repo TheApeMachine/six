@@ -50,11 +50,11 @@ const (
 )
 
 const (
-	// TargetBBitShift selects the truth-table broadcast destination bucket.
-	TargetBBitShift = 53
-	// EmitFlagBitShift is the Emit bit interpreted by kernels that tally
-	// emits into the spawn register (owner word SpawnRegisterWord).
-	EmitFlagBitShift = 54
+	// TargetShift selects the truth-table destination bucket.
+	TargetShift = 53
+	// TargetBBitShift is retained for tests and older hand-packed words
+	// whose target field is the low bit of the two-bit target bucket.
+	TargetBBitShift = TargetShift
 	// TopologyShift holds the topology code (two bits): local, queue, hypercube, hypercube-per-peer.
 	TopologyShift      = 55
 	PredicateBitShift  = 57
@@ -72,6 +72,12 @@ const (
 	// and, if more Bs remain, rewinds pc to the body start so the body
 	// runs once per lane element in a single sweep.
 	PopEndBitShift = 63
+)
+
+const (
+	TargetA = 0
+	TargetB = 1
+	TargetC = 2
 )
 
 const (
@@ -125,11 +131,13 @@ func (backend *Backend) executeKernelGo(
 	community []*[128]uint64,
 	communitySize uint64,
 	dimCount uint64,
-) []uint64 {
+) ([]uint64, [128]uint64, bool) {
 	bQueueIdx := uint64(0)
 	currentBIdx := uint64(0)
 	var currentB *[128]uint64
 	var stagedIdx []uint64
+	var childFrame [128]uint64
+	childActive := false
 	popBodyStart := uint64(0)
 	popActive := false
 
@@ -148,8 +156,7 @@ func (backend *Backend) executeKernelGo(
 		dstSpan := ((instr >> 39) & 0x7F) + 1
 		maskStart := (instr >> 46) & 0x7F
 
-		targetB := (instr >> 53) & 1
-		emit := (instr >> 54) & 1
+		target := (instr >> TargetShift) & 3
 		topology := (instr >> 55) & 3
 		predicate := (instr >> PredicateBitShift) & 1
 		predCond := (instr >> PredicateCondShift) & 7
@@ -240,8 +247,11 @@ func (backend *Backend) executeKernelGo(
 		}
 
 		ptrDst := ownerFrame
-		if targetB == 1 {
+		if target == TargetB {
 			ptrDst = ptrB
+		}
+		if target == TargetC {
+			ptrDst = &childFrame
 		}
 
 		if predicate == 1 && topology == TopoHypercubePerPeer && communitySize > 0 {
@@ -294,6 +304,10 @@ func (backend *Backend) executeKernelGo(
 
 		if predicate == 1 {
 			guard := ownerFrame[maskStart]
+			if target == TargetC && guard != 0 {
+				childActive = true
+			}
+
 			var pop uint64
 			for lane := uint64(0); lane < aSpan; lane++ {
 				pop += uint64(bits.OnesCount64(ptrA[(aStart+lane)&127]))
@@ -373,7 +387,7 @@ func (backend *Backend) executeKernelGo(
 		hypercube := (topology == TopoHypercube || topology == TopoHypercubePerPeer) && communitySize > 0
 		perPeerMask := topology == TopoHypercubePerPeer
 
-		if hypercube && targetB == 1 {
+		if hypercube && target == TargetB {
 			for k := uint64(0); k < communitySize; k++ {
 				if k == ownerIdx {
 					continue
@@ -445,8 +459,8 @@ func (backend *Backend) executeKernelGo(
 			}
 		}
 
-		if emit == 1 && mask != 0 {
-			ownerFrame[SpawnRegisterWord] += 1
+		if target == TargetC && mask != 0 {
+			childActive = true
 		}
 
 		// At the end of a pop(B) body, advance the lane cursor and rewind
@@ -467,7 +481,7 @@ func (backend *Backend) executeKernelGo(
 		}
 	}
 
-	return stagedIdx
+	return stagedIdx, childFrame, childActive
 }
 
 func rotatedWord(frame *[128]uint64, start, span, lane, rotate uint64) uint64 {

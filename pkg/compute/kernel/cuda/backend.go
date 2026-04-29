@@ -56,7 +56,6 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -131,10 +130,10 @@ func cudaTakeSpawnChild(childPool []*primitive.Value, spawnIdx uint64) *primitiv
 	return primitive.AllocValue()
 }
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []kernel.StageRequest, error) {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
 	n := len(community)
 	if n == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	frames := make([]primitive.Value, n)
@@ -179,7 +178,8 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	)
 	if res != 0 {
 		primitive.CloseAll(spawnValues)
-		return nil, nil, fmt.Errorf("cuda: hypercube_gossip_v2_cuda failed with code %d", int(res))
+
+		return nil, fmt.Errorf("cuda: hypercube_gossip_v2_cuda failed with code %d", int(res))
 	}
 
 	for idx, member := range community {
@@ -188,27 +188,6 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		}
 
 		*member = frames[idx]
-	}
-
-	// Translate kernel-side index requests into Value-pointer pairs the
-	// compute backend can hand to StageInto. The owner's reference word
-	// names the staging lane.
-	var staged []kernel.StageRequest
-	if stageCount > 0 && value != nil {
-		ownerRef := uint64((*[primitive.WordCount]uint64)(unsafe.Pointer(value))[ReferenceWord])
-
-		staged = make([]kernel.StageRequest, 0, stageCount)
-		for idx := uint32(0); idx < stageCount && idx < uint32(n); idx++ {
-			peerIdx := stageIndices[idx]
-			if int(peerIdx) >= n || community[peerIdx] == nil {
-				continue
-			}
-
-			staged = append(staged, kernel.StageRequest{
-				OwnerID: ownerRef,
-				Value:   community[peerIdx],
-			})
-		}
 	}
 
 	var spawned []*primitive.Value
@@ -269,25 +248,20 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 
 			primitive.CloseAll(spawned)
 
-			return nil, staged, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"cuda: spawn incomplete (want %d children, got %d)",
 				spawnRemaining,
 				len(spawned),
 			)
 		}
 
-		return spawned, staged, nil
+		return spawned, nil
 	}
 
 	primitive.CloseAll(spawnValues)
 
-	return spawned, staged, nil
+	return spawned, nil
 }
-
-// ReferenceWord mirrors the absolute frame word for the REFERENCE
-// property (propertiesStart + REFERENCE offset). Hardcoded to keep this
-// file standalone — the canonical source is pkg/primitive/properties.go.
-const ReferenceWord = 67
 
 // HypercubeGossipLegacy preserves the original CUDA dispatch path so
 // the kernel can be reactivated once the .cu kernel is rewritten for

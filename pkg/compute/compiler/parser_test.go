@@ -134,9 +134,11 @@ program recruit_community {
 			}
 
 			// 120 (outer guard threshold), 0 (inner == 0 threshold and
-			// two fresh per-IF mask words), 4 (DONE, used twice).
+			// two fresh per-IF mask words), 5 (DONE, used twice — DONE
+			// shifted from 4 to 5 once SELECTED was inserted ahead of
+			// it in the status enum).
 			So(values[120], ShouldEqual, 1)
-			So(values[4], ShouldEqual, 2)
+			So(values[5], ShouldEqual, 2)
 			So(values[0], ShouldBeGreaterThanOrEqualTo, 1)
 		})
 	})
@@ -552,9 +554,19 @@ program query {
 			So(lhsSubs, ShouldEqual, 1)
 		})
 
-		Convey("It should point the threshold operand at A.context[1] without substitution", func() {
+		Convey("It should point the threshold operand at a patched constant slot", func() {
 			bStart := (predicateWord >> 18) & 0x7F
-			So(bStart, ShouldEqual, uint64(contextStart+1))
+			So(bStart, ShouldBeGreaterThanOrEqualTo, uint64(assetConstStart))
+
+			foundConstantSub := false
+			for _, sub := range result.Substitutions {
+				if sub.Constant && sub.ConstantOffset == bStart {
+					foundConstantSub = true
+					So(sub.Addr, ShouldEqual, uint64(contextStart+1))
+				}
+			}
+
+			So(foundConstantSub, ShouldBeTrue)
 		})
 
 		Convey("It should retarget the predicate result slot to the per-peer scratch word", func() {
@@ -576,6 +588,49 @@ program query {
 
 			So(topology, ShouldEqual, uint64(TopoHypercubePerPeer))
 			So(stage, ShouldEqual, uint64(1))
+		})
+	})
+}
+
+func TestCompileQueryWake(t *testing.T) {
+	Convey("Given the direct id wake predicate", t, func() {
+		source := `
+program query {
+  gossip(B) {
+    (B.id == A.properties.reference) {
+      set B.properties.status <- READY
+    }
+  }
+}
+`
+
+		Convey("It should compile the direct peer id comparison", func() {
+			_, err := Compile(source)
+			So(err, ShouldBeNil)
+		})
+	})
+
+	Convey("Given the query wake source", t, func() {
+		source := `
+program query {
+  gossip(B) {
+    (B.{{A.context[0,1]}} == {{A.context[1,1]}}) {
+      write B.properties.reference <- A.properties.reference
+      set B.properties.status <- SELECTED
+
+      (B.id == A.properties.reference) {
+        set B.properties.status <- READY
+      }
+    }
+  }
+
+  set A.properties.status <- DONE
+}
+`
+
+		Convey("It should compile the indirect selector and nested wake predicate", func() {
+			_, err := Compile(source)
+			So(err, ShouldBeNil)
 		})
 	})
 }

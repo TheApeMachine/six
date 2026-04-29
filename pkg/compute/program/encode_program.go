@@ -95,13 +95,14 @@ func (op MachineOp) Pack() uint64 {
 	word |= ((op.DstSpan - 1) & InstrSpanMask) << InstrDstSpanShift
 	word |= (op.MaskStart & InstrStartMask) << InstrPredStartShift
 
+	target := uint64(0)
 	if op.TargetB {
-		word |= 1 << InstrModeShift
+		target = 1
 	}
-
-	if op.Emit {
-		word |= 1 << InstrEmitShift
+	if op.TargetChild || op.Emit {
+		target = 2
 	}
+	word |= (target & 3) << InstrModeShift
 
 	word |= (op.Topology & 3) << InstrTopologyShift
 

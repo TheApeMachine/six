@@ -30,8 +30,7 @@ type Backend struct {
 	substrates []*substrateState
 	nextSub    atomic.Uint64
 	pending    atomic.Int64
-	cache      sync.Map
-	staging    sync.Map
+	community  sync.Map
 }
 
 /*
@@ -53,9 +52,10 @@ func NewBackend(ctx context.Context) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	backend := &Backend{
-		ctx:    ctx,
-		cancel: cancel,
-		pool:   pool.NewPool(uint64(runtime.NumCPU())),
+		ctx:       ctx,
+		cancel:    cancel,
+		pool:      pool.NewPool(uint64(runtime.NumCPU())),
+		community: sync.Map{},
 	}
 
 	for device := 0; device < cuda.Available(); device++ {
@@ -72,52 +72,60 @@ func NewBackend(ctx context.Context) *Backend {
 }
 
 /*
-Submit runs owner's program over its staged community on the lowest-pressure
-substrate. Spawned children land in the cache for Sync to drain; in-band stage
-requests emitted by the kernel are dispatched into the matching owner's lane
-via StageInto. The owner is single-use unless its program rewrote itself READY
-with a non-zero continuation before the sweep returned.
+Submit registers value in the single community store. Status drives what
+happens to it next: PENDING segments sit until a query tags them, READY
+programs get picked up by Sync, RESOLVED values get yielded back out.
+Submit itself does not touch status — every transition is owned by either
+the kernel (in-frame writes) or the program (set ... <- STATUS).
 */
 func (backend *Backend) Submit(owner *primitive.Value) error {
 	if backend == nil || owner == nil {
 		return errors.New("backend or owner is nil")
 	}
 
-	if owner.Status() != primitive.READY {
-		return errors.New("owner is not ready")
-	}
-
-	community := backend.Lane(owner)
-	
-	if len(community) == 0 {
-		return errors.New("owner has no staged community")
-	}
-
-	owner.SetStatus(primitive.WAITING)
-	backend.pending.Add(1)
-
-	backend.pool.Submit(func() {
-		defer backend.pending.Add(-1)
-		defer backend.clearStaging(owner)
-
-		spawned, err := backend.execute(owner, community)
-		if err != nil {
-			errnie.Error(err)
-			backend.failOwner(owner)
-
-			return
-		}
-
-		backend.finishOwner(owner)
-
-		for _, child := range spawned {
-			if child != nil {
-				backend.cache.Store(child.ID(), child)
-			}
-		}
-	})
+	backend.community.Store(owner.ID(), owner)
 
 	return nil
+}
+
+/*
+Range visits the resident store without exposing its sync.Map machinery.
+Tests and readout code use this to inspect in-band state while keeping
+storage ownership inside Backend.
+*/
+func (backend *Backend) Range(fn func(*primitive.Value) bool) {
+	if backend == nil || fn == nil {
+		return
+	}
+
+	backend.community.Range(func(key, value any) bool {
+		return fn(value.(*primitive.Value))
+	})
+}
+
+func (backend *Backend) getCommunity(owner *primitive.Value) []*primitive.Value {
+	all := make([]*primitive.Value, 0)
+	community := make([]*primitive.Value, 0)
+
+	backend.community.Range(func(key, value any) bool {
+		all = append(all, value.(*primitive.Value))
+
+		if reference, err := value.(*primitive.Value).Property(
+			primitive.REFERENCE,
+		); err == nil && reference == owner.ID() {
+			if value.(*primitive.Value).Status() == primitive.SELECTED {
+				community = append(community, value.(*primitive.Value))
+			}
+		}
+
+		return true
+	})
+
+	if len(community) == 0 {
+		return all
+	}
+
+	return community
 }
 
 /*
@@ -144,9 +152,10 @@ func (backend *Backend) execute(
 
 		attempted |= bit
 
-		spawned, err := backend.executeSubstrate(state, owner, community)
+		results, err := backend.executeSubstrate(state, owner, community)
+
 		if err == nil {
-			return spawned, nil
+			return results, nil
 		}
 
 		last = err
@@ -208,148 +217,73 @@ func (backend *Backend) nextSubstrate(offset int, attempted uint64) (*substrateS
 	return backend.substrates[bestIdx], uint64(1) << uint(bestIdx)
 }
 
-/*
-stagingLane is the per-owner B-pool that programs sweep over. Append is mutex-
-protected because Go slice growth is not safe under concurrent appends; lanes
-are partitioned by owner ID so contention is per-owner, not global.
-*/
-type stagingLane struct {
-	mu     sync.Mutex
-	values []*primitive.Value
+type SyncResult struct {
+	Resolved []*primitive.Value
+	Ready    []*primitive.Value
 }
 
 /*
-Lane returns a snapshot of the staging slice for the given owner. Cycle uses
-this to fetch the community a READY owner should sweep over; tests use it for
-inspection.
+Sync walks the community store once: every READY value is dispatched on
+the lowest-pressure substrate against its SELECTED lane, every RESOLVED
+value is yielded to the caller. Spawned children land back in the same
+store so the next tick picks them up — no second cache, no drain queue.
 */
-func (backend *Backend) Lane(owner *primitive.Value) []*primitive.Value {
-	if backend == nil || owner == nil {
-		return nil
-	}
-
-	entry, ok := backend.staging.Load(owner.ID())
-	if !ok {
-		return nil
-	}
-
-	lane := entry.(*stagingLane)
-
-	lane.mu.Lock()
-	out := make([]*primitive.Value, len(lane.values))
-	copy(out, lane.values)
-	lane.mu.Unlock()
-
-	return out
-}
-
-/*
-StageInto pushes a Value into the staging lane keyed by ownerID. The kernel's
-stage instruction calls this from inside a program sweep, so reference-style
-selection happens entirely inside Value-space — no Go side decides which Bs
-go where, the program does.
-*/
-func (backend *Backend) StageInto(ownerID uint64, value *primitive.Value) {
-	if backend == nil || value == nil {
-		return
-	}
-
-	entry, _ := backend.staging.LoadOrStore(ownerID, &stagingLane{})
-	lane := entry.(*stagingLane)
-
-	lane.mu.Lock()
-	lane.values = append(lane.values, value)
-	lane.mu.Unlock()
-}
-
-func (backend *Backend) clearStaging(owner *primitive.Value) {
-	if owner == nil {
-		return
-	}
-
-	backend.staging.Delete(owner.ID())
-}
-
-/*
-finishOwner enforces single-use firmware with two opt-in escape hatches.
-
-  - Self-continuation (status=READY, continuation=self.id, program intact):
-    the firmware wants another sweep on this same owner; leave everything.
-  - Wake-target continuation (status=DONE, continuation=other_id != 0):
-    the firmware is finished here but is signalling that another value
-    should run next. Drop the program slab so this owner does not get
-    scheduled again, but PRESERVE the continuation word so the runtime
-    can read it as a wake target and flip the matching WAITING value to
-    READY (machine.wakeWaiting).
-
-Anything else falls through to the standard retire: clear program, clear
-continuation, force DONE.
-*/
-func (backend *Backend) finishOwner(owner *primitive.Value) {
-	if owner == nil {
-		return
-	}
-
-	if owner.Status() == primitive.READY && owner.SchedulingNext() != 0 && owner.HasProgram() {
-		return
-	}
-
-	if owner.Status() == primitive.DONE && owner.SchedulingNext() != 0 && owner.SchedulingNext() != owner.ID() {
-		owner.ClearProgram()
-
-		return
-	}
-
-	owner.ClearProgram()
-	owner.SetSchedulingNext(0)
-
-	switch owner.Status() {
-	case primitive.PENDING, primitive.READY, primitive.BUSY, primitive.WAITING:
-		owner.SetStatus(primitive.DONE)
-	}
-}
-
-func (backend *Backend) failOwner(owner *primitive.Value) {
-	if owner == nil {
-		return
-	}
-
-	owner.ClearProgram()
-	owner.SetSchedulingNext(0)
-	owner.SetStatus(primitive.ERROR)
-}
-
-/*
-Sync waits for queued compute work to quiesce and then drains emitted Values.
-The normal cycle path still submits asynchronously; prompt/readout callers use
-this when they need an observed tick before deciding whether anything resolved.
-*/
-func (backend *Backend) Sync(ctx context.Context) iter.Seq[*primitive.Value] {
+func (backend *Backend) Sync(
+	ctx context.Context,
+) iter.Seq[*SyncResult] {
 	if backend == nil {
 		return nil
 	}
 
-	return func(yield func(*primitive.Value) bool) {
-		for backend.pending.Load() > 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				runtime.Gosched()
-			}
-		}
+	return func(yield func(*SyncResult) bool) {
+		backend.community.Range(func(key, value any) bool {
+			owner := value.(*primitive.Value)
 
-		backend.cache.Range(func(key any, value any) bool {
-			if value.(*primitive.Value).Status() != primitive.DONE {
-				if !yield(value.(*primitive.Value)) {
-					return false
+			if owner.Status() == primitive.READY {
+				owner.SetStatus(primitive.BUSY)
+
+				spawned, err := backend.execute(
+					owner, backend.getCommunity(owner),
+				)
+
+				if err != nil {
+					owner.SetStatus(primitive.READY)
+					errnie.Error(err)
 				}
 
-				backend.cache.Delete(key)
+				for _, child := range spawned {
+					backend.community.Store(child.ID(), child)
+				}
+
+				if owner.Status() == primitive.BUSY {
+					owner.SetSchedulingNext(0)
+					owner.SetStatus(primitive.DONE)
+				}
 			}
 
 			return true
 		})
+
+		result := &SyncResult{
+			Resolved: make([]*primitive.Value, 0),
+			Ready:    make([]*primitive.Value, 0),
+		}
+
+		backend.community.Range(func(key, value any) bool {
+			owner := value.(*primitive.Value)
+
+			if owner.Status() == primitive.RESOLVED {
+				result.Resolved = append(result.Resolved, owner)
+			}
+
+			if owner.Status() == primitive.READY {
+				result.Ready = append(result.Ready, owner)
+			}
+
+			return true
+		})
+
+		yield(result)
 	}
 }
 
@@ -373,23 +307,41 @@ func (backend *Backend) executeSubstrate(
 		return nil, nil
 	}
 
+	if state.Name() != "cpu" && valueTargetsChild(owner) {
+		return nil, errors.New("child-target emit requires cpu substrate")
+	}
+
 	state.inflight.Add(1)
+	defer state.inflight.Add(-1)
 	start := time.Now()
 
-	spawned, staged, err := state.HypercubeGossip(owner, community)
-
-	state.inflight.Add(-1)
-	state.observe(time.Since(start))
+	results, err := state.HypercubeGossip(owner, community)
 
 	if err != nil {
-		return spawned, err
+		return nil, err
 	}
 
-	for _, req := range staged {
-		backend.StageInto(req.OwnerID, req.Value)
+	state.observe(time.Since(start))
+
+	return results, err
+}
+
+func valueTargetsChild(value *primitive.Value) bool {
+	if value == nil {
+		return false
 	}
 
-	return spawned, nil
+	for _, word := range value.Get(primitive.ProgramRegion) {
+		if word == 0 {
+			continue
+		}
+
+		if (word>>53)&3 == 2 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (state *substrateState) pressure() int64 {

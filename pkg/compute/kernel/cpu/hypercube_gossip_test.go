@@ -252,7 +252,7 @@ func TestExecuteKernelStageEquivalence(t *testing.T) {
 		Convey("When executeKernelGo runs", func() {
 			backend := &Backend{}
 			goCopy := owner
-			goStaged := backend.executeKernelGo(&goCopy, ^uint64(0), community, 3, 2)
+			goStaged, _, _ := backend.executeKernelGo(&goCopy, ^uint64(0), community, 3, 2)
 
 			Convey("And the asm path runs the same program", func() {
 				asmCopy := owner

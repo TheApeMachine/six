@@ -9,8 +9,8 @@ package cpu
 //
 // stageBuf / stageCount give the kernel a place to record the indices
 // of peers it stages. Asm writes peer indices into stageBuf[0..*stageCount)
-// when stage(B) instructions fire; the host translates that into
-// kernel.StageRequest values after the kernel returns.
+// when stage(B) instructions fire; the orchestrator consumes those indices
+// alongside spawned children (staging lanes are compute.Backend.Submit keyed).
 //
 //go:noescape
 func executeKernel(

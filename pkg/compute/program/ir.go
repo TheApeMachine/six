@@ -80,6 +80,7 @@ type MachineOp struct {
 	Opcode        uint64
 	TargetB       bool
 	Emit          bool
+	TargetChild   bool
 	Topology      uint64
 	Predicate     bool
 	PredicateCond uint64

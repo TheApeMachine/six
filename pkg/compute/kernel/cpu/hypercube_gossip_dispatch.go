@@ -9,7 +9,22 @@ repository loads; compatibility is a trivial pass-through. Re-introduce guards
 when a lowered opcode/topology intentionally remains Go-only.
 */
 func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
-	_, _ = backend, ownerFrame
+	_ = backend
+
+	if ownerFrame == nil {
+		return true
+	}
+
+	for pc := uint64(0); pc < ProgramWords; pc++ {
+		instr := ownerFrame[ProgramStartWord+pc]
+		if instr == 0 {
+			continue
+		}
+
+		if (instr>>TargetShift)&3 == TargetC {
+			return false
+		}
+	}
 
 	return true
 }

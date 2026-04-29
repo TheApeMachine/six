@@ -88,6 +88,29 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) (bool, error) {
 	const maxSubstitutionFieldShift = uint64(57)
 
 	for _, substitution := range entry.Substitutions {
+		addr := int(substitution.Addr)
+		if addr < 0 || addr >= len(*value) {
+			return false, fmt.Errorf(
+				"primitive.InstallFirmware: substitution Addr=%d out of frame (len=%d)",
+				addr,
+				len(*value),
+			)
+		}
+
+		if substitution.Constant {
+			offset := int(substitution.ConstantOffset)
+			if offset < 0 || offset >= len(*value) {
+				return false, fmt.Errorf(
+					"primitive.InstallFirmware: constant substitution Offset=%d out of frame (len=%d)",
+					offset,
+					len(*value),
+				)
+			}
+
+			value.Set(offset, (*value)[addr])
+			continue
+		}
+
 		if substitution.PC < 0 || substitution.PC >= len(words) {
 			return false, fmt.Errorf(
 				"primitive.InstallFirmware: substitution PC=%d out of range for %d program words",
@@ -101,16 +124,6 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) (bool, error) {
 				"primitive.InstallFirmware: PC=%d FieldShift=%d exceeds highest safe 7-bit span (needs shift<=57)",
 				substitution.PC,
 				substitution.FieldShift,
-			)
-		}
-
-		addr := int(substitution.Addr)
-		if addr < 0 || addr >= len(*value) {
-			return false, fmt.Errorf(
-				"primitive.InstallFirmware: substitution Addr=%d out of frame (len=%d) at PC=%d",
-				addr,
-				len(*value),
-				substitution.PC,
 			)
 		}
 

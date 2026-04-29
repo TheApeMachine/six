@@ -7,7 +7,6 @@ import (
 	"errors"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -52,14 +51,13 @@ func Available() int { return 0 }
 
 func (backend *Backend) Name() string { return "metal" }
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []kernel.StageRequest, error) {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
 	if len(community) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	return backend.cpu.HypercubeGossip(value, community)
 }
-
 func (backend *Backend) GeometricFrame(value unsafe.Pointer, opcode uint64) bool {
 	return cpu.GeometricFrame(value, opcode)
 }

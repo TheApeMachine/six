@@ -255,19 +255,14 @@ func (stage StageNode) Walk(b *Builder) {
 }
 
 /*
-EmitNode runs its body and marks the final body instruction as the spawn
-edge. This keeps `emit { ... }` as one child allocation no matter how many
-assignments are needed to shape the emitted frame.
+EmitNode runs its body against the child target selected by the parser for
+bare destinations. The ALU emits one child when at least one child-target
+write survives the active predicate mask.
 */
 type EmitNode struct {
 	Body BlockNode
 }
 
 func (emit EmitNode) Walk(b *Builder) {
-	start := b.pc
 	emit.Body.Walk(b)
-
-	if b.pc > start {
-		b.instructions[b.pc-1] |= uint64(1) << 54
-	}
 }

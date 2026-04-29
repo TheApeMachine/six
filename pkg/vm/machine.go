@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
-	"time"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
@@ -23,15 +21,14 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	err          error
-	host         *network.Host
-	tokenizer    *Tokenizer
-	backend      *compute.Backend
-	telemetry    *telemetry.Bridge
-	community    sync.Map
-	PollInterval time.Duration
+	ctx       context.Context
+	cancel    context.CancelFunc
+	err       error
+	host      *network.Host
+	tokenizer *Tokenizer
+	backend   *compute.Backend
+	telemetry *telemetry.Bridge
+	firmware  *compute.Firmware
 }
 
 type machineOpts func(*Machine)
@@ -63,6 +60,7 @@ func NewMachine(
 		cancel:    cancel,
 		telemetry: bridge,
 		backend:   compute.NewBackend(ctx),
+		firmware:  compute.NewFirmware(ctx),
 	}
 
 	for _, opt := range opts {
@@ -88,15 +86,14 @@ func NewMachine(
 		"host":      machine.host,
 		"tokenizer": machine.tokenizer,
 		"backend":   machine.backend,
+		"firmware":  machine.firmware,
 	})
 }
 
 /*
 Close the machine.
 */
-func (machine *Machine) Close() error {
-	var errs []error
-
+func (machine *Machine) Close() (err error) {
 	if machine == nil {
 		return nil
 	}
@@ -105,39 +102,18 @@ func (machine *Machine) Close() error {
 		machine.cancel()
 	}
 
-	machine.community.Range(func(key, value any) bool {
-		if value != nil {
-			value.(*primitive.Value).Close()
-		}
-
-		return true
-	})
-
-	if machine.telemetry != nil {
-		if err := machine.telemetry.Close(); err != nil {
-			errs = append(errs, err)
+	for _, closer := range []io.Closer{
+		machine.telemetry,
+		machine.host,
+		machine.tokenizer,
+		machine.backend,
+	} {
+		if err := closer.Close(); err != nil {
+			err = errors.Join(err, errnie.Error(err))
 		}
 	}
 
-	if machine.host != nil {
-		if err := machine.host.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if machine.tokenizer != nil {
-		if err := machine.tokenizer.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if machine.backend != nil {
-		if err := machine.backend.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	return errors.Join(errs...)
+	return err
 }
 
 /*
@@ -159,78 +135,24 @@ Submissions that touch disjoint owner/lane frame sets run together. Overlapping
 sets are split across batches so two kernels never mutate the same Value frame
 at the same time.
 */
-func (machine *Machine) Cycle() error {
+func (machine *Machine) Cycle() (
+	resolved []*primitive.Value,
+	ready []*primitive.Value,
+	err error,
+) {
 	if machine.backend == nil {
-		return nil
+		return nil, nil, errors.New("backend is nil")
 	}
 
-	machine.wakeWaiting()
+	resolved = make([]*primitive.Value, 0)
+	ready = make([]*primitive.Value, 0)
 
-	var cycleErr error
-
-	machine.community.Range(func(key, value any) bool {
-		candidate, ok := value.(*primitive.Value)
-		if !ok || candidate == nil {
-			return true
-		}
-
-		if candidate.Status() == primitive.READY {
-			if _, err := io.Copy(machine.telemetry, candidate); err != nil && cycleErr == nil {
-				cycleErr = err
-			}
-
-			machine.backend.Submit(candidate)
-		}
-
-		return true
-	})
-
-	for value := range machine.backend.Sync(machine.ctx) {
-		machine.community.Store(value.ID(), value)
-
-		if _, err := io.Copy(machine.telemetry, value); err != nil && cycleErr == nil {
-			cycleErr = err
-		}
+	for result := range machine.backend.Sync(machine.ctx) {
+		resolved = append(resolved, result.Resolved...)
+		ready = append(ready, result.Ready...)
 	}
 
-	return cycleErr
-}
-
-/*
-wakeWaiting flips WAITING values whose id is the continuation target of
-some DONE value into READY. This is the in-band handshake firmware uses
-to chain stages: a query Value runs, stamps the recruiter's id into its
-own continuation when it finishes, and the next Cycle pass sees "this
-DONE Value points at WAITING Value X — wake X so the next submission
-sweep picks it up". A self-pointing continuation is the "re-run me"
-signal handled inside backend.finishOwner; it never wakes another
-value.
-*/
-func (machine *Machine) wakeWaiting() {
-	machine.community.Range(func(_, value any) bool {
-		owner := value.(*primitive.Value)
-
-		if owner.Status() != primitive.DONE {
-			return true
-		}
-
-		rawNext, exists := machine.community.Load(owner.SchedulingNext())
-
-		if !exists {
-			return true
-		}
-
-		nextCandidate, asserted := rawNext.(*primitive.Value)
-
-		if !asserted || nextCandidate == nil {
-			return true
-		}
-
-		nextCandidate.SetStatus(primitive.READY)
-		io.Copy(machine.telemetry, nextCandidate)
-
-		return true
-	})
+	return resolved, ready, err
 }
 
 /*
@@ -251,8 +173,6 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 	}
 
-	var loaded []*primitive.Value
-
 	for sample := range dataset.Generate() {
 		segments, err := machine.tokenizer.IngestSample(
 			machine.ctx, sample,
@@ -263,102 +183,59 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 
 		for _, segment := range segments {
-			machine.community.Store(segment.ID(), segment)
-			loaded = append(loaded, segment)
+			machine.backend.Submit(segment)
 			io.Copy(machine.telemetry, segment)
 		}
 	}
 
-	recruiter := primitive.Emit(
-		primitive.WithFirmware(core.RECRUIT_COMMUNITY),
-		primitive.WithStatus(uint64(primitive.WAITING)),
-	)
-
-	// The query firmware filters peers via `B.{{A.context[0,1]}} ==
-	// {{A.context[1,1]}}`. WithContext writes the operand offset and
-	// comparison literal BEFORE WithFirmware so InstallFirmware can
-	// patch the predicate's packed instruction with the resolved
-	// offset. For bootstrap recruitment we want B.properties.community
-	// (absolute word = propertiesStart + COMMUNITY offset) compared
-	// against 0 (the unclaimed sentinel).
-	communityWord := uint64(core.Cfg.Value.Region.Properties.Start + int(primitive.COMMUNITY))
-
-	query := primitive.Emit(
-		primitive.WithReference(recruiter.ID()),
-		primitive.WithContext(0, communityWord),
-		primitive.WithContext(1, 0),
-		primitive.WithFirmware(core.QUERY),
-		primitive.WithStatus(uint64(primitive.READY)),
-	)
-
-	machine.community.Store(recruiter.ID(), recruiter)
-	machine.community.Store(query.ID(), query)
-
-	for _, segment := range loaded {
-		machine.backend.StageInto(query.ID(), segment)
+	for _, value := range machine.firmware.Deploy(
+		core.RECRUIT_COMMUNITY, []uint64{
+			uint64(primitive.PropertyWord(primitive.COMMUNITY)), 0,
+		},
+		nil,
+	) {
+		machine.backend.Submit(value)
+		io.Copy(machine.telemetry, value)
 	}
 
-	return machine.Cycle()
+	ready := []*primitive.Value{nil}
+
+	for len(ready) > 0 {
+		if _, ready, err = machine.Cycle(); err != nil {
+			return err
+		}
+
+		for _, value := range ready {
+			io.Copy(machine.telemetry, value)
+		}
+	}
+
+	return nil
 }
 
 /*
 Prompt injects prompt segment Values into the community, cycles until settled,
 and returns Values that newly settled in the RESOLVED or DONE state.
 */
-func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitive.Value, err error) {
+func (machine *Machine) Prompt(
+	values ...*primitive.Value,
+) (resolved []*primitive.Value, err error) {
 	if err := validate.Require(map[string]any{
 		"values": values,
 	}); err != nil {
 		return nil, errors.Join(machine.err, errnie.Error(err))
 	}
 
-	for _, value := range values {
-		if value != nil {
-			machine.community.Store(value.ID(), value)
-		}
-	}
+	resolved = make([]*primitive.Value, 0)
 
-	pass := make([]*primitive.Value, 0)
-
-	nonNilCount := 0
-
-	for _, value := range values {
-		if value != nil {
-			nonNilCount++
-		}
-	}
-
-	for {
-		select {
-		case <-machine.ctx.Done():
-			return nil, machine.ctx.Err()
-		default:
-		}
-
-		if err := machine.Cycle(); err != nil {
+	for len(resolved) == 0 {
+		if resolved, _, err = machine.Cycle(); err != nil {
 			return nil, err
 		}
 
-		pass = pass[:0]
-
-		for _, value := range values {
-			if value != nil && value.Status() == primitive.RESOLVED {
-				pass = append(pass, value)
-			}
+		for _, value := range resolved {
+			io.Copy(machine.telemetry, value)
 		}
-
-		resolved = pass
-
-		if len(pass) == nonNilCount {
-			break
-		}
-
-		poll := machine.PollInterval
-		if poll <= 0 {
-			poll = time.Millisecond
-		}
-
-		time.Sleep(poll)
 	}
 
 	return resolved, nil

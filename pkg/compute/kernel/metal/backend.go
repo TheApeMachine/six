@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -157,21 +156,21 @@ func Available() int {
 	return int(C.count_metal_devices())
 }
 
-func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []kernel.StageRequest, error) {
+func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, error) {
 	n := len(community)
 	if value == nil || n == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	if err := ensureMetalArena(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	const invalidIndex = ^uint32(0)
 
 	ownerSlot, ok := primitive.ArenaIndex(value)
 	if !ok {
-		return nil, nil, fmt.Errorf("metal: owner value is outside the arena")
+		return nil, fmt.Errorf("metal: owner value is outside the arena")
 	}
 
 	indices := make([]uint32, n)
@@ -189,7 +188,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 			continue
 		}
 
-		return nil, nil, fmt.Errorf("metal: value at community index %d is outside the arena", idx)
+		return nil, fmt.Errorf("metal: value at community index %d is outside the arena", idx)
 	}
 
 	ownerIndex := invalidIndex
@@ -216,27 +215,14 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 		(*C.uint32_t)(unsafe.Pointer(&stageCount)),
 	)
 	if res != 0 {
-		return nil, nil, fmt.Errorf("metal: hypercube_gossip_metal_indices failed with code %d", int(res))
+		return nil, fmt.Errorf("metal: hypercube_gossip_metal_indices failed with code %d", int(res))
 	}
 
-	staged := make([]kernel.StageRequest, 0, stageCount)
 	ownerFrame := (*[frameWords]uint64)(unsafe.Pointer(value))
-	ownerRef := ownerFrame[primitive.PropertiesStartWord+int(primitive.REFERENCE)]
-	for idx := uint32(0); idx < stageCount && idx < uint32(len(stageIndices)); idx++ {
-		stageIdx := stageIndices[idx]
-		if stageIdx >= uint32(len(community)) {
-			continue
-		}
-
-		staged = append(staged, kernel.StageRequest{
-			OwnerID: ownerRef,
-			Value:   community[stageIdx],
-		})
-	}
 
 	spawned := backend.metalSpawnedValues(ownerFrame)
 
-	return spawned, staged, nil
+	return spawned, nil
 }
 
 /*

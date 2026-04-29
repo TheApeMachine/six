@@ -158,3 +158,9 @@ func WithContext(offset int, word uint64) EmitOptions {
 		value.Set(core.Cfg.Value.Region.Context.Start+offset, word)
 	}
 }
+
+func WithContinuation(continuation uint64) EmitOptions {
+	return func(value *Value) {
+		value.SetProperty(CONTINUATION, continuation)
+	}
+}

@@ -113,21 +113,28 @@ value:
     - READY
     - BUSY
     - WAITING
+    - SELECTED
     - DONE
     - RESOLVED
     - ERROR
 programs:
   query: |
     program query {
-      ; Select the community.
+      ; Select the community. Each matching B is tagged SELECTED with its
+      ; reference word pointing at A.properties.reference (the main value's
+      ; id), so the host can group the selection by owner without any
+      ; Go-side staging map: selection state lives entirely in the Values.
       gossip(B) {
         (B.{{A.context[0,1]}} == {{A.context[1,1]}}) {
           write B.properties.reference <- A.properties.reference
-          stage(B)
+          set B.properties.status <- SELECTED
+
+          (B.id == A.properties.reference) {
+            set B.properties.status <- READY
+          }
         }
       }
 
-      set A.properties.continuation <- A.properties.reference
       set A.properties.status <- DONE
     }
 
@@ -164,10 +171,11 @@ programs:
       ; Once the affinity union reaches the 47% Shannon limit for the
       ; 257-bit window, emit a fresh recruiter carrying this same program.
       (popcnt(A.affinity) >= 121) {
+        set A.properties.status <- DONE
+
         emit {
           set program <- A.program
-          set A.affinity <- 0
-          set A.context[0,5] <- 0
+          set properties.status <- READY
         }
       }
     }

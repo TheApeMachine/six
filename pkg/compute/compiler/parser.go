@@ -116,6 +116,9 @@ type parser struct {
 	tokens  []token
 	pos     int
 	builder *Builder
+	// emitDepth makes bare destinations inside emit blocks resolve to
+	// the emitted frame rather than the resident A frame.
+	emitDepth int
 	// lastBinop is the parser's scratch slot for the second operand of
 	// a binary truth-table call. parseRHS hands a single sideRegion
 	// back, so the second operand rides this side-channel until
@@ -412,7 +415,7 @@ func (parser *parser) parsePredicateExpr() (predicateSource, error) {
 		return predicateSource{side: region.side, reg: region.reg, rotate: region.rotate}, nil
 	}
 
-	if parser.peek().kind == "ident" && parser.lookahead(1).kind == "(" {
+	if parser.peek().kind == "ident" && parser.lookahead(1).kind == "(" && isCallName(parser.peek().text) {
 		return parser.parsePredicateCall()
 	}
 
@@ -594,7 +597,7 @@ func (parser *parser) parseRHS() (sideRegion, error) {
 		return parser.parseRegion()
 	}
 
-	if tok.kind == "ident" && parser.lookahead(1).kind == "(" {
+	if tok.kind == "ident" && parser.lookahead(1).kind == "(" && isCallName(tok.text) {
 		return parser.parseRHSCall()
 	}
 
@@ -863,6 +866,15 @@ func opcodeOf(name string) (uint64, bool) {
 	return 0, false
 }
 
+func isCallName(name string) bool {
+	if name == "popcnt" || name == "any_zero" || name == "argmin_nonzero" || name == "mode_eq" || name == "zipf_select" {
+		return true
+	}
+
+	_, ok := opcodeOf(name)
+	return ok
+}
+
 func (parser *parser) makeAssignFromRHS(dst, rhs sideRegion) (ASTNode, error) {
 	if parser.lastBinop != nil {
 		op := parser.lastBinop
@@ -882,6 +894,10 @@ that explicit so `write B.tokens <- xor(B.tokens, B.signals[2,1])`
 expresses what it reads.
 */
 func (parser *parser) makeBinAssign(dst sideRegion, opcode uint64, a, b sideRegion) (ASTNode, error) {
+	if a.side == 'C' || b.side == 'C' {
+		return nil, fmt.Errorf("compiler: emitted child sources are not encodable")
+	}
+
 	srcA, srcB := a, b
 
 	if a.side == 'B' && b.side == 'A' {
@@ -909,6 +925,10 @@ func (parser *parser) makeBinAssign(dst sideRegion, opcode uint64, a, b sideRegi
 }
 
 func (parser *parser) makeCopyAssign(dst, src sideRegion) (ASTNode, error) {
+	if src.side == 'C' {
+		return nil, fmt.Errorf("compiler: emitted child sources are not encodable")
+	}
+
 	// `set X <- 0` clears X via OpFalse so multi-word destinations stay
 	// fully zeroed without allocating a span-sized constant block.
 	if src.literalZero {
@@ -941,6 +961,10 @@ func (parser *parser) makeCopyAssign(dst, src sideRegion) (ASTNode, error) {
 func targetOf(side byte) uint64 {
 	if side == 'B' {
 		return 1
+	}
+
+	if side == 'C' {
+		return 2
 	}
 
 	return 0
@@ -1033,7 +1057,9 @@ func (parser *parser) parseEmit() (ASTNode, error) {
 		return nil, err
 	}
 
+	parser.emitDepth++
 	body, err := parser.parseStatements("}")
+	parser.emitDepth--
 	if err != nil {
 		return nil, err
 	}
@@ -1092,7 +1118,11 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 	}
 
 	if tok.text == "program" {
-		return parser.maybeIndex(sideRegion{side: 'A', reg: Program})
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Program})
+	}
+
+	if tok.text == "properties" && parser.emitDepth > 0 {
+		return parser.parsePropertyPath(parser.defaultRegionSide())
 	}
 
 	if tok.text == "A" || tok.text == "B" {
@@ -1108,6 +1138,14 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 	return sideRegion{}, fmt.Errorf("compiler: unknown region root %q", tok.text)
 }
 
+func (parser *parser) defaultRegionSide() byte {
+	if parser.emitDepth > 0 {
+		return 'C'
+	}
+
+	return 'A'
+}
+
 /*
 parseIndirectRegion handles the `{{ inner }}` form. The inner expression
 must resolve to a single-word region; its .Start is the INDIRECTION
@@ -1116,9 +1154,9 @@ the actual operand. Two surface forms compose into this:
 
   - `B.{{A.context[0,1]}}` — B-side operand whose start is read from
     A.context[0] when the firmware is installed on a Value.
-  - `{{A.context[1,1]}}`   — A-side scalar (threshold) whose value is
-    read from A.context[1] at install and copied into the asset slot
-    the kernel uses as the comparison operand.
+  - `{{A.context[1,1]}}`   — scalar threshold whose value is read from
+    A.context[1] at install and copied into the asset slot the kernel
+    uses as the comparison operand.
 
 The compiler does not interpret the inner reference at compile time. It
 records a substitution slot keyed off the inner region's start address;
@@ -1141,6 +1179,16 @@ func (parser *parser) parseIndirectRegion(side byte) (sideRegion, error) {
 
 	if _, err := parser.expect("}}"); err != nil {
 		return sideRegion{}, err
+	}
+
+	if side == 'A' {
+		slot := parser.builder.AllocConstant(0)
+		parser.builder.RecordConstantSubstitution(slot.Start, inner.reg.Start)
+
+		return sideRegion{
+			side: side,
+			reg:  slot,
+		}, nil
 	}
 
 	return sideRegion{
@@ -1244,24 +1292,28 @@ func (parser *parser) parseRegionPath(side byte) (sideRegion, error) {
 	case "next":
 		return sideRegion{side: side, reg: Next}, nil
 	case "properties":
-		if _, err := parser.expect("."); err != nil {
-			return sideRegion{}, err
-		}
-
-		prop, err := parser.expect("ident")
-		if err != nil {
-			return sideRegion{}, err
-		}
-
-		offset, ok := PropertyOffsets[prop.text]
-		if !ok {
-			return sideRegion{}, fmt.Errorf("compiler: unknown property %q", prop.text)
-		}
-
-		return sideRegion{side: side, reg: Region{Start: offset, Span: 1}}, nil
+		return parser.parsePropertyPath(side)
 	}
 
 	return sideRegion{}, fmt.Errorf("compiler: unknown region path %q", tok.text)
+}
+
+func (parser *parser) parsePropertyPath(side byte) (sideRegion, error) {
+	if _, err := parser.expect("."); err != nil {
+		return sideRegion{}, err
+	}
+
+	prop, err := parser.expect("ident")
+	if err != nil {
+		return sideRegion{}, err
+	}
+
+	offset, ok := PropertyOffsets[prop.text]
+	if !ok {
+		return sideRegion{}, fmt.Errorf("compiler: unknown property %q", prop.text)
+	}
+
+	return sideRegion{side: side, reg: Region{Start: offset, Span: 1}}, nil
 }
 
 /*

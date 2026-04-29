@@ -147,9 +147,10 @@ var StatusEnum = map[string]uint64{
 	"READY":    1,
 	"BUSY":     2,
 	"WAITING":  3,
-	"DONE":     4,
-	"RESOLVED": 5,
-	"ERROR":    6,
+	"SELECTED": 4,
+	"DONE":     5,
+	"RESOLVED": 6,
+	"ERROR":    7,
 }
 
 // RoleEnum mirrors ValueRole in primitive.
@@ -190,9 +191,11 @@ program word PC. The kernel never sees the indirection — by the time
 it reads the program region the field is already a concrete operand.
 */
 type Substitution struct {
-	PC         int
-	FieldShift uint
-	Addr       uint64
+	PC             int
+	FieldShift     uint
+	Addr           uint64
+	Constant       bool
+	ConstantOffset uint64
 }
 
 /*
@@ -223,9 +226,8 @@ type Builder struct {
 
 	currentMask     Region
 	currentTopo     uint64
-	currentTarget   uint64 // 0 for A, 1 for B
+	currentTarget   uint64 // 0 for A, 1 for B, 2 for emitted child
 	srcAFromB       uint64 // 1 = read SrcA from popped B (target=B blocks)
-	emitFlag        uint64
 	predicateEnable uint64
 	predCond        uint64
 	bRotate         uint64 // truth-table instructions: rotate SrcB span by N bytes before the op
@@ -263,6 +265,14 @@ func (builder *Builder) RecordSubstitution(fieldShift uint, addr uint64) {
 	})
 }
 
+func (builder *Builder) RecordConstantSubstitution(offset, addr uint64) {
+	builder.substitutions = append(builder.substitutions, Substitution{
+		Addr:           addr,
+		Constant:       true,
+		ConstantOffset: offset,
+	})
+}
+
 // Substitutions returns the install-time patch table as a fresh slice.
 func (builder *Builder) Substitutions() []Substitution {
 	out := make([]Substitution, len(builder.substitutions))
@@ -280,7 +290,7 @@ func NewBuilder() *Builder {
 
 /*
 Pack writes one 64-bit instruction with the bit layout the kernel
-decodes. The full set of fields — predicate, srcAFromB, emit, topology,
+decodes. The full set of fields — predicate, srcAFromB, target, topology,
 target — is composed from the Builder's transient state so callers
 don't need to thread every option through Pack.
 */
@@ -299,8 +309,7 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 	instr |= (dst.Start & 0x7F) << 32
 	instr |= ((dst.Span - 1) & 0x7F) << 39
 	instr |= (builder.currentMask.Start & 0x7F) << 46
-	instr |= (builder.currentTarget & 1) << 53
-	instr |= (builder.emitFlag & 1) << 54
+	instr |= (builder.currentTarget & 3) << 53
 	instr |= (builder.currentTopo & 3) << 55
 	instr |= (builder.predicateEnable & 1) << 57
 	rotationOrPredicateBits := (builder.bRotate & 7) << 58

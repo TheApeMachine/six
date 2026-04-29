@@ -53,7 +53,7 @@ program xor_signals_tokens {
 		backend := NewBackend(0)
 		defer backend.Close()
 
-		spawned, _, err := backend.HypercubeGossip(actual, []*primitive.Value{actual})
+		spawned, err := backend.HypercubeGossip(actual, []*primitive.Value{actual})
 		defer primitive.CloseAll(spawned)
 
 		So(err, ShouldBeNil)
@@ -61,7 +61,7 @@ program xor_signals_tokens {
 
 		cpuBackend := cpu.NewBackend(context.Background())
 		defer cpuBackend.Close()
-		_, _, err = cpuBackend.HypercubeGossip(reference, []*primitive.Value{reference})
+		_, err = cpuBackend.HypercubeGossip(reference, []*primitive.Value{reference})
 		So(err, ShouldBeNil)
 		So(actual.Get(primitive.SignalsRegion)[0], ShouldEqual, reference.Get(primitive.SignalsRegion)[0])
 	})
@@ -105,13 +105,13 @@ program align {
 			backend := NewBackend(0)
 			defer backend.Close()
 
-			spawned, _, err := backend.HypercubeGossip(metalOwner, []*primitive.Value{metalPeer})
+			spawned, err := backend.HypercubeGossip(metalOwner, []*primitive.Value{metalPeer})
 			defer primitive.CloseAll(spawned)
 			So(err, ShouldBeNil)
 
 			cpuBackend := cpu.NewBackend(context.Background())
 			defer cpuBackend.Close()
-			_, _, err = cpuBackend.HypercubeGossip(cpuOwner, []*primitive.Value{cpuPeer})
+			_, err = cpuBackend.HypercubeGossip(cpuOwner, []*primitive.Value{cpuPeer})
 			So(err, ShouldBeNil)
 
 			So(metalOwner.Get(primitive.SignalsRegion)[0], ShouldEqual, cpuOwner.Get(primitive.SignalsRegion)[0])
@@ -176,13 +176,13 @@ program zipf {
 
 			backend := NewBackend(0)
 			defer backend.Close()
-			spawned, _, err := backend.HypercubeGossip(metalOwner, metalPeers)
+			spawned, err := backend.HypercubeGossip(metalOwner, metalPeers)
 			defer primitive.CloseAll(spawned)
 			So(err, ShouldBeNil)
 
 			cpuBackend := cpu.NewBackend(context.Background())
 			defer cpuBackend.Close()
-			_, _, err = cpuBackend.HypercubeGossip(cpuOwner, cpuPeers)
+			_, err = cpuBackend.HypercubeGossip(cpuOwner, cpuPeers)
 			So(err, ShouldBeNil)
 
 			So(
@@ -245,7 +245,7 @@ program zipf {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, _, err := backend.HypercubeGossip(owner, peers)
+		_, err := backend.HypercubeGossip(owner, peers)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -288,7 +288,7 @@ program xor_signals_tokens {
 	defer backend.Close()
 
 	for b.Loop() {
-		_, _, err := backend.HypercubeGossip(values[0], values)
+		_, err := backend.HypercubeGossip(values[0], values)
 		if err != nil {
 			b.Fatal(err)
 		}
