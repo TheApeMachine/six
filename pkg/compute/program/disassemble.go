@@ -8,6 +8,7 @@ import (
 /*
 Disassembler attaches the layout snapshot used when authoring ProgramIR dumps.
 The layout informs future labeling work while Sweep16 rendering stays pure.
+TODO: Thread layout into textual dumps when named spans are rendered alongside slots.
 */
 type Disassembler struct {
 	layout Layout
@@ -34,9 +35,7 @@ func Disassemble(words []uint64) string {
 Disassemble emits the Sweep16 dump while retaining the snapped layout captured at
 construction for diagnostics parity with EncoderIR.
 */
-func (d Disassembler) Disassemble(words []uint64) string {
-	_ = d.layout
-
+func (dis Disassembler) Disassemble(words []uint64) string {
 	return FormatProgramSweep16(words)
 }
 

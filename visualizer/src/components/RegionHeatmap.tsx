@@ -66,9 +66,11 @@ function normalizeWords(words: bigint[], expectedLength: number): bigint[] {
 		return words;
 	}
 
-	console.warn(
-		`RegionHeatmap: expected ${expectedLength} words, got ${words.length}; padding or truncating`,
-	);
+	if (import.meta.env.DEV) {
+		console.warn(
+			`RegionHeatmap: expected ${expectedLength} words, got ${words.length}; padding or truncating`,
+		);
+	}
 
 	if (words.length < expectedLength) {
 		const pad = Array.from({ length: expectedLength - words.length }, () => 0n);

@@ -851,19 +851,22 @@ func BenchmarkExecuteKernelBRotate(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
-		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
-			var o [128]uint64
-			var p [128]uint64
+		var ownerBuf [128]uint64
+		var peerBuf [128]uint64
 
-			o[72] = ^uint64(0)
-			p[0] = 0x0807060504030201
-			p[1] = 0x100f0e0d0c0b0a09
-			o[ProgramStartWord] = instr
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			clear(ownerBuf[:])
+			clear(peerBuf[:])
+
+			ownerBuf[72] = ^uint64(0)
+			peerBuf[0] = 0x0807060504030201
+			peerBuf[1] = 0x100f0e0d0c0b0a09
+			ownerBuf[ProgramStartWord] = instr
 
 			var stageBuf [128]uint64
 			var stageCount uint64
 
-			executeKernel(backend, &o, ^uint64(0), []*[128]uint64{&p}, 1, dimCount, &stageBuf, &stageCount)
+			executeKernel(backend, &ownerBuf, ^uint64(0), []*[128]uint64{&peerBuf}, 1, dimCount, &stageBuf, &stageCount)
 		}
 	})
 }
@@ -878,7 +881,7 @@ func BenchmarkExecuteKernelSrcAFromB(b *testing.B) {
 	)
 
 	instr := packTestInstruction(opcodeCopyA, peerSrcA, 1, 0, 1, ownerDstA, 1, maskWord, topoPop, 0)
-	instr |= 1 << 61
+	instr |= 1 << SrcAFromBShift
 
 	backend := &Backend{}
 	dimCount := uint64(0)

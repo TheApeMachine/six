@@ -81,6 +81,18 @@ const (
 	TopoHypercubePerPeer = 3
 )
 
+/*
+evaluatePredicateCompare decides whether an ALU witness satisfies the packed
+instruction threshold word for the active predicate. predCond names the
+comparison operator taken from the three condition bits at predicate time;
+witness is the measured lane value and threshold is the decoded comparand
+word. Returns true when the relation holds and false when it does not (or
+when predCond does not name a recognised comparison).
+
+PredLT, PredLE, PredGT, PredGE impose the usual unsigned integer ordering;
+PredEQ and PredNE test bitwise equality. Any other predCond value yields
+false so predicate bodies stay defensive against corrupt encodings.
+*/
 func evaluatePredicateCompare(predCond uint64, witness, threshold uint64) bool {
 	switch predCond {
 	case PredLT:
@@ -577,12 +589,25 @@ func reduceModeEq(
 	ownerFrame[dstStart&127] = bestValue
 }
 
+/*
+zipfCandidateRank is one non-zero Zipf candidate after community filtering.
+index is the peer offset in the gossip community slice, utility is the
+word used for lexicographic ranking, and value is the candidate payload
+(program id or other non-zero lane value) chosen when this entry wins.
+*/
 type zipfCandidateRank struct {
 	index   uint64
 	utility uint64
 	value   uint64
 }
 
+/*
+sortedZipfCandidates gathers Zipf-select inputs from community[0:communitySize].
+Nil peers are ignored; zero valueStart lane words are ignored because they
+do not consume rank mass. Remaining peers are sorted by utility descending
+with stable ascending index order on ties so hardware and Go agree on the
+ranking ladder.
+*/
 func sortedZipfCandidates(
 	community []*[128]uint64,
 	communitySize uint64,

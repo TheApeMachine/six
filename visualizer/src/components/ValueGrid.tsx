@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { selectFieldValueById } from "@/lib/field-store";
 import { PROPERTY_WORD } from "@/lib/propertiesGenerated";
-import { STATUS_BG_BY_CODE, statusName } from "@/lib/status";
+import { statusCellBackground, statusName } from "@/lib/status";
 import type { StoredValue } from "@/lib/value-frame";
 
 const STATUS_WORD = PROPERTY_WORD("STATUS");
@@ -87,7 +87,7 @@ export function ValueGrid({ values, selectedId }: ValueGridProps) {
 function ValueCell(props: { stored: StoredValue; selected: boolean }) {
 	const { stored, selected } = props;
 	const statusCode = Number(stored.decoded?.words[STATUS_WORD] ?? 0n);
-	const bg = STATUS_BG_BY_CODE[statusCode] ?? "bg-slate-700";
+	const bg = statusCellBackground(statusCode);
 	const firmware =
 		stored.classification.program || stored.classification.category;
 
@@ -118,7 +118,7 @@ function valueCellPropsEqual(
 	prev: { stored: StoredValue; selected: boolean },
 	next: { stored: StoredValue; selected: boolean },
 ): boolean {
-	return prev.selected === next.selected && prev.stored.id === next.stored.id;
+	return prev.selected === next.selected && prev.stored === next.stored;
 }
 
 const ValueCellMemo = memo(ValueCell, valueCellPropsEqual);

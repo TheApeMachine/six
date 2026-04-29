@@ -238,8 +238,8 @@ func TestNewMachine(t *testing.T) {
 }
 
 func TestPromptClassifyReadout(t *testing.T) {
-	// TODO(#FIXME): Tracking issue placeholder — replace with GitHub issue; re-enable when firmware query selection stages prompts against labelled communities.
-	t.Skip("pending firmware-side query selection: Prompt does not yet stage the prompt against a chosen community")
+	// TODO: Track firmware query selection / community staging — see https://github.com/theapemachine/six/issues (search: query selection, Prompt).
+	t.Skip("pending firmware-side query selection — track https://github.com/theapemachine/six/issues (open or find issue: Prompt community staging)")
 	loadConfigForTests(t)
 
 	Convey("Given a machine with labelled categorical communities", t, func() {
@@ -300,8 +300,8 @@ func TestPromptClassifyReadout(t *testing.T) {
 }
 
 func TestPrompt(t *testing.T) {
-	// TODO(#FIXME): Tracking issue placeholder — replace with GitHub issue; re-enable when firmware query selection stages sequential prompts cleanly.
-	t.Skip("pending firmware-side query selection: Prompt does not yet stage the prompt against a chosen community")
+	// TODO: Same as TestPromptClassifyReadout — firmware query selection; https://github.com/theapemachine/six/issues
+	t.Skip("pending firmware-side query selection — track https://github.com/theapemachine/six/issues (Prompt / sequential staging)")
 	loadConfigForTests(t)
 
 	Convey("Given a machine that already produced a prompt readout", t, func() {
@@ -366,8 +366,8 @@ func TestPrompt(t *testing.T) {
 }
 
 func BenchmarkPrompt(b *testing.B) {
-	// TODO(#FIXME): Same tracking issue as TestPrompt — re-enable when Prompt path is exercised in benchmarks.
-	b.Skip("pending firmware-side query selection: Prompt does not yet stage the prompt against a chosen community")
+	// TODO: Re-enable when TestPrompt passes — https://github.com/theapemachine/six/issues (query selection)
+	b.Skip("pending firmware-side query selection — see https://github.com/theapemachine/six/issues")
 	loadConfigForTests(b)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -413,8 +413,8 @@ func BenchmarkPrompt(b *testing.B) {
 }
 
 func TestLoad(t *testing.T) {
-	// TODO(#FIXME): Tracking issue placeholder — re-enable when multi-recruiter / residual orphan recruitment is modeled in bootstrap firmware.
-	t.Skip("pending firmware-side residual recruitment: a single bootstrap recruiter saturates and leaves the rest orphaned")
+	// TODO: Bootstrap firmware — multi-recruiter / residual orphan recruitment; https://github.com/theapemachine/six/issues
+	t.Skip("pending firmware-side residual recruitment / multi-recruiter modeling — track https://github.com/theapemachine/six/issues")
 	loadConfigForTests(t)
 
 	Convey("Given a machine and the default Alice corpus", t, func() {

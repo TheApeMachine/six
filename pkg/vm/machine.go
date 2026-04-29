@@ -23,14 +23,15 @@ processing pipeline. It should not try and control the process
 it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	err       error
-	host      *network.Host
-	tokenizer *Tokenizer
-	backend   *compute.Backend
-	telemetry *telemetry.Bridge
-	community sync.Map
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	host         *network.Host
+	tokenizer    *Tokenizer
+	backend      *compute.Backend
+	telemetry    *telemetry.Bridge
+	community    sync.Map
+	PollInterval time.Duration
 }
 
 type machineOpts func(*Machine)
@@ -165,6 +166,8 @@ func (machine *Machine) Cycle() error {
 
 	machine.wakeWaiting()
 
+	var cycleErr error
+
 	machine.community.Range(func(key, value any) bool {
 		candidate, ok := value.(*primitive.Value)
 		if !ok || candidate == nil {
@@ -172,7 +175,10 @@ func (machine *Machine) Cycle() error {
 		}
 
 		if candidate.Status() == primitive.READY {
-			io.Copy(machine.telemetry, candidate)
+			if _, err := io.Copy(machine.telemetry, candidate); err != nil && cycleErr == nil {
+				cycleErr = err
+			}
+
 			machine.backend.Submit(candidate)
 		}
 
@@ -181,10 +187,13 @@ func (machine *Machine) Cycle() error {
 
 	for value := range machine.backend.Sync(machine.ctx) {
 		machine.community.Store(value.ID(), value)
-		io.Copy(machine.telemetry, value)
+
+		if _, err := io.Copy(machine.telemetry, value); err != nil && cycleErr == nil {
+			cycleErr = err
+		}
 	}
 
-	return machine.err
+	return cycleErr
 }
 
 /*
@@ -311,6 +320,14 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 
 	pass := make([]*primitive.Value, 0)
 
+	nonNilCount := 0
+
+	for _, value := range values {
+		if value != nil {
+			nonNilCount++
+		}
+	}
+
 	for {
 		select {
 		case <-machine.ctx.Done():
@@ -332,11 +349,16 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 
 		resolved = pass
 
-		if len(pass) == len(values) {
+		if len(pass) == nonNilCount {
 			break
 		}
 
-		time.Sleep(time.Millisecond)
+		poll := machine.PollInterval
+		if poll <= 0 {
+			poll = time.Millisecond
+		}
+
+		time.Sleep(poll)
 	}
 
 	return resolved, nil

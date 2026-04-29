@@ -24,7 +24,7 @@ export function Dashboard() {
 				selectedId={selectedId}
 			/>
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-				<div className="flex-1 overflow-auto lg:border-r border-white/10 p-3">
+				<div className="flex-1 overflow-auto border-white/10 p-3">
 					<ValueGrid values={values} selectedId={selectedId} />
 				</div>
 				<div

@@ -13,6 +13,7 @@ const DefaultMaskTrueWord uint64 = 72
 Compiler lowers canonical ProgramIR values against a layout snapshot.
 It exists alongside Compile so in-value program authors do not need to emit
 feed text just to get resident machine words.
+TODO: Route layout through LowerIR when IR resolution needs live region metadata.
 */
 type Compiler struct {
 	layout Layout
@@ -30,8 +31,6 @@ func (compiler *Compiler) EncodeIR(ir ProgramIR) (Compiled, error) {
 	if compiler == nil {
 		return Compiled{}, fmt.Errorf("program: compiler is nil")
 	}
-
-	_ = compiler.layout
 
 	ops, err := compiler.LowerIR(ir)
 	if err != nil {

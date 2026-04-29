@@ -18,20 +18,28 @@ const STATUSES = [
 
 export type StatusName = (typeof STATUSES)[number]["name"];
 
-export const STATUS_NAME_BY_CODE: Record<number, StatusName> =
-	Object.fromEntries(STATUSES.map((row) => [row.code, row.name])) as Record<
-		number,
-		StatusName
-	>;
+export type StatusCode = (typeof STATUSES)[number]["code"];
 
-export const STATUS_BG_BY_CODE: Record<number, string> = Object.fromEntries(
+export const STATUS_NAME_BY_CODE = Object.fromEntries(
+	STATUSES.map((row) => [row.code, row.name]),
+) as Record<StatusCode, StatusName>;
+
+export const STATUS_BG_BY_CODE = Object.fromEntries(
 	STATUSES.map((row) => [row.code, row.bg]),
-);
+) as Record<StatusCode, string>;
 
-export const STATUS_TEXT_BY_CODE: Record<number, string> = Object.fromEntries(
+export const STATUS_TEXT_BY_CODE = Object.fromEntries(
 	STATUSES.map((row) => [row.code, row.text]),
-);
+) as Record<StatusCode, string>;
 
 export function statusName(code: number): string {
-	return STATUS_NAME_BY_CODE[code] ?? `S${code}`;
+	return STATUS_NAME_BY_CODE[code as StatusCode] ?? `S${code}`;
+}
+
+export function statusCellBackground(code: number): string {
+	return STATUS_BG_BY_CODE[code as StatusCode] ?? "bg-slate-700";
+}
+
+export function statusCellText(code: number): string {
+	return STATUS_TEXT_BY_CODE[code as StatusCode] ?? "text-white/60";
 }

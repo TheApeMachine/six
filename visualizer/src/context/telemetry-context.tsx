@@ -19,9 +19,15 @@ export function TelemetryConnection({ children }: { children: ReactNode }) {
 	const retryTimerRef = useRef<number | null>(null);
 	const flushFrameRef = useRef<number | null>(null);
 	const pendingFramesRef = useRef<Map<string, RawValueFrame>>(new Map());
+	const retryDelayRef = useRef(1000);
+	const connectionFailedRef = useRef(false);
 
 	useEffect(() => {
 		let destroyed = false;
+
+		function jitteredDelay(ms: number) {
+			return Math.floor(ms * (0.85 + Math.random() * 0.15));
+		}
 
 		function flushFrames() {
 			flushFrameRef.current = null;
@@ -53,6 +59,8 @@ export function TelemetryConnection({ children }: { children: ReactNode }) {
 			socketRef.current = socket;
 
 			socket.onopen = () => {
+				retryDelayRef.current = 1000;
+				connectionFailedRef.current = false;
 				setFieldConnectionError(null);
 			};
 
@@ -66,11 +74,11 @@ export function TelemetryConnection({ children }: { children: ReactNode }) {
 				scheduleFlush();
 			};
 
-			socket.onerror = (event: Event) => {
-				console.error("telemetry websocket error", event.type, event, {
+			socket.onerror = () => {
+				connectionFailedRef.current = true;
+				console.error("telemetry websocket error", {
 					targetUrl: socket.url ?? telemetryWebSocketURL(),
 				});
-				setFieldConnectionError("telemetry bridge unavailable");
 			};
 
 			socket.onclose = () => {
@@ -78,8 +86,17 @@ export function TelemetryConnection({ children }: { children: ReactNode }) {
 					return;
 				}
 
-				setFieldConnectionError("telemetry bridge disconnected");
-				retryTimerRef.current = window.setTimeout(connect, 1000);
+				if (connectionFailedRef.current) {
+					setFieldConnectionError("telemetry bridge unavailable");
+				} else {
+					setFieldConnectionError("telemetry bridge disconnected");
+				}
+
+				const wait = jitteredDelay(retryDelayRef.current);
+				retryDelayRef.current = Math.min(retryDelayRef.current * 2, 30000);
+				connectionFailedRef.current = false;
+
+				retryTimerRef.current = window.setTimeout(connect, wait);
 			};
 		}
 
@@ -104,5 +121,5 @@ export function TelemetryConnection({ children }: { children: ReactNode }) {
 		};
 	}, []);
 
-	return <>{children}</>;
+	return children;
 }

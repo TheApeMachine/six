@@ -6,7 +6,7 @@ import {
 	PROPERTY_WORD,
 	type PropertyName,
 } from "@/lib/propertiesGenerated";
-import { STATUS_TEXT_BY_CODE, statusName } from "@/lib/status";
+import { statusCellText, statusName } from "@/lib/status";
 import type { StoredValue } from "@/lib/value-frame";
 import { decodeProgramWire } from "@/lib/valueRegions";
 import { ChainStrip } from "./ChainStrip";
@@ -62,9 +62,9 @@ export function ValueDetail({ stored, values }: ValueDetailProps) {
 				<div className="flex items-baseline justify-between gap-2">
 					<span className="truncate text-white">{stored.id}</span>
 					<span
-						className={`text-[10px] uppercase tracking-widest ${
-							STATUS_TEXT_BY_CODE[statusCode] ?? "text-white/60"
-						}`}
+						className={`text-[10px] uppercase tracking-widest ${statusCellText(
+							statusCode,
+						)}`}
 					>
 						{statusName(statusCode)}
 					</span>

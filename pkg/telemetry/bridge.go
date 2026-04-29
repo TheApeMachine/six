@@ -264,28 +264,38 @@ func (bridge *Bridge) ForceDisconnect() {
 	bridge.connMu.Unlock()
 }
 
-func (bridge *Bridge) runMarkerPayload(p []byte) bool {
-	if len(p) < primitive.FrameByteLength || len(p)%primitive.FrameByteLength != 0 {
+func (bridge *Bridge) processRunMarkerOrCommit(payload []byte, fingerprints []bridgeFrameFingerprint) {
+	if bridge.runMarkerPayload(payload) {
+		bridge.sent.Reset()
+
+		return
+	}
+
+	bridge.commitFingerprintsLocked(fingerprints)
+}
+
+func (bridge *Bridge) runMarkerPayload(payload []byte) bool {
+	if len(payload) < primitive.FrameByteLength || len(payload)%primitive.FrameByteLength != 0 {
 		return false
 	}
 
-	return binary.LittleEndian.Uint64(p[0:8]) == bridgeRunMarkerMagic
+	return binary.LittleEndian.Uint64(payload[0:8]) == bridgeRunMarkerMagic
 }
 
 /*
 Read is a no-op for the bridge.
 */
-func (bridge *Bridge) Read(p []byte) (int, error) {
+func (bridge *Bridge) Read(payload []byte) (int, error) {
 	return 0, io.EOF
 }
 
-func (bridge *Bridge) Write(p []byte) (int, error) {
-	n, _, err := bridge.write(p)
+func (bridge *Bridge) Write(payload []byte) (int, error) {
+	n, _, err := bridge.write(payload)
 
 	return n, err
 }
 
-func (bridge *Bridge) write(p []byte) (int, bool, error) {
+func (bridge *Bridge) write(payload []byte) (int, bool, error) {
 	if bridge == nil {
 		return 0, false, errnie.Error(io.ErrClosedPipe, errors.New("bridge is nil"))
 	}
@@ -293,9 +303,9 @@ func (bridge *Bridge) write(p []byte) (int, bool, error) {
 	bridge.connMu.Lock()
 	defer bridge.connMu.Unlock()
 
-	buf, fingerprints := bridge.changedPayloadLocked(p)
+	buf, fingerprints := bridge.changedPayloadLocked(payload)
 	if len(fingerprints) == 0 {
-		return len(p), false, nil
+		return len(payload), false, nil
 	}
 
 	if bridge.ctx.Err() != nil {
@@ -303,27 +313,23 @@ func (bridge *Bridge) write(p []byte) (int, bool, error) {
 	}
 
 	if bridge.url == "" {
-		if bridge.runMarkerPayload(p) {
-			bridge.sent.Reset()
-		} else {
-			bridge.commitFingerprintsLocked(fingerprints)
-		}
+		bridge.processRunMarkerOrCommit(payload, fingerprints)
 
-		return len(p), true, nil
+		return len(payload), true, nil
 	}
 
 	now := time.Now()
 
 	if bridge.conn == nil {
 		if !bridge.cool.IsZero() && now.Before(bridge.cool) {
-			return len(p), false, nil
+			return len(payload), false, nil
 		}
 
 		if err := bridge.connectLocked(); err != nil {
 			bridge.scheduleBackoffAfterFailure(now)
 			errnie.Trace("telemetry.Bridge.Write: dial", err.Error())
 
-			return len(p), false, nil
+			return len(payload), false, nil
 		}
 	}
 
@@ -334,7 +340,7 @@ func (bridge *Bridge) write(p []byte) (int, bool, error) {
 		bridge.conn = nil
 		bridge.scheduleBackoffAfterFailure(now)
 
-		return len(p), false, nil
+		return len(payload), false, nil
 	}
 
 	if err := bridge.conn.WriteMessage(websocket.BinaryMessage, buf); err != nil {
@@ -342,49 +348,49 @@ func (bridge *Bridge) write(p []byte) (int, bool, error) {
 		bridge.conn = nil
 		bridge.scheduleBackoffAfterFailure(now)
 
-		return len(p), false, nil
+		return len(payload), false, nil
 	}
 
-	if bridge.runMarkerPayload(p) {
-		bridge.sent.Reset()
-	} else {
-		bridge.commitFingerprintsLocked(fingerprints)
-	}
+	bridge.processRunMarkerOrCommit(payload, fingerprints)
 
-	return len(p), true, nil
+	return len(payload), true, nil
 }
 
-func (bridge *Bridge) changedPayloadLocked(p []byte) ([]byte, []bridgeFrameFingerprint) {
-	if len(p) == 0 {
+func (bridge *Bridge) changedPayloadLocked(payload []byte) ([]byte, []bridgeFrameFingerprint) {
+	if len(payload) == 0 {
 		return nil, nil
 	}
 
-	if len(p) >= primitive.FrameByteLength && len(p)%primitive.FrameByteLength == 0 {
-		return bridge.changedFramesLocked(p)
+	if len(payload) >= primitive.FrameByteLength && len(payload)%primitive.FrameByteLength == 0 {
+		return bridge.changedFramesLocked(payload)
 	}
 
-	fingerprint := bridge.fingerprint(p)
+	fingerprint := bridge.fingerprint(payload)
 	if hash, ok := bridge.sent.Get(fingerprint.key); ok && hash == fingerprint.hash {
 		return nil, nil
 	}
 
-	buf := make([]byte, len(p))
-	copy(buf, p)
+	buf := make([]byte, len(payload))
+	copy(buf, payload)
 
 	return buf, []bridgeFrameFingerprint{fingerprint}
 }
 
-func (bridge *Bridge) changedFramesLocked(p []byte) ([]byte, []bridgeFrameFingerprint) {
-	frameCount := len(p) / primitive.FrameByteLength
+func (bridge *Bridge) changedFramesLocked(payload []byte) ([]byte, []bridgeFrameFingerprint) {
+	if len(payload) == 0 {
+		return nil, nil
+	}
+
+	frameCount := len(payload) / primitive.FrameByteLength
 	fingerprints := make([]bridgeFrameFingerprint, 0, frameCount)
-	buf := make([]byte, 0, len(p))
+	buf := make([]byte, 0, len(payload))
 	var seen map[uint64]uint64
 	if frameCount > 1 {
 		seen = make(map[uint64]uint64, frameCount)
 	}
 
-	for start := 0; start < len(p); start += primitive.FrameByteLength {
-		frame := p[start : start+primitive.FrameByteLength]
+	for start := 0; start < len(payload); start += primitive.FrameByteLength {
+		frame := payload[start : start+primitive.FrameByteLength]
 		fingerprint := bridge.fingerprint(frame)
 		if hash, ok := bridge.sent.Get(fingerprint.key); ok && hash == fingerprint.hash {
 			continue
@@ -405,13 +411,13 @@ func (bridge *Bridge) changedFramesLocked(p []byte) ([]byte, []bridgeFrameFinger
 	return buf, fingerprints
 }
 
-func (bridge *Bridge) fingerprint(p []byte) bridgeFrameFingerprint {
-	hash := bridgeFrameHash(p)
+func (bridge *Bridge) fingerprint(payload []byte) bridgeFrameFingerprint {
+	hash := bridgeFrameHash(payload)
 	key := hash
 
 	idOffset := primitive.IDStartWord * 8
-	if len(p) >= idOffset+8 {
-		if id := binary.LittleEndian.Uint64(p[idOffset:]); id != 0 {
+	if len(payload) >= idOffset+8 {
+		if id := binary.LittleEndian.Uint64(payload[idOffset:]); id != 0 {
 			key = id
 		}
 	}
@@ -428,14 +434,14 @@ func (bridge *Bridge) commitFingerprintsLocked(fingerprints []bridgeFrameFingerp
 	}
 }
 
-func bridgeFrameHash(p []byte) uint64 {
+func bridgeFrameHash(payload []byte) uint64 {
 	hash := uint64(bridgeHashOffset64)
-	for _, b := range p {
+	for _, b := range payload {
 		hash ^= uint64(b)
 		hash *= bridgeHashPrime64
 	}
 
-	hash ^= uint64(len(p))
+	hash ^= uint64(len(payload))
 	hash *= bridgeHashPrime64
 
 	return hash

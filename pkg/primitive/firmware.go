@@ -2,7 +2,6 @@ package primitive
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/theapemachine/six/pkg/core"
 )
@@ -54,14 +53,14 @@ func (value *Value) InstallProgram(words []uint64) bool {
 	return true
 }
 
-func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
+func (value *Value) InstallFirmware(firmware core.FirmwareType) (bool, error) {
 	if value == nil || core.Cfg == nil {
-		return false
+		return false, fmt.Errorf("primitive.InstallFirmware: value or config is nil")
 	}
 
 	entry, ok := core.Cfg.Programs[firmware]
 	if !ok || len(entry.Compiled()) == 0 {
-		return false
+		return false, fmt.Errorf("primitive.InstallFirmware: firmware %q missing or empty", firmware)
 	}
 
 	// Stage MaskTrue (^0) and every reserved literal before installing
@@ -90,20 +89,29 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
 
 	for _, substitution := range entry.Substitutions {
 		if substitution.PC < 0 || substitution.PC >= len(words) {
-			continue
+			return false, fmt.Errorf(
+				"primitive.InstallFirmware: substitution PC=%d out of range for %d program words",
+				substitution.PC,
+				len(words),
+			)
 		}
 
 		if uint64(substitution.FieldShift) > maxSubstitutionFieldShift {
-			fmt.Fprintf(os.Stderr,
-				"primitive.InstallFirmware: PC=%d FieldShift=%d exceeds highest safe 7-bit span (needs shift<=57)\n",
-				substitution.PC, substitution.FieldShift)
-
-			return false
+			return false, fmt.Errorf(
+				"primitive.InstallFirmware: PC=%d FieldShift=%d exceeds highest safe 7-bit span (needs shift<=57)",
+				substitution.PC,
+				substitution.FieldShift,
+			)
 		}
 
 		addr := int(substitution.Addr)
 		if addr < 0 || addr >= len(*value) {
-			continue
+			return false, fmt.Errorf(
+				"primitive.InstallFirmware: substitution Addr=%d out of frame (len=%d) at PC=%d",
+				addr,
+				len(*value),
+				substitution.PC,
+			)
 		}
 
 		operand := (*value)[addr] & 0x7F
@@ -115,5 +123,9 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
 		words[substitution.PC] |= operand << shift
 	}
 
-	return value.InstallProgram(words)
+	if !value.InstallProgram(words) {
+		return false, fmt.Errorf("primitive.InstallFirmware: InstallProgram failed for %q", firmware)
+	}
+
+	return true, nil
 }

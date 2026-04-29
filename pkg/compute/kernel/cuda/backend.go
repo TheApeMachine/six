@@ -52,6 +52,7 @@ import "C"
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"unsafe"
 
@@ -121,6 +122,14 @@ func Available() int {
 }
 
 const cudaCommunityBreakEven = 16
+
+func cudaTakeSpawnChild(childPool []*primitive.Value, spawnIdx uint64) *primitive.Value {
+	if spawnIdx < uint64(len(childPool)) {
+		return childPool[spawnIdx]
+	}
+
+	return primitive.AllocValue()
+}
 
 func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*primitive.Value) ([]*primitive.Value, []kernel.StageRequest, error) {
 	n := len(community)
@@ -217,17 +226,15 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 			}
 		}
 
+		var spawnShortfall bool
+
 		for spawnIdx := uint64(0); spawnIdx < spawnRemaining; spawnIdx++ {
-			var child *primitive.Value
+			child := cudaTakeSpawnChild(childPool, spawnIdx)
 
-			if spawnIdx < uint64(len(childPool)) {
-				child = childPool[spawnIdx]
-			} else {
-				child = primitive.AllocValue()
+			if child == nil {
+				spawnShortfall = true
 
-				if child == nil {
-					continue
-				}
+				break
 			}
 
 			childFrame := (*[primitive.WordCount]uint64)(unsafe.Pointer(child))
@@ -247,9 +254,28 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 			spawned = append(spawned, child)
 		}
 
-		for poolIdx := spawnRemaining; poolIdx < uint64(len(childPool)); poolIdx++ {
+		for poolIdx := uint64(len(spawned)); poolIdx < uint64(len(childPool)); poolIdx++ {
 			childPool[poolIdx].Close()
 		}
+
+		if spawnShortfall || uint64(len(spawned)) < spawnRemaining {
+			log.Printf(
+				"cuda.HypercubeGossip: spawn incomplete (spawnRemaining=%d spawned=%d childPool=%d spawnShortfall=%v)",
+				spawnRemaining,
+				len(spawned),
+				len(childPool),
+				spawnShortfall,
+			)
+
+			primitive.CloseAll(spawned)
+
+			return nil, staged, fmt.Errorf(
+				"cuda: spawn incomplete (want %d children, got %d)",
+				spawnRemaining,
+				len(spawned),
+			)
+		}
+
 		return spawned, staged, nil
 	}
 

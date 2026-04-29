@@ -35,5 +35,10 @@ to improve per-class disambiguation.
     Sample Size       & $N = 100$ \\
     \bottomrule
   \end{tabular}
-  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix (\texttt{experiment/evaluator.go}). Overall Accuracy is diagonal hits divided by $N$ (every test prompt counts; unresolved prompts score as misses). Exact Score is $\mathrm{diag}(C)$ divided by the summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact matches among prompts whose prediction landed in valid class indices only; values match Overall Accuracy here because every counted row formed a full matrix entry. Balanced Accuracy is the unweighted mean of per-class recalls (row-normalised diagonal).}
+  {\footnotesize
+  \textbf{Macro-F1} (from \texttt{experiment/evaluator.go}): unweighted mean of per-class F1 scores derived from the confusion matrix $C$.\par
+  \textbf{Overall Accuracy}: $\bigl(\sum_i C_{i,i}\bigr)/N$; every test prompt is counted, and unresolved prompts are misses.\par
+  \textbf{Exact Score}: $\bigl(\sum_i C_{i,i}\bigr)/\bigl(\sum_{i,j} C_{i,j}\bigr)$ (diagonal over total confusion-matrix mass).
+  It matches Overall Accuracy here because every test sample received a prediction in a valid class index, so $\sum_{i,j} C_{i,j}=N$ and the denominators coincide.\par
+  \textbf{Balanced Accuracy}: unweighted mean of per-class recalls using row-normalised diagonal entries of $C$.}
 \end{table}

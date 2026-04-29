@@ -126,11 +126,14 @@ func WithProgram(words []uint64) EmitOptions {
 // WithFirmware lowers named config firmware into the program region (same bits Dispatch executes).
 func WithFirmware(firmware core.FirmwareType) EmitOptions {
 	return func(value *Value) {
-		if value.InstallFirmware(firmware) {
-			return
+		ok, err := value.InstallFirmware(firmware)
+		if err != nil {
+			panic(err)
 		}
 
-		panic(fmt.Errorf("primitive: firmware %q is missing or empty", firmware))
+		if !ok {
+			panic(fmt.Errorf("primitive: firmware %q did not install", firmware))
+		}
 	}
 }
 

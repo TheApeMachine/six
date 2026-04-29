@@ -164,7 +164,9 @@ func TestPipeline(t *testing.T) {
 							}
 
 							for _, value := range values {
-								value.InstallFirmware(firmware)
+								ok, err := value.InstallFirmware(firmware)
+								So(err, ShouldBeNil)
+								So(ok, ShouldBeTrue)
 							}
 
 							resolved, err := machine.Prompt(values...)

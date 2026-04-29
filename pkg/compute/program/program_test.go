@@ -200,7 +200,7 @@ func BenchmarkFormatProgramSweep16(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for benchmarkIdx := 0; benchmarkIdx < b.N; benchmarkIdx++ {
+	for b.Loop() {
 		FormatProgramSweep16(compiled.Words)
 	}
 }

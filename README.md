@@ -82,11 +82,11 @@ This is the actual end-to-end path the code implements today:
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. One-shot firmware clears `properties.continuation` and stamps `DONE` itself, so lifecycle retirement is a Value-side effect rather than a host finalizer.
 8. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
 9. **Telemetry bridge:**
-   - After each backend tick **`vm.Machine.Cycle`** emits raw **Value** frames (`[128]uint64` words) into **`pkg/telemetry.Bridge`**.
-   - **`pkg/telemetry.Bridge`** fingerprints by **Value ID** (per-value last-sent snapshot) so only changed bytes are forwarded on websocket sends.
-   - The local **websocket** bridge rejects unbounded backlog per peer rather than accumulating uncontrolled buffers.
-   - The **visualizer** coalesces queued frames keyed by **Value ID** before applying updates to UI state, trimming redundant intermediate snapshots.
-   - Values whose TTL has expired publish once using the **TTL expired sentinel** tombstone payload so screens can erase live rows cleanly instead of keeping stale orphans.
+   - After each backend tick **🔁 `vm.Machine.Cycle`** emits raw **Value** frames (`[128]uint64` words) into **`pkg/telemetry.Bridge`**.
+   - **🔗 `pkg/telemetry.Bridge`** fingerprints by **Value ID** (per-value last-sent snapshot) so only changed bytes are forwarded on websocket sends.
+   - The local **🌐 websocket** bridge rejects unbounded backlog per peer rather than accumulating uncontrolled buffers.
+   - The **🖼️ visualizer** coalesces queued frames keyed by **Value ID** before applying updates to UI state, trimming redundant intermediate snapshots.
+   - Values whose TTL has expired publish once using the **🗑️ TTL expired sentinel** tombstone payload so screens can erase live rows cleanly instead of keeping stale orphans.
 
 *(The old Gossip/Mesh routing layer has been removed from the active runtime. Routing now lives in the packed AST through `self`, `next`, `fold`, and `spawn`, executed by HypercubeGossip).*
 
@@ -357,13 +357,13 @@ Only Values with both a non-empty **`program`** region and non-zero **`continuat
 zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
 ```
 
-**Reducer behavior (`zipf_select`)**
+**⚙️ Reducer behavior (`zipf_select`)**
 
 - Skips zero **`program_id`** entries — they do not consume rank mass.
 - Ranks surviving B-side peers by the supplied **confidence** (**utility**) word and writes one chosen **`program_id`** onto the **A-side** destination property.
 - When **`temperature = 0`**, selects the strongest utility survivor deterministically.
 
-**Sampling & policy separation**
+**🎲 Sampling & policy separation**
 
 Ranking and Zipf-band selection are deterministic from resident owner witnesses (**`id`**, **`epoch`**, **`community`**, **`surprisal`**) plus active candidate counts, so runs stay reproducible as frame state evolves. **`Eligibility firmware`** chooses which **`program_id`** surfaces exist and what utility each publishes; **`zipf_select`** only applies that ranked economy. Carrier firmware transports payload words after the reducer has chosen **`program_id`**, preserving the invariant that selectors pick *which* carrier runs—not *what bytes* live behind the handshake.
 

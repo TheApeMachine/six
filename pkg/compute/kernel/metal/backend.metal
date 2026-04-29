@@ -319,7 +319,6 @@ static inline uint ast_bits_len(uint value) {
 #define CURRENT_REDUCE_MODE_EQ       2ul
 #define CURRENT_REDUCE_ZIPF_SELECT   3ul
 #define CURRENT_MODE_TABLE_SIZE      1024u
-#define CURRENT_ZIPF_MAX_CANDS       1024u
 #define CURRENT_REFERENCE_WORD       67u
 #define CURRENT_SPAWN_REGISTER_WORD  70u
 #define CURRENT_ZIPF_WEIGHT_SCALE    281474976710656ul
@@ -667,64 +666,51 @@ static inline ulong current_zipf_candidate_at_rank(
     uint utility_start,
     uint target_rank
 ) {
-    uint cand_idx[CURRENT_ZIPF_MAX_CANDS];
-    ulong cand_util[CURRENT_ZIPF_MAX_CANDS];
-    ulong cand_val[CURRENT_ZIPF_MAX_CANDS];
-    uint cand_count = 0u;
+    if (target_rank == 0u || target_rank > params.value_count) {
+        return 0ul;
+    }
+
+    const uint need_before = target_rank - 1u;
 
     for (uint idx = 0u; idx < params.value_count; idx++) {
         if (!ast_index_active(params, indices, idx)) {
             continue;
         }
 
-        device ulong* peer = ast_frame(arena, indices, idx);
-        ulong value = peer[value_start & 127u];
-        if (value == 0ul) {
+        device ulong* peer_i = ast_frame(arena, indices, idx);
+        ulong value_i = peer_i[value_start & 127u];
+        if (value_i == 0ul) {
             continue;
         }
 
-        ulong utility = peer[utility_start & 127u];
+        ulong util_i = peer_i[utility_start & 127u];
+        uint before = 0u;
 
-        if (cand_count >= CURRENT_ZIPF_MAX_CANDS) {
-            continue;
-        }
-
-        cand_idx[cand_count] = idx;
-        cand_util[cand_count] = utility;
-        cand_val[cand_count] = value;
-        cand_count++;
-    }
-
-    if (target_rank == 0u || target_rank > cand_count) {
-        return 0ul;
-    }
-
-    for (uint sorted_i = 1u; sorted_i < cand_count; sorted_i++) {
-        uint ci = cand_idx[sorted_i];
-        ulong cu = cand_util[sorted_i];
-        ulong cv = cand_val[sorted_i];
-        uint j = sorted_i;
-
-        while (j > 0u) {
-            uint pj = cand_idx[j - 1u];
-            ulong pu = cand_util[j - 1u];
-
-            if (pu > cu || (pu == cu && pj < ci)) {
-                break;
+        for (uint j = 0u; j < params.value_count; j++) {
+            if (!ast_index_active(params, indices, j)) {
+                continue;
             }
 
-            cand_idx[j] = cand_idx[j - 1u];
-            cand_util[j] = cand_util[j - 1u];
-            cand_val[j] = cand_val[j - 1u];
-            j--;
+            device ulong* peer_j = ast_frame(arena, indices, j);
+            ulong value_j = peer_j[value_start & 127u];
+            if (value_j == 0ul) {
+                continue;
+            }
+
+            ulong util_j = peer_j[utility_start & 127u];
+            bool j_strictly_better = (util_j > util_i) || (util_j == util_i && j < idx);
+
+            if (j_strictly_better) {
+                before++;
+            }
         }
 
-        cand_idx[j] = ci;
-        cand_util[j] = cu;
-        cand_val[j] = cv;
+        if (before == need_before) {
+            return value_i;
+        }
     }
 
-    return cand_val[target_rank - 1u];
+    return 0ul;
 }
 
 static inline void current_reduce_zipf_select(

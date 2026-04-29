@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { selectFieldValueById } from "@/lib/field-store";
 import { SIGNALS_START_WORD } from "@/lib/layoutGenerated";
 import { PROPERTY_WORD } from "@/lib/propertiesGenerated";
-import { STATUS_BG_BY_CODE, statusName } from "@/lib/status";
+import { statusCellBackground, statusName } from "@/lib/status";
 import type { StoredValue } from "@/lib/value-frame";
 import { formatValueId } from "@/lib/value-frame";
 
@@ -128,10 +128,7 @@ export function SelectionFanOut({ values, selected }: SelectionFanOutProps) {
 										className="border-t border-white/5 hover:bg-white/5"
 									>
 										<td className="px-1.5 py-0.5">
-											<TargetLink
-												id={row.stored.id}
-												known={values.has(row.stored.id)}
-											/>
+											<TargetLink id={row.stored.id} known={true} />
 										</td>
 										<td className="px-1.5 py-0.5">
 											<StatusPill code={row.statusCode} />
@@ -154,7 +151,7 @@ export function SelectionFanOut({ values, selected }: SelectionFanOutProps) {
 }
 
 function StatusPill({ code }: { code: number }) {
-	const bg = STATUS_BG_BY_CODE[code] ?? "bg-slate-700";
+	const bg = statusCellBackground(code);
 
 	return (
 		<span className="inline-flex items-center gap-1 text-white/70">

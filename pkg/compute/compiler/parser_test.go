@@ -293,7 +293,7 @@ program align {
 `
 
 	b.ReportAllocs()
-	for idx := 0; idx < b.N; idx++ {
+	for b.Loop() {
 		_, _ = Compile(source)
 	}
 }
