@@ -1,36 +1,58 @@
 package cpu
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"testing"
 	"unsafe"
 
+	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestGeometricFrame(t *testing.T) {
 	opcodes := []uint64{0x10, 0x20, 0x30}
 
-	for _, opcode := range opcodes {
-		t.Run("opcode", func(t *testing.T) {
-			reference := geometricFixture()
-			actual := geometricFixture()
+	Convey("Given the CPU geometric lane", t, func() {
+		for _, opcode := range opcodes {
+			Convey(fmt.Sprintf("When opcode 0x%x executes", opcode), func() {
+				reference := geometricFixture()
+				actual := geometricFixture()
 
-			if !geometricFrameGeneric(unsafe.Pointer(&reference), opcode) {
-				t.Fatalf("generic lane rejected opcode %x", opcode)
-			}
+				So(geometricFrameGeneric(unsafe.Pointer(&reference), opcode), ShouldBeTrue)
+				So(GeometricFrame(unsafe.Pointer(&actual), opcode), ShouldBeTrue)
 
-			if !GeometricFrame(unsafe.Pointer(&actual), opcode) {
-				t.Fatalf("native lane rejected opcode %x", opcode)
-			}
+				Convey("It should match the scalar reference signals", func() {
+					for word := 32; word < 40; word++ {
+						So(actual[word], ShouldEqual, reference[word])
+					}
+				})
+			})
+		}
+	})
 
-			for word := 32; word < 40; word++ {
-				if reference[word] != actual[word] {
-					t.Fatalf("signals word %d mismatch: reference=%016x actual=%016x", word, reference[word], actual[word])
+	Convey("Given a resident program with a raw compose slot", t, func() {
+		reference := geometricFixture()
+		actual := geometricFixture()
+		actual[ProgramStartWord] = 0x10
+
+		So(GeometricFrame(unsafe.Pointer(&reference), 0x10), ShouldBeTrue)
+
+		backend := NewBackend(context.Background())
+		defer backend.Close()
+
+		Convey("When HypercubeGossip runs the program", func() {
+			_, err := backend.HypercubeGossip(&actual, []*primitive.Value{&actual})
+			So(err, ShouldBeNil)
+
+			Convey("It should execute the geometric frame contract", func() {
+				for word := 32; word < 40; word++ {
+					So(actual[word], ShouldEqual, reference[word])
 				}
-			}
+			})
 		})
-	}
+	})
 }
 
 func geometricFixture() primitive.Value {

@@ -1,4 +1,5 @@
 import { createStore } from "@tanstack/react-store";
+import { recordTick, resetTimeline } from "./timeline-store";
 import {
 	decodeValueFrame,
 	formatValueId,
@@ -35,6 +36,12 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 		return;
 	}
 
+	const recorded: Array<{
+		rawId: string;
+		frame: Uint8Array;
+		tombstone: boolean;
+	}> = [];
+
 	fieldStore.setState((state) => {
 		let values = state.values;
 		let selectedId = state.selectedId;
@@ -45,6 +52,7 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 				values = new Map();
 				selectedId = null;
 				changed = true;
+				resetTimeline();
 				continue;
 			}
 
@@ -66,6 +74,8 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 				if (selectedId === rawId) {
 					selectedId = null;
 				}
+
+				recorded.push({ rawId, frame: frame.bytes, tombstone: true });
 				continue;
 			}
 
@@ -78,6 +88,7 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 			}
 
 			values.set(rawId, next);
+			recorded.push({ rawId, frame: frame.bytes, tombstone: false });
 		}
 
 		if (!changed) {
@@ -90,6 +101,10 @@ export function applyValueFrames(frames: RawValueFrame[]) {
 			selectedId,
 		};
 	});
+
+	if (recorded.length > 0) {
+		recordTick(recorded);
+	}
 }
 
 export function queueValueFrames(
@@ -158,4 +173,6 @@ export function resetFieldStore() {
 		selectedId: null,
 		connectionError: null,
 	}));
+
+	resetTimeline();
 }

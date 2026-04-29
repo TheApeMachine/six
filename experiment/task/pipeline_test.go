@@ -193,6 +193,80 @@ func TestPipeline(t *testing.T) {
 	}
 }
 
+func TestTextClassificationLoadCommunities(t *testing.T) {
+	experiment := classification.NewTextClassificationExperiment()
+
+	machine, err := vm.NewMachine(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer machine.Close()
+
+	if err := machine.Load(experiment.Dataset()); err != nil {
+		t.Fatal(err)
+	}
+
+	var total int
+	var tokenValues int
+	var stamped int
+	var ready int
+	var selected int
+	var routeHeaders int
+
+	machine.Range(func(value *primitive.Value) bool {
+		total++
+
+		if value.Status() == primitive.READY {
+			ready++
+		}
+
+		if value.Status() == primitive.SELECTED {
+			selected++
+		}
+
+		target, targetErr := value.Property(primitive.TARGET)
+		if targetErr == nil && target != 0 {
+			routeHeaders++
+		}
+
+		hasTokens := false
+		for _, word := range value.Get(primitive.TokenRegion) {
+			if word != 0 {
+				hasTokens = true
+				break
+			}
+		}
+
+		if hasTokens {
+			tokenValues++
+
+			community, err := value.Property(primitive.COMMUNITY)
+			if err == nil && community != 0 {
+				stamped++
+			}
+		}
+
+		return true
+	})
+
+	t.Logf(
+		"after Load: total=%d tokenValues=%d stamped=%d ready=%d selected=%d routeHeaders=%d",
+		total, tokenValues, stamped, ready, selected, routeHeaders,
+	)
+
+	if tokenValues == 0 {
+		t.Fatal("text classification Load created no token Values")
+	}
+
+	if stamped == 0 {
+		t.Fatal("text classification Load stamped no token Values with a community")
+	}
+
+	if stamped != tokenValues {
+		t.Fatalf("text classification Load stamped %d/%d token Values", stamped, tokenValues)
+	}
+}
+
 /*
 WriteArtifacts emits the paper-side outputs for the experiment under a single
 call so test harnesses do not have to interleave summary, results, and per-

@@ -4,6 +4,7 @@ package primitive
 import (
 	"io"
 	"log"
+	"math"
 	"sync/atomic"
 	"unsafe"
 
@@ -253,6 +254,8 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 			)
 		}
 
+		stampFrameMultivector(stamp)
+
 		// Bootstrap affinity: XOR-fold the populated token words into the
 		// affinity slots, distributing across the available affinity words
 		// modulo affinityWords. Equivalent to the first pass of the
@@ -283,6 +286,62 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 		out = append(out, stamp)
 	}
 	return out, nil
+}
+
+/*
+stampFrameMultivector derives the resident geometric coordinate from the token
+slab and writes it into Context. The mapping is deterministic, payload-native,
+and package-local so primitive does not import the higher geometry package.
+*/
+func stampFrameMultivector(value *Value) {
+	if value == nil {
+		return
+	}
+
+	contextStart, contextWords := ContextRegion.WordExtent()
+	tokenWords := value.Get(TokenRegion)
+
+	var lanes FrameMultivector
+	lanes[0] = 1
+
+	for idx, word := range tokenWords {
+		if word == 0 {
+			continue
+		}
+
+		mixed := mixFrameWord(word ^ (uint64(idx+1) * 0x9e3779b185ebca87))
+		lanes[idx&7] += signedUnitFloat(mixed)
+	}
+
+	bulk := math.Sqrt(
+		lanes[0]*lanes[0] +
+			lanes[4]*lanes[4] +
+			lanes[5]*lanes[5] +
+			lanes[6]*lanes[6],
+	)
+	if bulk == 0 {
+		bulk = 1
+	}
+
+	for idx := 0; idx < int(contextWords) && idx < len(lanes); idx++ {
+		value.Set(contextStart+idx, math.Float64bits(lanes[idx]/bulk))
+	}
+}
+
+func mixFrameWord(word uint64) uint64 {
+	word ^= word >> 30
+	word *= 0xbf58476d1ce4e5b9
+	word ^= word >> 27
+	word *= 0x94d049bb133111eb
+	word ^= word >> 31
+
+	return word
+}
+
+func signedUnitFloat(word uint64) float64 {
+	const inv53 = 1.0 / float64(1<<53)
+
+	return float64(word>>11)*inv53*2 - 1
 }
 
 /*

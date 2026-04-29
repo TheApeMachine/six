@@ -104,6 +104,26 @@ func TestNewValue(t *testing.T) {
 				So(nonZero, ShouldBeTrue)
 			})
 
+			Convey("It should derive a deterministic geometric context", func() {
+				again, againErr := NewValue(payload)
+				So(againErr, ShouldBeNil)
+				defer CloseAll(again)
+
+				context := values[0].Get(ContextRegion)
+				againContext := again[0].Get(ContextRegion)
+
+				nonZero := false
+				for _, word := range context {
+					if word != 0 {
+						nonZero = true
+						break
+					}
+				}
+
+				So(nonZero, ShouldBeTrue)
+				So(append([]uint64(nil), context...), ShouldResemble, append([]uint64(nil), againContext...))
+			})
+
 			Reset(func() {
 				CloseAll(values)
 			})

@@ -121,8 +121,15 @@ func (backend *Backend) materializeChild(frame [128]uint64, active bool) []*prim
 	child.StampID()
 	childWords[SpawnRegisterWord] = 0
 
-	if child.Status() == primitive.READY && child.HasProgram() && child.SchedulingNext() == 0 {
-		child.SetSchedulingNext(child.ID())
+	if child.HasProgram() {
+		if child.SchedulingNext() == 0 {
+			child.SetSchedulingNext(child.ID())
+		}
+
+		child.SetStatus(primitive.READY)
+	} else {
+		child.SetSchedulingNext(0)
+		child.SetStatus(primitive.PENDING)
 	}
 
 	return []*primitive.Value{child}

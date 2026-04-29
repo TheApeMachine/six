@@ -151,16 +151,15 @@ programs:
 
   recruit_community: |
     program recruit_community {
-      ; The first candidate becomes the seed in context[0,5]. Every later
-      ; candidate is compared to that seed by Hamming distance. Recruitment
-      ; only accepts candidates whose resulting affinity union stays inside
-      ; the Shannon limit.
+      ; Each pass forms one community from the remaining unassigned Values
+      ; in the selected lane. A fresh recruiter keeps the same reference lane
+      ; and repeats until no unassigned candidate can seed a new community.
       pop(B) {
-        (A.context[0,5] == 0) {
-          write A.context[0,5] <- B.affinity
-        }
+        (B.properties.community == 0) {
+          (A.context[0,5] == 0) {
+            write A.context[0,5] <- B.affinity
+          }
 
-        (popcnt(or(A.affinity, B.affinity)) <= 121) {
           (popcnt(xor(A.context[0,5], B.affinity)) < 64) {
             write A.affinity <- or(A.affinity, B.affinity)
             set B.properties.community <- A.id
@@ -168,14 +167,17 @@ programs:
         }
       }
 
-      ; Once the affinity union reaches the 47% Shannon limit for the
-      ; 257-bit window, emit a fresh recruiter carrying this same program.
-      (popcnt(A.affinity) >= 121) {
-        set A.properties.status <- DONE
+      ; If this pass accepted at least one candidate, emit the next recruiter
+      ; on the same reference lane. The next pass skips already assigned
+      ; Values and seeds a new community from the first residual candidate.
+      (popcnt(A.affinity) > 0) {
+        set A.properties.community <- A.id
+        set A.properties.target <- A.id
 
         emit {
           set program <- A.program
-          set properties.status <- READY
+          set asset <- A.asset
+          set properties.reference <- A.properties.reference
         }
       }
     }
@@ -184,25 +186,25 @@ programs:
       ; A linked prompt should emit one answer. The head Value owns readout;
       ; tails execute the same firmware but retire without contributing labels.
       (A.prev == 0) {
-        ; First pass: each candidate writes its own generic distance witness.
-        ; The program only says "xor two regions, then popcount that witness";
-        ; the reducer below decides over arbitrary value/key regions.
         pop(B) {
           (B.properties.role == Prompt) {
-            write A.affinity <- or(A.affinity, B.affinity)
+            set B.properties.community <- 0
+
+            (B.properties.reference == A.id) {
+              write A.affinity <- or(A.affinity, B.affinity)
+            }
           }
 
-          (B.properties.community != 0) {
+          ; Community selection is nearest-neighbour over affinity. The
+          ; scalar Hamming witness stays in signals so surprisal remains
+          ; reserved for prediction-error dynamics.
+          (B.properties.target != 0) {
             write B.signals[0,5] <- xor(A.affinity, B.affinity)
-            set B.properties.surprisal <- popcnt(B.signals[0,5])
+            set B.signals[5,1] <- popcnt(B.signals[0,5])
           }
         }
 
-        ; Select the non-zero categorical value whose key is minimal.
-        set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
-
-        ; Select the modal non-zero categorical value where the peer key equals
-        ; the owner key selected above.
+        set A.properties.community <- argmin_nonzero(B.properties.target, B.signals[5,1])
         set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
 
         set A.properties.status <- RESOLVED

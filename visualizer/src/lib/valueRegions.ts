@@ -48,6 +48,7 @@ export type { ValueRegionName } from "./layoutGenerated";
 export type { DecodedInstruction } from "./programsGenerated";
 
 const WORD_BYTES = 8;
+const GEOMETRIC_OPCODES = new Set<bigint>([0x10n, 0x20n, 0x30n]);
 
 export function readWordU64LE(buf: Uint8Array, wordIndex: number): bigint {
 	const offset = wordIndex * WORD_BYTES;
@@ -111,14 +112,46 @@ export const REGION_SPECS: ReadonlyArray<
 	Pick<GeneratedRegionSpec, "name" | "startWord" | "wordCount">
 > = GENERATED_REGION_SPECS;
 
+function emptyDecodedInstruction(opcode: number): DecodedInstruction {
+	return {
+		dstSpan: 0,
+		dstStart: 0,
+		bSpan: 0,
+		bStart: 0,
+		aSpan: 0,
+		aStart: 0,
+		opcode,
+		mode: 0,
+		topology: 0,
+		predStart: 0,
+		predCond: 0,
+		aInd: 0,
+		bType: 0,
+		predicate: 0,
+		emit: 0,
+		srcAFromB: 0,
+		stage: 0,
+		popEnd: 0,
+	};
+}
+
 /*
 decodeInstructionWord unpacks one 64-bit DSL instruction. Layout matches
 pkg/compute/program/compiler.go EncodeInstruction; see programsGenerated.ts
 for the bit shifts (the generator re-exports them so this file and the
 runtime never disagree). Span fields are stored as `span - 1` so a fully
 zero word means "halt"; we restore the +1 here.
+
+Geometric slots are deliberately raw words (`0x10`, `0x20`, `0x30`) rather
+than packed low-nibble truth-table instructions. Go's DecodeInstruction
+returns only the full opcode for those slots, so the visualizer mirrors that
+shape before falling back to the packed Boolean decoder.
 */
 export function decodeInstructionWord(word: bigint): DecodedInstruction {
+	if (GEOMETRIC_OPCODES.has(word)) {
+		return emptyDecodedInstruction(Number(word));
+	}
+
 	return {
 		dstSpan:
 			Number((word >> BigInt(INSTR_DST_SPAN_SHIFT)) & INSTR_SPAN_MASK) + 1,
@@ -130,7 +163,7 @@ export function decodeInstructionWord(word: bigint): DecodedInstruction {
 		aSpan: Number((word >> BigInt(INSTR_A_SPAN_SHIFT)) & INSTR_SPAN_MASK) + 1,
 		aStart: Number((word >> BigInt(INSTR_A_START_SHIFT)) & INSTR_START_MASK),
 		opcode: Number((word >> BigInt(INSTR_OPCODE_SHIFT)) & 0xfn),
-		mode: Number((word >> BigInt(INSTR_MODE_SHIFT)) & 0x1n),
+		mode: Number((word >> BigInt(INSTR_MODE_SHIFT)) & 0x3n),
 		topology: Number((word >> BigInt(INSTR_TOPOLOGY_SHIFT)) & 0x3n),
 		predStart: Number(
 			(word >> BigInt(INSTR_PRED_START_SHIFT)) & INSTR_START_MASK,

@@ -1,3 +1,5 @@
+import { useSelector } from "@tanstack/react-store";
+import { useMemo } from "react";
 import { selectFieldValueById } from "@/lib/field-store";
 import { formatInstruction } from "@/lib/instructions";
 import { formatLabelsWord } from "@/lib/labels";
@@ -7,6 +9,7 @@ import {
 	type PropertyName,
 } from "@/lib/propertiesGenerated";
 import { statusCellText, statusName } from "@/lib/status";
+import { setCursorTick, timelineStore } from "@/lib/timeline-store";
 import type { StoredValue } from "@/lib/value-frame";
 import { decodeProgramWire } from "@/lib/valueRegions";
 import { ChainStrip } from "./ChainStrip";
@@ -82,6 +85,11 @@ export function ValueDetail({ stored, values }: ValueDetailProps) {
 					<span>community {stored.communityId}</span>
 				</div>
 			</header>
+
+			<section>
+				<SectionTitle>tick history (this value)</SectionTitle>
+				<ValueHistoryStrip valueId={stored.id} />
+			</section>
 
 			<section>
 				<SectionTitle>chain (sample link)</SectionTitle>
@@ -166,6 +174,111 @@ export function ValueDetail({ stored, values }: ValueDetailProps) {
 		</div>
 	);
 }
+
+/*
+ValueHistoryStrip plots the ticks at which the substrate touched this
+specific Value. Status code is encoded as the bar's color so the eye
+can spot the SELECTED→READY→BUSY→DONE transitions without expanding the
+properties panel; clicking a bar pins the timeline cursor to that tick
+so the rest of the dashboard rebuilds the field as it looked then.
+*/
+function ValueHistoryStrip({ valueId }: { valueId: string }) {
+	const events = useSelector(timelineStore, (state) => state.events);
+	const tickCount = useSelector(timelineStore, (state) => state.tickCount);
+	const cursorTick = useSelector(timelineStore, (state) => state.cursorTick);
+
+	const trail = useMemo(() => {
+		const out: Array<{
+			tick: number;
+			tombstone: boolean;
+			statusCode: number;
+		}> = [];
+
+		for (const event of events) {
+			if (event.valueId !== valueId) {
+				continue;
+			}
+
+			let statusCode = 0;
+			if (!event.tombstone && event.frame.byteLength >= (STATUS_WORD + 1) * 8) {
+				const dv = new DataView(
+					event.frame.buffer,
+					event.frame.byteOffset + STATUS_WORD * 8,
+					8,
+				);
+				statusCode = Number(dv.getBigUint64(0, true) & 0xffn);
+			}
+
+			out.push({
+				tick: event.tick,
+				tombstone: event.tombstone,
+				statusCode,
+			});
+		}
+
+		return out;
+	}, [events, valueId]);
+
+	if (trail.length === 0 || tickCount === 0) {
+		return (
+			<div className="rounded border border-white/10 bg-black/30 p-2 text-[10px] text-white/40">
+				no recorded changes
+			</div>
+		);
+	}
+
+	const head = tickCount - 1;
+
+	return (
+		<div className="rounded border border-white/10 bg-black/30 p-2">
+			<div className="relative h-5 w-full">
+				{trail.map((entry) => {
+					const left = head === 0 ? 0 : (entry.tick / head) * 100;
+					const isCursor =
+						cursorTick !== null
+							? entry.tick === cursorTick
+							: entry.tick === head;
+					const statusBg = entry.tombstone
+						? "#ef4444"
+						: STATUS_BAR_COLOR[entry.statusCode] ?? "#64748b";
+
+					return (
+						<button
+							key={`${entry.tick}-${entry.tombstone ? "x" : "o"}`}
+							type="button"
+							onClick={() => setCursorTick(entry.tick)}
+							title={`tick ${entry.tick}${entry.tombstone ? " · tombstone" : ` · ${statusName(entry.statusCode)}`}`}
+							style={{
+								left: `${left}%`,
+								backgroundColor: statusBg,
+								boxShadow: isCursor
+									? "0 0 0 1px #06b6d4, 0 0 6px #06b6d4"
+									: "none",
+							}}
+							className="absolute h-5 w-1 -translate-x-1/2 cursor-pointer"
+						/>
+					);
+				})}
+			</div>
+			<div className="mt-1 flex justify-between text-[9px] text-white/40">
+				<span>tick 0</span>
+				<span>{trail.length} change(s)</span>
+				<span>tick {head}</span>
+			</div>
+		</div>
+	);
+}
+
+const STATUS_BAR_COLOR: Record<number, string> = {
+	0: "#475569",
+	1: "#10b981",
+	2: "#f59e0b",
+	3: "#0ea5e9",
+	4: "#06b6d4",
+	5: "#64748b",
+	6: "#8b5cf6",
+	7: "#ef4444",
+};
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
 	return (

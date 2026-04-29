@@ -7,6 +7,24 @@ import (
 )
 
 func TestCompile(t *testing.T) {
+	Convey("Given a geometric resident program", t, func() {
+		source := `
+program geometric_probe {
+  geometric compose
+  geometric sandwich
+  geometric reverse
+}
+`
+
+		Convey("It should lower PGA slots as raw opcode words", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+			So(result.Words[0], ShouldEqual, uint64(OpGeometricCompose))
+			So(result.Words[1], ShouldEqual, uint64(OpGeometricSandwich))
+			So(result.Words[2], ShouldEqual, uint64(OpGeometricReverse))
+		})
+	})
+
 	Convey("Given the recruit_community source", t, func() {
 		source := `
 program recruit_community {

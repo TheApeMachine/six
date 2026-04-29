@@ -3,6 +3,7 @@ package cpu
 import (
 	"math/bits"
 	"sort"
+	"unsafe"
 )
 
 /*
@@ -151,6 +152,11 @@ func (backend *Backend) executeKernelGo(
 	for pc := uint64(0); pc < ProgramWords; pc++ {
 		instr := ownerFrame[ProgramStartWord+pc]
 		if instr == 0 {
+			continue
+		}
+
+		if geometricSlot(instr) {
+			GeometricFrame(unsafe.Pointer(ownerFrame), instr)
 			continue
 		}
 
@@ -489,6 +495,15 @@ func (backend *Backend) executeKernelGo(
 	}
 
 	return stagedIdx, childFrame, childActive
+}
+
+func geometricSlot(instr uint64) bool {
+	switch instr {
+	case 0x10, 0x20, 0x30:
+		return true
+	default:
+		return false
+	}
 }
 
 func rotatedWord(frame *[128]uint64, start, span, lane, rotate uint64) uint64 {

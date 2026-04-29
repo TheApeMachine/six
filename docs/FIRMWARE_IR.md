@@ -20,4 +20,12 @@ positive temperature selects an integer Zipf power bucket that flattens toward
 uniform tail pressure. The sample is deterministic from owner witness words
 rather than host RNG.
 
-See `SYNTAX.md` for the feed language; see the root implementation plan for phases 8–11 (JSON/YAML, scheduler contract, self-programming API).
+⚙️ **Geometric slots:** PGA instructions occupy a raw resident slot, not a
+packed low-nibble truth-table word. The canonical opcodes are `0x10`
+(`geometric compose`), `0x20` (`geometric sandwich`), and `0x30`
+(`geometric reverse`). They carry no Boolean operands or predicates; the fixed
+frame contract is `Context` / `Gradient` → `Signals`, and unused geometric
+operands remain implicit in the frame. `ProgramIR` uses `MachineOp{Opcode:
+OpGeometric...}` for the same raw slot shape.
+
+Feed examples live in the root `README.md` and in `cmd/cfg/config.yml`; self-programming paths should prefer `ProgramIR` rather than emitting source text.

@@ -28,12 +28,12 @@ to improve per-class disambiguation.
     \toprule
     \textbf{Metric} & \textbf{Value} \\
     \midrule
-    Macro-F1          & 5.4\% \\
-    Overall Accuracy  & 12.0\% \\
-    Balanced Accuracy & 25.0\% \\
-    Exact Score       & 12.0\% \\
+    Macro-F1          & 12.7\% \\
+    Overall Accuracy  & 33.0\% \\
+    Balanced Accuracy & 22.3\% \\
+    Exact Score       & 33.0\% \\
     Sample Size       & $N = 100$ \\
     \bottomrule
   \end{tabular}
-  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix. Overall Accuracy divides diagonal hits by $N$ (treating samples without a usable prediction score as misses). Exact Score is $\mathrm{diag}(C)$ divided by summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact hits among prompts represented in $C$, and differs from Overall Accuracy only when unresolved rows occupy denominator mass in Overall Accuracy but are omitted from $C$. Balanced Accuracy is the unweighted mean of per-class recalls.}
+  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix. Overall Accuracy divides diagonal hits by $N$ (samples without a usable prediction score as misses). Exact Score is $\mathrm{diag}(C)$ divided by summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact hits among prompts represented in $C$, and differs from Overall Accuracy only when unresolved rows occupy denominator mass in Overall Accuracy but are omitted from $C$. Balanced Accuracy is the unweighted mean of per-class recalls.}
 \end{table}

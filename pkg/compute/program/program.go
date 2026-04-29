@@ -139,6 +139,11 @@ already consumes; the trailing aIndirect / bType slots are always zero.
 func DecodeInstruction(word uint64) (
 	aStart, aSpan, bStart, bSpan, dstStart, dstSpan, opcode, mode, topology, predStart, predCond, aIndirect, bType, predicate, emit, srcAFromB, stage, popEnd uint64,
 ) {
+	if compiler.IsGeometricOpcode(word) {
+		opcode = word
+		return
+	}
+
 	opcode = word & 0xF
 	aStart = (word >> InstrAStartShift) & InstrStartMask
 	aSpan = ((word >> InstrASpanShift) & InstrSpanMask) + 1

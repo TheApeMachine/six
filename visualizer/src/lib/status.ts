@@ -11,9 +11,10 @@ const STATUSES = [
 	{ code: 1, name: "READY" as const, bg: "bg-emerald-500", text: "text-emerald-300" },
 	{ code: 2, name: "BUSY" as const, bg: "bg-amber-500", text: "text-amber-300" },
 	{ code: 3, name: "WAITING" as const, bg: "bg-sky-500", text: "text-sky-300" },
-	{ code: 4, name: "DONE" as const, bg: "bg-slate-500", text: "text-slate-300" },
-	{ code: 5, name: "RESOLVED" as const, bg: "bg-violet-500", text: "text-violet-300" },
-	{ code: 6, name: "ERROR" as const, bg: "bg-red-500", text: "text-red-300" },
+	{ code: 4, name: "SELECTED" as const, bg: "bg-cyan-500", text: "text-cyan-300" },
+	{ code: 5, name: "DONE" as const, bg: "bg-slate-500", text: "text-slate-300" },
+	{ code: 6, name: "RESOLVED" as const, bg: "bg-violet-500", text: "text-violet-300" },
+	{ code: 7, name: "ERROR" as const, bg: "bg-red-500", text: "text-red-300" },
 ] as const;
 
 export type StatusName = (typeof STATUSES)[number]["name"];

@@ -34,6 +34,12 @@ const (
 )
 
 const (
+	OpGeometricCompose  = compiler.OpGeometricCompose
+	OpGeometricSandwich = compiler.OpGeometricSandwich
+	OpGeometricReverse  = compiler.OpGeometricReverse
+)
+
+const (
 	PredLT          = compiler.PredLT
 	PredLE          = compiler.PredLE
 	PredGT          = compiler.PredGT

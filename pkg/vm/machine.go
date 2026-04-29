@@ -166,6 +166,18 @@ func (machine *Machine) Cycle() (
 }
 
 /*
+Range visits the backend resident store through Machine so integration tests
+can inspect in-band state without reaching into backend ownership.
+*/
+func (machine *Machine) Range(visitor func(*primitive.Value) bool) {
+	if machine == nil || machine.backend == nil {
+		return
+	}
+
+	machine.backend.Range(visitor)
+}
+
+/*
 Load ingests the dataset and seeds the bootstrap query/recruiter pair. The
 query carries a key/value selector in context and wakes the recruiter after
 tagging matching residents in-band.
@@ -229,11 +241,19 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 			return err
 		}
 
-		for _, value := range ready {
-			_, err := io.Copy(machine.telemetry, value)
+		if machine.telemetry != nil {
+			frames := make([]byte, 0)
 
-			if err != nil {
-				return errnie.Error(err)
+			machine.backend.Range(func(value *primitive.Value) bool {
+				frames = append(frames, value.Bytes()...)
+
+				return true
+			})
+
+			if len(frames) > 0 {
+				if _, err := machine.telemetry.Write(frames); err != nil {
+					return errnie.Error(err)
+				}
 			}
 		}
 
@@ -260,19 +280,56 @@ func (machine *Machine) Prompt(
 		return nil, errors.Join(machine.err, errnie.Error(err))
 	}
 
+	if len(values) == 0 {
+		return nil, errors.New("prompt requires at least one value")
+	}
+
 	resolved = make([]*primitive.Value, 0)
+	promptIDs := make(map[uint64]struct{}, len(values))
+	promptHeadID := values[0].ID()
+
+	for _, value := range values {
+		if value == nil {
+			return nil, errors.New("prompt value is nil")
+		}
+
+		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
+		value.SetProperty(primitive.REFERENCE, promptHeadID)
+		promptIDs[value.ID()] = struct{}{}
+
+		if err := machine.backend.Submit(value); err != nil {
+			return nil, errnie.Error(err)
+		}
+
+		if machine.telemetry != nil {
+			if _, err := io.Copy(machine.telemetry, value); err != nil {
+				return nil, errnie.Error(err)
+			}
+		}
+	}
 
 	for len(resolved) == 0 {
-		if resolved, _, err = machine.Cycle(); err != nil {
+		var ready []*primitive.Value
+		var candidates []*primitive.Value
+
+		if candidates, ready, err = machine.Cycle(); err != nil {
 			return nil, err
 		}
 
-		for _, value := range resolved {
+		for _, value := range candidates {
 			_, err := io.Copy(machine.telemetry, value)
 
 			if err != nil {
 				return nil, errnie.Error(err)
 			}
+
+			if _, ok := promptIDs[value.ID()]; ok && value.Role() == primitive.ValueRolePrompt {
+				resolved = append(resolved, value)
+			}
+		}
+
+		if len(resolved) == 0 && len(ready) == 0 {
+			return nil, errors.New("prompt settled without resolved values")
 		}
 	}
 

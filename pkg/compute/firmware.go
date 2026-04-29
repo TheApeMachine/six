@@ -61,6 +61,7 @@ func (firmware *Firmware) Deploy(
 	}
 
 	value := primitive.Emit()
+	value.SetProperty(primitive.REFERENCE, value.ID())
 
 	for idx, input := range inputs {
 		value.Set(core.Cfg.Value.Region.Context.Start+idx, input)

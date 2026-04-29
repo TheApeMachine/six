@@ -47,6 +47,12 @@ const PREDICATE_CONDS: Record<number, string> = {
 	7: "any-zero",
 };
 
+const GEOMETRIC_CONTRACTS: Record<number, string> = {
+	16: "Context • Gradient → Signals",
+	32: "Context • Gradient • Context† → Signals",
+	48: "Context† → Signals",
+};
+
 export function opcodeName(opcode: number): string {
 	return TRUTH_TABLE_OPS[opcode] ?? `op 0x${opcode.toString(16)}`;
 }
@@ -71,6 +77,11 @@ whether a row consumes the lane, stages a peer, or spawns a child
 without decoding raw bits by hand.
 */
 export function formatInstruction(instruction: DecodedInstruction): string {
+	const geometricContract = GEOMETRIC_CONTRACTS[instruction.opcode];
+	if (geometricContract) {
+		return `${opcodeName(instruction.opcode)} ${geometricContract}`;
+	}
+
 	const head = `${opcodeName(instruction.opcode)} ${operand(
 		"A",
 		instruction.aStart,

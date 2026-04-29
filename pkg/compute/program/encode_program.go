@@ -1,6 +1,10 @@
 package program
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/theapemachine/six/pkg/compute/compiler"
+)
 
 /*
 DefaultMaskTrueWord is the frame word carrying the canonical all-ones mask
@@ -85,6 +89,10 @@ func (compiler *Compiler) LowerIR(ir ProgramIR) ([]MachineOp, error) {
 }
 
 func (op MachineOp) Pack() uint64 {
+	if compiler.IsGeometricOpcode(op.Opcode) {
+		return op.Opcode
+	}
+
 	var word uint64
 	word |= op.Opcode & 0xF
 	word |= (op.AStart & InstrStartMask) << InstrAStartShift
@@ -127,6 +135,10 @@ func (op MachineOp) Pack() uint64 {
 }
 
 func (op MachineOp) Validate() error {
+	if compiler.IsGeometricOpcode(op.Opcode) {
+		return op.validateGeometric()
+	}
+
 	if op.Opcode > 0xF {
 		return fmt.Errorf("opcode 0x%x exceeds 4-bit field", op.Opcode)
 	}
@@ -153,6 +165,15 @@ func (op MachineOp) Validate() error {
 
 	if op.MaskStart > InstrStartMask {
 		return fmt.Errorf("mask start %d exceeds 7-bit field", op.MaskStart)
+	}
+
+	return nil
+}
+
+func (op MachineOp) validateGeometric() error {
+	empty := MachineOp{Opcode: op.Opcode}
+	if op != empty {
+		return fmt.Errorf("geometric opcode 0x%x must occupy a raw slot without boolean operands", op.Opcode)
 	}
 
 	return nil

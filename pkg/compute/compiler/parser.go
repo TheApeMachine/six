@@ -276,10 +276,30 @@ func (parser *parser) parseStatement() (ASTNode, error) {
 			return parser.parseStage()
 		case "emit":
 			return parser.parseEmit()
+		case "geometric":
+			return parser.parseGeometric()
 		}
 	}
 
 	return nil, fmt.Errorf("compiler: unexpected token %q (%q) at pos %d", tok.kind, tok.text, parser.pos)
+}
+
+func (parser *parser) parseGeometric() (ASTNode, error) {
+	if _, err := parser.expect("ident"); err != nil {
+		return nil, err
+	}
+
+	opTok, err := parser.expect("ident")
+	if err != nil {
+		return nil, err
+	}
+
+	op, ok := geometricOpcodeOf(opTok.text)
+	if !ok {
+		return nil, fmt.Errorf("compiler: unknown geometric op %q", opTok.text)
+	}
+
+	return GeometricNode{Op: op}, nil
 }
 
 func (parser *parser) parseIf() (ASTNode, error) {
@@ -866,6 +886,19 @@ func opcodeOf(name string) (uint64, bool) {
 	return 0, false
 }
 
+func geometricOpcodeOf(name string) (uint64, bool) {
+	switch name {
+	case "compose":
+		return OpGeometricCompose, true
+	case "sandwich":
+		return OpGeometricSandwich, true
+	case "reverse":
+		return OpGeometricReverse, true
+	}
+
+	return 0, false
+}
+
 func isCallName(name string) bool {
 	if name == "popcnt" || name == "any_zero" || name == "argmin_nonzero" || name == "mode_eq" || name == "zipf_select" {
 		return true
@@ -1122,6 +1155,26 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 
 	if tok.text == "program" {
 		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Program})
+	}
+
+	if tok.text == "asset" {
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Asset})
+	}
+
+	if tok.text == "context" {
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Context})
+	}
+
+	if tok.text == "signals" {
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Signals})
+	}
+
+	if tok.text == "gradient" {
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Gradient})
+	}
+
+	if tok.text == "affinity" {
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Affinity})
 	}
 
 	if tok.text == "properties" && parser.emitDepth > 0 {

@@ -56,7 +56,7 @@ function encodeInstruction(opts: {
 }): bigint {
 	const f = (v: number) => BigInt(v) & 0x7fn;
 	const op = BigInt(opts.opcode ?? 0) & 0xfn;
-	const mode = BigInt(opts.mode ?? 0) & 0x1n;
+	const mode = BigInt(opts.mode ?? 0) & 0x3n;
 	const topology = BigInt(opts.topology ?? 0) & 0x3n;
 	const predStart = BigInt(opts.predStart ?? 0) & 0x7fn;
 	const predCond = BigInt(opts.predCond ?? 0) & 0x7n;
@@ -95,7 +95,8 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		dstStart: 32,
 		dstSpan: 1,
 		opcode: 0x6,
-		mode: 1,
+		mode: 2,
+		emit: 1,
 		topology: 0,
 		predStart: 0,
 		predCond: 0,
@@ -113,7 +114,32 @@ test("decodeInstructionWord round-trips the packed compiler format", () => {
 		dstStart: 32,
 		dstSpan: 1,
 		opcode: 0x6,
-		mode: 1,
+		mode: 2,
+		topology: 0,
+		predStart: 0,
+		predCond: 0,
+		aInd: 0,
+		bType: 0,
+		predicate: 0,
+		emit: 1,
+		srcAFromB: 0,
+		stage: 0,
+		popEnd: 0,
+	});
+});
+
+test("decodeInstructionWord preserves raw geometric opcodes", () => {
+	const decoded = decodeInstructionWord(0x10n);
+
+	assert.deepEqual(decoded, {
+		aStart: 0,
+		aSpan: 0,
+		bStart: 0,
+		bSpan: 0,
+		dstStart: 0,
+		dstSpan: 0,
+		opcode: 0x10,
+		mode: 0,
 		topology: 0,
 		predStart: 0,
 		predCond: 0,

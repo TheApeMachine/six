@@ -8,6 +8,37 @@ import (
 )
 
 func TestEncodeProgramIR(t *testing.T) {
+	Convey("Given an IR program with a geometric slot", t, func() {
+		ir, err := EncodeProgramIR(ProgramIR{
+			Name: "geometric_probe",
+			Slots: []SlotIR{
+				{Op: MachineOp{Opcode: OpGeometricCompose}},
+			},
+		}, Layout{})
+
+		Convey("It should preserve the raw opcode word", func() {
+			So(err, ShouldBeNil)
+			So(ir.Words[0], ShouldEqual, uint64(OpGeometricCompose))
+			So(len(ir.Words), ShouldEqual, 16)
+
+			_, _, _, _, _, _, opcode, _, _, _, _, _, _, _, _, _, _, _ := DecodeInstruction(ir.Words[0])
+			So(opcode, ShouldEqual, uint64(OpGeometricCompose))
+		})
+	})
+
+	Convey("Given a geometric slot with boolean fields attached", t, func() {
+		_, err := EncodeProgramIR(ProgramIR{
+			Name: "bad_geometric",
+			Slots: []SlotIR{
+				{Op: MachineOp{Opcode: OpGeometricCompose, ASpan: 1}},
+			},
+		}, Layout{})
+
+		Convey("It should reject the mixed slot shape", func() {
+			So(err, ShouldNotBeNil)
+		})
+	})
+
 	Convey("Given an IR program matching a feed truth-table assignment", t, func() {
 		source := `
 program copy {

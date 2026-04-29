@@ -23,6 +23,7 @@ type substrateProbe struct {
 	err     error
 	spawn   bool
 	calls   atomic.Int64
+	owners  []uint64
 	closeFn func() error
 }
 
@@ -35,6 +36,7 @@ func (probe *substrateProbe) HypercubeGossip(
 	values []*primitive.Value,
 ) ([]*primitive.Value, error) {
 	probe.calls.Add(1)
+	probe.owners = append(probe.owners, value.ID())
 
 	if probe.err != nil {
 		return nil, probe.err
@@ -94,6 +96,28 @@ func TestSubmit(t *testing.T) {
 }
 
 func TestSync(t *testing.T) {
+	Convey("Given READY residents were submitted out of ID order", t, func() {
+		probe := &substrateProbe{name: "cpu"}
+		backend := newProbeBackend(&substrateState{Substrate: probe})
+		defer backend.Close()
+
+		first := primitive.Emit(primitive.WithProgram([]uint64{1}))
+		second := primitive.Emit(primitive.WithProgram([]uint64{1}))
+		defer first.Close()
+		defer second.Close()
+
+		So(backend.Submit(second), ShouldBeNil)
+		So(backend.Submit(first), ShouldBeNil)
+
+		Convey("When Sync walks the store", func() {
+			_ = drainSync(backend)
+
+			Convey("It should execute owners in canonical ValueID order", func() {
+				So(probe.owners, ShouldResemble, []uint64{first.ID(), second.ID()})
+			})
+		})
+	})
+
 	Convey("Given a low-pressure substrate fails before CPU fallback", t, func() {
 		gpu := &substrateProbe{name: "gpu", err: errors.New("gpu failed")}
 		cpu := &substrateProbe{name: "cpu", spawn: true}
@@ -164,15 +188,22 @@ func TestGetCommunity(t *testing.T) {
 
 		owner := primitive.Emit()
 		bystander := primitive.Emit()
+		later := primitive.Emit()
 		defer owner.Close()
 		defer bystander.Close()
+		defer later.Close()
 
-		So(backend.Submit(owner), ShouldBeNil)
+		So(backend.Submit(later), ShouldBeNil)
 		So(backend.Submit(bystander), ShouldBeNil)
+		So(backend.Submit(owner), ShouldBeNil)
 
 		Convey("It should fall back to the entire community", func() {
 			community := backend.getCommunity(owner)
-			So(len(community), ShouldEqual, 2)
+			So(communityIDs(community), ShouldResemble, []uint64{
+				owner.ID(),
+				bystander.ID(),
+				later.ID(),
+			})
 		})
 	})
 
@@ -200,6 +231,45 @@ func TestGetCommunity(t *testing.T) {
 			So(community[0], ShouldEqual, picked)
 		})
 	})
+}
+
+func TestRange(t *testing.T) {
+	Convey("Given residents were submitted out of ID order", t, func() {
+		backend := newProbeBackend(&substrateState{Substrate: &substrateProbe{name: "cpu"}})
+		defer backend.Close()
+
+		first := primitive.Emit()
+		second := primitive.Emit()
+		defer first.Close()
+		defer second.Close()
+
+		So(backend.Submit(second), ShouldBeNil)
+		So(backend.Submit(first), ShouldBeNil)
+
+		Convey("When Range visits the backend store", func() {
+			var seen []uint64
+
+			backend.Range(func(value *primitive.Value) bool {
+				seen = append(seen, value.ID())
+
+				return true
+			})
+
+			Convey("It should use canonical ValueID order", func() {
+				So(seen, ShouldResemble, []uint64{first.ID(), second.ID()})
+			})
+		})
+	})
+}
+
+func communityIDs(community []*primitive.Value) []uint64 {
+	ids := make([]uint64, 0, len(community))
+
+	for _, value := range community {
+		ids = append(ids, value.ID())
+	}
+
+	return ids
 }
 
 func BenchmarkNextSubstrate(b *testing.B) {

@@ -1,19 +1,33 @@
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
+import { useState } from "react";
 import { fieldStore } from "@/lib/field-store";
+import type { ColorMode, ScenePreset } from "@/lib/scene-mapping";
+import { useViewValues } from "@/lib/view-values";
+import { Field3DScene } from "./Field3DScene";
+import { SceneToolbar } from "./SceneToolbar";
+import { Timeline } from "./Timeline";
 import { TopBar } from "./TopBar";
 import { ValueDetail } from "./ValueDetail";
-import { ValueGrid } from "./ValueGrid";
 
 /*
-Dashboard subscribes to the full field store in one shot rather than
-fanning the read out across selectors. Libraries that mirror React 18’s
-useSyncExternalStore semantics can omit a render when finer-grained
-selectors disagree during a telemetry burst — this manifested as a
-selection that froze once the burst started. Pulling one snapshot via
-TanStack Store’s useStore is cheap (three fields) and avoids that gap.
+Dashboard composes the 3D field, the cursor-aware detail panel, and the
+timeline. All three panels read from useViewValues so the view stays
+internally consistent: when the cursor is pinned to a past tick, the
+scene, the chips, and the inspector all reflect the same projected
+state.
 */
 export function Dashboard() {
-	const { values, selectedId, connectionError } = useStore(fieldStore);
+	const selectedId = useSelector(fieldStore, (state) => state.selectedId);
+	const connectionError = useSelector(
+		fieldStore,
+		(state) => state.connectionError,
+	);
+	const { values, ticksSinceTouch, atHead, cursorTick, tickCount } =
+		useViewValues();
+
+	const [colorMode, setColorMode] = useState<ColorMode>("community");
+	const [preset, setPreset] = useState<ScenePreset>("all");
+
 	const selected = selectedId ? (values.get(selectedId) ?? null) : null;
 
 	return (
@@ -23,16 +37,41 @@ export function Dashboard() {
 				connectionError={connectionError}
 				selectedId={selectedId}
 			/>
-			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-				<div className="flex-1 overflow-auto border-white/10 p-3">
-					<ValueGrid values={values} selectedId={selectedId} />
+			<SceneToolbar
+				colorMode={colorMode}
+				preset={preset}
+				onColorModeChange={setColorMode}
+				onPresetChange={setPreset}
+			/>
+			<div className="flex min-h-0 flex-1">
+				<div className="relative min-h-0 flex-1 overflow-hidden">
+					<Field3DScene
+						values={values}
+						ticksSinceTouch={ticksSinceTouch}
+						selectedId={selectedId}
+						colorMode={colorMode}
+						preset={preset}
+					/>
+					<div className="pointer-events-none absolute left-3 top-3 rounded border border-white/10 bg-black/40 px-2 py-1 font-mono text-[10px] text-white/70">
+						{atHead ? (
+							<span>
+								<span className="text-emerald-300">live</span> · {values.size} values
+							</span>
+						) : (
+							<span>
+								<span className="text-cyan-300">tick {cursorTick}</span> /{" "}
+								{tickCount - 1} · {values.size} values
+							</span>
+						)}
+					</div>
 				</div>
 				<div
-					className={`min-h-0 w-full shrink-0 overflow-auto border-white/10 p-3 max-lg:border-t lg:w-[min(480px,100vw)] lg:max-w-[480px] lg:border-l lg:border-t-0 ${selected ? "" : "max-lg:hidden"}`}
+					className={`min-h-0 w-[420px] shrink-0 overflow-auto border-l border-white/10 p-3 ${selected ? "" : "hidden"}`}
 				>
 					<ValueDetail stored={selected} values={values} />
 				</div>
 			</div>
+			<Timeline />
 		</div>
 	);
 }

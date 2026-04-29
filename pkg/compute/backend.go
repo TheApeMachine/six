@@ -5,6 +5,7 @@ import (
 	"errors"
 	"iter"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -98,43 +99,42 @@ func (backend *Backend) Range(visitor func(*primitive.Value) bool) {
 		return
 	}
 
-	backend.community.Range(func(key, value any) bool {
-		resident, ok := value.(*primitive.Value)
-		if !ok || resident == nil {
-			return true
+	for _, resident := range backend.snapshotCommunity() {
+		if !visitor(resident) {
+			return
 		}
-
-		return visitor(resident)
-	})
+	}
 }
 
 func (backend *Backend) getCommunity(owner *primitive.Value) []*primitive.Value {
+	return backend.communityFor(owner, backend.snapshotCommunity())
+}
+
+func (backend *Backend) communityFor(owner *primitive.Value, residents []*primitive.Value) []*primitive.Value {
 	if backend == nil || owner == nil {
 		return nil
 	}
 
-	all := make([]*primitive.Value, 0)
+	all := make([]*primitive.Value, 0, len(residents))
 	community := make([]*primitive.Value, 0)
+	lane := owner.ID()
 
-	backend.community.Range(func(key, value any) bool {
-		resident, ok := value.(*primitive.Value)
-		if !ok || resident == nil {
-			return true
-		}
+	if reference, err := owner.Property(primitive.REFERENCE); err == nil && reference != 0 {
+		lane = reference
+	}
 
+	for _, resident := range residents {
 		reference, err := resident.Property(primitive.REFERENCE)
 		if err != nil {
-			return true
+			continue
 		}
 
 		all = append(all, resident)
 
-		if reference == owner.ID() && resident.Status() == primitive.SELECTED {
+		if reference == lane && resident.Status() == primitive.SELECTED {
 			community = append(community, resident)
 		}
-
-		return true
-	})
+	}
 
 	// Many resident programs intentionally run over the whole live store.
 	// The SELECTED/reference lane is a narrowing optimization, not a
@@ -144,6 +144,37 @@ func (backend *Backend) getCommunity(owner *primitive.Value) []*primitive.Value 
 	}
 
 	return community
+}
+
+/*
+snapshotCommunity returns the live resident store in canonical ValueID order.
+sync.Map intentionally has no stable iteration order, and the ALU pop/reducer
+paths make first-seen ties observable. Sorting the snapshot keeps recruitment
+and readout reproducible while preserving the lock-free submit store.
+*/
+func (backend *Backend) snapshotCommunity() []*primitive.Value {
+	if backend == nil {
+		return nil
+	}
+
+	residents := make([]*primitive.Value, 0)
+
+	backend.community.Range(func(key, value any) bool {
+		resident, ok := value.(*primitive.Value)
+		if !ok || resident == nil {
+			return true
+		}
+
+		residents = append(residents, resident)
+
+		return true
+	})
+
+	sort.Slice(residents, func(left, right int) bool {
+		return residents[left].ID() < residents[right].ID()
+	})
+
+	return residents
 }
 
 /*
@@ -265,17 +296,14 @@ func (backend *Backend) Sync(
 			backend.syncMu.Lock()
 			defer backend.syncMu.Unlock()
 
-			backend.community.Range(func(key, value any) bool {
-				owner, ok := value.(*primitive.Value)
-				if !ok || owner == nil {
-					return true
-				}
+			residents := backend.snapshotCommunity()
 
+			for _, owner := range residents {
 				if owner.Status() == primitive.READY {
 					owner.SetStatus(primitive.BUSY)
 
 					spawned, err := backend.execute(
-						owner, backend.getCommunity(owner),
+						owner, backend.communityFor(owner, residents),
 					)
 
 					if err != nil {
@@ -292,21 +320,14 @@ func (backend *Backend) Sync(
 						owner.SetStatus(primitive.DONE)
 					}
 				}
-
-				return true
-			})
+			}
 
 			result := &SyncResult{
 				Resolved: make([]*primitive.Value, 0),
 				Ready:    make([]*primitive.Value, 0),
 			}
 
-			backend.community.Range(func(key, value any) bool {
-				owner, ok := value.(*primitive.Value)
-				if !ok || owner == nil {
-					return true
-				}
-
+			for _, owner := range backend.snapshotCommunity() {
 				if owner.Status() == primitive.RESOLVED {
 					result.Resolved = append(result.Resolved, owner)
 				}
@@ -314,9 +335,7 @@ func (backend *Backend) Sync(
 				if owner.Status() == primitive.READY {
 					result.Ready = append(result.Ready, owner)
 				}
-
-				return true
-			})
+			}
 
 			return result
 		}()
@@ -343,6 +362,10 @@ func (backend *Backend) executeSubstrate(
 ) ([]*primitive.Value, error) {
 	if state == nil {
 		return nil, nil
+	}
+
+	if state.Name() != "cpu" && valueUsesGeometric(owner) {
+		return nil, errors.New("resident geometric slots require cpu substrate")
 	}
 
 	if state.Name() != "cpu" && valueTargetsChild(owner) {
@@ -388,6 +411,21 @@ func valueTargetsChild(value *primitive.Value) bool {
 		}
 
 		if (word>>targetTagShift)&targetTagMask == targetTagChild {
+			return true
+		}
+	}
+
+	return false
+}
+
+func valueUsesGeometric(value *primitive.Value) bool {
+	if value == nil {
+		return false
+	}
+
+	for _, word := range value.Get(primitive.ProgramRegion) {
+		switch word {
+		case 0x10, 0x20, 0x30:
 			return true
 		}
 	}

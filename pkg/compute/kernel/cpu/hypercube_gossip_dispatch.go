@@ -25,6 +25,10 @@ func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
 			continue
 		}
 
+		if geometricSlot(instr) {
+			return false
+		}
+
 		if (instr>>TargetShift)&TargetMask == TargetC {
 			return false
 		}

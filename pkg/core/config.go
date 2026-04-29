@@ -566,21 +566,16 @@ func buildProgramLayout(value ValueConfig) program.Layout {
 		propertiesMap[strings.ToLower(strings.TrimSpace(prop))] = i
 	}
 
-	statusValue := map[string]uint64{
-		"PENDING":  0,
-		"READY":    1,
-		"BUSY":     2,
-		"WAITING":  3,
-		"DONE":     4,
-		"RESOLVED": 5,
-		"ERROR":    6,
-		"pending":  0,
-		"ready":    1,
-		"busy":     2,
-		"waiting":  3,
-		"done":     4,
-		"resolved": 5,
-		"error":    6,
+	statusValue := make(map[string]uint64)
+	for idx, status := range viper.GetStringSlice("value.status") {
+		name := strings.TrimSpace(status)
+		if name == "" {
+			continue
+		}
+
+		statusValue[name] = uint64(idx)
+		statusValue[strings.ToUpper(name)] = uint64(idx)
+		statusValue[strings.ToLower(name)] = uint64(idx)
 	}
 
 	return program.Layout{

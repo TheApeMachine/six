@@ -93,22 +93,37 @@ func TestPrompt(t *testing.T) {
 		})
 
 		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		contextStart, _ := primitive.ContextRegion.WordExtent()
 
-		nearSecond := primitive.Emit(
-			primitive.WithCommunity(10),
+		nearCommunity := primitive.Emit()
+		nearCommunity.SetProperty(primitive.COMMUNITY, nearCommunity.ID())
+		nearCommunity.SetProperty(primitive.TARGET, nearCommunity.ID())
+		nearCommunity.SetProperty(primitive.SURPRISAL, 777)
+		nearCommunity.Set(contextStart, 1<<20)
+		nearCommunity.Set(affinityStart, 0x03)
+		nearCommunity.NormalizeAffinity()
+		machine.backend.Submit(nearCommunity)
+
+		nearMember := primitive.Emit(
+			primitive.WithCommunity(nearCommunity.ID()),
 			primitive.WithLabels(1),
 		)
-		nearSecond.Set(affinityStart, 0x03)
-		nearSecond.NormalizeAffinity()
-		machine.backend.Submit(nearSecond)
+		machine.backend.Submit(nearMember)
 
-		nearFirst := primitive.Emit(
-			primitive.WithCommunity(20),
+		farCommunity := primitive.Emit()
+		farCommunity.SetProperty(primitive.COMMUNITY, farCommunity.ID())
+		farCommunity.SetProperty(primitive.TARGET, farCommunity.ID())
+		farCommunity.SetProperty(primitive.SURPRISAL, 1)
+		farCommunity.Set(contextStart, 0x01)
+		farCommunity.Set(affinityStart, 1<<20)
+		farCommunity.NormalizeAffinity()
+		machine.backend.Submit(farCommunity)
+
+		farMember := primitive.Emit(
+			primitive.WithCommunity(farCommunity.ID()),
 			primitive.WithLabels(2),
 		)
-		nearFirst.Set(affinityStart, 1<<20)
-		nearFirst.NormalizeAffinity()
-		machine.backend.Submit(nearFirst)
+		machine.backend.Submit(farMember)
 
 		prompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
 		prompt.Set(affinityStart, 0x01)
@@ -125,11 +140,17 @@ func TestPrompt(t *testing.T) {
 
 				community, communityErr := prompt.Property(primitive.COMMUNITY)
 				label, labelErr := prompt.Property(primitive.LABELS)
+				nearSurprisal, nearSurprisalErr := nearCommunity.Property(primitive.SURPRISAL)
+				farSurprisal, farSurprisalErr := farCommunity.Property(primitive.SURPRISAL)
 
 				So(communityErr, ShouldBeNil)
 				So(labelErr, ShouldBeNil)
-				So(community, ShouldEqual, 10)
+				So(nearSurprisalErr, ShouldBeNil)
+				So(farSurprisalErr, ShouldBeNil)
+				So(community, ShouldEqual, nearCommunity.ID())
 				So(label, ShouldEqual, 1)
+				So(nearSurprisal, ShouldEqual, 777)
+				So(farSurprisal, ShouldEqual, 1)
 			})
 		})
 	})
@@ -146,13 +167,20 @@ func TestPrompt(t *testing.T) {
 		})
 
 		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		contextStart, _ := primitive.ContextRegion.WordExtent()
+
+		community := primitive.Emit()
+		community.SetProperty(primitive.COMMUNITY, community.ID())
+		community.SetProperty(primitive.TARGET, community.ID())
+		community.Set(contextStart, 0x0f)
+		community.Set(affinityStart, 0x0f)
+		community.NormalizeAffinity()
+		machine.backend.Submit(community)
 
 		member := primitive.Emit(
-			primitive.WithCommunity(10),
+			primitive.WithCommunity(community.ID()),
 			primitive.WithLabels(2),
 		)
-		member.Set(affinityStart, 0x0f)
-		member.NormalizeAffinity()
 		machine.backend.Submit(member)
 
 		values, err := primitive.NewValue([]byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 abcdefghijklmnopqrstuvwxyz"))
@@ -181,6 +209,63 @@ func TestPrompt(t *testing.T) {
 				for idx := 1; idx < len(values); idx++ {
 					So(values[idx].Status(), ShouldEqual, primitive.DONE)
 				}
+
+				label, labelErr := values[0].Property(primitive.LABELS)
+				So(labelErr, ShouldBeNil)
+				So(label, ShouldEqual, 2)
+			})
+		})
+	})
+
+	Convey("Given a machine with a stale resolved resident before classification", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine, err := NewMachine(ctx)
+		So(err, ShouldBeNil)
+		So(machine, ShouldNotBeNil)
+		Reset(func() {
+			machine.Close()
+		})
+
+		affinityStart, _ := primitive.AffinityRegion.WordExtent()
+		contextStart, _ := primitive.ContextRegion.WordExtent()
+
+		community := primitive.Emit()
+		community.SetProperty(primitive.COMMUNITY, community.ID())
+		community.SetProperty(primitive.TARGET, community.ID())
+		community.Set(contextStart, 0x0f)
+		community.Set(affinityStart, 0x0f)
+		community.NormalizeAffinity()
+		machine.backend.Submit(community)
+
+		member := primitive.Emit(
+			primitive.WithCommunity(community.ID()),
+			primitive.WithLabels(2),
+		)
+		machine.backend.Submit(member)
+
+		stale := primitive.Emit(
+			primitive.WithStatus(uint64(primitive.RESOLVED)),
+			primitive.WithLabels(99),
+		)
+		machine.backend.Submit(stale)
+
+		prompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
+		prompt.Set(affinityStart, 0x0f)
+		prompt.NormalizeAffinity()
+
+		Convey("When Prompt runs readout", func() {
+			resolved, err := machine.Prompt(prompt)
+			So(err, ShouldBeNil)
+
+			Convey("Then only the injected prompt resolves the task", func() {
+				So(len(resolved), ShouldEqual, 1)
+				So(resolved[0].ID(), ShouldEqual, prompt.ID())
+
+				label, labelErr := prompt.Property(primitive.LABELS)
+				So(labelErr, ShouldBeNil)
+				So(label, ShouldEqual, 2)
 			})
 		})
 	})
@@ -199,10 +284,19 @@ func BenchmarkPrompt(b *testing.B) {
 	defer machine.Close()
 
 	affinityStart, _ := primitive.AffinityRegion.WordExtent()
+	contextStart, _ := primitive.ContextRegion.WordExtent()
+
+	community := primitive.Emit()
+	community.SetProperty(primitive.COMMUNITY, community.ID())
+	community.SetProperty(primitive.TARGET, community.ID())
+	community.Set(contextStart, 1)
+	community.Set(affinityStart, 1)
+	community.NormalizeAffinity()
+	machine.backend.Submit(community)
 
 	for idx := 0; idx < 8; idx++ {
 		member := primitive.Emit(
-			primitive.WithCommunity(10),
+			primitive.WithCommunity(community.ID()),
 			primitive.WithLabels(1),
 		)
 		member.Set(affinityStart, uint64(idx+1))

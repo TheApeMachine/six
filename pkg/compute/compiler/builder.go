@@ -29,6 +29,21 @@ const (
 	OpReduceZipfSelect    = OpCopyA
 )
 
+const (
+	OpGeometricCompose  = 0x10
+	OpGeometricSandwich = 0x20
+	OpGeometricReverse  = 0x30
+)
+
+func IsGeometricOpcode(opcode uint64) bool {
+	switch opcode {
+	case OpGeometricCompose, OpGeometricSandwich, OpGeometricReverse:
+		return true
+	default:
+		return false
+	}
+}
+
 // Topologies
 const (
 	TopoLocal            = 0b00
@@ -330,6 +345,16 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 	instr |= (builder.popEndFlag & 1) << 63
 
 	builder.instructions[builder.pc] = instr
+	builder.pc++
+}
+
+func (builder *Builder) Geometric(op uint64) {
+	if builder.pc >= 16 {
+		builder.overflow++
+		return
+	}
+
+	builder.instructions[builder.pc] = op
 	builder.pc++
 }
 

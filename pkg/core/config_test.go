@@ -188,18 +188,20 @@ func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
 /*
 TestRecruitCommunityPredicate verifies that recruitment remains guarded in
 firmware: the Hamming-distance budget must compile to a scratch xor followed by
-an in-band popcount predicate.
+an in-band popcount predicate, and accepted recruiter headers must self-stamp
+the community key used by prompt readout.
 */
 func TestRecruitCommunityPredicate(t *testing.T) {
 	Convey("Given the compiled recruit_community firmware", t, func() {
 		entry := Cfg.Programs[RECRUIT_COMMUNITY]
 		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
-		Convey("It encodes the Hamming-distance scratch xor and LT predicate", func() {
+		Convey("It encodes the Hamming-distance predicate and community header key", func() {
 			foundXor := false
 			foundPredicate := false
-			foundUnionOr := false
-			foundUnionPredicate := false
+			foundAffinityWrite := false
+			foundHeaderCommunityWrite := false
+			foundHeaderTargetWrite := false
 
 			for _, word := range entry.Words {
 				if word == 0 {
@@ -222,37 +224,36 @@ func TestRecruitCommunityPredicate(t *testing.T) {
 					foundPredicate = true
 				}
 
-				if opcode == 0x7 && aStart == 123 && aSpan == 5 && dstStart >= 73 && dstSpan == 5 {
-					foundUnionOr = true
+				if opcode == 0x7 && aStart == 123 && aSpan == 5 && dstStart == 123 && dstSpan == 5 {
+					foundAffinityWrite = true
 				}
 
-				if predicate == 1 && cond == 1 && aStart >= 73 && aSpan == 1 {
-					foundUnionPredicate = true
+				if opcode == 0x3 && aStart == 122 && aSpan == 1 && dstStart == 64 && dstSpan == 1 {
+					foundHeaderCommunityWrite = true
+				}
+
+				if opcode == 0x3 && aStart == 122 && aSpan == 1 && dstStart == 65 && dstSpan == 1 {
+					foundHeaderTargetWrite = true
 				}
 			}
 
 			So(foundXor, ShouldBeTrue)
 			So(foundPredicate, ShouldBeTrue)
-			So(foundUnionOr, ShouldBeTrue)
-			So(foundUnionPredicate, ShouldBeTrue)
+			So(foundAffinityWrite, ShouldBeTrue)
+			So(foundHeaderCommunityWrite, ShouldBeTrue)
+			So(foundHeaderTargetWrite, ShouldBeTrue)
 		})
 
-		Convey("And the constants table stages the Hamming and Shannon budgets", func() {
+		Convey("And the constants table stages the Hamming budget", func() {
 			hasHammingBudget := false
-			hasShannonBudget := false
 
 			for _, init := range entry.Constants {
 				if init.Value == 64 {
 					hasHammingBudget = true
 				}
-
-				if init.Value == 121 {
-					hasShannonBudget = true
-				}
 			}
 
 			So(hasHammingBudget, ShouldBeTrue)
-			So(hasShannonBudget, ShouldBeTrue)
 		})
 	})
 }
@@ -262,9 +263,12 @@ func TestClassifyReadoutReducers(t *testing.T) {
 		entry := Cfg.Programs[CLASSIFY_READOUT]
 		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
-		Convey("It uses generic categorical lane reducers", func() {
+		Convey("It uses affinity Hamming distance and generic categorical lane reducers", func() {
+			foundAffinityXor := false
+			foundSignalPopcnt := false
 			foundArgMin := false
 			foundMode := false
+			foundSurprisalArgMin := false
 
 			for _, word := range entry.Words {
 				if word == 0 {
@@ -273,9 +277,27 @@ func TestClassifyReadoutReducers(t *testing.T) {
 
 				opcode := word & 0xF
 				predicate := (word >> 57) & 1
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				bStart := (word >> 18) & 0x7F
+				bSpan := ((word >> 25) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				predCond := (word >> 58) & 0x7
 
-				if predicate == 1 && opcode == 0x1 {
+				if opcode == 0x6 && aStart == 123 && aSpan == 5 && bStart == 123 && bSpan == 5 {
+					foundAffinityXor = true
+				}
+
+				if predicate == 1 && predCond == 6 && aStart == 32 && aSpan == 5 && dstStart == 37 {
+					foundSignalPopcnt = true
+				}
+
+				if predicate == 1 && opcode == 0x1 && bStart == 37 {
 					foundArgMin = true
+				}
+
+				if predicate == 1 && opcode == 0x1 && bStart == 68 {
+					foundSurprisalArgMin = true
 				}
 
 				if predicate == 1 && opcode == 0x2 {
@@ -283,7 +305,10 @@ func TestClassifyReadoutReducers(t *testing.T) {
 				}
 			}
 
+			So(foundAffinityXor, ShouldBeTrue)
+			So(foundSignalPopcnt, ShouldBeTrue)
 			So(foundArgMin, ShouldBeTrue)
+			So(foundSurprisalArgMin, ShouldBeFalse)
 			So(foundMode, ShouldBeTrue)
 		})
 	})

@@ -464,13 +464,16 @@ func buildProgramLayoutFromViper(loaded []resolved, byStem map[string]resolved) 
 		propertiesMap[strings.ToLower(strings.TrimSpace(prop))] = i
 	}
 
-	statusCanon := map[string]uint64{
-		"PENDING": 0, "READY": 1, "BUSY": 2, "WAITING": 3, "DONE": 4, "RESOLVED": 5, "ERROR": 6,
-	}
-	statusValue := make(map[string]uint64, len(statusCanon)*2)
-	for key, value := range statusCanon {
-		statusValue[key] = value
-		statusValue[strings.ToLower(key)] = value
+	statusValue := make(map[string]uint64)
+	for idx, status := range viper.GetStringSlice("value.status") {
+		name := strings.TrimSpace(status)
+		if name == "" {
+			continue
+		}
+
+		statusValue[name] = uint64(idx)
+		statusValue[strings.ToUpper(name)] = uint64(idx)
+		statusValue[strings.ToLower(name)] = uint64(idx)
 	}
 
 	_ = byStem // reserved for future cross-checks

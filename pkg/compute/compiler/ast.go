@@ -91,6 +91,19 @@ func (node ReduceAssignNode) Walk(b *Builder) {
 }
 
 /*
+GeometricNode lowers a resident PGA operation into a raw geometric slot.
+The slot is intentionally not a boolean instruction: the opcode byte is the
+whole word, so the runtime dispatches it directly to the geometric lane.
+*/
+type GeometricNode struct {
+	Op uint64
+}
+
+func (node GeometricNode) Walk(b *Builder) {
+	b.Geometric(node.Op)
+}
+
+/*
 IfNode emits a real popcount-compare instruction whose result becomes
 the per-block predication mask. Body writes are gated by that mask.
 
