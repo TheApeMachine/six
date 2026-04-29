@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/compute"
@@ -157,7 +158,7 @@ Submissions that touch disjoint owner/lane frame sets run together. Overlapping
 sets are split across batches so two kernels never mutate the same Value frame
 at the same time.
 */
-func (machine *Machine) Cycle() (err error) {
+func (machine *Machine) Cycle() error {
 	if machine.backend == nil {
 		return nil
 	}
@@ -165,9 +166,14 @@ func (machine *Machine) Cycle() (err error) {
 	machine.wakeWaiting()
 
 	machine.community.Range(func(key, value any) bool {
-		if value.(*primitive.Value).Status() == primitive.READY {
-			io.Copy(machine.telemetry, value.(*primitive.Value))
-			machine.backend.Submit(value.(*primitive.Value))
+		candidate, ok := value.(*primitive.Value)
+		if !ok || candidate == nil {
+			return true
+		}
+
+		if candidate.Status() == primitive.READY {
+			io.Copy(machine.telemetry, candidate)
+			machine.backend.Submit(candidate)
 		}
 
 		return true
@@ -178,7 +184,7 @@ func (machine *Machine) Cycle() (err error) {
 		io.Copy(machine.telemetry, value)
 	}
 
-	return errors.Join(machine.err, errnie.Error(err))
+	return machine.err
 }
 
 /*
@@ -199,14 +205,20 @@ func (machine *Machine) wakeWaiting() {
 			return true
 		}
 
-		next, ok := machine.community.Load(owner.SchedulingNext())
+		rawNext, exists := machine.community.Load(owner.SchedulingNext())
 
-		if !ok {
+		if !exists {
 			return true
 		}
 
-		next.(*primitive.Value).SetStatus(primitive.READY)
-		io.Copy(machine.telemetry, next.(*primitive.Value))
+		nextCandidate, asserted := rawNext.(*primitive.Value)
+
+		if !asserted || nextCandidate == nil {
+			return true
+		}
+
+		nextCandidate.SetStatus(primitive.READY)
+		io.Copy(machine.telemetry, nextCandidate)
 
 		return true
 	})
@@ -291,29 +303,40 @@ func (machine *Machine) Prompt(values ...*primitive.Value) (resolved []*primitiv
 		return nil, errors.Join(machine.err, errnie.Error(err))
 	}
 
-	resolved = make([]*primitive.Value, 0)
-	done := false
+	for _, value := range values {
+		if value != nil {
+			machine.community.Store(value.ID(), value)
+		}
+	}
 
-	for !done {
+	pass := make([]*primitive.Value, 0)
+
+	for {
 		select {
 		case <-machine.ctx.Done():
 			return nil, machine.ctx.Err()
 		default:
-			if err := machine.Cycle(); err != nil {
-				return nil, err
-			}
+		}
 
-			// Check for resolved values
-			for _, value := range values {
-				if value.Status() == primitive.RESOLVED {
-					resolved = append(resolved, value)
-				}
-			}
+		if err := machine.Cycle(); err != nil {
+			return nil, err
+		}
 
-			if len(resolved) == len(values) {
-				done = true
+		pass = pass[:0]
+
+		for _, value := range values {
+			if value != nil && value.Status() == primitive.RESOLVED {
+				pass = append(pass, value)
 			}
 		}
+
+		resolved = pass
+
+		if len(pass) == len(values) {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
 	}
 
 	return resolved, nil

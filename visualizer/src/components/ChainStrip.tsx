@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { selectFieldValueById } from "@/lib/field-store";
 import type { StoredValue } from "@/lib/value-frame";
 
@@ -14,7 +15,7 @@ came from the same input" as a clickable row. A visited set guards
 against accidental cycles in malformed telemetry.
 */
 export function ChainStrip({ values, selected }: ChainStripProps) {
-	const chain = walkChain(values, selected);
+	const chain = useMemo(() => walkChain(values, selected), [values, selected]);
 
 	if (chain.length <= 1) {
 		return null;

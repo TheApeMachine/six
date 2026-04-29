@@ -35,5 +35,5 @@ to improve per-class disambiguation.
     Sample Size       & $N = 100$ \\
     \bottomrule
   \end{tabular}
-  {\footnotesize Exact Score is the exact-label match rate, computed as correct predictions divided by $N$; for this single-label task it matches Overall Accuracy. Balanced Accuracy is the unweighted mean of per-class recalls computed from the confusion matrix.}
+  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix (\texttt{experiment/evaluator.go}). Overall Accuracy is diagonal hits divided by $N$ (every test prompt counts; unresolved prompts score as misses). Exact Score is $\mathrm{diag}(C)$ divided by the summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact matches among prompts whose prediction landed in valid class indices only; values match Overall Accuracy here because every counted row formed a full matrix entry. Balanced Accuracy is the unweighted mean of per-class recalls (row-normalised diagonal).}
 \end{table}

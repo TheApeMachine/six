@@ -247,6 +247,11 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
 
+	exactFrac := 0.0
+	if metrics.Total > 0 {
+		exactFrac = float64(metrics.Correct) / float64(metrics.Total)
+	}
+
 	section := tools.ExperimentSection{
 		Title: "Text Classification",
 		Label: "text_classification",
@@ -276,12 +281,12 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
     Sample Size       & $N = %d$ \\
     \bottomrule
   \end{tabular}
-  {\footnotesize Exact Score is the exact-label match rate, computed as correct predictions divided by $N$; for this single-label task it matches Overall Accuracy. Balanced Accuracy is the unweighted mean of per-class recalls computed from the confusion matrix.}
+  {\footnotesize Macro-F1 is the unweighted mean of per-class F1 from the confusion matrix. Overall Accuracy divides diagonal hits by $N$ (samples without a usable prediction score as misses). Exact Score is $\mathrm{diag}(C)$ divided by summed matrix mass $\sum_{i,j}C_{i,j}$, i.e.\ exact hits among prompts represented in $C$, and differs from Overall Accuracy only when unresolved rows occupy denominator mass in Overall Accuracy but are omitted from $C$. Balanced Accuracy is the unweighted mean of per-class recalls.}
 \end{table}`,
 			projector.Pct(metrics.MacroF1),
 			projector.Pct(metrics.Accuracy),
 			projector.Pct(metrics.BalancedAcc),
-			projector.Pct(metrics.Accuracy),
+			projector.Pct(exactFrac),
 			numSamples),
 	}
 

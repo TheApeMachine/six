@@ -3,15 +3,23 @@ package program
 import "fmt"
 
 /*
+DefaultMaskTrueWord is the frame word carrying the canonical all-ones mask
+bitmap used by truth-table and predicate emits. Seventy-two matches resident
+compiled defaults until Layout exposes an explicit mask slot selector.
+*/
+const DefaultMaskTrueWord uint64 = 72
+
+/*
 Compiler lowers canonical ProgramIR values against a layout snapshot.
 It exists alongside Compile so in-value program authors do not need to emit
 feed text just to get resident machine words.
 */
 type Compiler struct {
+	layout Layout
 }
 
 func NewCompiler(layout Layout) *Compiler {
-	return &Compiler{}
+	return &Compiler{layout: layout}
 }
 
 func EncodeProgramIR(ir ProgramIR, layout Layout) (Compiled, error) {
@@ -22,6 +30,8 @@ func (compiler *Compiler) EncodeIR(ir ProgramIR) (Compiled, error) {
 	if compiler == nil {
 		return Compiled{}, fmt.Errorf("program: compiler is nil")
 	}
+
+	_ = compiler.layout
 
 	ops, err := compiler.LowerIR(ir)
 	if err != nil {
@@ -49,7 +59,7 @@ func (compiler *Compiler) EncodeIR(ir ProgramIR) (Compiled, error) {
 	return Compiled{
 		Words:        words,
 		Constants:    constants,
-		MaskTrueWord: 72,
+		MaskTrueWord: DefaultMaskTrueWord,
 	}, nil
 }
 
@@ -98,21 +108,20 @@ func (op MachineOp) Pack() uint64 {
 
 	if op.Predicate {
 		word |= 1 << InstrPredBitShift
-		word |= (op.PredicateCond & 7) << InstrPredCondShift
-	} else {
-		word |= (op.PredicateCond & 7) << InstrPredCondShift
 	}
+
+	word |= (op.PredicateCond & 7) << InstrPredCondShift
 
 	if op.SrcAFromB {
 		word |= 1 << InstrSrcAFromBShift
 	}
 
 	if op.Stage {
-		word |= 1 << 62
+		word |= 1 << InstrStageShift
 	}
 
 	if op.PopEnd {
-		word |= 1 << 63
+		word |= 1 << InstrPopEndShift
 	}
 
 	return word

@@ -1,6 +1,7 @@
 # Canonical firmware IR
 
-The **stable product** is `ProgramIR` in `pkg/compute/program/ir.go`, not feed text or a future human DSL surface. `ProgramIR` is already a 16-slot `MachineOp` sweep: frontends resolve names, regions, properties, and constants before this package packs the sixteen resident program words (`FormatProgramSweep16` prints the result).
+The **stable product** is **`ProgramIR`**, defined in `pkg/compute/program/ir.go`; it is not feed text nor a provisional human-facing DSL surface.
+**`ProgramIR`** is modeled as a 16-slot **`MachineOp` sweep**: frontends resolve names, regions, properties, and constants before this package packs the sixteen resident program words (**`FormatProgramSweep16`** prints the result).
 
 **Non-negotiable:** anything that cannot be shown as a 16-slot sweep (with explicit `empty` lines) is not firmware.
 

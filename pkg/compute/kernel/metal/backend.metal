@@ -319,6 +319,7 @@ static inline uint ast_bits_len(uint value) {
 #define CURRENT_REDUCE_MODE_EQ       2ul
 #define CURRENT_REDUCE_ZIPF_SELECT   3ul
 #define CURRENT_MODE_TABLE_SIZE      1024u
+#define CURRENT_ZIPF_MAX_CANDS       1024u
 #define CURRENT_REFERENCE_WORD       67u
 #define CURRENT_SPAWN_REGISTER_WORD  70u
 #define CURRENT_ZIPF_WEIGHT_SCALE    281474976710656ul
@@ -570,7 +571,11 @@ static inline ulong current_zipf_weight(uint rank, uint power) {
 }
 
 static inline ulong current_zipf_rotl(ulong value, uint shift) {
-    return (value << shift) | (value >> (64u - shift));
+    shift &= 63u;
+
+    uint rshift = (64u - shift) & 63u;
+
+    return (value << shift) | (value >> rshift);
 }
 
 static inline ulong current_zipf_mix(ulong seed) {
@@ -662,6 +667,11 @@ static inline ulong current_zipf_candidate_at_rank(
     uint utility_start,
     uint target_rank
 ) {
+    uint cand_idx[CURRENT_ZIPF_MAX_CANDS];
+    ulong cand_util[CURRENT_ZIPF_MAX_CANDS];
+    ulong cand_val[CURRENT_ZIPF_MAX_CANDS];
+    uint cand_count = 0u;
+
     for (uint idx = 0u; idx < params.value_count; idx++) {
         if (!ast_index_active(params, indices, idx)) {
             continue;
@@ -674,30 +684,47 @@ static inline ulong current_zipf_candidate_at_rank(
         }
 
         ulong utility = peer[utility_start & 127u];
-        uint rank = 1u;
 
-        for (uint other_idx = 0u; other_idx < params.value_count; other_idx++) {
-            if (other_idx == idx || !ast_index_active(params, indices, other_idx)) {
-                continue;
-            }
-
-            device ulong* other = ast_frame(arena, indices, other_idx);
-            if (other[value_start & 127u] == 0ul) {
-                continue;
-            }
-
-            ulong other_utility = other[utility_start & 127u];
-            if (other_utility > utility || (other_utility == utility && other_idx < idx)) {
-                rank++;
-            }
+        if (cand_count >= CURRENT_ZIPF_MAX_CANDS) {
+            continue;
         }
 
-        if (rank == target_rank) {
-            return value;
-        }
+        cand_idx[cand_count] = idx;
+        cand_util[cand_count] = utility;
+        cand_val[cand_count] = value;
+        cand_count++;
     }
 
-    return 0ul;
+    if (target_rank == 0u || target_rank > cand_count) {
+        return 0ul;
+    }
+
+    for (uint sorted_i = 1u; sorted_i < cand_count; sorted_i++) {
+        uint ci = cand_idx[sorted_i];
+        ulong cu = cand_util[sorted_i];
+        ulong cv = cand_val[sorted_i];
+        uint j = sorted_i;
+
+        while (j > 0u) {
+            uint pj = cand_idx[j - 1u];
+            ulong pu = cand_util[j - 1u];
+
+            if (pu > cu || (pu == cu && pj < ci)) {
+                break;
+            }
+
+            cand_idx[j] = cand_idx[j - 1u];
+            cand_util[j] = cand_util[j - 1u];
+            cand_val[j] = cand_val[j - 1u];
+            j--;
+        }
+
+        cand_idx[j] = ci;
+        cand_util[j] = cu;
+        cand_val[j] = cv;
+    }
+
+    return cand_val[target_rank - 1u];
 }
 
 static inline void current_reduce_zipf_select(
@@ -849,7 +876,7 @@ kernel void hypercube_gossip_kernel(
                     }
 
                     device ulong* peer = ast_frame(arena, indices, peer_idx);
-                    if (peer == nullptr || peer[mask_start & 127u] == 0ul) {
+                    if (peer[mask_start & 127u] == 0ul) {
                         continue;
                     }
 

@@ -27,7 +27,7 @@ program copy {
 						BSpan:     2,
 						DstStart:  32,
 						DstSpan:   2,
-						MaskStart: 72,
+						MaskStart: DefaultMaskTrueWord,
 					},
 				},
 			},
@@ -38,7 +38,7 @@ program copy {
 			So(irErr, ShouldBeNil)
 			So(ir.Words[0], ShouldEqual, feed.Words[0])
 			So(len(ir.Words), ShouldEqual, 16)
-			So(ir.MaskTrueWord, ShouldEqual, uint64(72))
+			So(ir.MaskTrueWord, ShouldEqual, DefaultMaskTrueWord)
 		})
 	})
 
@@ -94,7 +94,11 @@ program align {
 			So(irErr, ShouldBeNil)
 			So(ir.Words[0], ShouldEqual, feed.Words[0])
 
-			_, _, _, _, _, _, _, _, _, _, predCond, _, _, predicate, _, _, _, _ := DecodeInstruction(ir.Words[0])
+			_, _, _, _, _, _, _, _, _, _, predCond,
+				legacyIndirect, legacyBType, predicate,
+				_, _, _, _ := DecodeInstruction(ir.Words[0])
+			So(legacyIndirect, ShouldEqual, uint64(0))
+			So(legacyBType, ShouldEqual, uint64(0))
 			So(predicate, ShouldEqual, uint64(0))
 			So(predCond, ShouldEqual, uint64(3))
 		})
@@ -151,7 +155,7 @@ func TestFormatProgramSweep16(t *testing.T) {
 						BSpan:     1,
 						DstStart:  122,
 						DstSpan:   1,
-						MaskStart: 72,
+						MaskStart: DefaultMaskTrueWord,
 					},
 				},
 			},
@@ -169,6 +173,36 @@ func TestFormatProgramSweep16(t *testing.T) {
 			So(lines[15], ShouldEqual, "slot 15: empty")
 		})
 	})
+}
+
+func BenchmarkFormatProgramSweep16(b *testing.B) {
+	compiled, err := EncodeProgramIR(ProgramIR{
+		Name: "copy",
+		Slots: []SlotIR{
+			{
+				Op: MachineOp{
+					Opcode:    OpCopyA,
+					AStart:    122,
+					ASpan:     1,
+					BStart:    122,
+					BSpan:     1,
+					DstStart:  122,
+					DstSpan:   1,
+					MaskStart: DefaultMaskTrueWord,
+				},
+			},
+		},
+	}, Layout{})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for benchmarkIdx := 0; benchmarkIdx < b.N; benchmarkIdx++ {
+		FormatProgramSweep16(compiled.Words)
+	}
 }
 
 func BenchmarkEncodeProgramIR(b *testing.B) {

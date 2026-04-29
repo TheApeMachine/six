@@ -45,14 +45,20 @@ export function formatLabelsWord(word: bigint): string {
 
 	const slots = unpackLabelWord(word);
 	const parts: string[] = [];
+	const labeledSlots: { readonly name: (typeof SLOT_NAMES)[number]; value: number }[] =
+		[
+			{ name: "ds", value: slots.dataset },
+			{ name: "ul1", value: slots.ul1 },
+			{ name: "ul2", value: slots.ul2 },
+			{ name: "ul3", value: slots.ul3 },
+		];
 
-	const values = [slots.dataset, slots.ul1, slots.ul2, slots.ul3];
-	for (let idx = 0; idx < SLOT_NAMES.length; idx++) {
-		if (values[idx] === 0) {
+	for (const slot of labeledSlots) {
+		if (slot.value === 0) {
 			continue;
 		}
 
-		parts.push(`${SLOT_NAMES[idx]}:${values[idx]}`);
+		parts.push(`${slot.name}:${slot.value}`);
 	}
 
 	return parts.join(" · ");

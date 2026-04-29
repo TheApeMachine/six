@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { selectFieldValueById } from "@/lib/field-store";
 import { PROPERTY_WORD } from "@/lib/propertiesGenerated";
 import { STATUS_BG_BY_CODE, statusName } from "@/lib/status";
@@ -71,7 +71,7 @@ export function ValueGrid({ values, selectedId }: ValueGridProps) {
 					</header>
 					<div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-1.5">
 						{bucket.members.map((stored) => (
-							<ValueCell
+							<ValueCellMemo
 								key={stored.id}
 								stored={stored}
 								selected={stored.id === selectedId}
@@ -84,16 +84,9 @@ export function ValueGrid({ values, selectedId }: ValueGridProps) {
 	);
 }
 
-function ValueCell({
-	stored,
-	selected,
-}: {
-	stored: StoredValue;
-	selected: boolean;
-}) {
-	const statusCode = Number(
-		stored.decoded?.words[STATUS_WORD] ?? 0n,
-	);
+function ValueCell(props: { stored: StoredValue; selected: boolean }) {
+	const { stored, selected } = props;
+	const statusCode = Number(stored.decoded?.words[STATUS_WORD] ?? 0n);
 	const bg = STATUS_BG_BY_CODE[statusCode] ?? "bg-slate-700";
 	const firmware =
 		stored.classification.program || stored.classification.category;
@@ -101,6 +94,7 @@ function ValueCell({
 	return (
 		<button
 			type="button"
+			aria-pressed={selected}
 			onClick={() => selectFieldValueById(stored.id)}
 			className={`group rounded border px-1.5 py-1 text-left font-mono text-[10px] leading-tight transition-colors ${
 				selected
@@ -119,3 +113,12 @@ function ValueCell({
 		</button>
 	);
 }
+
+function valueCellPropsEqual(
+	prev: { stored: StoredValue; selected: boolean },
+	next: { stored: StoredValue; selected: boolean },
+): boolean {
+	return prev.selected === next.selected && prev.stored.id === next.stored.id;
+}
+
+const ValueCellMemo = memo(ValueCell, valueCellPropsEqual);

@@ -81,7 +81,12 @@ This is the actual end-to-end path the code implements today:
 6. **Backend executes** — `compute.Backend` marks the selected resident `WAITING`, dispatches its program to the lowest-pressure available ALU substrate with CPU fallback, and applies any stage requests emitted by the program. The universal-bitwise ALU reads the operand regions named by the program words and writes into the destination region on the same frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. One-shot firmware clears `properties.continuation` and stamps `DONE` itself, so lifecycle retirement is a Value-side effect rather than a host finalizer.
 8. **In-Band Mapping** — `HypercubeGossip` maps the resident `A` program over the community `B` operands. Bare `A/B` syntax materializes onto each mapped `B` frame, while explicit `A(...)` / `B(...)` operands keep their frame ownership.
-9. **Telemetry bridge** — after each observed backend tick, `vm.Machine.Cycle` writes the community's raw Value frames through `pkg/telemetry.Bridge`; the bridge fingerprints by Value ID and only forwards frames whose bytes changed since their last successful websocket send. The local websocket bridge refuses unbounded peer buffers, and the visualizer coalesces pending frames by Value ID before mutating render state, so stale intermediate telemetry cannot force the browser to replay a finished run for minutes. Expired ephemeral Values are still published once with the TTL expired sentinel before pruning, which lets the visualizer treat that raw frame as a tombstone instead of leaving a stale orphan on screen.
+9. **Telemetry bridge:**
+   - After each backend tick **`vm.Machine.Cycle`** emits raw **Value** frames (`[128]uint64` words) into **`pkg/telemetry.Bridge`**.
+   - **`pkg/telemetry.Bridge`** fingerprints by **Value ID** (per-value last-sent snapshot) so only changed bytes are forwarded on websocket sends.
+   - The local **websocket** bridge rejects unbounded backlog per peer rather than accumulating uncontrolled buffers.
+   - The **visualizer** coalesces queued frames keyed by **Value ID** before applying updates to UI state, trimming redundant intermediate snapshots.
+   - Values whose TTL has expired publish once using the **TTL expired sentinel** tombstone payload so screens can erase live rows cleanly instead of keeping stale orphans.
 
 *(The old Gossip/Mesh routing layer has been removed from the active runtime. Routing now lives in the packed AST through `self`, `next`, `fold`, and `spawn`, executed by HypercubeGossip).*
 
@@ -337,34 +342,30 @@ Reducer operations use the direct RPN contract: `{ A(surprisal) A(signals) popcn
 
 ### Candidate Program Pressure
 
-Program selection is still an in-value handshake, not a Go dispatcher. During
-the firmware syntax migration the older deterministic selector ladder is not
-assumed to be present in `cmd/cfg/config.yml`; the reusable substrate primitive
-is now the lane reducer:
+Program selection stays an **in-band** reducer contract, not a Go-side router; the reusable primitive is **`zipf_select`**.
+
+**Key concepts**
+
+- **`zipf_select`** — lane reducer expressed as **`zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)`**.
+- **`temperature`** — scalar on **A.properties.temperature**: zero is greedy sampling; larger values flatten tail pressure toward a more uniform ladder.
+- **Eligibility firmware** — exposes which candidate frames exist and fills their candidate / utility lanes; **`zipf_select` never inspects opaque program bytes**.
+- **`program_carrier`** / carrier firmware — may hold one payload slice in **`asset[0,16]`** alongside **`program_id`**, installing into **`program[0,16]`** and stamping **`continuation = id`**; it does **not** decide eligibility or ranking beyond carrying bytes.
+
+Only Values with both a non-empty **`program`** region and non-zero **`continuation`** compete as resident program carriers; settled residents retain firmware bytes without pinning the gossip pass.
 
 ```text
 zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
 ```
 
-The reducer ignores zero `program_id` entries, ranks the remaining B-side
-candidates by the supplied utility word, and writes one selected ID to the
-A-side destination. `temperature = 0` is greedy and selects the highest-utility
-candidate. Positive temperature selects an integer Zipf power bucket; low
-values produce a steep head, while high values flatten toward uniform tail
-pressure.
-The draw is deterministic from in-band owner witnesses (`id`, `epoch`,
-`community`, `surprisal`) and candidate count, so exploration remains
-reproducible and changes when the resident state changes.
+**Reducer behavior (`zipf_select`)**
 
-That keeps the missing policy out of Go. Eligibility firmware can decide which
-candidate Values exist and which utility lane they expose. Carrier firmware can
-still carry one program payload in `asset[0,16]` plus its own `program_id`, then
-install matching payloads into `program[0,16]` and stamp `continuation = id`.
-The selector never knows program bytes, and the carrier never decides what
-should run; the ranked economy only decides which eligible behavior receives
-execution pressure.
+- Skips zero **`program_id`** entries — they do not consume rank mass.
+- Ranks surviving B-side peers by the supplied **confidence** (**utility**) word and writes one chosen **`program_id`** onto the **A-side** destination property.
+- When **`temperature = 0`**, selects the strongest utility survivor deterministically.
 
-Only Values with both a non-empty `program` region and non-zero `continuation` are eligible as resident program owners. A settled resident can keep its firmware bytes without monopolizing the next gossip pass.
+**Sampling & policy separation**
+
+Ranking and Zipf-band selection are deterministic from resident owner witnesses (**`id`**, **`epoch`**, **`community`**, **`surprisal`**) plus active candidate counts, so runs stay reproducible as frame state evolves. **`Eligibility firmware`** chooses which **`program_id`** surfaces exist and what utility each publishes; **`zipf_select`** only applies that ranked economy. Carrier firmware transports payload words after the reducer has chosen **`program_id`**, preserving the invariant that selectors pick *which* carrier runs—not *what bytes* live behind the handshake.
 
 ### Community Recruitment
 

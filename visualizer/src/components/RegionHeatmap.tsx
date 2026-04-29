@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { REGION_SPECS } from "@/lib/valueRegions";
 
 /*
@@ -8,14 +9,26 @@ gradient / properties / asset / prev / next / id / affinity) get small
 labelled ticks above the strip so the eye can find a region without a
 legend.
 */
+const HEATMAP_COLUMNS = 128;
+
 interface RegionHeatmapProps {
 	words: bigint[];
 }
 
 export function RegionHeatmap({ words }: RegionHeatmapProps) {
+	const normalizedWords = useMemo(
+		() => normalizeWords(words, HEATMAP_COLUMNS),
+		[words],
+	);
+
+	const gridCols = `repeat(${HEATMAP_COLUMNS},1fr)`;
+
 	return (
 		<div>
-			<div className="mb-1 grid grid-cols-[repeat(128,1fr)] gap-px">
+			<div
+				className="mb-1 grid gap-px"
+				style={{ gridTemplateColumns: gridCols }}
+			>
 				{REGION_SPECS.map((spec) => (
 					<div
 						key={spec.name}
@@ -28,8 +41,8 @@ export function RegionHeatmap({ words }: RegionHeatmapProps) {
 					</div>
 				))}
 			</div>
-			<div className="grid grid-cols-[repeat(128,1fr)] gap-px">
-				{words.map((word, idx) => {
+			<div className="grid gap-px" style={{ gridTemplateColumns: gridCols }}>
+				{normalizedWords.map((word, idx) => {
 					const pop = popcount64(word);
 					const opacity = pop === 0 ? 0.05 : 0.2 + (pop / 64) * 0.8;
 					const wordKey = `w${idx}`;
@@ -48,9 +61,27 @@ export function RegionHeatmap({ words }: RegionHeatmapProps) {
 	);
 }
 
+function normalizeWords(words: bigint[], expectedLength: number): bigint[] {
+	if (words.length === expectedLength) {
+		return words;
+	}
+
+	console.warn(
+		`RegionHeatmap: expected ${expectedLength} words, got ${words.length}; padding or truncating`,
+	);
+
+	if (words.length < expectedLength) {
+		const pad = Array.from({ length: expectedLength - words.length }, () => 0n);
+
+		return words.concat(pad);
+	}
+
+	return words.slice(0, expectedLength);
+}
+
 function popcount64(word: bigint): number {
 	let count = 0;
-	let value = word;
+	let value = BigInt.asUintN(64, word);
 
 	while (value !== 0n) {
 		value &= value - 1n;

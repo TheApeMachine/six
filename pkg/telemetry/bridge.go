@@ -231,10 +231,7 @@ func (bridge *Bridge) BeginRun() error {
 		return errnie.Error(io.ErrClosedPipe, errors.New("bridge is nil"))
 	}
 
-	_, sent, err := bridge.write(bridgeRunMarkerFrame(uint64(time.Now().UnixNano())))
-	if sent {
-		bridge.resetSent()
-	}
+	_, _, err := bridge.write(bridgeRunMarkerFrame(uint64(time.Now().UnixNano())))
 
 	return err
 }
@@ -245,6 +242,34 @@ func bridgeRunMarkerFrame(runID uint64) []byte {
 	binary.LittleEndian.PutUint64(frame[8:], runID)
 
 	return frame
+}
+
+/*
+ForceDisconnect terminates the outbound WebSocket (if any) so the next Write
+attempt dials anew. Telemetry tests use this to simulate hub-side drops without
+reaching inside connMu-managed fields manually.
+*/
+func (bridge *Bridge) ForceDisconnect() {
+	if bridge == nil {
+		return
+	}
+
+	bridge.connMu.Lock()
+
+	if bridge.conn != nil {
+		_ = bridge.conn.Close()
+		bridge.conn = nil
+	}
+
+	bridge.connMu.Unlock()
+}
+
+func (bridge *Bridge) runMarkerPayload(p []byte) bool {
+	if len(p) < primitive.FrameByteLength || len(p)%primitive.FrameByteLength != 0 {
+		return false
+	}
+
+	return binary.LittleEndian.Uint64(p[0:8]) == bridgeRunMarkerMagic
 }
 
 /*
@@ -278,7 +303,11 @@ func (bridge *Bridge) write(p []byte) (int, bool, error) {
 	}
 
 	if bridge.url == "" {
-		bridge.commitFingerprintsLocked(fingerprints)
+		if bridge.runMarkerPayload(p) {
+			bridge.sent.Reset()
+		} else {
+			bridge.commitFingerprintsLocked(fingerprints)
+		}
 
 		return len(p), true, nil
 	}
@@ -316,7 +345,11 @@ func (bridge *Bridge) write(p []byte) (int, bool, error) {
 		return len(p), false, nil
 	}
 
-	bridge.commitFingerprintsLocked(fingerprints)
+	if bridge.runMarkerPayload(p) {
+		bridge.sent.Reset()
+	} else {
+		bridge.commitFingerprintsLocked(fingerprints)
+	}
 
 	return len(p), true, nil
 }
@@ -393,12 +426,6 @@ func (bridge *Bridge) commitFingerprintsLocked(fingerprints []bridgeFrameFingerp
 	for _, fingerprint := range fingerprints {
 		bridge.sent.Add(fingerprint.key, fingerprint.hash)
 	}
-}
-
-func (bridge *Bridge) resetSent() {
-	bridge.connMu.Lock()
-	bridge.sent.Reset()
-	bridge.connMu.Unlock()
 }
 
 func bridgeFrameHash(p []byte) uint64 {

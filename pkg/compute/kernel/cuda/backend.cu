@@ -839,6 +839,8 @@ across substrates so the backend selector can fall over freely.
 #define HG_V2_ZIPF_EPOCH_WORD     58u
 #define HG_V2_ZIPF_COMMUNITY_WORD 64u
 #define HG_V2_ZIPF_SURPRISAL_WORD 68u
+#define HG_V2_SPAWN_REGISTER_WORD   70u
+#define HG_V2_ZIPF_MAX_CANDS        1024u
 
 static __device__ __forceinline__ uint64_t hg_v2_rotated_word(
     uint64_t* frame, uint32_t start, uint32_t span, uint32_t lane, uint32_t rotate
@@ -901,17 +903,16 @@ static __device__ __forceinline__ void hg_v2_reduce_mode_eq(
     uint32_t value_start,
     uint32_t key_start,
     uint32_t dst_start,
-    uint32_t match_start
+    uint32_t match_start,
+    uint8_t* used,
+    uint64_t* keys,
+    uint32_t* counts,
+    uint32_t* first_seen
 ) {
     if (owner == nullptr || value_count == 0u) return;
 
     uint64_t match = owner[match_start & 127u];
     if (match == 0ull) return;
-
-    uint8_t used[HG_V2_MODE_TABLE_SIZE];
-    uint64_t keys[HG_V2_MODE_TABLE_SIZE];
-    uint32_t counts[HG_V2_MODE_TABLE_SIZE];
-    uint32_t first_seen[HG_V2_MODE_TABLE_SIZE];
 
     for (uint32_t slot = 0; slot < HG_V2_MODE_TABLE_SIZE; slot++) {
         used[slot] = 0u;
@@ -992,7 +993,11 @@ static __device__ __forceinline__ uint64_t hg_v2_zipf_weight(uint32_t rank, uint
 }
 
 static __device__ __forceinline__ uint64_t hg_v2_zipf_rotl(uint64_t value, uint32_t shift) {
-    return (value << shift) | (value >> (64u - shift));
+    shift &= 63u;
+
+    uint32_t rshift = (64u - shift) & 63u;
+
+    return (value << shift) | (value >> rshift);
 }
 
 static __device__ __forceinline__ uint64_t hg_v2_zipf_mix(uint64_t seed) {
@@ -1071,8 +1076,13 @@ static __device__ __forceinline__ uint64_t hg_v2_zipf_candidate_at_rank(
     uint32_t value_count,
     uint32_t value_start,
     uint32_t utility_start,
-    uint32_t target_rank
+    uint32_t target_rank,
+    uint32_t* cand_idx,
+    uint64_t* cand_util,
+    uint64_t* cand_val
 ) {
+    uint32_t cand_count = 0u;
+
     for (uint32_t idx = 0u; idx < value_count; idx++) {
         if (active[idx] == 0) continue;
 
@@ -1081,24 +1091,41 @@ static __device__ __forceinline__ uint64_t hg_v2_zipf_candidate_at_rank(
         if (value == 0ull) continue;
 
         uint64_t utility = peer[utility_start & 127u];
-        uint32_t rank = 1u;
 
-        for (uint32_t other_idx = 0u; other_idx < value_count; other_idx++) {
-            if (other_idx == idx || active[other_idx] == 0) continue;
+        if (cand_count >= HG_V2_ZIPF_MAX_CANDS) continue;
 
-            uint64_t* other = arena + (size_t)other_idx * WORDS;
-            if (other[value_start & 127u] == 0ull) continue;
-
-            uint64_t other_utility = other[utility_start & 127u];
-            if (other_utility > utility || (other_utility == utility && other_idx < idx)) {
-                rank++;
-            }
-        }
-
-        if (rank == target_rank) return value;
+        cand_idx[cand_count] = idx;
+        cand_util[cand_count] = utility;
+        cand_val[cand_count] = value;
+        cand_count++;
     }
 
-    return 0ull;
+    if (target_rank == 0u || target_rank > cand_count) return 0ull;
+
+    for (uint32_t sorted_i = 1u; sorted_i < cand_count; sorted_i++) {
+        uint32_t ci = cand_idx[sorted_i];
+        uint64_t cu = cand_util[sorted_i];
+        uint64_t cv = cand_val[sorted_i];
+        uint32_t j = sorted_i;
+
+        while (j > 0u) {
+            uint32_t pj = cand_idx[j - 1u];
+            uint64_t pu = cand_util[j - 1u];
+
+            if (pu > cu || (pu == cu && pj < ci)) break;
+
+            cand_idx[j] = cand_idx[j - 1u];
+            cand_util[j] = cand_util[j - 1u];
+            cand_val[j] = cand_val[j - 1u];
+            j--;
+        }
+
+        cand_idx[j] = ci;
+        cand_util[j] = cu;
+        cand_val[j] = cv;
+    }
+
+    return cand_val[target_rank - 1u];
 }
 
 static __device__ __forceinline__ void hg_v2_reduce_zipf_select(
@@ -1109,7 +1136,10 @@ static __device__ __forceinline__ void hg_v2_reduce_zipf_select(
     uint32_t value_start,
     uint32_t utility_start,
     uint32_t dst_start,
-    uint32_t temperature_start
+    uint32_t temperature_start,
+    uint32_t* zipf_idx,
+    uint64_t* zipf_util,
+    uint64_t* zipf_val
 ) {
     if (owner == nullptr || value_count == 0u) return;
 
@@ -1144,12 +1174,32 @@ static __device__ __forceinline__ void hg_v2_reduce_zipf_select(
         running += hg_v2_zipf_weight(rank, power);
         if (ticket >= running) continue;
 
-        uint64_t selected = hg_v2_zipf_candidate_at_rank(arena, active, value_count, value_start, utility_start, rank);
+        uint64_t selected = hg_v2_zipf_candidate_at_rank(
+            arena,
+            active,
+            value_count,
+            value_start,
+            utility_start,
+            rank,
+            zipf_idx,
+            zipf_util,
+            zipf_val
+        );
         owner[dst_start & 127u] = selected == 0ull ? best_value : selected;
         return;
     }
 
-    uint64_t selected = hg_v2_zipf_candidate_at_rank(arena, active, value_count, value_start, utility_start, count);
+    uint64_t selected = hg_v2_zipf_candidate_at_rank(
+        arena,
+        active,
+        value_count,
+        value_start,
+        utility_start,
+        count,
+        zipf_idx,
+        zipf_util,
+        zipf_val
+    );
     owner[dst_start & 127u] = selected == 0ull ? best_value : selected;
 }
 
@@ -1174,6 +1224,14 @@ __global__ void hypercube_gossip_v2_kernel(
     }
 
     if (stage_count != nullptr) stage_count[0] = 0u;
+
+    __shared__ uint8_t s_mode_used[HG_V2_MODE_TABLE_SIZE];
+    __shared__ uint64_t s_mode_keys[HG_V2_MODE_TABLE_SIZE];
+    __shared__ uint32_t s_mode_counts[HG_V2_MODE_TABLE_SIZE];
+    __shared__ uint32_t s_mode_first_seen[HG_V2_MODE_TABLE_SIZE];
+    __shared__ uint32_t s_zipf_idx[HG_V2_ZIPF_MAX_CANDS];
+    __shared__ uint64_t s_zipf_util[HG_V2_ZIPF_MAX_CANDS];
+    __shared__ uint64_t s_zipf_val[HG_V2_ZIPF_MAX_CANDS];
 
     uint32_t b_queue_idx = 0u;
     uint32_t current_b_idx = 0u;
@@ -1211,12 +1269,37 @@ __global__ void hypercube_gossip_v2_kernel(
             }
 
             if (opcode == HG_V2_REDUCE_MODE_EQ) {
-                hg_v2_reduce_mode_eq(owner, arena, active, value_count, a_start, b_start, dst_start, mask_start);
+                hg_v2_reduce_mode_eq(
+                    owner,
+                    arena,
+                    active,
+                    value_count,
+                    a_start,
+                    b_start,
+                    dst_start,
+                    mask_start,
+                    s_mode_used,
+                    s_mode_keys,
+                    s_mode_counts,
+                    s_mode_first_seen
+                );
                 continue;
             }
 
             if (opcode == HG_V2_REDUCE_ZIPF_SELECT) {
-                hg_v2_reduce_zipf_select(owner, arena, active, value_count, a_start, b_start, dst_start, mask_start);
+                hg_v2_reduce_zipf_select(
+                    owner,
+                    arena,
+                    active,
+                    value_count,
+                    a_start,
+                    b_start,
+                    dst_start,
+                    mask_start,
+                    s_zipf_idx,
+                    s_zipf_util,
+                    s_zipf_val
+                );
                 continue;
             }
         }
@@ -1413,7 +1496,7 @@ __global__ void hypercube_gossip_v2_kernel(
         }
 
         if (emit_flag == 1ull && mask != 0ull) {
-            owner[70]++; // SpawnRegisterWord; matches CPU/Metal kernels.
+            owner[HG_V2_SPAWN_REGISTER_WORD]++;
         }
     }
 }
@@ -1500,9 +1583,12 @@ extern "C" {
     hypercube_gossip_v2_cuda runs the new ALU on device. It mirrors the
     Go reference (executeKernelGo) and the Metal kernel: contiguous
     community frames, an active mask, and output buffers for staged peer
-    indices and spawned children. Returns 0 on success, negative on
-    error. The host is responsible for reading stage_count[0] and
-    iterating stage_indices[0..count) afterwards.
+    indices. Spawn intent is surfaced only via the spawn-register owner word;
+    spawn_* host pointers are unused here but kept ABI-stable. Negative
+    return codes match the CUDA helper contract: configure/pool (-1, -6),
+    memcpy (-2), launch (-3), sync (-4), D2H (-5); -7 means owner_index is
+    neither the invalid sentinel nor a valid arena index (< value_count).
+    The host reads stage_count[0] and iterates stage_indices[0..count) afterward.
     */
     int hypercube_gossip_v2_cuda(
         int                device_id,
@@ -1522,15 +1608,13 @@ extern "C" {
         if (cudaSetDevice(device_id) != cudaSuccess) return -1;
         if (ensure_gossip_pool(value_count) != 0)    return -1;
         if (value_count > 1024) return -6;
+        if (owner_index != 0xFFFFFFFFu && owner_index >= value_count) return -7;
 
         size_t frames_bytes = (size_t)value_count * WORDS * sizeof(uint64_t);
         size_t active_bytes = (size_t)value_count * sizeof(uint8_t);
-        size_t spawn_ids_bytes = (size_t)value_count * sizeof(uint64_t);
 
         if (cudaMemcpy(d_gossip_arena, value_frames_host, frames_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
         if (cudaMemcpy(d_gossip_active, active_host, active_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
-        if (cudaMemcpy(d_spawn_ids, spawn_ids_host, spawn_ids_bytes, cudaMemcpyHostToDevice) != cudaSuccess) return -2;
-        if (cudaMemset(d_spawn_active, 0, active_bytes) != cudaSuccess) return -2;
 
         // Stage indices output. We borrow the d_ast_post slab for the
         // stage_indices array and a one-uint scratch for stage_count to
@@ -1558,8 +1642,6 @@ extern "C" {
         if (cudaMemcpy(value_frames_host, d_gossip_arena, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
         if (cudaMemcpy(stage_indices_host, d_stage_indices, stage_indices_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
         if (cudaMemcpy(stage_count_host, d_stage_count, sizeof(uint32_t), cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
-        if (cudaMemcpy(spawn_frames_host, d_spawn_frames, frames_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
-        if (cudaMemcpy(spawn_active_host, d_spawn_active, active_bytes, cudaMemcpyDeviceToHost) != cudaSuccess) return -5;
 
         return 0;
     }

@@ -43,6 +43,13 @@ func (err *ErrnieError) Join(werr error) *ErrnieError {
 	return err
 }
 
+/*
+WithContext attaches ctx to ErrnieError for downstream logging joins and callers
+tracing cancellation; it preserves the fluent chain by returning the same pointer.
+
+Nil receivers stay nil. The stored Context alias is shared verbatim—callers retain
+authority over cancel propagation and concurrency around ctx reads.
+*/
 func (err *ErrnieError) WithContext(ctx context.Context) *ErrnieError {
 	if err == nil {
 		return nil

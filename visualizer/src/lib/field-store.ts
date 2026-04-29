@@ -28,7 +28,7 @@ export const fieldStore = createStore<FieldStoreState>({
 });
 
 const TELEMETRY_RUN_MARKER_MAGIC = 0x73697872756e3031n;
-const TELEMETRY_RUN_MARKER_QUEUE_KEY = "run-marker";
+const TELEMETRY_RUN_MARKER_QUEUE_KEY = "__six:telemetry-run-marker";
 
 export function applyValueFrames(frames: RawValueFrame[]) {
 	if (frames.length === 0) {

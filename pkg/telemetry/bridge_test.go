@@ -19,132 +19,139 @@ func TestBridge_Write(t *testing.T) {
 	t.Parallel()
 
 	Convey("Write succeeds when the bridge URL is empty (no uplink)", t, func() {
-		bridge, err := NewBridge(context.Background(), "")
+		Convey("It should accept payloads without wiring a websocket", func() {
+			bridge, err := NewBridge(context.Background(), "")
 
-		So(err, ShouldBeNil)
-		So(bridge, ShouldNotBeNil)
-		defer bridge.Close()
+			So(err, ShouldBeNil)
+			So(bridge, ShouldNotBeNil)
+			defer bridge.Close()
 
-		payload := []byte{1, 2, 3, 4}
-		n, writeErr := bridge.Write(payload)
+			payload := []byte{1, 2, 3, 4}
+			n, writeErr := bridge.Write(payload)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(payload))
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+		})
 	})
 
 	Convey("Write sends a Value frame only when its bytes changed", t, func() {
-		url, messages, closeServer := newBridgeTestServer(t)
-		defer closeServer()
+		Convey("It should omit websocket traffic when payloads match prior fingerprints", func() {
+			url, messages, closeServer := newBridgeTestServer(t)
+			defer closeServer()
 
-		bridge, err := NewBridge(context.Background(), url)
+			bridge, err := NewBridge(context.Background(), url)
 
-		So(err, ShouldBeNil)
-		So(bridge, ShouldNotBeNil)
-		defer bridge.Close()
+			So(err, ShouldBeNil)
+			So(bridge, ShouldNotBeNil)
+			defer bridge.Close()
 
-		frame := make([]byte, primitive.FrameByteLength)
-		binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 42)
+			frame := make([]byte, primitive.FrameByteLength)
+			binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 42)
 
-		n, writeErr := bridge.Write(frame)
+			n, writeErr := bridge.Write(frame)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(frame))
-		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(frame))
+			So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
 
-		n, writeErr = bridge.Write(frame)
+			n, writeErr = bridge.Write(frame)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(frame))
-		So(noBridgeTestMessage(messages), ShouldBeTrue)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(frame))
+			So(noBridgeTestMessage(messages), ShouldBeTrue)
 
-		frame[0] = 7
-		n, writeErr = bridge.Write(frame)
+			frame[0] = 7
+			n, writeErr = bridge.Write(frame)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(frame))
-		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(frame))
+			So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+		})
 	})
 
 	Convey("Write filters unchanged frames inside a batch", t, func() {
-		url, messages, closeServer := newBridgeTestServer(t)
-		defer closeServer()
+		Convey("It should send only unique frames", func() {
+			url, messages, closeServer := newBridgeTestServer(t)
+			defer closeServer()
 
-		bridge, err := NewBridge(context.Background(), url)
+			bridge, err := NewBridge(context.Background(), url)
 
-		So(err, ShouldBeNil)
-		So(bridge, ShouldNotBeNil)
-		defer bridge.Close()
+			So(err, ShouldBeNil)
+			So(bridge, ShouldNotBeNil)
+			defer bridge.Close()
 
-		batch := make([]byte, primitive.FrameByteLength*2)
-		first := batch[:primitive.FrameByteLength]
-		second := batch[primitive.FrameByteLength:]
-		binary.LittleEndian.PutUint64(first[primitive.IDStartWord*8:], 101)
-		binary.LittleEndian.PutUint64(second[primitive.IDStartWord*8:], 202)
+			batch := make([]byte, primitive.FrameByteLength*2)
+			first := batch[:primitive.FrameByteLength]
+			second := batch[primitive.FrameByteLength:]
+			binary.LittleEndian.PutUint64(first[primitive.IDStartWord*8:], 101)
+			binary.LittleEndian.PutUint64(second[primitive.IDStartWord*8:], 202)
 
-		n, writeErr := bridge.Write(batch)
+			n, writeErr := bridge.Write(batch)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(batch))
-		So(readBridgeTestMessage(t, messages), ShouldEqual, len(batch))
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(batch))
+			So(readBridgeTestMessage(t, messages), ShouldEqual, len(batch))
 
-		second[0] = 9
-		n, writeErr = bridge.Write(batch)
+			second[0] = 9
+			n, writeErr = bridge.Write(batch)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(batch))
-		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(batch))
+			So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+		})
 	})
 
 	Convey("Write filters duplicate unchanged frames inside one batch", t, func() {
-		url, messages, closeServer := newBridgeTestServer(t)
-		defer closeServer()
+		Convey("It should deduplicate identical peers within a single batch", func() {
+			url, messages, closeServer := newBridgeTestServer(t)
+			defer closeServer()
 
-		bridge, err := NewBridge(context.Background(), url)
+			bridge, err := NewBridge(context.Background(), url)
 
-		So(err, ShouldBeNil)
-		So(bridge, ShouldNotBeNil)
-		defer bridge.Close()
+			So(err, ShouldBeNil)
+			So(bridge, ShouldNotBeNil)
+			defer bridge.Close()
 
-		batch := make([]byte, primitive.FrameByteLength*2)
-		first := batch[:primitive.FrameByteLength]
-		second := batch[primitive.FrameByteLength:]
-		binary.LittleEndian.PutUint64(first[primitive.IDStartWord*8:], 303)
-		copy(second, first)
+			batch := make([]byte, primitive.FrameByteLength*2)
+			first := batch[:primitive.FrameByteLength]
+			second := batch[primitive.FrameByteLength:]
+			binary.LittleEndian.PutUint64(first[primitive.IDStartWord*8:], 303)
+			copy(second, first)
 
-		n, writeErr := bridge.Write(batch)
+			n, writeErr := bridge.Write(batch)
 
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(batch))
-		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(batch))
+			So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+		})
 	})
 
 	Convey("Write keeps sent fingerprints across reconnects", t, func() {
-		url, messages, closeServer := newBridgeTestServer(t)
-		defer closeServer()
+		Convey("It should keep deduplication fingerprints even after the websocket restarts", func() {
+			url, messages, closeServer := newBridgeTestServer(t)
+			defer closeServer()
 
-		bridge, err := NewBridge(context.Background(), url)
+			bridge, err := NewBridge(context.Background(), url)
 
-		So(err, ShouldBeNil)
-		So(bridge, ShouldNotBeNil)
-		defer bridge.Close()
+			So(err, ShouldBeNil)
+			So(bridge, ShouldNotBeNil)
+			defer bridge.Close()
 
-		frame := make([]byte, primitive.FrameByteLength)
-		binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 404)
+			frame := make([]byte, primitive.FrameByteLength)
+			binary.LittleEndian.PutUint64(frame[primitive.IDStartWord*8:], 404)
 
-		n, writeErr := bridge.Write(frame)
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(frame))
-		So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
+			n, writeErr := bridge.Write(frame)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(frame))
+			So(readBridgeTestMessage(t, messages), ShouldEqual, primitive.FrameByteLength)
 
-		bridge.connMu.Lock()
-		_ = bridge.conn.Close()
-		bridge.conn = nil
-		bridge.connMu.Unlock()
+			bridge.ForceDisconnect()
 
-		n, writeErr = bridge.Write(frame)
-		So(writeErr, ShouldBeNil)
-		So(n, ShouldEqual, len(frame))
-		So(noBridgeTestMessage(messages), ShouldBeTrue)
+			n, writeErr = bridge.Write(frame)
+			So(writeErr, ShouldBeNil)
+			So(n, ShouldEqual, len(frame))
+			So(noBridgeTestMessage(messages), ShouldBeTrue)
+		})
 	})
 }
 

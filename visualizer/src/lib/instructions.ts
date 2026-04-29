@@ -9,25 +9,25 @@ the compiler — keeping them in one place keeps the dashboard honest if
 the table ever grows.
 */
 const TRUTH_TABLE_OPS: Record<number, string> = {
-	0x00: "FALSE",
-	0x01: "AND",
-	0x02: "A ∧ ¬B",
-	0x03: "A",
-	0x04: "¬A ∧ B",
-	0x05: "B",
-	0x06: "XOR",
-	0x07: "OR",
-	0x08: "NOR",
-	0x09: "XNOR",
-	0x0a: "¬B",
-	0x0b: "A ∨ ¬B",
-	0x0c: "¬A",
-	0x0d: "¬A ∨ B",
-	0x0e: "NAND",
-	0x0f: "TRUE",
-	0x10: "PGA Compose",
-	0x20: "PGA Sandwich",
-	0x30: "PGA Reverse",
+	0: "FALSE",
+	1: "AND",
+	2: "A ∧ ¬B",
+	3: "A",
+	4: "¬A ∧ B",
+	5: "B",
+	6: "XOR",
+	7: "OR",
+	8: "NOR",
+	9: "XNOR",
+	10: "¬B",
+	11: "A ∨ ¬B",
+	12: "¬A",
+	13: "¬A ∨ B",
+	14: "NAND",
+	15: "TRUE",
+	16: "PGA Compose",
+	32: "PGA Sandwich",
+	48: "PGA Reverse",
 };
 
 const TOPOLOGY_NAMES: Record<number, string> = {
@@ -105,5 +105,5 @@ export function formatInstruction(instruction: DecodedInstruction): string {
 		flags.push("A←B");
 	}
 
-	return `${head}  ${flags.length ? `// ${flags.join(", ")}` : ""}`;
+	return `${head}  // ${flags.join(", ")}`;
 }

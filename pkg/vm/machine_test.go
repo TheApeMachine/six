@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -45,6 +46,8 @@ func loadConfigForTests(t testing.TB) {
 	})
 }
 
+const maxDrainCycles = 50000
+
 /*
 drainCycles repeats Cycle until no READY Value with a populated lane remains.
 Cycle is single-pass by design; in-band stage(B) instructions populate lanes
@@ -52,7 +55,15 @@ that the next pass needs to see, so tests that assert end-to-end chain effects
 have to drive the loop the same way Prompt does.
 */
 func drainCycles(machine *Machine) error {
+	iterations := 0
+
 	for {
+		iterations++
+
+		if iterations > maxDrainCycles {
+			return errors.New("vm.drainCycles: exceeded maxDrainCycles waiting for READY/lane backlog to clear")
+		}
+
 		var pending bool
 
 		machine.community.Range(func(key, value any) bool {
@@ -227,6 +238,7 @@ func TestNewMachine(t *testing.T) {
 }
 
 func TestPromptClassifyReadout(t *testing.T) {
+	// TODO(#FIXME): Tracking issue placeholder — replace with GitHub issue; re-enable when firmware query selection stages prompts against labelled communities.
 	t.Skip("pending firmware-side query selection: Prompt does not yet stage the prompt against a chosen community")
 	loadConfigForTests(t)
 
@@ -288,6 +300,7 @@ func TestPromptClassifyReadout(t *testing.T) {
 }
 
 func TestPrompt(t *testing.T) {
+	// TODO(#FIXME): Tracking issue placeholder — replace with GitHub issue; re-enable when firmware query selection stages sequential prompts cleanly.
 	t.Skip("pending firmware-side query selection: Prompt does not yet stage the prompt against a chosen community")
 	loadConfigForTests(t)
 
@@ -321,8 +334,6 @@ func TestPrompt(t *testing.T) {
 		machine.community.Store(nearFirst.ID(), nearFirst)
 
 		firstPrompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
-		firstPrompt.Set(affinityStart, 1<<20)
-		firstPrompt.NormalizeAffinity()
 
 		_, err = machine.Prompt(firstPrompt)
 		So(err, ShouldBeNil)
@@ -355,6 +366,7 @@ func TestPrompt(t *testing.T) {
 }
 
 func BenchmarkPrompt(b *testing.B) {
+	// TODO(#FIXME): Same tracking issue as TestPrompt — re-enable when Prompt path is exercised in benchmarks.
 	b.Skip("pending firmware-side query selection: Prompt does not yet stage the prompt against a chosen community")
 	loadConfigForTests(b)
 
@@ -400,8 +412,8 @@ func BenchmarkPrompt(b *testing.B) {
 	}
 }
 
-
 func TestLoad(t *testing.T) {
+	// TODO(#FIXME): Tracking issue placeholder — re-enable when multi-recruiter / residual orphan recruitment is modeled in bootstrap firmware.
 	t.Skip("pending firmware-side residual recruitment: a single bootstrap recruiter saturates and leaves the rest orphaned")
 	loadConfigForTests(t)
 

@@ -6,7 +6,7 @@ import {
 	queueValueFrames,
 	setFieldConnectionError,
 } from "@/lib/field-store";
-import { type RawValueFrame, decodeValueWireMessage } from "@/lib/wire";
+import { decodeValueWireMessage, type RawValueFrame } from "@/lib/wire";
 
 /*
 TelemetryConnection owns the websocket lifecycle for the dashboard.
@@ -66,7 +66,10 @@ export function TelemetryConnection({ children }: { children: ReactNode }) {
 				scheduleFlush();
 			};
 
-			socket.onerror = () => {
+			socket.onerror = (event: Event) => {
+				console.error("telemetry websocket error", event.type, event, {
+					targetUrl: socket.url ?? telemetryWebSocketURL(),
+				});
 				setFieldConnectionError("telemetry bridge unavailable");
 			};
 

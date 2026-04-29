@@ -1,6 +1,11 @@
 package primitive
 
-import "github.com/theapemachine/six/pkg/core"
+import (
+	"fmt"
+	"os"
+
+	"github.com/theapemachine/six/pkg/core"
+)
 
 func (value *Value) HasProgram() bool {
 	if value == nil {
@@ -81,20 +86,33 @@ func (value *Value) InstallFirmware(firmware core.FirmwareType) bool {
 	// without any indirection logic.
 	words := append([]uint64(nil), entry.Compiled()...)
 
-	for _, sub := range entry.Substitutions {
-		if sub.PC < 0 || sub.PC >= len(words) {
+	const maxSubstitutionFieldShift = uint64(57)
+
+	for _, substitution := range entry.Substitutions {
+		if substitution.PC < 0 || substitution.PC >= len(words) {
 			continue
 		}
 
-		addr := int(sub.Addr)
+		if uint64(substitution.FieldShift) > maxSubstitutionFieldShift {
+			fmt.Fprintf(os.Stderr,
+				"primitive.InstallFirmware: PC=%d FieldShift=%d exceeds highest safe 7-bit span (needs shift<=57)\n",
+				substitution.PC, substitution.FieldShift)
+
+			return false
+		}
+
+		addr := int(substitution.Addr)
 		if addr < 0 || addr >= len(*value) {
 			continue
 		}
 
 		operand := (*value)[addr] & 0x7F
 
-		words[sub.PC] &^= uint64(0x7F) << sub.FieldShift
-		words[sub.PC] |= operand << sub.FieldShift
+		shift := uint64(substitution.FieldShift)
+		mask := uint64(0x7F) << shift
+
+		words[substitution.PC] &^= mask
+		words[substitution.PC] |= operand << shift
 	}
 
 	return value.InstallProgram(words)

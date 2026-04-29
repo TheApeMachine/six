@@ -1,6 +1,9 @@
 package cpu
 
-import "math/bits"
+import (
+	"math/bits"
+	"sort"
+)
 
 /*
 Predicate condition codes are packed into instr[58:61] when the predicate
@@ -47,6 +50,13 @@ const (
 )
 
 const (
+	// TargetBBitShift selects the truth-table broadcast destination bucket.
+	TargetBBitShift = 53
+	// EmitFlagBitShift is the Emit bit interpreted by kernels that tally
+	// emits into the spawn register (owner word SpawnRegisterWord).
+	EmitFlagBitShift = 54
+	// TopologyShift holds the topology code (two bits): local, queue, hypercube, hypercube-per-peer.
+	TopologyShift      = 55
 	PredicateBitShift  = 57
 	PredicateCondShift = 58
 	// SrcAFromBShift selects the popped B frame as the SrcA pointer. It
@@ -70,6 +80,25 @@ const (
 	TopoHypercube        = 2
 	TopoHypercubePerPeer = 3
 )
+
+func evaluatePredicateCompare(predCond uint64, witness, threshold uint64) bool {
+	switch predCond {
+	case PredLT:
+		return witness < threshold
+	case PredLE:
+		return witness <= threshold
+	case PredGT:
+		return witness > threshold
+	case PredGE:
+		return witness >= threshold
+	case PredEQ:
+		return witness == threshold
+	case PredNE:
+		return witness != threshold
+	default:
+		return false
+	}
+}
 
 /*
 executeKernelGo is the canonical Go implementation of the device ALU.
@@ -145,17 +174,17 @@ func (backend *Backend) executeKernelGo(
 				// non-zero gets queued for staging. The mask was written
 				// by a preceding TopoHypercubePerPeer predicate in the
 				// same gossip block.
-				for k := uint64(0); k < communitySize; k++ {
-					if k == ownerIdx {
+				for peerIdx := uint64(0); peerIdx < communitySize; peerIdx++ {
+					if peerIdx == ownerIdx {
 						continue
 					}
 
-					peer := community[k]
+					peer := community[peerIdx]
 					if peer == nil || peer[maskStart&127] == 0 {
 						continue
 					}
 
-					stagedIdx = append(stagedIdx, k)
+					stagedIdx = append(stagedIdx, peerIdx)
 				}
 			} else if currentB != nil {
 				stagedIdx = append(stagedIdx, currentBIdx)
@@ -213,12 +242,12 @@ func (backend *Backend) executeKernelGo(
 			// via maskStart, so the broadcast write is naturally gated.
 			threshold := ownerFrame[bStart&127]
 
-			for k := uint64(0); k < communitySize; k++ {
-				if k == ownerIdx {
+			for peerIdx := uint64(0); peerIdx < communitySize; peerIdx++ {
+				if peerIdx == ownerIdx {
 					continue
 				}
 
-				peer := community[k]
+				peer := community[peerIdx]
 				if peer == nil {
 					continue
 				}
@@ -238,21 +267,7 @@ func (backend *Backend) executeKernelGo(
 					witness = witnessSrc[aStart&127]
 				}
 
-				var hit bool
-				switch predCond {
-				case PredLT:
-					hit = witness < threshold
-				case PredLE:
-					hit = witness <= threshold
-				case PredGT:
-					hit = witness > threshold
-				case PredGE:
-					hit = witness >= threshold
-				case PredEQ:
-					hit = witness == threshold
-				case PredNE:
-					hit = witness != threshold
-				}
+				hit := evaluatePredicateCompare(predCond, witness, threshold)
 
 				var maskValue uint64
 				if hit {
@@ -300,21 +315,7 @@ func (backend *Backend) executeKernelGo(
 					witness = ptrA[aStart&127]
 				}
 
-				var hit bool
-				switch predCond {
-				case PredLT:
-					hit = witness < threshold
-				case PredLE:
-					hit = witness <= threshold
-				case PredGT:
-					hit = witness > threshold
-				case PredGE:
-					hit = witness >= threshold
-				case PredEQ:
-					hit = witness == threshold
-				case PredNE:
-					hit = witness != threshold
-				}
+				hit := evaluatePredicateCompare(predCond, witness, threshold)
 
 				var maskValue uint64
 				if hit {
@@ -576,6 +577,49 @@ func reduceModeEq(
 	ownerFrame[dstStart&127] = bestValue
 }
 
+type zipfCandidateRank struct {
+	index   uint64
+	utility uint64
+	value   uint64
+}
+
+func sortedZipfCandidates(
+	community []*[128]uint64,
+	communitySize uint64,
+	valueStart uint64,
+	utilityStart uint64,
+) []zipfCandidateRank {
+	var candidates []zipfCandidateRank
+
+	for idx := uint64(0); idx < communitySize; idx++ {
+		peer := community[idx]
+		if peer == nil {
+			continue
+		}
+
+		value := peer[valueStart&127]
+		if value == 0 {
+			continue
+		}
+
+		candidates = append(candidates, zipfCandidateRank{
+			index:   idx,
+			utility: peer[utilityStart&127],
+			value:   value,
+		})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].utility != candidates[j].utility {
+			return candidates[i].utility > candidates[j].utility
+		}
+
+		return candidates[i].index < candidates[j].index
+	})
+
+	return candidates
+}
+
 func reduceZipfSelect(
 	ownerFrame *[128]uint64,
 	community []*[128]uint64,
@@ -589,30 +633,32 @@ func reduceZipfSelect(
 		return
 	}
 
-	count := zipfCandidateCount(community, communitySize, valueStart)
-	if count == 0 {
+	candidates := sortedZipfCandidates(community, communitySize, valueStart, utilityStart)
+	if len(candidates) == 0 {
 		return
 	}
 
-	bestValue, bestUtility, ok := zipfGreedyCandidate(community, communitySize, valueStart, utilityStart)
-	if !ok {
-		return
-	}
+	bestValue := candidates[0].value
+	bestUtility := candidates[0].utility
+	count := len(candidates)
 
 	temperature := ownerFrame[temperatureStart&127]
 	if temperature == 0 || count == 1 {
 		ownerFrame[dstStart&127] = bestValue
+
 		return
 	}
 
 	power := zipfPower(temperature)
 	total := uint64(0)
+
 	for rank := 1; rank <= count; rank++ {
 		total += zipfWeight(uint64(rank), power)
 	}
 
 	if total == 0 {
 		ownerFrame[dstStart&127] = bestValue
+
 		return
 	}
 
@@ -626,118 +672,12 @@ func reduceZipfSelect(
 			continue
 		}
 
-		if selected, ok := zipfCandidateAtRank(community, communitySize, valueStart, utilityStart, rank); ok {
-			ownerFrame[dstStart&127] = selected
-			return
-		}
+		ownerFrame[dstStart&127] = candidates[rank-1].value
 
-		ownerFrame[dstStart&127] = bestValue
-		return
-	}
-
-	if selected, ok := zipfCandidateAtRank(community, communitySize, valueStart, utilityStart, count); ok {
-		ownerFrame[dstStart&127] = selected
 		return
 	}
 
 	ownerFrame[dstStart&127] = bestValue
-}
-
-func zipfCandidateCount(community []*[128]uint64, communitySize uint64, valueStart uint64) int {
-	count := 0
-	for idx := uint64(0); idx < communitySize; idx++ {
-		peer := community[idx]
-		if peer == nil || peer[valueStart&127] == 0 {
-			continue
-		}
-
-		count++
-	}
-
-	return count
-}
-
-func zipfGreedyCandidate(
-	community []*[128]uint64,
-	communitySize uint64,
-	valueStart uint64,
-	utilityStart uint64,
-) (uint64, uint64, bool) {
-	bestValue := uint64(0)
-	bestUtility := uint64(0)
-	bestIndex := uint64(0)
-	found := false
-
-	for idx := uint64(0); idx < communitySize; idx++ {
-		peer := community[idx]
-		if peer == nil {
-			continue
-		}
-
-		value := peer[valueStart&127]
-		if value == 0 {
-			continue
-		}
-
-		utility := peer[utilityStart&127]
-		if found && (utility < bestUtility || utility == bestUtility && idx >= bestIndex) {
-			continue
-		}
-
-		bestValue = value
-		bestUtility = utility
-		bestIndex = idx
-		found = true
-	}
-
-	return bestValue, bestUtility, found
-}
-
-func zipfCandidateAtRank(
-	community []*[128]uint64,
-	communitySize uint64,
-	valueStart uint64,
-	utilityStart uint64,
-	targetRank int,
-) (uint64, bool) {
-	for idx := uint64(0); idx < communitySize; idx++ {
-		peer := community[idx]
-		if peer == nil {
-			continue
-		}
-
-		value := peer[valueStart&127]
-		if value == 0 {
-			continue
-		}
-
-		utility := peer[utilityStart&127]
-		rank := 1
-		for otherIdx := uint64(0); otherIdx < communitySize; otherIdx++ {
-			other := community[otherIdx]
-			if other == nil || otherIdx == idx {
-				continue
-			}
-
-			otherValue := other[valueStart&127]
-			if otherValue == 0 {
-				continue
-			}
-
-			otherUtility := other[utilityStart&127]
-			if otherUtility > utility || otherUtility == utility && otherIdx < idx {
-				rank++
-			}
-		}
-
-		if rank != targetRank {
-			continue
-		}
-
-		return value, true
-	}
-
-	return 0, false
 }
 
 func zipfPower(temperature uint64) uint64 {
@@ -770,10 +710,6 @@ func zipfWeight(rank uint64, power uint64) uint64 {
 		if weight == 0 {
 			return 1
 		}
-	}
-
-	if weight == 0 {
-		return 1
 	}
 
 	return weight

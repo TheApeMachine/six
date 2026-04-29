@@ -22,9 +22,10 @@ import (
 var (
 	logFile *os.File
 
-	traceFile   *os.File
-	traceInitMu sync.Mutex
-	traceQueue  chan string
+	traceFile        *os.File
+	traceInitMu      sync.Mutex
+	traceQueue       chan string
+	traceQueueClosed bool
 
 	loggerPtr atomic.Pointer[ErrnieLogger]
 
@@ -239,6 +240,7 @@ func Shutdown(ctx context.Context) error {
 	closeElasticsearchSink(ctx)
 
 	traceInitMu.Lock()
+	traceQueueClosed = true
 	if traceQueue != nil {
 		close(traceQueue)
 		traceQueue = nil
@@ -362,13 +364,13 @@ so they pass the level filter (Debug-level traces would otherwise be dropped bef
 Plain debug-level behavior is unchanged when loglevel is trace or debug.
 */
 func Trace(msg string, keyvals ...any) {
-	l := loggerPtr.Load()
-	var z *zap.Logger
-	if l != nil {
-		z = l.Logger
+	loadedLogger := loggerPtr.Load()
+	var zapLogger *zap.Logger
+	if loadedLogger != nil {
+		zapLogger = loadedLogger.Logger
 	}
 
-	debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
+	debugEnabled := zapLogger != nil && zapLogger.Core().Enabled(zapcore.DebugLevel)
 
 	cfg, _ := loggingCfg.Load().(LoggingConfig)
 	esShipping := cfg.Elasticsearch.Enabled && initErr == nil
@@ -380,16 +382,18 @@ func Trace(msg string, keyvals ...any) {
 	}
 
 	formatted := traceKeyvalsFormatted(keyvals)
-	if z != nil {
+	if zapLogger != nil {
 		base := keyvalsToFields(formatted)
 		fields := make([]zap.Field, len(base)+1)
 		copy(fields, base)
 		fields[len(base)] = zap.String("component", "trace")
 
 		if debugEnabled {
-			z.Debug(msg, fields...)
-		} else if esShipping {
-			z.Info(msg, fields...)
+			zapLogger.Debug(msg, fields...)
+		}
+
+		if esShipping && !debugEnabled {
+			zapLogger.Info(msg, fields...)
 		}
 	}
 
@@ -406,7 +410,7 @@ func Trace(msg string, keyvals ...any) {
 		return
 	}
 
-	if debugEnabled || traceEnabled {
+	if traceEnabled {
 		fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
 	}
 }
@@ -444,6 +448,10 @@ func Error(err error, keyvals ...any) error {
 func ensureTraceFile() {
 	traceInitMu.Lock()
 	defer traceInitMu.Unlock()
+
+	if traceQueueClosed {
+		return
+	}
 
 	if traceFile != nil {
 		return
@@ -529,7 +537,10 @@ func formatTraceLine(parts []any) string {
 }
 
 func writeTraceLine(line string) {
-	if traceFile == nil || traceQueue == nil {
+	traceInitMu.Lock()
+	defer traceInitMu.Unlock()
+
+	if traceQueueClosed || traceQueue == nil || traceFile == nil {
 		return
 	}
 

@@ -96,6 +96,8 @@ const (
 	InstrPredBitShift   = 57 // 1 = popcount-driven predicate instruction
 	InstrPredCondShift  = 58 // predicate=1: comparison/reduction; predicate=0: SrcB rot8 steps
 	InstrSrcAFromBShift = 61 // 1 = read SrcA from popped frame too
+	InstrStageShift     = 62 // stage(B) directives (queue peer indices pre-staging)
+	InstrPopEndShift    = 63 // rewind pop lane after stepping the body
 
 	InstrSpanMask  = 0x7F
 	InstrStartMask = 0x7F
@@ -151,8 +153,8 @@ func DecodeInstruction(word uint64) (
 	predicate = (word >> InstrPredBitShift) & 1
 	predCond = (word >> InstrPredCondShift) & 7
 	srcAFromB = (word >> InstrSrcAFromBShift) & 1
-	stage = (word >> 62) & 1
-	popEnd = (word >> 63) & 1
+	stage = (word >> InstrStageShift) & 1
+	popEnd = (word >> InstrPopEndShift) & 1
 	aIndirect = 0
 	bType = 0
 

@@ -303,11 +303,12 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 	instr |= (builder.emitFlag & 1) << 54
 	instr |= (builder.currentTopo & 3) << 55
 	instr |= (builder.predicateEnable & 1) << 57
-	instr |= (builder.bRotate & 7) << 58
+	meta58 := (builder.bRotate & 7) << 58
 	if builder.predicateEnable == 1 {
-		instr &^= uint64(7) << 58
-		instr |= (builder.predCond & 7) << 58
+		meta58 = (builder.predCond & 7) << 58
 	}
+
+	instr |= meta58
 	instr |= (builder.srcAFromB & 1) << 61
 	instr |= (builder.stageFlag & 1) << 62
 	instr |= (builder.popEndFlag & 1) << 63

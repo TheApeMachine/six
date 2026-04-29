@@ -1,5 +1,5 @@
 import { Dashboard } from "@/components/Dashboard";
-import { TelemetryConnection } from "@/context/field-context";
+import { TelemetryConnection } from "@/context/telemetry-context";
 
 export default function App() {
 	return (

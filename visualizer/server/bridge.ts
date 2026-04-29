@@ -1,5 +1,5 @@
-import http from "node:http";
 import { readFile } from "node:fs/promises";
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -112,8 +112,11 @@ websocketServer.on("connection", (client) => {
 				if (error) {
 					peer.terminate();
 				}
+
+				if (!error) {
+					diagnostics.forwardedMessages++;
+				}
 			});
-			diagnostics.forwardedMessages++;
 		}
 	});
 

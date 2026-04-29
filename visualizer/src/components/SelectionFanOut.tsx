@@ -1,13 +1,15 @@
 import { useMemo } from "react";
-import { selectFieldValueById, fieldStore } from "@/lib/field-store";
+import { selectFieldValueById } from "@/lib/field-store";
 import { SIGNALS_START_WORD } from "@/lib/layoutGenerated";
 import { PROPERTY_WORD } from "@/lib/propertiesGenerated";
 import { STATUS_BG_BY_CODE, statusName } from "@/lib/status";
 import type { StoredValue } from "@/lib/value-frame";
+import { formatValueId } from "@/lib/value-frame";
 
 const REFERENCE_WORD = PROPERTY_WORD("REFERENCE");
 const COMMUNITY_WORD = PROPERTY_WORD("COMMUNITY");
 const STATUS_WORD = PROPERTY_WORD("STATUS");
+const CONTINUATION_WORD = PROPERTY_WORD("CONTINUATION");
 const SIGNALS_MATCH_SPAN = 5;
 
 interface SelectionFanOutProps {
@@ -39,7 +41,8 @@ unclaimed pool waiting for the recruiter pass.
 */
 export function SelectionFanOut({ values, selected }: SelectionFanOutProps) {
 	const targetId = selected.decoded?.words[REFERENCE_WORD] ?? 0n;
-	const selfIdWord = selected.decoded?.words[PROPERTY_WORD("CONTINUATION")];
+	const selfIdWord = selected.decoded?.words[CONTINUATION_WORD];
+	const targetIdHex = targetId !== 0n ? formatValueId(targetId) : "";
 
 	const inbound = useMemo<Inbound[]>(() => {
 		if (!selected.decoded) {
@@ -60,9 +63,7 @@ export function SelectionFanOut({ values, selected }: SelectionFanOutProps) {
 				continue;
 			}
 
-			const statusCode = Number(
-				candidate.decoded?.words[STATUS_WORD] ?? 0n,
-			);
+			const statusCode = Number(candidate.decoded?.words[STATUS_WORD] ?? 0n);
 			const community = candidate.decoded?.words[COMMUNITY_WORD] ?? 0n;
 			const matchPop = popcountSpan(
 				candidate.decoded?.words ?? [],
@@ -94,7 +95,10 @@ export function SelectionFanOut({ values, selected }: SelectionFanOutProps) {
 			{targetId !== 0n ? (
 				<div className="text-[10px] text-white/60">
 					stages for{" "}
-					<TargetLink id={targetId.toString(16).padStart(16, "0")} />
+					<TargetLink
+						id={targetIdHex}
+						known={targetIdHex !== "" && values.has(targetIdHex)}
+					/>
 					{selfIdWord && selfIdWord === targetId ? (
 						<span className="ml-2 text-white/35">(self-loop)</span>
 					) : null}
@@ -124,7 +128,10 @@ export function SelectionFanOut({ values, selected }: SelectionFanOutProps) {
 										className="border-t border-white/5 hover:bg-white/5"
 									>
 										<td className="px-1.5 py-0.5">
-											<TargetLink id={row.stored.id} />
+											<TargetLink
+												id={row.stored.id}
+												known={values.has(row.stored.id)}
+											/>
 										</td>
 										<td className="px-1.5 py-0.5">
 											<StatusPill code={row.statusCode} />
@@ -157,9 +164,7 @@ function StatusPill({ code }: { code: number }) {
 	);
 }
 
-function TargetLink({ id }: { id: string }) {
-	const known = fieldStore.get().values.has(id);
-
+function TargetLink({ id, known }: { id: string; known: boolean }) {
 	if (!known) {
 		return <span className="text-white/40">{id.slice(-8)}</span>;
 	}

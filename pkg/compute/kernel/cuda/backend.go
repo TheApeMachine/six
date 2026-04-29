@@ -56,6 +56,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -130,13 +131,13 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	frames := make([]primitive.Value, n)
 	active := make([]uint8, n)
 
-	for i, member := range community {
+	for communityIdx, member := range community {
 		if member == nil {
 			continue
 		}
 
-		frames[i] = *member
-		active[i] = 1
+		frames[communityIdx] = *member
+		active[communityIdx] = 1
 	}
 
 	ownerIndex := ^uint32(0)
@@ -185,7 +186,7 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	// names the staging lane.
 	var staged []kernel.StageRequest
 	if stageCount > 0 && value != nil {
-		ownerRef := uint64((*[128]uint64)(unsafe.Pointer(value))[ReferenceWord])
+		ownerRef := uint64((*[primitive.WordCount]uint64)(unsafe.Pointer(value))[ReferenceWord])
 
 		staged = make([]kernel.StageRequest, 0, stageCount)
 		for idx := uint32(0); idx < stageCount && idx < uint32(n); idx++ {
@@ -202,20 +203,57 @@ func (backend *Backend) HypercubeGossip(value *primitive.Value, community []*pri
 	}
 
 	var spawned []*primitive.Value
-	for idx, child := range spawnValues {
-		if child == nil {
-			continue
+
+	if spawnValues != nil && value != nil {
+		ownerWords := (*[primitive.WordCount]uint64)(unsafe.Pointer(value))
+
+		spawnRemaining := ownerWords[cpu.SpawnRegisterWord]
+		ownerWords[cpu.SpawnRegisterWord] = 0
+
+		childPool := make([]*primitive.Value, 0, len(spawnValues))
+		for idx := range spawnValues {
+			if spawnValues[idx] != nil {
+				childPool = append(childPool, spawnValues[idx])
+			}
 		}
 
-		if idx < len(spawnActive) && spawnActive[idx] != 0 {
-			*child = spawnFrames[idx]
+		for spawnIdx := uint64(0); spawnIdx < spawnRemaining; spawnIdx++ {
+			var child *primitive.Value
+
+			if spawnIdx < uint64(len(childPool)) {
+				child = childPool[spawnIdx]
+			} else {
+				child = primitive.AllocValue()
+
+				if child == nil {
+					continue
+				}
+			}
+
+			childFrame := (*[primitive.WordCount]uint64)(unsafe.Pointer(child))
+			copy(childFrame[:], ownerWords[:])
+
+			child.StampID()
+			childFrame[cpu.SpawnRegisterWord] = 0
+
+			if child.HasProgram() {
+				child.SetSchedulingNext(child.ID())
+				child.SetStatus(primitive.READY)
+			} else {
+				child.SetSchedulingNext(0)
+				child.SetStatus(primitive.PENDING)
+			}
+
 			spawned = append(spawned, child)
-			continue
 		}
 
-		child.Close()
-		spawnValues[idx] = nil
+		for poolIdx := spawnRemaining; poolIdx < uint64(len(childPool)); poolIdx++ {
+			childPool[poolIdx].Close()
+		}
+		return spawned, staged, nil
 	}
+
+	primitive.CloseAll(spawnValues)
 
 	return spawned, staged, nil
 }

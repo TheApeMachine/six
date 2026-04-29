@@ -13,6 +13,9 @@ import { ChainStrip } from "./ChainStrip";
 import { RegionHeatmap } from "./RegionHeatmap";
 import { SelectionFanOut } from "./SelectionFanOut";
 
+/** Lane index of the first property word row in the flattened 128-word frame (display label w{base+offset}). */
+export const PROPERTY_WORD_BASE_OFFSET = 56;
+
 const STATUS_WORD = PROPERTY_WORD("STATUS");
 const PROPERTY_ORDER: PropertyName[] = [
 	"STATUS",
@@ -112,7 +115,8 @@ export function ValueDetail({ stored, values }: ValueDetailProps) {
 								className="flex justify-between border-b border-white/5 py-0.5 text-[10px]"
 							>
 								<span className="text-white/50">
-									w{56 + PROPERTY_OFFSET[name]} {name.toLowerCase()}
+									w{PROPERTY_WORD_BASE_OFFSET + PROPERTY_OFFSET[name]}{" "}
+									{name.toLowerCase()}
 								</span>
 								<span className="text-white/85">
 									{formatPropertyWord(name, word)}
@@ -217,6 +221,11 @@ function prettyText(raw: string): string {
 	for (const char of raw) {
 		const code = char.codePointAt(0) ?? 0;
 
+		if (code === 0xfffd) {
+			out += "·";
+			continue;
+		}
+
 		if (code < 0x20 && code !== 0x09 && code !== 0x0a) {
 			out += "·";
 			continue;
@@ -275,12 +284,12 @@ function formatPropertyWord(name: PropertyName, word: bigint): string {
 		return formatLabelsWord(word);
 	}
 
-	if (word === 0n) {
-		return "0";
-	}
-
 	if (name === "STATUS") {
 		return statusName(Number(word));
+	}
+
+	if (word === 0n) {
+		return "0";
 	}
 
 	if (

@@ -38,15 +38,17 @@ func TestErrnieError_Unwrap(t *testing.T) {
 func TestErrnieError_Join(t *testing.T) {
 	t.Parallel()
 
-	Convey("Join keeps both errors observable", t, func() {
+	Convey("Given distinct standard errors chained through ErrnieError.Join", t, func() {
 		base := errors.New("a")
 		next := errors.New("b")
 		err := NewErrnieError(base)
 
-		_ = err.Join(next)
+		Convey("It should expose both tails through errors.Join wiring", func() {
+			_ = err.Join(next)
 
-		So(errors.Is(err, base), ShouldBeTrue)
-		So(errors.Is(err, next), ShouldBeTrue)
+			So(errors.Is(err, base), ShouldBeTrue)
+			So(errors.Is(err, next), ShouldBeTrue)
+		})
 	})
 }
 
@@ -67,16 +69,57 @@ func TestIsReschedulable(t *testing.T) {
 func TestHasContext(t *testing.T) {
 	t.Parallel()
 
-	Convey("HasContext returns nil for standard errors", t, func() {
-		So(HasContext(errors.New("z")), ShouldBeNil)
+	Convey("Given a standard error", t, func() {
+		Convey("It should report nil context bindings", func() {
+			So(HasContext(errors.New("z")), ShouldBeNil)
+		})
 	})
 
-	Convey("HasContext reads ErrnieError context", t, func() {
+	Convey("Given an ErrnieError annotated with canceled context metadata", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
 		err := NewErrnieError(errors.New("z")).WithContext(ctx)
 
-		So(HasContext(err), ShouldEqual, ctx)
+		Convey("It should expose the identical context pointer captured by WithContext", func() {
+			So(HasContext(err), ShouldEqual, ctx)
+		})
 	})
+}
+
+func BenchmarkJoin(b *testing.B) {
+	base := errors.New("a")
+	next := errors.New("b")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for benchmarkIdx := 0; benchmarkIdx < b.N; benchmarkIdx++ {
+		err := NewErrnieError(base)
+		err.Join(next)
+
+		if !(errors.Is(err, base) && errors.Is(err, next)) {
+			b.Fatalf("join drift benchIdx=%d", benchmarkIdx)
+		}
+	}
+}
+
+func BenchmarkHasContext(b *testing.B) {
+	plainErr := errors.New("plain")
+	ctxBackground, cancel := context.WithCancel(context.Background())
+	cancel()
+	errnieErr := NewErrnieError(errors.New("trace")).WithContext(ctxBackground)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for benchmarkIdx := 0; benchmarkIdx < b.N; benchmarkIdx++ {
+		if HasContext(plainErr) != nil {
+			b.Fatal("unexpected context on plain error")
+		}
+
+		if HasContext(errnieErr) != ctxBackground {
+			b.Fatalf("context mismatch benchIdx=%d", benchmarkIdx)
+		}
+	}
 }

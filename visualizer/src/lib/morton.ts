@@ -42,8 +42,18 @@ export function decodeTokenWords(words: readonly bigint[]): string {
 			}
 
 			const { x, y } = decodeInterleaved8x8(code);
+			const pos = x - POSITION_OFFSET;
 
-			pairs.push({ position: x - POSITION_OFFSET, byte: y });
+			if (pos < 0) {
+				console.error("morton: negative reconstructed position after decode", {
+					code,
+					x,
+					POSITION_OFFSET,
+				});
+				continue;
+			}
+
+			pairs.push({ position: pos, byte: y });
 		}
 	}
 
@@ -58,9 +68,5 @@ export function decodeTokenWords(words: readonly bigint[]): string {
 		bytes[idx] = pairs[idx].byte;
 	}
 
-	try {
-		return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-	} catch {
-		return "";
-	}
+	return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }

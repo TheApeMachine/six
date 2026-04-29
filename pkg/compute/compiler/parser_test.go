@@ -283,6 +283,21 @@ program align {
 	})
 }
 
+func BenchmarkCompileRot8(b *testing.B) {
+	source := `
+program align {
+  pop(B) {
+    write A.signals[0,2] <- xor(A.tokens[0,2], rot8(B.tokens[0,2], 3))
+  }
+}
+`
+
+	b.ReportAllocs()
+	for idx := 0; idx < b.N; idx++ {
+		_, _ = Compile(source)
+	}
+}
+
 func TestCompileHammingPredicate(t *testing.T) {
 	Convey("Given the current recruit_community source", t, func() {
 		source := `
@@ -563,18 +578,4 @@ program query {
 			So(stage, ShouldEqual, uint64(1))
 		})
 	})
-}
-
-func BenchmarkCompileRot8(b *testing.B) {
-	source := `
-program align {
-  pop(B) {
-    write A.signals[0,2] <- xor(A.tokens[0,2], rot8(B.tokens[0,2], 3))
-  }
-}
-`
-
-	for i := 0; i < b.N; i++ {
-		_, _ = Compile(source)
-	}
 }

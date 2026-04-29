@@ -108,7 +108,7 @@ func TestExecuteKernelHyperBroadcastEquivalence(t *testing.T) {
 		goOwner[ownerSrcA] = 0xCAFEBABEDEADBEEF
 
 		instr := packTestHypercubeBroadcast(
-			opcodeCopyA, ownerSrcA, 1, 0, 1, peerDstB, 1, maskWord, topoHyper, 1,
+			opcodeCopyA, ownerSrcA, 1, 0, 1, peerDstB, 1, maskWord, topoHyper,
 		)
 		goOwner[ProgramStartWord] = instr
 
@@ -151,6 +151,72 @@ func TestExecuteKernelHyperBroadcastEquivalence(t *testing.T) {
 	})
 }
 
+func BenchmarkExecuteKernelHyperBroadcastEquivalence(b *testing.B) {
+	const (
+		opcodeCopyA = uint64(0x3)
+		topoHyper   = uint64(2)
+		maskWord    = uint64(72)
+		ownerSrcA   = uint64(40)
+		peerDstB    = uint64(64)
+		numPeers    = 64
+	)
+
+	instr := packTestHypercubeBroadcast(
+		opcodeCopyA, ownerSrcA, 1, 0, 1, peerDstB, 1, maskWord, topoHyper,
+	)
+	backend := &Backend{}
+	dimCount := uint64(6)
+
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		owner := &[128]uint64{}
+		community := make([]*[128]uint64, numPeers)
+		for benchIdx := range community {
+			community[benchIdx] = new([128]uint64)
+		}
+
+		owner[maskWord] = ^uint64(0)
+		owner[ownerSrcA] = 0xCAFEBABEDEADBEEF
+		owner[ProgramStartWord] = instr
+
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			for _, peer := range community {
+				peer[peerDstB] = 0
+			}
+
+			backend.executeKernelGo(owner, ^uint64(0), community, uint64(len(community)), dimCount)
+		}
+	})
+
+	b.Run("asm", func(b *testing.B) {
+		b.ReportAllocs()
+		owner := &[128]uint64{}
+		community := make([]*[128]uint64, numPeers)
+		for benchIdx := range community {
+			community[benchIdx] = new([128]uint64)
+		}
+
+		owner[maskWord] = ^uint64(0)
+		owner[ownerSrcA] = 0xCAFEBABEDEADBEEF
+		owner[ProgramStartWord] = instr
+
+		var stageBuf [128]uint64
+		var stageCount uint64
+
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			for _, peer := range community {
+				peer[peerDstB] = 0
+			}
+
+			executeKernel(backend, owner, ^uint64(0), community, uint64(len(community)), dimCount, &stageBuf, &stageCount)
+		}
+	})
+}
+
 /*
 TestExecuteKernelStageEquivalence pins the stage(B) path: asm and Go
 must record the same peer indices in their staged-output buffers when
@@ -159,23 +225,19 @@ a stage instruction fires inside a pop body.
 func TestExecuteKernelStageEquivalence(t *testing.T) {
 	Convey("Given a pop(B) body that stages each popped peer", t, func() {
 		const (
-			opcodeFalse = uint64(0)
-			topoPop     = uint64(1)
-			maskWord    = uint64(72)
+			topoPop  = uint64(1)
+			maskWord = uint64(72)
 		)
 
 		// Three-instruction program: pop seed (CopyA identity), then
 		// stage(B), then end. The stage instruction has popEnd=1 so the
 		// kernel rewinds to drain the lane.
-		seed := packTestInstruction(opcodeFalse, 0, 1, 0, 1, 0, 1, maskWord, topoPop, 0)
-		// CopyA topology=Pop seeds the pop iteration without writing.
-		seed |= 3 << 0 // OpCopyA so it's not all-zero (otherwise treated as halt)
-		seed &= ^uint64(0xF)
-		seed |= 3 // opcode CopyA
+		const opcodeCopyA = uint64(3)
+		seed := packTestInstruction(opcodeCopyA, 0, 1, 0, 1, 0, 1, maskWord, topoPop, 0)
 
 		stageInstr := packTestInstruction(0, 0, 1, 0, 1, 0, 1, maskWord, topoPop, 0)
-		stageInstr |= 1 << 62 // stageBit
-		stageInstr |= 1 << 63 // popEnd
+		stageInstr |= uint64(1) << StageBitShift
+		stageInstr |= uint64(1) << PopEndBitShift
 
 		var owner [128]uint64
 		owner[maskWord] = ^uint64(0)
@@ -289,6 +351,79 @@ func TestExecuteKernelPredicateEquivalence(t *testing.T) {
 	}
 }
 
+func BenchmarkExecuteKernelPredicateEquivalence(b *testing.B) {
+	const (
+		aStart    = uint64(0)
+		bStart    = uint64(40)
+		dstStart  = uint64(32)
+		maskStart = uint64(72)
+	)
+
+	makeOwner := func() [128]uint64 {
+		var owner [128]uint64
+		owner[maskStart] = ^uint64(0)
+		owner[aStart] = 5
+		owner[bStart] = 10
+		instr := packTestInstruction(0, aStart, 1, bStart, 1, dstStart, 1, maskStart, 0, 0)
+		instr |= 1 << 57                                    // predicate
+		instr |= (PredLT & uint64(7)) << PredicateCondShift // simple compare predicate
+		owner[ProgramStartWord] = instr
+
+		return owner
+	}
+
+	backend := &Backend{}
+	var asmOut, goOut uint64
+	{
+		oGo := makeOwner()
+		oAsm := oGo
+
+		var stageBuf [128]uint64
+		var stageCount uint64
+
+		executeKernel(backend, &oAsm, ^uint64(0), nil, 0, 0, &stageBuf, &stageCount)
+		asmOut = oAsm[dstStart]
+
+		backend.executeKernelGo(&oGo, ^uint64(0), nil, 0, 0)
+		goOut = oGo[dstStart]
+	}
+
+	if asmOut != goOut {
+		b.Fatalf("predicate asm %v go %v mismatch", asmOut, goOut)
+	}
+
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			owner := makeOwner()
+			backend.executeKernelGo(&owner, ^uint64(0), nil, 0, 0)
+
+			if owner[dstStart] != goOut {
+				b.Fatalf("go drift benchIdx=%d", benchIdx)
+			}
+		}
+	})
+
+	b.Run("asm", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		var stageBuf [128]uint64
+		var stageCount uint64
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			owner := makeOwner()
+			executeKernel(backend, &owner, ^uint64(0), nil, 0, 0, &stageBuf, &stageCount)
+
+			if owner[dstStart] != asmOut {
+				b.Fatalf("asm drift benchIdx=%d", benchIdx)
+			}
+		}
+	})
+}
+
 /*
 TestExecuteKernelZipfSelect pins the candidate-program reducer. The zero
 temperature path is intentionally greedy so empty temperature words do not
@@ -373,6 +508,11 @@ func TestExecuteKernelZipfSelect(t *testing.T) {
 	})
 }
 
+/*
+TestExecuteKernelModeEqEquivalence checks OpReduceModeEq (mode_eq) produces the
+same owner dst slot when run through Backend.executeKernelGo and executeKernel
+given identical owner/match/community frames.
+*/
 func TestExecuteKernelModeEqEquivalence(t *testing.T) {
 	Convey("Given a mode_eq reducer instruction", t, func() {
 		const (
@@ -429,6 +569,102 @@ func TestExecuteKernelModeEqEquivalence(t *testing.T) {
 				So(asmOwner[dstStart], ShouldEqual, goOwner[dstStart])
 			})
 		})
+	})
+}
+
+func BenchmarkExecuteKernelModeEqEquivalence(b *testing.B) {
+	const (
+		valueStart = uint64(56)
+		keyStart   = uint64(64)
+		dstStart   = uint64(56)
+		matchStart = uint64(64)
+	)
+
+	baseOwner := func() [128]uint64 {
+		var owner [128]uint64
+		owner[matchStart] = 7
+
+		instr := packTestInstruction(
+			OpReduceModeEq,
+			valueStart, 1,
+			keyStart, 1,
+			dstStart, 1,
+			matchStart,
+			TopoHypercube,
+			0,
+		)
+		instr |= 1 << PredicateBitShift
+		instr |= uint64(PredEQ) << PredicateCondShift
+		instr |= 1 << SrcAFromBShift
+
+		owner[ProgramStartWord] = instr
+
+		return owner
+	}
+
+	makeCommunity := func() []*[128]uint64 {
+		peer0 := new([128]uint64)
+		peer1 := new([128]uint64)
+		peer2 := new([128]uint64)
+		peer3 := new([128]uint64)
+
+		peer0[valueStart], peer0[keyStart] = 11, 7
+		peer1[valueStart], peer1[keyStart] = 22, 7
+		peer2[valueStart], peer2[keyStart] = 22, 7
+		peer3[valueStart], peer3[keyStart] = 33, 9
+
+		return []*[128]uint64{peer0, peer1, peer2, peer3}
+	}
+
+	dimCount := uint64(2)
+
+	backend := &Backend{}
+
+	goOut := func() uint64 {
+		owner := baseOwner()
+		goCommunity := makeCommunity()
+
+		backend.executeKernelGo(&owner, ^uint64(0), goCommunity, uint64(len(goCommunity)), dimCount)
+
+		return owner[dstStart]
+	}()
+
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		expect := goOut
+
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			owner := baseOwner()
+			goCommunity := makeCommunity()
+
+			backend.executeKernelGo(&owner, ^uint64(0), goCommunity, uint64(len(goCommunity)), dimCount)
+
+			if owner[dstStart] != expect {
+				b.Fatalf("modeEq go mismatch benchIdx=%d", benchIdx)
+			}
+		}
+	})
+
+	b.Run("asm", func(b *testing.B) {
+		b.ReportAllocs()
+		expect := goOut
+
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			owner := baseOwner()
+			asmCommunity := makeCommunity()
+			var stageBuf [128]uint64
+			var stageCount uint64
+
+			executeKernel(backend, &owner, ^uint64(0), asmCommunity, uint64(len(asmCommunity)), dimCount, &stageBuf, &stageCount)
+
+			if owner[dstStart] != expect {
+				b.Fatalf("modeEq asm mismatch benchIdx=%d", benchIdx)
+			}
+		}
 	})
 }
 
@@ -577,28 +813,144 @@ func TestExecuteKernelSrcAFromBEquivalence(t *testing.T) {
 	})
 }
 
+func BenchmarkExecuteKernelBRotate(b *testing.B) {
+	var owner [128]uint64
+	var peer [128]uint64
+
+	owner[72] = ^uint64(0)
+	peer[0] = 0x0807060504030201
+	peer[1] = 0x100f0e0d0c0b0a09
+
+	instr := packTestInstruction(
+		rot8OpcodeCopyB,
+		rot8AStart, rot8ASpan,
+		rot8BStart, rot8BSpan,
+		rot8DstStart, rot8DstSpan,
+		rot8MaskStart,
+		rot8TopologyNext,
+		rot8BRotateOneByte,
+	)
+	owner[ProgramStartWord] = instr
+
+	community := []*[128]uint64{&peer}
+	backend := &Backend{}
+	dimCount := uint64(0)
+
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			owner[32] = 0
+
+			backend.executeKernelGo(&owner, ^uint64(0), community, 1, dimCount)
+		}
+	})
+
+	b.Run("asm", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			var o [128]uint64
+			var p [128]uint64
+
+			o[72] = ^uint64(0)
+			p[0] = 0x0807060504030201
+			p[1] = 0x100f0e0d0c0b0a09
+			o[ProgramStartWord] = instr
+
+			var stageBuf [128]uint64
+			var stageCount uint64
+
+			executeKernel(backend, &o, ^uint64(0), []*[128]uint64{&p}, 1, dimCount, &stageBuf, &stageCount)
+		}
+	})
+}
+
+func BenchmarkExecuteKernelSrcAFromB(b *testing.B) {
+	const (
+		opcodeCopyA = uint64(0x3)
+		topoPop     = uint64(1)
+		maskWord    = uint64(72)
+		peerSrcA    = uint64(0)
+		ownerDstA   = uint64(40)
+	)
+
+	instr := packTestInstruction(opcodeCopyA, peerSrcA, 1, 0, 1, ownerDstA, 1, maskWord, topoPop, 0)
+	instr |= 1 << 61
+
+	backend := &Backend{}
+	dimCount := uint64(0)
+
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			var owner [128]uint64
+			var peer [128]uint64
+
+			owner[maskWord] = ^uint64(0)
+			peer[peerSrcA] = 0xCAFEBABEDEADBEEF
+			owner[ProgramStartWord] = instr
+
+			backend.executeKernelGo(&owner, ^uint64(0), []*[128]uint64{&peer}, 1, dimCount)
+		}
+	})
+
+	b.Run("asm", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for benchIdx := 0; benchIdx < b.N; benchIdx++ {
+			var owner [128]uint64
+			var peer [128]uint64
+
+			owner[maskWord] = ^uint64(0)
+			peer[peerSrcA] = 0xCAFEBABEDEADBEEF
+			owner[ProgramStartWord] = instr
+
+			var stageBuf [128]uint64
+			var stageCount uint64
+
+			executeKernel(backend, &owner, ^uint64(0), []*[128]uint64{&peer}, 1, dimCount, &stageBuf, &stageCount)
+		}
+	})
+}
+
 /*
 packTestHypercubeBroadcast mirrors packTestInstruction but also flips
 the targetB bit so the kernel routes the write to the peer frame
 instead of the owner.
 */
 func packTestHypercubeBroadcast(
-	op, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, maskStart, topology, _ uint64,
+	op, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, maskStart, topology uint64,
 ) uint64 {
 	instr := packTestInstruction(op, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, maskStart, topology, 0)
-	instr |= 1 << 53 // targetB
+	instr |= uint64(1) << TargetBBitShift
 
 	return instr
 }
 
 /*
-packTestInstruction mirrors the packed ALU word layout used by the CPU
-kernel: op is 4 bits at [3:0], aStart 7 bits at [10:4], aSpan-1 7 bits at
-[17:11], bStart 7 bits at [24:18], bSpan-1 7 bits at [31:25], dstStart 7
-bits at [38:32], dstSpan-1 7 bits at [45:39], maskStart 7 bits at [52:46],
-topology 2 bits at [56:55], and bRotate 3 bits at PredicateCondShift
-[60:58]. Spans are encoded as span-1; topology is masked to two bits so the
-test instruction follows the same field constraints as compiled programs.
+packTestInstruction builds a resident ALU word for CPU kernel tests without
+explicit predicate/meta bits; fields not listed here remain zero:
+
+	op:         4 bits [3:0]
+	aStart:     7 bits [10:4]
+	aSpan-1:    7 bits [17:11] (spans encode as span-1)
+	bStart:     7 bits [24:18]
+	bSpan-1:    7 bits [31:25]
+	dstStart:   7 bits [38:32]
+	dstSpan-1:  7 bits [45:39]
+	maskStart:  7 bits [52:46]
+	topology:   2 bits [56:55] (&3 for two-bit masking)
+	bRotate:    3 bits at PredicateCondShift (= 58): same bitfield as predicate
+	            condition in full words; truth-table ops use rotation n in [0,7].
+
+When the instruction is a predicate (bit 57), the kernel reads [60:58] as
+PredCond instead of rotation; tests that need predicates set those bits separately.
 */
 func packTestInstruction(op, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, maskStart, topology, bRotate uint64) uint64 {
 	var instr uint64
@@ -610,7 +962,7 @@ func packTestInstruction(op, aStart, aSpan, bStart, bSpan, dstStart, dstSpan, ma
 	instr |= (dstStart & 0x7F) << 32
 	instr |= ((dstSpan - 1) & 0x7F) << 39
 	instr |= (maskStart & 0x7F) << 46
-	instr |= (topology & 3) << 55
+	instr |= (topology & 3) << TopologyShift
 	instr |= (bRotate & 7) << PredicateCondShift
 
 	return instr

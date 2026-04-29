@@ -50,14 +50,12 @@ func (backend *Backend) HypercubeGossip(
 	communitySize := uint64(len(community))
 	dimCount := uint64(bits.Len64(communitySize - 1))
 
-	// Dispatcher: programs that use only features the asm fast path
-	// supports today take the asm executeKernel; anything else (the
-	// remaining gates in programAsmCompatible) falls through to
-	// executeKernelGo. As asm grows to cover more features, the
-	// compatibility predicate shrinks.
+	// Dispatcher: executeKernel asm when programAsmCompatible allows;
+	// otherwise executeKernelGo. Compatibility is currently permissive;
+	// tighten when new opcodes require Go-only lowering.
 	var stageIdx []uint64
 
-	if programAsmCompatible(ownerFrame) {
+	if backend.programAsmCompatible(ownerFrame) {
 		var stageBuf [128]uint64
 		var stageCount uint64
 		executeKernel(backend, ownerFrame, ownerIdx, communityFrames, communitySize, dimCount, &stageBuf, &stageCount)
