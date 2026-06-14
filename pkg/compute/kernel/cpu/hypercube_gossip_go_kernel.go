@@ -2,7 +2,6 @@ package cpu
 
 import (
 	"math/bits"
-	"sort"
 	"unsafe"
 )
 
@@ -17,9 +16,9 @@ rather than a mask:
   - PredStorePopcnt: write popcount(A) as an integer scalar to dst[0].
     Lets `set X <- popcnt(Y)` collapse into one instruction without a
     separate accumulate-and-fold lowering.
-  - PredAnyZero: write ^0 to dst[0] if any word in A is zero, else 0.
-    Implements the legacy `any_zero(...)` primitive used by falsification
-    / open-ended-generation programs.
+  - PredScalar: run a generic scalar operation named by the opcode nibble.
+    This sublane carries shifts and rotates without assigning a named
+    reducer meaning to the instruction.
 
 When the predicate bit is clear, the same three bits are SrcB byte-rotation
 metadata for truth-table instructions. That keeps alignment in the operand
@@ -33,21 +32,14 @@ const (
 	PredEQ          = 4
 	PredNE          = 5
 	PredStorePopcnt = 6
-	PredAnyZero     = 7
+	PredScalar      = 7
 )
 
 const (
-	OpReduceArgMinNonZero = 0x1
-	OpReduceModeEq        = 0x2
-	OpReduceZipfSelect    = 0x3
-)
-
-const (
-	zipfIDWord        = 122
-	zipfEpochWord     = 58
-	zipfCommunityWord = 64
-	zipfSurprisalWord = 68
-	zipfWeightScale   = 1 << 48
+	ScalarShiftLeft   = 1
+	ScalarShiftRight  = 2
+	ScalarRotateLeft  = 3
+	ScalarRotateRight = 4
 )
 
 const (
@@ -60,18 +52,13 @@ const (
 	TopologyShift      = 55
 	PredicateBitShift  = 57
 	PredicateCondShift = 58
-	// SrcAFromBShift selects the popped B frame as the SrcA pointer. It
+	// SrcAFromBShift selects the mapped B frame as the SrcA pointer. It
 	// makes "operate entirely on B" (e.g. write B.x <- xor(B.x, B.y))
 	// expressible without reverse-engineering the operand routing.
 	SrcAFromBShift = 61
-	// StageBitShift marks a legacy stage(B) directive: instead of running
-	// the truth-table body, the kernel records the bound B index in the
-	// stage output buffer.
-	StageBitShift = 62
-	// PopEndBitShift marks the last instruction of a pop(B) body. After
-	// executing such an instruction the kernel advances the lane cursor
-	// and, if more Bs remain, rewinds pc to the body start so the body
-	// runs once per lane element in a single sweep.
+	// StageBitShift and PopEndBitShift are reserved in strict mode. The
+	// Go kernel ignores both so the sweep is exactly pc=0..15 once.
+	StageBitShift  = 62
 	PopEndBitShift = 63
 )
 
@@ -139,15 +126,29 @@ func (backend *Backend) executeKernelGo(
 	community []*[128]uint64,
 	communitySize uint64,
 	dimCount uint64,
-) ([]uint64, [128]uint64, bool) {
-	bQueueIdx := uint64(0)
-	currentBIdx := uint64(0)
-	var currentB *[128]uint64
+) ([]uint64, [][][128]uint64) {
 	var stagedIdx []uint64
 	var childFrame [128]uint64
+	var childGroup [][128]uint64
+	var childGroups [][][128]uint64
 	childActive := false
-	popBodyStart := uint64(0)
-	popActive := false
+	flushChild := func() {
+		if !childActive {
+			return
+		}
+
+		childGroup = append(childGroup, childFrame)
+		childFrame = [128]uint64{}
+		childActive = false
+	}
+	flushGroup := func() {
+		if len(childGroup) == 0 {
+			return
+		}
+
+		childGroups = append(childGroups, childGroup)
+		childGroup = nil
+	}
 
 	for pc := uint64(0); pc < ProgramWords; pc++ {
 		instr := ownerFrame[ProgramStartWord+pc]
@@ -176,75 +177,17 @@ func (backend *Backend) executeKernelGo(
 		bRotate := predCond
 		srcAFromB := (instr >> SrcAFromBShift) & 1
 		stageBit := (instr >> StageBitShift) & 1
-		popEnd := (instr >> PopEndBitShift) & 1
+		emitEnd := stageBit == 1 && target == TargetC
 
-		if predicate == 1 {
-			switch opcode {
-			case OpReduceArgMinNonZero:
-				reduceArgMinNonZero(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
-				continue
-			case OpReduceModeEq:
-				reduceModeEq(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
-				continue
-			case OpReduceZipfSelect:
-				reduceZipfSelect(ownerFrame, community, communitySize, aStart, bStart, dstStart, maskStart)
-				continue
-			}
-		}
-
-		if topology == 1 && bQueueIdx < communitySize {
-			currentB = community[bQueueIdx]
-			currentBIdx = bQueueIdx
-			bQueueIdx++
-			popBodyStart = pc + 1
-			popActive = true
-		}
-
-		if stageBit == 1 {
-			if topology == TopoHypercubePerPeer && communitySize > 0 {
-				// Per-peer stage: every peer whose per-peer mask word is
-				// non-zero gets queued for staging. The mask was written
-				// by a preceding TopoHypercubePerPeer predicate in the
-				// same gossip block.
-				for peerIdx := uint64(0); peerIdx < communitySize; peerIdx++ {
-					if peerIdx == ownerIdx {
-						continue
-					}
-
-					peer := community[peerIdx]
-					if peer == nil || peer[maskStart&127] == 0 {
-						continue
-					}
-
-					stagedIdx = append(stagedIdx, peerIdx)
-				}
-			} else if currentB != nil {
-				stagedIdx = append(stagedIdx, currentBIdx)
-			}
-
-			// stage(B) is a side-effect-only instruction; skip the
-			// truth-table body but still honor the pop-loop rewind so
-			// `pop(B) { ...; stage(B) }` drains the entire lane.
-			if popEnd == 1 && popActive {
-				if bQueueIdx < communitySize {
-					currentB = community[bQueueIdx]
-					currentBIdx = bQueueIdx
-					bQueueIdx++
-					pc = popBodyStart - 1
-					continue
-				}
-
-				popActive = false
-			}
-
+		if stageBit == 1 && !emitEnd {
 			continue
 		}
 
-		// Predicate path uses a single ptrB; gossip bodies sweep all dims
-		// later in the truth-table block. Pick a representative peer here
-		// (dim 0) so predicate semantics still resolve sensibly.
-		ptrB := currentB
-		if topology == 2 && dimCount > 0 {
+		// Predicate and scalar paths use a single ptrB unless the instruction
+		// explicitly sweeps in the hypercube block below. Pick a representative
+		// peer here so scalar local reads have a stable B-side source.
+		ptrB := ownerFrame
+		if (topology == TopoHypercube || topology == TopoHypercubePerPeer) && dimCount > 0 {
 			peerIdx := ownerIdx ^ 1
 			if peerIdx < communitySize {
 				ptrB = community[peerIdx]
@@ -267,6 +210,63 @@ func (backend *Backend) executeKernelGo(
 			ptrDst = &childFrame
 		}
 
+		if predicate == 1 && predCond == PredScalar {
+			mask := ownerFrame[maskStart&127]
+			hypercube := (topology == TopoHypercube || topology == TopoHypercubePerPeer) && communitySize > 0
+			perPeerMask := topology == TopoHypercubePerPeer
+
+			if hypercube && target == TargetB {
+				for peerIdx := uint64(0); peerIdx < communitySize; peerIdx++ {
+					if peerIdx == ownerIdx {
+						continue
+					}
+
+					peer := community[peerIdx]
+					if peer == nil {
+						continue
+					}
+
+					peerMask := mask
+					if perPeerMask {
+						peerMask = peer[maskStart&127]
+					}
+
+					for lane := uint64(0); lane < dstSpan; lane++ {
+						srcFrame := ownerFrame
+						if srcAFromB == 1 {
+							srcFrame = peer
+						}
+
+						value := srcFrame[(aStart+(lane%aSpan))&127]
+						amount := peer[bStart&127]
+						result := scalarWord(opcode, value, amount)
+						dstIdx := (dstStart + lane) & 127
+						prevDst := peer[dstIdx]
+						peer[dstIdx] = (result & peerMask) | (prevDst & ^peerMask)
+					}
+				}
+			} else {
+				for lane := uint64(0); lane < dstSpan; lane++ {
+					value := ptrA[(aStart+(lane%aSpan))&127]
+					amount := ptrB[(bStart+(lane%bSpan))&127]
+					result := scalarWord(opcode, value, amount)
+					dstIdx := (dstStart + lane) & 127
+					prevDst := ptrDst[dstIdx]
+					ptrDst[dstIdx] = (result & mask) | (prevDst & ^mask)
+				}
+			}
+
+			if target == TargetC && mask != 0 {
+				childActive = true
+			}
+
+			if emitEnd {
+				flushChild()
+			}
+
+			continue
+		}
+
 		if predicate == 1 && topology == TopoHypercubePerPeer && communitySize > 0 {
 			// Per-peer predicate: evaluate the comparison once for every
 			// peer using that peer's view of the source operand, and
@@ -287,6 +287,15 @@ func (backend *Backend) executeKernelGo(
 					continue
 				}
 
+				guard := ^uint64(0)
+				if maskStart != 72 {
+					guard = peer[maskStart&127]
+				}
+				if guard == 0 {
+					peer[dstStart&127] = 0
+					continue
+				}
+
 				witnessSrc := ownerFrame
 				if srcAFromB == 1 {
 					witnessSrc = peer
@@ -302,6 +311,22 @@ func (backend *Backend) executeKernelGo(
 					witness = witnessSrc[aStart&127]
 				}
 
+				if predCond == PredStorePopcnt {
+					dstFrame := ownerFrame
+					if target == TargetB {
+						dstFrame = peer
+					}
+					if target == TargetC {
+						dstFrame = &childFrame
+						childActive = true
+					}
+
+					dstIdx := dstStart & 127
+					prevDst := dstFrame[dstIdx]
+					dstFrame[dstIdx] = (perPop & guard) | (prevDst & ^guard)
+					continue
+				}
+
 				hit := evaluatePredicateCompare(predCond, witness, threshold)
 
 				var maskValue uint64
@@ -309,7 +334,7 @@ func (backend *Backend) executeKernelGo(
 					maskValue = ^uint64(0)
 				}
 
-				peer[dstStart&127] = maskValue
+				peer[dstStart&127] = maskValue & guard
 			}
 
 			continue
@@ -331,22 +356,6 @@ func (backend *Backend) executeKernelGo(
 				dstIdx := dstStart & 127
 				prevDst := ptrDst[dstIdx]
 				ptrDst[dstIdx] = (pop & guard) | (prevDst & ^guard)
-			case PredAnyZero:
-				// Tracks whether any single word in the A range is zero.
-				zeroSeen := false
-				for lane := uint64(0); lane < aSpan; lane++ {
-					if ptrA[(aStart+lane)&127] == 0 {
-						zeroSeen = true
-						break
-					}
-				}
-				var result uint64
-				if zeroSeen {
-					result = ^uint64(0)
-				}
-				dstIdx := dstStart & 127
-				prevDst := ptrDst[dstIdx]
-				ptrDst[dstIdx] = (result & guard) | (prevDst & ^guard)
 			default:
 				threshold := ownerFrame[bStart&127]
 				witness := pop
@@ -363,22 +372,14 @@ func (backend *Backend) executeKernelGo(
 				ptrDst[dstStart&127] = maskValue & guard
 			}
 
-			if popEnd == 1 && popActive {
-				if bQueueIdx < communitySize {
-					currentB = community[bQueueIdx]
-					currentBIdx = bQueueIdx
-					bQueueIdx++
-					pc = popBodyStart - 1
-					continue
-				}
-
-				popActive = false
+			if emitEnd {
+				flushChild()
 			}
 
 			continue
 		}
 
-		mask := ownerFrame[maskStart]
+		mask := ownerFrame[maskStart&127]
 
 		m0 := -(opcode & 1)
 		m1 := -((opcode >> 1) & 1)
@@ -418,9 +419,15 @@ func (backend *Backend) executeKernelGo(
 				if perPeerMask {
 					peerMask = peer[maskStart&127]
 				}
+				if peerMask == 0 {
+					continue
+				}
 
 				for lane := uint64(0); lane < dstSpan; lane++ {
 					wordA := ptrA[(aStart+(lane%aSpan))&127]
+					if srcAFromB == 1 {
+						wordA = peer[(aStart+(lane%aSpan))&127]
+					}
 					wordB := rotatedWord(peer, bStart, bSpan, lane, bRotate)
 
 					res := (wordA & wordB & m0) |
@@ -454,21 +461,39 @@ func (backend *Backend) executeKernelGo(
 						}
 						peer = community[k]
 					}
+					if peer == nil {
+						continue
+					}
+					if perPeerMask && peer[maskStart&127] == 0 {
+						continue
+					}
 
+					wordA := acc
+					if srcAFromB == 1 {
+						wordA = peer[(aStart+(lane%aSpan))&127]
+					}
 					wordB := rotatedWord(peer, bStart, bSpan, lane, bRotate)
 
-					acc = (acc & wordB & m0) |
-						(acc & ^wordB & m1) |
-						(^acc & wordB & m2) |
-						(^acc & ^wordB & m3)
+					acc = (wordA & wordB & m0) |
+						(wordA & ^wordB & m1) |
+						(^wordA & wordB & m2) |
+						(^wordA & ^wordB & m3)
 					any = true
 				}
 
-				if !any {
+				if !any && !hypercube {
 					acc = startA
 				}
+				if !any && hypercube {
+					continue
+				}
 
-				ptrDst[dstIdx] = (acc & mask) | (prevDst & ^mask)
+				writeMask := mask
+				if perPeerMask {
+					writeMask = ^uint64(0)
+				}
+
+				ptrDst[dstIdx] = (acc & writeMask) | (prevDst & ^writeMask)
 			}
 		}
 
@@ -476,25 +501,15 @@ func (backend *Backend) executeKernelGo(
 			childActive = true
 		}
 
-		// At the end of a pop(B) body, advance the lane cursor and rewind
-		// to the body start if more Bs remain. The body executes once per
-		// staged B in a single sweep — programs stay linear, the kernel
-		// runs the loop. When the lane is drained, fall through and the
-		// outer pc loop continues past the pop block.
-		if popEnd == 1 && popActive {
-			if bQueueIdx < communitySize {
-				currentB = community[bQueueIdx]
-				currentBIdx = bQueueIdx
-				bQueueIdx++
-				pc = popBodyStart - 1
-				continue
-			}
-
-			popActive = false
+		if emitEnd {
+			flushChild()
 		}
 	}
 
-	return stagedIdx, childFrame, childActive
+	flushChild()
+	flushGroup()
+
+	return stagedIdx, childGroups
 }
 
 /*
@@ -530,277 +545,19 @@ func rotatedWord(frame *[128]uint64, start, span, lane, rotate uint64) uint64 {
 	return (word >> shift) | (next << (64 - shift))
 }
 
-func reduceArgMinNonZero(
-	ownerFrame *[128]uint64,
-	community []*[128]uint64,
-	communitySize uint64,
-	valueStart uint64,
-	keyStart uint64,
-	dstStart uint64,
-	guardStart uint64,
-) {
-	if ownerFrame == nil || communitySize == 0 || ownerFrame[guardStart&127] == 0 {
-		return
-	}
+func scalarWord(opcode, value, amount uint64) uint64 {
+	shift := uint(amount & 63)
 
-	bestValue := uint64(0)
-	bestKey := ^uint64(0)
-
-	for idx := uint64(0); idx < communitySize; idx++ {
-		peer := community[idx]
-		if peer == nil {
-			continue
-		}
-
-		value := peer[valueStart&127]
-		if value == 0 {
-			continue
-		}
-
-		key := peer[keyStart&127]
-		if key >= bestKey {
-			continue
-		}
-
-		bestKey = key
-		bestValue = value
-	}
-
-	if bestValue == 0 {
-		return
-	}
-
-	ownerFrame[dstStart&127] = bestValue
-}
-
-func reduceModeEq(
-	ownerFrame *[128]uint64,
-	community []*[128]uint64,
-	communitySize uint64,
-	valueStart uint64,
-	keyStart uint64,
-	dstStart uint64,
-	matchStart uint64,
-) {
-	if ownerFrame == nil || communitySize == 0 {
-		return
-	}
-
-	match := ownerFrame[matchStart&127]
-	if match == 0 {
-		return
-	}
-
-	var counts [256]uint64
-	var overflow map[uint64]uint64
-	bestValue := uint64(0)
-	bestCount := uint64(0)
-
-	for idx := uint64(0); idx < communitySize; idx++ {
-		peer := community[idx]
-		if peer == nil || peer[keyStart&127] != match {
-			continue
-		}
-
-		value := peer[valueStart&127]
-		if value == 0 {
-			continue
-		}
-
-		var count uint64
-		if value < uint64(len(counts)) {
-			counts[value]++
-			count = counts[value]
-		} else {
-			if overflow == nil {
-				overflow = make(map[uint64]uint64)
-			}
-
-			overflow[value]++
-			count = overflow[value]
-		}
-
-		if count <= bestCount {
-			continue
-		}
-
-		bestCount = count
-		bestValue = value
-	}
-
-	if bestValue == 0 {
-		return
-	}
-
-	ownerFrame[dstStart&127] = bestValue
-}
-
-/*
-zipfCandidateRank is one non-zero Zipf candidate after community filtering.
-index is the peer offset in the gossip community slice, utility is the
-word used for lexicographic ranking, and value is the candidate payload
-(program id or other non-zero lane value) chosen when this entry wins.
-*/
-type zipfCandidateRank struct {
-	index   uint64
-	utility uint64
-	value   uint64
-}
-
-/*
-sortedZipfCandidates gathers Zipf-select inputs from community[0:communitySize].
-Nil peers are ignored; zero valueStart lane words are ignored because they
-do not consume rank mass. Remaining peers are sorted by utility descending
-with stable ascending index order on ties so hardware and Go agree on the
-ranking ladder.
-*/
-func sortedZipfCandidates(
-	community []*[128]uint64,
-	communitySize uint64,
-	valueStart uint64,
-	utilityStart uint64,
-) []zipfCandidateRank {
-	var candidates []zipfCandidateRank
-
-	for idx := uint64(0); idx < communitySize; idx++ {
-		peer := community[idx]
-		if peer == nil {
-			continue
-		}
-
-		value := peer[valueStart&127]
-		if value == 0 {
-			continue
-		}
-
-		candidates = append(candidates, zipfCandidateRank{
-			index:   idx,
-			utility: peer[utilityStart&127],
-			value:   value,
-		})
-	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].utility != candidates[j].utility {
-			return candidates[i].utility > candidates[j].utility
-		}
-
-		return candidates[i].index < candidates[j].index
-	})
-
-	return candidates
-}
-
-func reduceZipfSelect(
-	ownerFrame *[128]uint64,
-	community []*[128]uint64,
-	communitySize uint64,
-	valueStart uint64,
-	utilityStart uint64,
-	dstStart uint64,
-	temperatureStart uint64,
-) {
-	if ownerFrame == nil || communitySize == 0 {
-		return
-	}
-
-	candidates := sortedZipfCandidates(community, communitySize, valueStart, utilityStart)
-	if len(candidates) == 0 {
-		return
-	}
-
-	bestValue := candidates[0].value
-	bestUtility := candidates[0].utility
-	count := len(candidates)
-
-	temperature := ownerFrame[temperatureStart&127]
-	if temperature == 0 || count == 1 {
-		ownerFrame[dstStart&127] = bestValue
-
-		return
-	}
-
-	power := zipfPower(temperature)
-	total := uint64(0)
-
-	for rank := 1; rank <= count; rank++ {
-		total += zipfWeight(uint64(rank), power)
-	}
-
-	if total == 0 {
-		ownerFrame[dstStart&127] = bestValue
-
-		return
-	}
-
-	seed := zipfSeed(ownerFrame, uint64(count), bestUtility)
-	ticket := seed % total
-	running := uint64(0)
-
-	for rank := 1; rank <= count; rank++ {
-		running += zipfWeight(uint64(rank), power)
-		if ticket >= running {
-			continue
-		}
-
-		ownerFrame[dstStart&127] = candidates[rank-1].value
-
-		return
-	}
-
-	ownerFrame[dstStart&127] = bestValue
-}
-
-func zipfPower(temperature uint64) uint64 {
-	switch {
-	case temperature >= 1024:
-		return 0
-	case temperature >= 512:
-		return 1
-	case temperature >= 256:
-		return 2
-	case temperature >= 128:
-		return 3
+	switch opcode {
+	case ScalarShiftLeft:
+		return value << shift
+	case ScalarShiftRight:
+		return value >> shift
+	case ScalarRotateLeft:
+		return bits.RotateLeft64(value, int(shift))
+	case ScalarRotateRight:
+		return bits.RotateLeft64(value, -int(shift))
 	default:
-		return 4
-	}
-}
-
-func zipfWeight(rank uint64, power uint64) uint64 {
-	if rank == 0 {
 		return 0
 	}
-
-	if power == 0 {
-		return 1
-	}
-
-	weight := uint64(zipfWeightScale)
-	for idx := uint64(0); idx < power; idx++ {
-		weight /= rank
-		if weight == 0 {
-			return 1
-		}
-	}
-
-	return weight
-}
-
-func zipfSeed(ownerFrame *[128]uint64, count uint64, bestUtility uint64) uint64 {
-	seed := ownerFrame[zipfIDWord] ^
-		bits.RotateLeft64(ownerFrame[zipfEpochWord], 17) ^
-		bits.RotateLeft64(ownerFrame[zipfCommunityWord], 31) ^
-		bits.RotateLeft64(ownerFrame[zipfSurprisalWord], 7) ^
-		bits.RotateLeft64(bestUtility, 43) ^
-		count
-
-	return zipfMix(seed)
-}
-
-func zipfMix(seed uint64) uint64 {
-	seed += 0x9e3779b97f4a7c15
-	seed = (seed ^ (seed >> 30)) * 0xbf58476d1ce4e5b9
-	seed = (seed ^ (seed >> 27)) * 0x94d049bb133111eb
-
-	return seed ^ (seed >> 31)
 }

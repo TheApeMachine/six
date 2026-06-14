@@ -24,9 +24,10 @@ const (
 )
 
 const (
-	OpReduceArgMinNonZero = OpAnd
-	OpReduceModeEq        = OpAandNotB
-	OpReduceZipfSelect    = OpCopyA
+	ScalarShiftLeft   = 1
+	ScalarShiftRight  = 2
+	ScalarRotateLeft  = 3
+	ScalarRotateRight = 4
 )
 
 /*
@@ -91,7 +92,7 @@ const (
 	PredEQ          = 4
 	PredNE          = 5
 	PredStorePopcnt = 6
-	PredAnyZero     = 7
+	PredScalar      = 7
 )
 
 // Region defines a physical memory location on the 1KB organism.
@@ -261,8 +262,6 @@ type Builder struct {
 	predicateEnable uint64
 	predCond        uint64
 	bRotate         uint64 // truth-table instructions: rotate SrcB span by N bytes before the op
-	stageFlag       uint64 // 1 = queue the current B index in the kernel stage output
-	popEndFlag      uint64 // 1 = last instruction of a pop(B) body; kernel rewinds to body start if more Bs remain
 }
 
 /*
@@ -328,7 +327,7 @@ func NewBuilder() *Builder {
 /*
 Pack writes one 64-bit instruction with the bit layout the kernel
 decodes. The full set of fields — predicate, srcAFromB, target, topology,
-bRotate/stageFlag/popEndFlag — is composed from the Builder's transient state so callers
+bRotate metadata — is composed from the Builder's transient state so callers
 don't need to thread every option through Pack.
 */
 func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
@@ -356,8 +355,6 @@ func (builder *Builder) Pack(op uint64, a, bReg, dst Region) {
 
 	instr |= rotationOrPredicateBits
 	instr |= (builder.srcAFromB & 1) << 61
-	instr |= (builder.stageFlag & 1) << 62
-	instr |= (builder.popEndFlag & 1) << 63
 
 	builder.instructions[builder.pc] = instr
 	builder.pc++
@@ -407,29 +404,23 @@ func (builder *Builder) Predicate(cond uint64, region, threshold, dst Region, sr
 }
 
 /*
-Reduce emits a lane-level categorical reducer. SrcA is the per-peer value
-region, SrcB is the per-peer key region, dst is the owner output, and match is
-an owner-side key used by reducers that need an equality filter.
+Scalar emits a generic word-level ALU operation. It reuses the predicate
+encoding with PredScalar as the scalar sublane selector; the opcode nibble is
+then interpreted as shift-left, shift-right, rotate-left, or rotate-right.
 */
-func (builder *Builder) Reduce(op uint64, value, key, match, dst Region) {
+func (builder *Builder) Scalar(op uint64, value, amount, dst Region, srcAFromB uint64) {
 	prevPred := builder.predicateEnable
 	prevCond := builder.predCond
-	prevMask := builder.currentMask
-	prevTopo := builder.currentTopo
 	prevSrcA := builder.srcAFromB
 
 	builder.predicateEnable = 1
-	builder.predCond = PredEQ
-	builder.currentMask = match
-	builder.currentTopo = TopoHypercube
-	builder.srcAFromB = 1
+	builder.predCond = PredScalar
+	builder.srcAFromB = srcAFromB
 
-	builder.Pack(op, value, key, dst)
+	builder.Pack(op, value, amount, dst)
 
 	builder.predicateEnable = prevPred
 	builder.predCond = prevCond
-	builder.currentMask = prevMask
-	builder.currentTopo = prevTopo
 	builder.srcAFromB = prevSrcA
 }
 

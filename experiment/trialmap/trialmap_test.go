@@ -33,13 +33,6 @@ func TestTwoScorePanels(t *testing.T) {
 			So(panels[1].Series[0].Data[0], ShouldEqual, 0.7)
 		})
 
-		Convey("BabiTwoPanel uses Q1 label", func() {
-			panels := TwoScorePanels(rows, 0.55, BabiTwoPanel(), nil)
-
-			So(panels[0].YLabels, ShouldResemble, []string{"Q1"})
-			So(panels[0].XAxisName, ShouldEqual, "Score Dimension")
-		})
-
 		Convey("custom sampleLabels are preserved", func() {
 			panels := TwoScorePanels(rows, 0.1, StandardTwoPanel(), []string{"dom.1"})
 

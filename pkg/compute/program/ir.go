@@ -22,15 +22,16 @@ const (
 )
 
 const (
-	TopoLocal     = compiler.TopoLocal
-	TopoPopQueue  = compiler.TopoPopQueue
-	TopoHypercube = compiler.TopoHypercube
+	TopoLocal            = compiler.TopoLocal
+	TopoHypercube        = compiler.TopoHypercube
+	TopoHypercubePerPeer = compiler.TopoHypercubePerPeer
 )
 
 const (
-	OpReduceArgMinNonZero = compiler.OpReduceArgMinNonZero
-	OpReduceModeEq        = compiler.OpReduceModeEq
-	OpReduceZipfSelect    = compiler.OpReduceZipfSelect
+	ScalarShiftLeft   = compiler.ScalarShiftLeft
+	ScalarShiftRight  = compiler.ScalarShiftRight
+	ScalarRotateLeft  = compiler.ScalarRotateLeft
+	ScalarRotateRight = compiler.ScalarRotateRight
 )
 
 /*
@@ -54,7 +55,7 @@ const (
 	PredEQ          = compiler.PredEQ
 	PredNE          = compiler.PredNE
 	PredStorePopcnt = compiler.PredStorePopcnt
-	PredAnyZero     = compiler.PredAnyZero
+	PredScalar      = compiler.PredScalar
 )
 
 /*
@@ -98,6 +99,6 @@ type MachineOp struct {
 	Predicate     bool
 	PredicateCond uint64
 	SrcAFromB     bool
-	Stage         bool
-	PopEnd        bool
+	Stage         bool // rejected by strict encoders; retained for legacy struct compatibility
+	PopEnd        bool // rejected by strict encoders; retained for legacy struct compatibility
 }

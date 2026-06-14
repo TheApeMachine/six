@@ -140,72 +140,44 @@ programs:
 
   structural_component: |
     program structural_component {
-      ; Pop the next B value from the community.
-      pop(B) {
-        ; Keep cancel and merge witnesses in the 8-word signal lane so
-        ; downstream readout can scan zero-runs and one-runs directly.
+      ; Keep cancel and merge witnesses in the 8-word signal lane so
+      ; downstream readout can continue from in-band state.
+      gossip(B) {
         write A.signals[0,4] <- xor(A.tokens[0,4], B.tokens[0,4])
         write A.signals[4,4] <- and(A.tokens[4,4], B.tokens[4,4])
       }
+
+      set A.properties.status <- DONE
+      set A.properties.continuation <- 0
     }
 
-  recruit_community: |
-    program recruit_community {
-      ; Each pass forms one community from the remaining unassigned Values
-      ; in the selected lane. A fresh recruiter keeps the same reference lane
-      ; and repeats until no unassigned candidate can seed a new community.
-      pop(B) {
-        (B.properties.community == 0) {
-          (A.context[0,5] == 0) {
-            write A.context[0,5] <- B.affinity
-          }
-
-          (popcnt(xor(A.context[0,5], B.affinity)) < 64) {
-            write A.affinity <- or(A.affinity, B.affinity)
-            set B.properties.community <- A.id
-          }
+  structural_associate: |
+    program structural_associate {
+      gossip(B) {
+        (A.properties.target == 0) {
+          write A.signals[0,8] <- xor(A.tokens[0,8], B.tokens[0,8])
+          set A.properties.confidence <- popcnt(A.signals[0,8])
+          set A.properties.target <- B.id
+          set A.next <- B.id
+          set B.prev <- A.id
+          set B.next <- A.id
         }
       }
 
-      ; If this pass accepted at least one candidate, emit the next recruiter
-      ; on the same reference lane. The next pass skips already assigned
-      ; Values and seeds a new community from the first residual candidate.
-      (popcnt(A.affinity) > 0) {
-        set A.properties.community <- A.id
-        set A.properties.target <- A.id
-
-        emit {
-          set program <- A.program
-          set asset <- A.asset
-          set properties.reference <- A.properties.reference
-        }
-      }
+      set A.properties.status <- DONE
+      set A.properties.continuation <- 0
     }
-  classify_readout: |
-    program classify_readout {
-      ; A linked prompt should emit one answer. The head Value owns readout;
-      ; tails execute the same firmware but retire without contributing labels.
+
+  structural_readout: |
+    program structural_readout {
       (A.prev == 0) {
-        pop(B) {
-          (B.properties.role == Prompt) {
-            set B.properties.community <- 0
-
-            (B.properties.reference == A.id) {
-              write A.affinity <- or(A.affinity, B.affinity)
-            }
-          }
-
-          ; Community selection is nearest-neighbour over affinity. The
-          ; scalar Hamming witness stays in signals so surprisal remains
-          ; reserved for prediction-error dynamics.
-          (B.properties.target != 0) {
-            write B.signals[0,5] <- xor(A.affinity, B.affinity)
-            set B.signals[5,1] <- popcnt(B.signals[0,5])
+        gossip(B) {
+          (B.properties.role == Association) {
+            write A.tokens <- or(A.tokens, B.tokens)
+            write A.signals[0,8] <- xor(A.tokens[0,8], B.tokens[0,8])
+            set A.properties.confidence <- popcnt(A.signals[0,8])
           }
         }
-
-        set A.properties.community <- argmin_nonzero(B.properties.target, B.signals[5,1])
-        set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
 
         set A.properties.status <- RESOLVED
       }
@@ -215,4 +187,73 @@ programs:
       }
 
       set A.properties.continuation <- 0
+    }
+
+  recruit_community: |
+    program recruit_community {
+      ; A sample head recruits only the Values in its linked sample chain.
+      ; The chain reference is the head ID, so this stays an in-band
+      ; community formation pass instead of a host-side classifier.
+      gossip(B) {
+        (B.properties.reference == A.id) {
+          write A.affinity <- or(A.affinity, B.affinity)
+          set B.properties.community <- A.id
+          set B.properties.status <- DONE
+        }
+      }
+
+      set A.properties.community <- A.id
+      set A.properties.target <- A.id
+      set A.properties.role <- Readout
+
+      set A.properties.status <- DONE
+      set A.properties.continuation <- 0
+    }
+  class_prototype: |
+    program class_prototype {
+      ; Class prototypes are no longer part of classification readout.
+      ; Communities are sample-rooted by recruit_community and labels are
+      ; read from resident Values in the selected community.
+      set A.properties.status <- DONE
+      set A.properties.continuation <- 0
+    }
+  classify_readout: |
+    program classify_readout {
+      ; The head Value owns readout. It ORs linked prompt affinities, matches
+      ; the resulting article fingerprint to community roots, then reads the
+      ; label from Values inside the selected community.
+      set A.properties.prev_surprisal <- A.properties.surprisal
+      set A.properties.status <- READY
+
+      gossip(B) {
+        (B.properties.reference == A.id) {
+          write A.affinity <- or(A.affinity, B.affinity)
+        }
+      }
+
+      gossip(B) {
+        (B.properties.role == Readout) {
+          write B.gradient[0,5] <- xor(A.affinity, B.affinity)
+          set B.properties.delta_surprisal <- popcnt(B.gradient[0,5])
+
+          (B.properties.delta_surprisal < A.properties.surprisal) {
+            set A.properties.surprisal <- B.properties.delta_surprisal
+            set A.properties.community <- B.properties.community
+          }
+        }
+      }
+
+      gossip(B) {
+        (B.properties.community == A.properties.community) {
+          set A.properties.labels <- B.properties.labels
+        }
+      }
+
+      (A.properties.prev_surprisal == A.properties.surprisal) {
+        set A.properties.status <- RESOLVED
+      }
+
+      (A.prev != 0) {
+        set A.properties.status <- DONE
+      }
     }

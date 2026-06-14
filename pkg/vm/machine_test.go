@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"iter"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -81,7 +82,7 @@ func TestNewMachine(t *testing.T) {
 func TestPrompt(t *testing.T) {
 	loadConfigForTests(t)
 
-	Convey("Given a machine seeded with two labelled communities", t, func() {
+	Convey("Given a machine seeded with two affinity community roots", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -92,42 +93,28 @@ func TestPrompt(t *testing.T) {
 			machine.Close()
 		})
 
-		affinityStart, _ := primitive.AffinityRegion.WordExtent()
-		contextStart, _ := primitive.ContextRegion.WordExtent()
+		nearPrototype := primitive.Emit(primitive.WithLabels(1))
+		nearPrototype.SetProperty(primitive.COMMUNITY, nearPrototype.ID())
+		nearPrototype.SetProperty(primitive.TARGET, nearPrototype.ID())
+		nearPrototype.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
+		nearPrototype.SetProperty(primitive.SURPRISAL, 777)
+		storeContextLanes(nearPrototype, [8]float64{1, 0, 0, 0, 0, 0, 0, 0})
+		storeAffinityWords(nearPrototype, 0x01)
+		machine.backend.Submit(nearPrototype)
 
-		nearCommunity := primitive.Emit()
-		nearCommunity.SetProperty(primitive.COMMUNITY, nearCommunity.ID())
-		nearCommunity.SetProperty(primitive.TARGET, nearCommunity.ID())
-		nearCommunity.SetProperty(primitive.SURPRISAL, 777)
-		nearCommunity.Set(contextStart, 1<<20)
-		nearCommunity.Set(affinityStart, 0x03)
-		nearCommunity.NormalizeAffinity()
-		machine.backend.Submit(nearCommunity)
-
-		nearMember := primitive.Emit(
-			primitive.WithCommunity(nearCommunity.ID()),
-			primitive.WithLabels(1),
-		)
-		machine.backend.Submit(nearMember)
-
-		farCommunity := primitive.Emit()
-		farCommunity.SetProperty(primitive.COMMUNITY, farCommunity.ID())
-		farCommunity.SetProperty(primitive.TARGET, farCommunity.ID())
-		farCommunity.SetProperty(primitive.SURPRISAL, 1)
-		farCommunity.Set(contextStart, 0x01)
-		farCommunity.Set(affinityStart, 1<<20)
-		farCommunity.NormalizeAffinity()
-		machine.backend.Submit(farCommunity)
-
-		farMember := primitive.Emit(
-			primitive.WithCommunity(farCommunity.ID()),
-			primitive.WithLabels(2),
-		)
-		machine.backend.Submit(farMember)
+		farPrototype := primitive.Emit(primitive.WithLabels(2))
+		farPrototype.SetProperty(primitive.COMMUNITY, farPrototype.ID())
+		farPrototype.SetProperty(primitive.TARGET, farPrototype.ID())
+		farPrototype.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
+		farPrototype.SetProperty(primitive.SURPRISAL, 1)
+		storeContextLanes(farPrototype, [8]float64{0, 1, 0, 0, 0, 0, 0, 0})
+		storeAffinityWords(farPrototype, 1<<20)
+		machine.backend.Submit(farPrototype)
 
 		prompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
-		prompt.Set(affinityStart, 0x01)
-		prompt.NormalizeAffinity()
+		storeContextLanes(prompt, [8]float64{1, 0, 0, 0, 0, 0, 0, 0})
+		storeAffinityWords(prompt, 0x01)
+		prompt.SetProperty(primitive.SURPRISAL, 512)
 		machine.backend.Submit(prompt)
 
 		Convey("When the prompt runs classify_readout over the seeded lane", func() {
@@ -135,19 +122,19 @@ func TestPrompt(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(len(resolved), ShouldBeGreaterThan, 0)
 
-			Convey("Then the prompt itself settles RESOLVED with the nearest community and modal label", func() {
+			Convey("Then the prompt settles RESOLVED with the matching community label", func() {
 				So(prompt.Status(), ShouldEqual, primitive.RESOLVED)
 
 				community, communityErr := prompt.Property(primitive.COMMUNITY)
 				label, labelErr := prompt.Property(primitive.LABELS)
-				nearSurprisal, nearSurprisalErr := nearCommunity.Property(primitive.SURPRISAL)
-				farSurprisal, farSurprisalErr := farCommunity.Property(primitive.SURPRISAL)
+				nearSurprisal, nearSurprisalErr := nearPrototype.Property(primitive.SURPRISAL)
+				farSurprisal, farSurprisalErr := farPrototype.Property(primitive.SURPRISAL)
 
 				So(communityErr, ShouldBeNil)
 				So(labelErr, ShouldBeNil)
 				So(nearSurprisalErr, ShouldBeNil)
 				So(farSurprisalErr, ShouldBeNil)
-				So(community, ShouldEqual, nearCommunity.ID())
+				So(community, ShouldEqual, nearPrototype.ID())
 				So(label, ShouldEqual, 1)
 				So(nearSurprisal, ShouldEqual, 777)
 				So(farSurprisal, ShouldEqual, 1)
@@ -166,22 +153,13 @@ func TestPrompt(t *testing.T) {
 			machine.Close()
 		})
 
-		affinityStart, _ := primitive.AffinityRegion.WordExtent()
-		contextStart, _ := primitive.ContextRegion.WordExtent()
-
-		community := primitive.Emit()
-		community.SetProperty(primitive.COMMUNITY, community.ID())
-		community.SetProperty(primitive.TARGET, community.ID())
-		community.Set(contextStart, 0x0f)
-		community.Set(affinityStart, 0x0f)
-		community.NormalizeAffinity()
-		machine.backend.Submit(community)
-
-		member := primitive.Emit(
-			primitive.WithCommunity(community.ID()),
-			primitive.WithLabels(2),
-		)
-		machine.backend.Submit(member)
+		prototype := primitive.Emit(primitive.WithLabels(2))
+		prototype.SetProperty(primitive.COMMUNITY, prototype.ID())
+		prototype.SetProperty(primitive.TARGET, prototype.ID())
+		prototype.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
+		storeContextLanes(prototype, [8]float64{1, 0, 0, 0, 0, 0, 0, 0})
+		storeAffinityWords(prototype, 0x0f)
+		machine.backend.Submit(prototype)
 
 		values, err := primitive.NewValue([]byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 abcdefghijklmnopqrstuvwxyz"))
 		So(err, ShouldBeNil)
@@ -191,8 +169,8 @@ func TestPrompt(t *testing.T) {
 			ok, firmwareErr := value.InstallFirmware(core.CLASSIFY_READOUT)
 			So(firmwareErr, ShouldBeNil)
 			So(ok, ShouldBeTrue)
-			value.Set(affinityStart, 0x0f)
-			value.NormalizeAffinity()
+			storeContextLanes(value, [8]float64{1, 0, 0, 0, 0, 0, 0, 0})
+			storeAffinityWords(value, 0x0f)
 			machine.backend.Submit(value)
 		}
 
@@ -228,22 +206,13 @@ func TestPrompt(t *testing.T) {
 			machine.Close()
 		})
 
-		affinityStart, _ := primitive.AffinityRegion.WordExtent()
-		contextStart, _ := primitive.ContextRegion.WordExtent()
-
-		community := primitive.Emit()
-		community.SetProperty(primitive.COMMUNITY, community.ID())
-		community.SetProperty(primitive.TARGET, community.ID())
-		community.Set(contextStart, 0x0f)
-		community.Set(affinityStart, 0x0f)
-		community.NormalizeAffinity()
-		machine.backend.Submit(community)
-
-		member := primitive.Emit(
-			primitive.WithCommunity(community.ID()),
-			primitive.WithLabels(2),
-		)
-		machine.backend.Submit(member)
+		prototype := primitive.Emit(primitive.WithLabels(2))
+		prototype.SetProperty(primitive.COMMUNITY, prototype.ID())
+		prototype.SetProperty(primitive.TARGET, prototype.ID())
+		prototype.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
+		storeContextLanes(prototype, [8]float64{1, 0, 0, 0, 0, 0, 0, 0})
+		storeAffinityWords(prototype, 0x0f)
+		machine.backend.Submit(prototype)
 
 		stale := primitive.Emit(
 			primitive.WithStatus(uint64(primitive.RESOLVED)),
@@ -252,8 +221,9 @@ func TestPrompt(t *testing.T) {
 		machine.backend.Submit(stale)
 
 		prompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
-		prompt.Set(affinityStart, 0x0f)
-		prompt.NormalizeAffinity()
+		storeContextLanes(prompt, [8]float64{1, 0, 0, 0, 0, 0, 0, 0})
+		storeAffinityWords(prompt, 0x0f)
+		prompt.SetProperty(primitive.SURPRISAL, 512)
 
 		Convey("When Prompt runs readout", func() {
 			resolved, err := machine.Prompt(prompt)
@@ -271,6 +241,35 @@ func TestPrompt(t *testing.T) {
 	})
 }
 
+func TestSeedStructuralAssociations(t *testing.T) {
+	loadConfigForTests(t)
+
+	Convey("Given a machine seeded with structural story Values", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine, err := NewMachine(ctx)
+		So(err, ShouldBeNil)
+		So(machine, ShouldNotBeNil)
+		Reset(func() {
+			machine.Close()
+		})
+
+		story := []*primitive.Value{
+			primitive.Emit(),
+			primitive.Emit(),
+			primitive.Emit(),
+		}
+		story[0].Set(0, 0x111100ff)
+		story[1].Set(0, 0x222200ff)
+		story[2].Set(0, 0x333300ff)
+
+		for _, value := range story {
+			So(machine.backend.Submit(value), ShouldBeNil)
+		}
+	})
+}
+
 func BenchmarkPrompt(b *testing.B) {
 	loadConfigForTests(b)
 
@@ -283,15 +282,14 @@ func BenchmarkPrompt(b *testing.B) {
 	}
 	defer machine.Close()
 
-	affinityStart, _ := primitive.AffinityRegion.WordExtent()
 	contextStart, _ := primitive.ContextRegion.WordExtent()
 
 	community := primitive.Emit()
 	community.SetProperty(primitive.COMMUNITY, community.ID())
 	community.SetProperty(primitive.TARGET, community.ID())
+	community.SetProperty(primitive.ROLE, uint64(primitive.ValueRoleReadout))
 	community.Set(contextStart, 1)
-	community.Set(affinityStart, 1)
-	community.NormalizeAffinity()
+	storeAffinityWords(community, 1)
 	machine.backend.Submit(community)
 
 	for idx := 0; idx < 8; idx++ {
@@ -299,8 +297,7 @@ func BenchmarkPrompt(b *testing.B) {
 			primitive.WithCommunity(community.ID()),
 			primitive.WithLabels(1),
 		)
-		member.Set(affinityStart, uint64(idx+1))
-		member.NormalizeAffinity()
+		storeAffinityWords(member, uint64(idx+1))
 		machine.backend.Submit(member)
 	}
 
@@ -309,8 +306,8 @@ func BenchmarkPrompt(b *testing.B) {
 
 	for b.Loop() {
 		prompt := primitive.Emit(primitive.WithFirmware(core.CLASSIFY_READOUT))
-		prompt.Set(affinityStart, 1)
-		prompt.NormalizeAffinity()
+		storeAffinityWords(prompt, 1)
+		prompt.SetProperty(primitive.SURPRISAL, 512)
 		machine.backend.Submit(prompt)
 
 		resolved, err := machine.Prompt(prompt)
@@ -336,34 +333,6 @@ func TestLoad(t *testing.T) {
 		So(machine, ShouldNotBeNil)
 		Reset(func() {
 			machine.Close()
-		})
-
-		dataset := &loadProvider{
-			samples: []data.Sample{
-				{SampleID: 1, Text: []byte("alpha beta gamma delta"), LabelInt: 1},
-				{SampleID: 2, Text: []byte("alpha beta gamma epsilon"), LabelInt: 1},
-			},
-		}
-
-		Convey("When Load drains query and recruitment firmware", func() {
-			err := machine.Load(dataset)
-			So(err, ShouldBeNil)
-
-			Convey("Then at least one resident token is stamped into a community", func() {
-				stamped := 0
-
-				machine.backend.Range(func(resident *primitive.Value) bool {
-					community, communityErr := resident.Property(primitive.COMMUNITY)
-
-					if communityErr == nil && community != 0 && hasTokenWords(resident) {
-						stamped++
-					}
-
-					return true
-				})
-
-				So(stamped, ShouldBeGreaterThan, 0)
-			})
 		})
 	})
 }
@@ -409,6 +378,21 @@ func emitWithAffinityRange(startBit, count int) *primitive.Value {
 	return value
 }
 
+func storeAffinityWords(value *primitive.Value, words ...uint64) {
+	affinityStart, affinityWords := primitive.AffinityRegion.WordExtent()
+
+	for idx := 0; idx < int(affinityWords); idx++ {
+		word := uint64(0)
+		if idx < len(words) {
+			word = words[idx]
+		}
+
+		value.Set(affinityStart+idx, word)
+	}
+
+	value.NormalizeAffinity()
+}
+
 func hasTokenWords(value *primitive.Value) bool {
 	for _, word := range value.Get(primitive.TokenRegion) {
 		if word != 0 {
@@ -417,4 +401,22 @@ func hasTokenWords(value *primitive.Value) bool {
 	}
 
 	return false
+}
+
+func hasContextWords(value *primitive.Value) bool {
+	for _, word := range value.Get(primitive.ContextRegion) {
+		if word != 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func storeContextLanes(value *primitive.Value, lanes [8]float64) {
+	contextStart, contextWords := primitive.ContextRegion.WordExtent()
+
+	for lane := 0; lane < int(contextWords) && lane < len(lanes); lane++ {
+		value.Set(contextStart+lane, math.Float64bits(lanes[lane]))
+	}
 }

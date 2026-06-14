@@ -52,8 +52,7 @@ func (backend *Backend) HypercubeGossip(
 	// otherwise executeKernelGo. Compatibility is currently permissive;
 	// tighten when new opcodes require Go-only lowering.
 	var stageIdx []uint64
-	var childFrame [128]uint64
-	var childActive bool
+	var childGroups [][][128]uint64
 
 	if backend.programAsmCompatible(ownerFrame) {
 		var stageBuf [128]uint64
@@ -65,17 +64,17 @@ func (backend *Backend) HypercubeGossip(
 			copy(stageIdx, stageBuf[:stageCount])
 		}
 	} else {
-		stageIdx, childFrame, childActive = backend.executeKernelGo(
+		stageIdx, childGroups = backend.executeKernelGo(
 			ownerFrame, ownerIdx, communityFrames, communitySize, dimCount,
 		)
 	}
 
-	// stageIdx is produced by legacy stage(B) firmware. Current recruitment
-	// narrows lanes through SELECTED/reference tags in compute.Backend.
+	// stageIdx is retained for the asm ABI. Strict firmware narrows lanes
+	// through SELECTED/reference tags and does not emit stage(B).
 	_ = stageIdx
 
 	var spawned []*primitive.Value
-	spawned = append(spawned, backend.materializeChild(childFrame, childActive)...)
+	spawned = append(spawned, backend.materializeChildGroups(childGroups)...)
 
 	spawnCount := ownerFrame[SpawnRegisterWord]
 
@@ -106,29 +105,62 @@ func (backend *Backend) HypercubeGossip(
 	return spawned, nil
 }
 
-func (backend *Backend) materializeChild(frame [128]uint64, active bool) []*primitive.Value {
-	if !active {
+func (backend *Backend) materializeChildGroups(groups [][][128]uint64) []*primitive.Value {
+	if len(groups) == 0 {
 		return nil
 	}
 
-	child := primitive.AllocValue()
-	if child == nil {
-		return nil
+	var allChildren []*primitive.Value
+
+	for _, frames := range groups {
+		children := backend.materializeChildren(frames)
+		allChildren = append(allChildren, children...)
 	}
 
-	childWords := (*[128]uint64)(unsafe.Pointer(child))
-	copy(childWords[:], frame[:])
-	child.StampID()
-	childWords[SpawnRegisterWord] = 0
+	return allChildren
+}
 
-	child.SetSchedulingNext(0)
-	child.SetStatus(primitive.PENDING)
-	if child.HasProgram() {
-		child.SetSchedulingNext(child.ID())
-		child.SetStatus(primitive.READY)
+func (backend *Backend) materializeChildren(frames [][128]uint64) []*primitive.Value {
+	children := make([]*primitive.Value, 0, len(frames))
+
+	for _, frame := range frames {
+		child := primitive.AllocValue()
+		if child == nil {
+			continue
+		}
+
+		childWords := (*[128]uint64)(unsafe.Pointer(child))
+		copy(childWords[:], frame[:])
+		child.StampID()
+		childWords[SpawnRegisterWord] = 0
+
+		child.SetSchedulingNext(0)
+		child.SetStatus(primitive.PENDING)
+		if child.HasProgram() {
+			child.SetSchedulingNext(child.ID())
+			child.SetStatus(primitive.READY)
+		}
+
+		children = append(children, child)
 	}
 
-	return []*primitive.Value{child}
+	for idx := 1; idx < len(children); idx++ {
+		prev := children[idx-1]
+		next := children[idx]
+
+		prevWords := (*[128]uint64)(unsafe.Pointer(prev))
+		nextWords := (*[128]uint64)(unsafe.Pointer(next))
+
+		if prevWords[121] == 0 {
+			prevWords[121] = next.ID()
+		}
+
+		if nextWords[120] == 0 {
+			nextWords[120] = prev.ID()
+		}
+	}
+
+	return children
 }
 
 /*

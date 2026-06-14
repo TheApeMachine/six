@@ -123,14 +123,6 @@ func (op MachineOp) Pack() uint64 {
 		word |= 1 << InstrSrcAFromBShift
 	}
 
-	if op.Stage {
-		word |= 1 << InstrStageShift
-	}
-
-	if op.PopEnd {
-		word |= 1 << InstrPopEndShift
-	}
-
 	return word
 }
 
@@ -149,6 +141,10 @@ func (op MachineOp) Validate() error {
 
 	if op.PredicateCond > 7 {
 		return fmt.Errorf("predicate condition %d exceeds 3-bit field", op.PredicateCond)
+	}
+
+	if op.Stage || op.PopEnd {
+		return fmt.Errorf("stage/pop control bits are not available in the strict linear ALU")
 	}
 
 	if err := validateStartSpan("A", op.AStart, op.ASpan); err != nil {

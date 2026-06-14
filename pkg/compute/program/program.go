@@ -94,10 +94,10 @@ const (
 	InstrEmitShift      = 54 // retained as the high bit of the target field for older tooling
 	InstrTopologyShift  = 55
 	InstrPredBitShift   = 57 // 1 = popcount-driven predicate instruction
-	InstrPredCondShift  = 58 // predicate=1: comparison/reduction; predicate=0: SrcB rot8 steps
-	InstrSrcAFromBShift = 61 // 1 = read SrcA from popped frame too
-	InstrStageShift     = 62 // legacy stage(B) directives queue peer indices
-	InstrPopEndShift    = 63 // rewind pop lane after stepping the body
+	InstrPredCondShift  = 58 // predicate=1: comparison/scalar lane; predicate=0: SrcB rot8 steps
+	InstrSrcAFromBShift = 61 // 1 = read SrcA from the mapped B frame
+	InstrStageShift     = 62 // reserved in strict firmware except target-C emit flush
+	InstrPopEndShift    = 63 // reserved; strict kernels do not rewind pc
 
 	InstrSpanMask  = 0x7F
 	InstrStartMask = 0x7F

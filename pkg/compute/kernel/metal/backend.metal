@@ -314,18 +314,8 @@ static inline uint ast_bits_len(uint value) {
 #define CURRENT_PRED_EQ              4ul
 #define CURRENT_PRED_NE              5ul
 #define CURRENT_PRED_STORE_POPCNT    6ul
-#define CURRENT_PRED_ANY_ZERO        7ul
-#define CURRENT_REDUCE_ARGMIN        1ul
-#define CURRENT_REDUCE_MODE_EQ       2ul
-#define CURRENT_REDUCE_ZIPF_SELECT   3ul
-#define CURRENT_MODE_TABLE_SIZE      1024u
 #define CURRENT_REFERENCE_WORD       67u
 #define CURRENT_SPAWN_REGISTER_WORD  70u
-#define CURRENT_ZIPF_WEIGHT_SCALE    281474976710656ul
-#define CURRENT_ZIPF_ID_WORD         122u
-#define CURRENT_ZIPF_EPOCH_WORD      58u
-#define CURRENT_ZIPF_COMMUNITY_WORD  64u
-#define CURRENT_ZIPF_SURPRISAL_WORD  68u
 
 static inline device ulong* current_owner_frame(device ulong* arena, constant AstParams& params) {
     if (params.owner_slot == AST_INVALID_INDEX) {
@@ -333,31 +323,6 @@ static inline device ulong* current_owner_frame(device ulong* arena, constant As
     }
 
     return arena + (ulong)params.owner_slot * (ulong)WORDS;
-}
-
-static inline device ulong* current_next_b(
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    thread uint& queue_idx,
-    thread uint& current_idx
-) {
-    while (queue_idx < params.value_count) {
-        uint candidate = queue_idx;
-        queue_idx++;
-
-        if (!ast_index_active(params, indices, candidate)) {
-            continue;
-        }
-
-        current_idx = candidate;
-
-        return ast_frame(arena, indices, candidate);
-    }
-
-    current_idx = AST_INVALID_INDEX;
-
-    return nullptr;
 }
 
 static inline ulong current_rotated_word(device ulong* frame, uint start, uint span, uint lane, ulong rotate) {
@@ -384,395 +349,6 @@ static inline uint current_popcount(device ulong* frame, uint start, uint span) 
     return out;
 }
 
-static inline void current_reduce_argmin(
-    device ulong* owner,
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    uint value_start,
-    uint key_start,
-    uint dst_start,
-    uint guard_start
-) {
-    if (owner == nullptr || params.value_count == 0 || owner[guard_start & 127u] == 0ul) {
-        return;
-    }
-
-    ulong best_value = 0ul;
-    ulong best_key = ~0ul;
-
-    for (uint idx = 0; idx < params.value_count; idx++) {
-        if (!ast_index_active(params, indices, idx)) {
-            continue;
-        }
-
-        device ulong* peer = ast_frame(arena, indices, idx);
-        ulong value = peer[value_start & 127u];
-        if (value == 0ul) {
-            continue;
-        }
-
-        ulong key = peer[key_start & 127u];
-        if (key >= best_key) {
-            continue;
-        }
-
-        best_key = key;
-        best_value = value;
-    }
-
-    if (best_value != 0ul) {
-        owner[dst_start & 127u] = best_value;
-    }
-}
-
-static inline void current_reduce_mode_eq(
-    device ulong* owner,
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    uint value_start,
-    uint key_start,
-    uint dst_start,
-    uint match_start
-) {
-    if (owner == nullptr || params.value_count == 0) {
-        return;
-    }
-
-    ulong match = owner[match_start & 127u];
-    if (match == 0ul) {
-        return;
-    }
-
-    uchar used[CURRENT_MODE_TABLE_SIZE];
-    ulong keys[CURRENT_MODE_TABLE_SIZE];
-    uint counts[CURRENT_MODE_TABLE_SIZE];
-    uint first_seen[CURRENT_MODE_TABLE_SIZE];
-
-    for (uint slot = 0u; slot < CURRENT_MODE_TABLE_SIZE; slot++) {
-        used[slot] = 0u;
-        keys[slot] = 0ul;
-        counts[slot] = 0u;
-        first_seen[slot] = 0xFFFFFFFFu;
-    }
-
-    uint seen = 0u;
-    for (uint idx = 0; idx < params.value_count; idx++) {
-        if (!ast_index_active(params, indices, idx)) {
-            continue;
-        }
-
-        device ulong* peer = ast_frame(arena, indices, idx);
-        if (peer[key_start & 127u] != match) {
-            continue;
-        }
-
-        ulong value = peer[value_start & 127u];
-        if (value == 0ul) {
-            continue;
-        }
-
-        uint slot = uint((value ^ (value >> 32ul)) & ulong(CURRENT_MODE_TABLE_SIZE - 1u));
-        for (uint probe = 0u; probe < CURRENT_MODE_TABLE_SIZE; probe++) {
-            if (used[slot] == 0u) {
-                used[slot] = 1u;
-                keys[slot] = value;
-                counts[slot] = 1u;
-                first_seen[slot] = seen;
-                break;
-            }
-
-            if (keys[slot] == value) {
-                counts[slot]++;
-                break;
-            }
-
-            slot = (slot + 1u) & (CURRENT_MODE_TABLE_SIZE - 1u);
-        }
-
-        seen++;
-    }
-
-    ulong best_value = 0ul;
-    uint best_count = 0u;
-    uint best_order = 0xFFFFFFFFu;
-
-    for (uint slot = 0u; slot < CURRENT_MODE_TABLE_SIZE; slot++) {
-        if (used[slot] == 0u) {
-            continue;
-        }
-
-        if (counts[slot] < best_count) {
-            continue;
-        }
-
-        if (counts[slot] == best_count && first_seen[slot] >= best_order) {
-            continue;
-        }
-
-        best_count = counts[slot];
-        best_order = first_seen[slot];
-        best_value = keys[slot];
-    }
-
-    if (best_value != 0ul) {
-        owner[dst_start & 127u] = best_value;
-    }
-}
-
-struct CurrentZipfBest {
-    ulong value;
-    ulong utility;
-    bool found;
-};
-
-static inline uint current_zipf_power(ulong temperature) {
-    if (temperature >= 1024ul) {
-        return 0u;
-    }
-
-    if (temperature >= 512ul) {
-        return 1u;
-    }
-
-    if (temperature >= 256ul) {
-        return 2u;
-    }
-
-    if (temperature >= 128ul) {
-        return 3u;
-    }
-
-    return 4u;
-}
-
-static inline ulong current_zipf_weight(uint rank, uint power) {
-    if (rank == 0u) {
-        return 0ul;
-    }
-
-    if (power == 0u) {
-        return 1ul;
-    }
-
-    ulong weight = CURRENT_ZIPF_WEIGHT_SCALE;
-    ulong divisor = ulong(rank);
-
-    for (uint idx = 0u; idx < power; idx++) {
-        weight /= divisor;
-        if (weight == 0ul) {
-            return 1ul;
-        }
-    }
-
-    return weight == 0ul ? 1ul : weight;
-}
-
-static inline ulong current_zipf_rotl(ulong value, uint shift) {
-    shift &= 63u;
-
-    uint rshift = (64u - shift) & 63u;
-
-    return (value << shift) | (value >> rshift);
-}
-
-static inline ulong current_zipf_mix(ulong seed) {
-    seed += 0x9e3779b97f4a7c15ul;
-    seed = (seed ^ (seed >> 30u)) * 0xbf58476d1ce4e5b9ul;
-    seed = (seed ^ (seed >> 27u)) * 0x94d049bb133111ebul;
-
-    return seed ^ (seed >> 31u);
-}
-
-static inline ulong current_zipf_seed(device ulong* owner, uint count, ulong best_utility) {
-    ulong seed = owner[CURRENT_ZIPF_ID_WORD] ^
-        current_zipf_rotl(owner[CURRENT_ZIPF_EPOCH_WORD], 17u) ^
-        current_zipf_rotl(owner[CURRENT_ZIPF_COMMUNITY_WORD], 31u) ^
-        current_zipf_rotl(owner[CURRENT_ZIPF_SURPRISAL_WORD], 7u) ^
-        current_zipf_rotl(best_utility, 43u) ^
-        ulong(count);
-
-    return current_zipf_mix(seed);
-}
-
-static inline uint current_zipf_candidate_count(
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    uint value_start
-) {
-    uint count = 0u;
-
-    for (uint idx = 0u; idx < params.value_count; idx++) {
-        if (!ast_index_active(params, indices, idx)) {
-            continue;
-        }
-
-        device ulong* peer = ast_frame(arena, indices, idx);
-        if (peer[value_start & 127u] == 0ul) {
-            continue;
-        }
-
-        count++;
-    }
-
-    return count;
-}
-
-static inline CurrentZipfBest current_zipf_best(
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    uint value_start,
-    uint utility_start
-) {
-    CurrentZipfBest best;
-    best.value = 0ul;
-    best.utility = 0ul;
-    best.found = false;
-    uint best_index = 0u;
-
-    for (uint idx = 0u; idx < params.value_count; idx++) {
-        if (!ast_index_active(params, indices, idx)) {
-            continue;
-        }
-
-        device ulong* peer = ast_frame(arena, indices, idx);
-        ulong value = peer[value_start & 127u];
-        if (value == 0ul) {
-            continue;
-        }
-
-        ulong utility = peer[utility_start & 127u];
-        if (best.found && (utility < best.utility || (utility == best.utility && idx >= best_index))) {
-            continue;
-        }
-
-        best.value = value;
-        best.utility = utility;
-        best.found = true;
-        best_index = idx;
-    }
-
-    return best;
-}
-
-static inline ulong current_zipf_candidate_at_rank(
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    uint value_start,
-    uint utility_start,
-    uint target_rank
-) {
-    if (target_rank == 0u || target_rank > params.value_count) {
-        return 0ul;
-    }
-
-    const uint need_before = target_rank - 1u;
-
-    for (uint idx = 0u; idx < params.value_count; idx++) {
-        if (!ast_index_active(params, indices, idx)) {
-            continue;
-        }
-
-        device ulong* peer_i = ast_frame(arena, indices, idx);
-        ulong value_i = peer_i[value_start & 127u];
-        if (value_i == 0ul) {
-            continue;
-        }
-
-        ulong util_i = peer_i[utility_start & 127u];
-        uint before = 0u;
-
-        for (uint j = 0u; j < params.value_count; j++) {
-            if (!ast_index_active(params, indices, j)) {
-                continue;
-            }
-
-            device ulong* peer_j = ast_frame(arena, indices, j);
-            ulong value_j = peer_j[value_start & 127u];
-            if (value_j == 0ul) {
-                continue;
-            }
-
-            ulong util_j = peer_j[utility_start & 127u];
-            bool j_strictly_better = (util_j > util_i) || (util_j == util_i && j < idx);
-
-            if (j_strictly_better) {
-                before++;
-            }
-        }
-
-        if (before == need_before) {
-            return value_i;
-        }
-    }
-
-    return 0ul;
-}
-
-static inline void current_reduce_zipf_select(
-    device ulong* owner,
-    device ulong* arena,
-    device const uint* indices,
-    constant AstParams& params,
-    uint value_start,
-    uint utility_start,
-    uint dst_start,
-    uint temperature_start
-) {
-    if (owner == nullptr || params.value_count == 0u) {
-        return;
-    }
-
-    uint count = current_zipf_candidate_count(arena, indices, params, value_start);
-    if (count == 0u) {
-        return;
-    }
-
-    CurrentZipfBest best = current_zipf_best(arena, indices, params, value_start, utility_start);
-    if (!best.found) {
-        return;
-    }
-
-    ulong temperature = owner[temperature_start & 127u];
-    if (temperature == 0ul || count == 1u) {
-        owner[dst_start & 127u] = best.value;
-        return;
-    }
-
-    uint power = current_zipf_power(temperature);
-    ulong total = 0ul;
-
-    for (uint rank = 1u; rank <= count; rank++) {
-        total += current_zipf_weight(rank, power);
-    }
-
-    if (total == 0ul) {
-        owner[dst_start & 127u] = best.value;
-        return;
-    }
-
-    ulong ticket = current_zipf_seed(owner, count, best.utility) % total;
-    ulong running = 0ul;
-
-    for (uint rank = 1u; rank <= count; rank++) {
-        running += current_zipf_weight(rank, power);
-        if (ticket >= running) {
-            continue;
-        }
-
-        ulong selected = current_zipf_candidate_at_rank(arena, indices, params, value_start, utility_start, rank);
-        owner[dst_start & 127u] = selected == 0ul ? best.value : selected;
-        return;
-    }
-
-    ulong selected = current_zipf_candidate_at_rank(arena, indices, params, value_start, utility_start, count);
-    owner[dst_start & 127u] = selected == 0ul ? best.value : selected;
-}
-
 kernel void hypercube_gossip_kernel(
     device ulong* arena                 [[buffer(0)]],
     device const uint* indices          [[buffer(1)]],
@@ -782,10 +358,9 @@ kernel void hypercube_gossip_kernel(
     uint lid                            [[thread_position_in_threadgroup]]
 ) {
     // Only lid 0 executes because the resident program mutates one owner
-    // frame, advances a shared pop(B) cursor, and may stage or emit in
-    // sequential instruction order. The same guard also rejects empty
-    // params.value_count and AST_INVALID_INDEX owner slots before any frame
-    // access occurs.
+    // frame in sequential instruction order. The same guard also rejects
+    // empty params.value_count and AST_INVALID_INDEX owner slots before
+    // any frame access occurs.
     if (lid != 0u || params.value_count == 0u || params.owner_slot == AST_INVALID_INDEX) {
         return;
     }
@@ -798,12 +373,6 @@ kernel void hypercube_gossip_kernel(
     if (stage_count != nullptr) {
         stage_count[0] = 0u;
     }
-
-    uint b_queue_idx = 0u;
-    uint current_b_idx = AST_INVALID_INDEX;
-    uint pop_body_start = 0u;
-    bool pop_active = false;
-    device ulong* current_b = nullptr;
 
     for (uint pc = 0; pc < PROGRAM_WORDS; pc++) {
         ulong raw = owner[PROGRAM_START_WORD + pc];
@@ -826,76 +395,7 @@ kernel void hypercube_gossip_kernel(
         ulong pred_cond = (raw >> 58ul) & 7ul;
         ulong b_rotate = pred_cond;
         ulong src_a_from_b = (raw >> 61ul) & 1ul;
-        ulong stage_bit = (raw >> 62ul) & 1ul;
-        ulong pop_end = (raw >> 63ul) & 1ul;
-
-        if (predicate == 1ul) {
-            if (opcode == CURRENT_REDUCE_ARGMIN) {
-                current_reduce_argmin(owner, arena, indices, params, a_start, b_start, dst_start, mask_start);
-                continue;
-            }
-            if (opcode == CURRENT_REDUCE_MODE_EQ) {
-                current_reduce_mode_eq(owner, arena, indices, params, a_start, b_start, dst_start, mask_start);
-                continue;
-            }
-            if (opcode == CURRENT_REDUCE_ZIPF_SELECT) {
-                current_reduce_zipf_select(owner, arena, indices, params, a_start, b_start, dst_start, mask_start);
-                continue;
-            }
-        }
-
-        if (topology == 1ul && b_queue_idx < params.value_count) {
-            current_b = current_next_b(arena, indices, params, b_queue_idx, current_b_idx);
-            pop_body_start = pc + 1u;
-            pop_active = current_b != nullptr;
-        }
-
-        if (stage_bit == 1ul) {
-            // Topology 3 (TopoHypercubePerPeer) is the per-peer flow
-            // emitted by `gossip(B) { (...) { stage(B) } }`. Every peer
-            // whose per-peer mask word is set gets queued for staging,
-            // matching the Go kernel's behaviour bit for bit.
-            if (topology == 3ul && params.value_count > 0u && stage_indices != nullptr && stage_count != nullptr) {
-                for (uint peer_idx = 0; peer_idx < params.value_count; peer_idx++) {
-                    if (peer_idx == params.owner_index || !ast_index_active(params, indices, peer_idx)) {
-                        continue;
-                    }
-
-                    device ulong* peer = ast_frame(arena, indices, peer_idx);
-                    if (peer[mask_start & 127u] == 0ul) {
-                        continue;
-                    }
-
-                    uint out_idx = stage_count[0];
-                    if (out_idx >= params.value_count) {
-                        break;
-                    }
-
-                    stage_indices[out_idx] = peer_idx;
-                    stage_count[0] = out_idx + 1u;
-                }
-            } else if (current_b != nullptr && stage_indices != nullptr && stage_count != nullptr) {
-                uint out_idx = stage_count[0];
-                if (out_idx < params.value_count) {
-                    stage_indices[out_idx] = current_b_idx;
-                    stage_count[0] = out_idx + 1u;
-                }
-            }
-
-            if (pop_end == 1ul && pop_active) {
-                current_b = current_next_b(arena, indices, params, b_queue_idx, current_b_idx);
-                if (current_b != nullptr) {
-                    pc = pop_body_start - 1u;
-                    continue;
-                }
-
-                pop_active = false;
-            }
-
-            continue;
-        }
-
-        device ulong* ptr_b = current_b;
+        device ulong* ptr_b = nullptr;
         if (topology == 2ul && params.value_count > 0u) {
             uint dim_count = ast_bits_len(params.value_count - 1u);
             if (dim_count > 0u && params.owner_index != AST_INVALID_INDEX) {
@@ -976,19 +476,6 @@ kernel void hypercube_gossip_kernel(
                 uint dst_idx = dst_start & 127u;
                 ulong prev_dst = ptr_dst[dst_idx];
                 ptr_dst[dst_idx] = (pop & guard) | (prev_dst & ~guard);
-            } else if (pred_cond == CURRENT_PRED_ANY_ZERO) {
-                bool zero_seen = false;
-                for (uint lane = 0; lane < a_span; lane++) {
-                    if (ptr_a[(a_start + lane) & 127u] == 0ul) {
-                        zero_seen = true;
-                        break;
-                    }
-                }
-
-                ulong result = zero_seen ? ~0ul : 0ul;
-                uint dst_idx = dst_start & 127u;
-                ulong prev_dst = ptr_dst[dst_idx];
-                ptr_dst[dst_idx] = (result & guard) | (prev_dst & ~guard);
             } else {
                 ulong threshold = owner[b_start & 127u];
                 ulong witness = a_span == 1u ? ptr_a[a_start & 127u] : pop;
@@ -1009,16 +496,6 @@ kernel void hypercube_gossip_kernel(
                 }
 
                 ptr_dst[dst_start & 127u] = (hit ? ~0ul : 0ul) & guard;
-            }
-
-            if (pop_end == 1ul && pop_active) {
-                current_b = current_next_b(arena, indices, params, b_queue_idx, current_b_idx);
-                if (current_b != nullptr) {
-                    pc = pop_body_start - 1u;
-                    continue;
-                }
-
-                pop_active = false;
             }
 
             continue;
@@ -1075,13 +552,20 @@ kernel void hypercube_gossip_kernel(
                         }
 
                         peer = ast_frame(arena, indices, peer_idx);
+                        if (per_peer_mask && peer[mask_start & 127u] == 0ul) {
+                            continue;
+                        }
                     }
 
+                    ulong word_a = acc;
+                    if (src_a_from_b == 1ul) {
+                        word_a = peer[(a_start + (lane % a_span)) & 127u];
+                    }
                     ulong word_b = current_rotated_word(peer, b_start, b_span, lane, b_rotate);
-                    acc = (acc & word_b & m0) |
-                        (acc & ~word_b & m1) |
-                        (~acc & word_b & m2) |
-                        (~acc & ~word_b & m3);
+                    acc = (word_a & word_b & m0) |
+                        (word_a & ~word_b & m1) |
+                        (~word_a & word_b & m2) |
+                        (~word_a & ~word_b & m3);
                     any = true;
                 }
 
@@ -1097,14 +581,5 @@ kernel void hypercube_gossip_kernel(
             owner[CURRENT_SPAWN_REGISTER_WORD] += 1ul;
         }
 
-        if (pop_end == 1ul && pop_active) {
-            current_b = current_next_b(arena, indices, params, b_queue_idx, current_b_idx);
-            if (current_b != nullptr) {
-                pc = pop_body_start - 1u;
-                continue;
-            }
-
-            pop_active = false;
-        }
     }
 }

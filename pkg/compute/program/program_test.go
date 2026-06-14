@@ -137,39 +137,52 @@ program align {
 		})
 	})
 
-	Convey("Given an IR program with Zipfian candidate selection", t, func() {
+	Convey("Given an IR program with a scalar rotate", t, func() {
 		source := `
-program zipf {
-  set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
+program rotate {
+  set A.signals[0,1] <- rotl(A.tokens[0,1], 8)
 }`
 
 		feed, feedErr := Compile(nil, source, Layout{})
 		ir, irErr := EncodeProgramIR(ProgramIR{
-			Name: "zipf",
+			Name: "rotate",
 			Slots: []SlotIR{
 				{
 					Op: MachineOp{
-						Opcode:        OpReduceZipfSelect,
-						AStart:        63,
+						Opcode:        ScalarRotateLeft,
+						AStart:        0,
 						ASpan:         1,
-						BStart:        57,
+						BStart:        73,
 						BSpan:         1,
-						DstStart:      63,
+						DstStart:      32,
 						DstSpan:       1,
-						MaskStart:     60,
-						Topology:      TopoHypercube,
+						MaskStart:     72,
 						Predicate:     true,
-						PredicateCond: PredEQ,
-						SrcAFromB:     true,
+						PredicateCond: PredScalar,
 					},
 				},
 			},
+			Constants: []ConstantInit{{Offset: 73, Value: 8}},
 		}, Layout{})
 
-		Convey("It should encode the same reducer word without feed text", func() {
+		Convey("It should encode the same scalar word without feed text", func() {
 			So(feedErr, ShouldBeNil)
 			So(irErr, ShouldBeNil)
 			So(ir.Words[0], ShouldEqual, feed.Words[0])
+		})
+	})
+
+	Convey("Given an IR program with legacy stage/pop bits", t, func() {
+		_, err := EncodeProgramIR(ProgramIR{
+			Name: "legacy",
+			Slots: []SlotIR{
+				{Op: MachineOp{Opcode: OpCopyA, ASpan: 1, BSpan: 1, DstSpan: 1, MaskStart: 72, Stage: true}},
+			},
+		}, Layout{})
+
+		Convey("It should reject non-linear control bits", func() {
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "strict linear ALU")
 		})
 	})
 }

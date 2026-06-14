@@ -42,6 +42,51 @@ program geometric_probe {
 		})
 	})
 
+	Convey("Given strict reducer names", t, func() {
+		cases := []string{
+			`program bad { set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal) }`,
+			`program bad { set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community) }`,
+			`program bad { set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature) }`,
+			`program bad { set A.context[0,8] <- geo_centroid(B.context[0,8], B.properties.labels, A.properties.labels) }`,
+			`program bad { set A.properties.labels <- geo_nearest(B.properties.labels, B.context[0,8], A.context[0,8]) }`,
+			`program bad { set A.properties.labels <- run_zero(A.signals[0,8]) }`,
+			`program bad { set A.properties.target <- run_one(A.signals[0,8]) }`,
+			`program bad { set A.signals[0,8] <- align_zero(A.tokens[0,8], B.tokens[0,8]) }`,
+			`program bad { set A.properties.labels <- any_zero(A.signals[0,8]) }`,
+		}
+
+		Convey("It should reject named reducers and legacy helper calls", func() {
+			for _, source := range cases {
+				_, err := Compile(source)
+				So(err, ShouldNotBeNil)
+			}
+		})
+	})
+
+	Convey("Given generic scalar ALU calls", t, func() {
+		source := `
+program scalar_probe {
+  set A.signals[0,1] <- shiftl(A.tokens[0,1], 3)
+  set A.signals[1,1] <- shiftr(A.tokens[1,1], 1)
+  set A.signals[2,1] <- rotl(A.tokens[2,1], 8)
+  set A.signals[3,1] <- rotr(A.tokens[3,1], 8)
+}
+`
+
+		Convey("It should lower shifts and rotates into the scalar sublane", func() {
+			result, err := Compile(source)
+			So(err, ShouldBeNil)
+
+			ops := []uint64{ScalarShiftLeft, ScalarShiftRight, ScalarRotateLeft, ScalarRotateRight}
+			for idx, op := range ops {
+				word := result.Words[idx]
+				So(word&0xF, ShouldEqual, op)
+				So((word>>57)&1, ShouldEqual, uint64(1))
+				So((word>>58)&7, ShouldEqual, uint64(PredScalar))
+			}
+		})
+	})
+
 	Convey("Given the recruit_community source", t, func() {
 		source := `
 program recruit_community {
@@ -56,8 +101,8 @@ program recruit_community {
     }
   }
 
-  ; Pop the next B value from the community.
-  pop(B) {
+  ; Sweep the community as in-band peer state.
+  gossip(B) {
     (A.affinity == 0) {
       ; Seed the affinity with the current B value's affinity.
       write A.affinity <- B.affinity
@@ -107,21 +152,21 @@ program recruit_community {
 			So(foundChildTarget, ShouldBeTrue)
 		})
 
-		Convey("It should encode at least one pop instruction with topology=Pop", func() {
+		Convey("It should encode peer writes on gossip topology", func() {
 			result, _ := Compile(source)
 
-			foundPop := false
+			foundGossip := false
 			for _, word := range result.Words {
 				if word == 0 {
 					continue
 				}
 
-				if (word>>55)&3 == TopoPopQueue {
-					foundPop = true
+				if (word>>55)&3 == TopoHypercubePerPeer || (word>>55)&3 == TopoHypercube {
+					foundGossip = true
 				}
 			}
 
-			So(foundPop, ShouldBeTrue)
+			So(foundGossip, ShouldBeTrue)
 		})
 
 		Convey("It should encode at least one B-target instruction (target=1)", func() {
@@ -183,10 +228,10 @@ func TestCompileBPredicate(t *testing.T) {
 	Convey("Given a query source that predicates on popped B state", t, func() {
 		source := `
 program query {
-  pop(B) {
+  gossip(B) {
     (B.properties.community == 0) {
       write B.properties.reference <- A.properties.reference
-      stage(B)
+      set B.properties.status <- SELECTED
     }
   }
 }
@@ -217,7 +262,7 @@ func TestCompileRot8(t *testing.T) {
 	Convey("Given source that rotates the B operand by byte steps", t, func() {
 		source := `
 program align {
-  pop(B) {
+  gossip(B) {
     write A.signals[0,2] <- xor(A.tokens[0,2], rot8(B.tokens[0,2], 3))
   }
 }
@@ -323,7 +368,7 @@ program align {
 func BenchmarkCompileRot8(b *testing.B) {
 	source := `
 program align {
-  pop(B) {
+  gossip(B) {
     write A.signals[0,2] <- xor(A.tokens[0,2], rot8(B.tokens[0,2], 3))
   }
 }
@@ -339,7 +384,7 @@ func TestCompileHammingPredicate(t *testing.T) {
 	Convey("Given the current recruit_community source", t, func() {
 		source := `
 program recruit_community {
-  pop(B) {
+  gossip(B) {
     (A.context[0,5] == 0) {
       write A.context[0,5] <- B.affinity
     }
@@ -469,36 +514,18 @@ program recruit_community {
 }
 
 func TestCompileReducers(t *testing.T) {
-	Convey("Given generic lane reducer source", t, func() {
-		source := `
-program reducers {
-  set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
-  set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
-  set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
-}
-`
+	Convey("Given strict reducer source", t, func() {
+		sources := []string{
+			`program reducers { set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal) }`,
+			`program reducers { set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community) }`,
+			`program reducers { set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature) }`,
+		}
 
-		Convey("It should lower reducers without task-specific operands", func() {
-			result, err := Compile(source)
-			So(err, ShouldBeNil)
-
-			argmin := result.Words[0]
-			mode := result.Words[1]
-			zipf := result.Words[2]
-
-			So(argmin&0xF, ShouldEqual, OpReduceArgMinNonZero)
-			So(argmin>>57&1, ShouldEqual, 1)
-			So(argmin>>61&1, ShouldEqual, 1)
-
-			So(mode&0xF, ShouldEqual, OpReduceModeEq)
-			So(mode>>46&0x7F, ShouldEqual, PropertyOffsets["community"])
-			So(mode>>57&1, ShouldEqual, 1)
-			So(mode>>61&1, ShouldEqual, 1)
-
-			So(zipf&0xF, ShouldEqual, OpReduceZipfSelect)
-			So(zipf>>46&0x7F, ShouldEqual, PropertyOffsets["temperature"])
-			So(zipf>>57&1, ShouldEqual, 1)
-			So(zipf>>61&1, ShouldEqual, 1)
+		Convey("It should reject public reducer calls", func() {
+			for _, source := range sources {
+				_, err := Compile(source)
+				So(err, ShouldNotBeNil)
+			}
 		})
 	})
 }
@@ -510,7 +537,7 @@ program recruit_community {
     set A.properties.status <- DONE
     emit { set program <- A.program }
   }
-  pop(B) {
+  gossip(B) {
     (A.affinity == 0) {
       write A.affinity <- B.affinity
     }
@@ -528,10 +555,11 @@ program recruit_community {
 
 func BenchmarkCompileReducers(b *testing.B) {
 	source := `
-program reducers {
-  set A.properties.community <- argmin_nonzero(B.properties.community, B.properties.surprisal)
-  set A.properties.labels <- mode_eq(B.properties.labels, B.properties.community, A.properties.community)
-  set A.properties.program_id <- zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
+program scalar {
+  set A.signals[0,1] <- shiftl(A.tokens[0,1], 3)
+  set A.signals[1,1] <- shiftr(A.tokens[1,1], 1)
+  set A.signals[2,1] <- rotl(A.tokens[2,1], 8)
+  set A.signals[3,1] <- rotr(A.tokens[3,1], 8)
 }
 `
 
@@ -556,7 +584,7 @@ program query {
   gossip(B) {
     (B.{{A.context[0,1]}} == {{A.context[1,1]}}) {
       write B.properties.reference <- A.properties.reference
-      stage(B)
+      set B.properties.status <- SELECTED
     }
   }
 }
@@ -567,7 +595,6 @@ program query {
 
 		predicateWord := result.Words[0]
 		bodyWord := result.Words[1]
-		stageWord := result.Words[2]
 
 		Convey("It should emit the predicate on TopoHypercubePerPeer", func() {
 			topology := (predicateWord >> 55) & 3
@@ -617,12 +644,13 @@ program query {
 			So(maskStart, ShouldEqual, uint64(PerPeerMaskWord))
 		})
 
-		Convey("It should emit stage(B) on TopoHypercubePerPeer", func() {
-			topology := (stageWord >> 55) & 3
-			stage := (stageWord >> 62) & 1
+		Convey("It should emit status selection on TopoHypercubePerPeer", func() {
+			statusWord := result.Words[2]
+			topology := (statusWord >> 55) & 3
+			target := (statusWord >> 53) & 3
 
 			So(topology, ShouldEqual, uint64(TopoHypercubePerPeer))
-			So(stage, ShouldEqual, uint64(1))
+			So(target, ShouldEqual, uint64(1))
 		})
 	})
 }

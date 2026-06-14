@@ -18,7 +18,7 @@ func executeKernel(
 	stageBuf *[128]uint64,
 	stageCount *uint64,
 ) {
-	stagedIdx, _, _ := backend.executeKernelGo(
+	stagedIdx, _ := backend.executeKernelGo(
 		ownerFrame, ownerIdx, community, communitySize, dimCount,
 	)
 

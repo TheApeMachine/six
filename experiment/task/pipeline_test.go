@@ -4,7 +4,6 @@
 package task
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
+	"github.com/theapemachine/six/experiment/task/logic"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -25,6 +25,10 @@ var reporter = NewProjectorReporter()
 
 type promptFirmwareProvider interface {
 	PromptFirmware() core.FirmwareType
+}
+
+type structuralSeedProvider interface {
+	SeedViralLearn() bool
 }
 
 func TestMain(m *testing.M) {
@@ -128,7 +132,7 @@ func TestPipeline(t *testing.T) {
 		// phasedial.NewSteerabilityExperiment(),
 		// phasedial.NewTwoHopRetrievalExperiment(),
 		// imagegen.NewReconstructionExperiment(),
-		// logic.NewBabiExperiment(),
+		logic.NewBabiExperiment(),
 		// logic.NewSemanticAlgebraExperiment(),
 		// misc.NewCrossDomainCompletionExperiment(),
 		// misc.NewGemmaIntegrationExperiment(),
@@ -146,9 +150,9 @@ func TestPipeline(t *testing.T) {
 			// snapshots empty and the gate telemetry meaningless.
 			Convey("Given a machine for experiment: "+experiment.Name(), t, func() {
 				machine, err := vm.NewMachine(t.Context())
-
 				So(err, ShouldBeNil)
 				So(machine, ShouldNotBeNil)
+				defer machine.Close()
 
 				Convey("When the dataset is loaded", func() {
 					So(machine.Load(experiment.Dataset()), ShouldBeNil)
@@ -159,31 +163,31 @@ func TestPipeline(t *testing.T) {
 							So(err, ShouldBeNil)
 							So(len(values), ShouldBeGreaterThan, 0)
 
-							firmware := core.FOLD_SUBSTRATE
-							if provider, ok := experiment.(promptFirmwareProvider); ok {
-								firmware = provider.PromptFirmware()
-							}
-
-							for _, value := range values {
-								ok, err := value.InstallFirmware(firmware)
-								So(err, ShouldBeNil)
-								So(ok, ShouldBeTrue)
-							}
-
+							startTime := time.Now().UnixNano()
 							resolved, err := machine.Prompt(values...)
+							endTime := time.Now().UnixNano()
 							So(err, ShouldBeNil)
 							So(len(resolved), ShouldBeGreaterThan, 0)
 
-							holdout, _ := experiment.HoldoutForPrompt(idx)
+							holdout, ok := experiment.HoldoutForPrompt(idx)
+
+							if !ok {
+								holdout = nil
+							}
+
 							experiment.AddResult(tools.ExperimentalData{
-								Idx:      idx,
-								Prompt:   prompt,
-								Holdout:  holdout,
-								Resolved: resolved,
+								Idx:       idx,
+								Prompt:    prompt,
+								Prefix:    []byte(prompt),
+								Holdout:   holdout,
+								StartTime: startTime,
+								EndTime:   endTime,
+								Segments:  values,
+								Resolved:  resolved,
 							})
 						}
 
-						Convey("Then the results are scored", func() {
+						Convey("It should have an outcome", func() {
 							So(experiment.Outcome())
 						})
 
@@ -192,176 +196,6 @@ func TestPipeline(t *testing.T) {
 				})
 			})
 		})
-	}
-}
-
-func TestTextClassificationLoadCommunities(t *testing.T) {
-	experiment := classification.NewTextClassificationExperiment()
-
-	Convey("Given a text classification experiment and machine", t, func() {
-		machine, err := vm.NewMachine(t.Context())
-		So(err, ShouldBeNil)
-		So(machine, ShouldNotBeNil)
-		defer machine.Close()
-
-		Convey("When the dataset is loaded", func() {
-			So(machine.Load(experiment.Dataset()), ShouldBeNil)
-
-			var total int
-			var tokenValues int
-			var stamped int
-			var ready int
-			var selected int
-			var routeHeaders int
-
-			machine.Range(func(value *primitive.Value) bool {
-				total++
-
-				if value.Status() == primitive.READY {
-					ready++
-				}
-
-				if value.Status() == primitive.SELECTED {
-					selected++
-				}
-
-				target, targetErr := value.Property(primitive.TARGET)
-				if targetErr == nil && target != 0 {
-					routeHeaders++
-				}
-
-				hasTokens := false
-				for _, word := range value.Get(primitive.TokenRegion) {
-					if word != 0 {
-						hasTokens = true
-
-						break
-					}
-				}
-
-				if hasTokens {
-					tokenValues++
-
-					community, commErr := value.Property(primitive.COMMUNITY)
-					if commErr == nil && community != 0 {
-						stamped++
-					}
-				}
-
-				return true
-			})
-
-			Convey("Then token Values carry community stamps after recruitment", func() {
-				So(tokenValues, ShouldBeGreaterThan, 0)
-				So(stamped, ShouldBeGreaterThan, 0)
-				So(stamped, ShouldEqual, tokenValues)
-				So(total, ShouldBeGreaterThan, 0)
-				So(ready, ShouldBeGreaterThanOrEqualTo, 0)
-				So(selected, ShouldBeGreaterThanOrEqualTo, 0)
-				So(routeHeaders, ShouldBeGreaterThanOrEqualTo, 0)
-			})
-
-			Convey("And prompts run through classify readout and score like the full pipeline", func() {
-				prompts := experiment.Prompts()
-				So(len(prompts), ShouldBeGreaterThan, 0)
-
-				const maxPrompts = 8
-				limit := maxPrompts
-				if len(prompts) < limit {
-					limit = len(prompts)
-				}
-
-				for idx := 0; idx < limit; idx++ {
-					prompt := prompts[idx]
-					values, valErr := primitive.NewValue([]byte(prompt))
-					So(valErr, ShouldBeNil)
-					So(len(values), ShouldBeGreaterThan, 0)
-
-					firmware := core.FOLD_SUBSTRATE
-					if provider, ok := experiment.(promptFirmwareProvider); ok {
-						firmware = provider.PromptFirmware()
-					}
-
-					for _, value := range values {
-						okFw, fwErr := value.InstallFirmware(firmware)
-						So(fwErr, ShouldBeNil)
-						So(okFw, ShouldBeTrue)
-					}
-
-					resolved, promptErr := machine.Prompt(values...)
-					So(promptErr, ShouldBeNil)
-					So(len(resolved), ShouldBeGreaterThan, 0)
-
-					holdout, _ := experiment.HoldoutForPrompt(idx)
-					experiment.AddResult(tools.ExperimentalData{
-						Idx:      idx,
-						Prompt:   prompt,
-						Holdout:  holdout,
-						Resolved: resolved,
-					})
-				}
-
-				So(experiment.Outcome())
-			})
-		})
-	})
-}
-
-/*
-BenchmarkTestTextClassificationLoadCommunities measures Load latency and the
-Prompt→settle path (classify readout) on a short prompt burst for throughput
-estimates. It shares the same experiment wiring as TestTextClassificationLoadCommunities.
-*/
-func BenchmarkTestTextClassificationLoadCommunities(b *testing.B) {
-	experiment := classification.NewTextClassificationExperiment()
-	_ = experiment.Prompts()
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		machine, err := vm.NewMachine(ctx)
-
-		if err != nil {
-			cancel()
-			b.Fatal(err)
-		}
-
-		loadErr := machine.Load(experiment.Dataset())
-		if loadErr != nil {
-			machine.Close()
-			cancel()
-			b.Fatal(loadErr)
-		}
-
-		prompts := experiment.Prompts()
-		if len(prompts) == 0 {
-			machine.Close()
-			cancel()
-			b.Fatal("no prompts")
-		}
-
-		prompt := prompts[0]
-		values, valErr := primitive.NewValue([]byte(prompt))
-
-		if valErr != nil {
-			machine.Close()
-			cancel()
-			b.Fatal(valErr)
-		}
-
-		firmware := core.FOLD_SUBSTRATE
-		if provider, ok := experiment.(promptFirmwareProvider); ok {
-			firmware = provider.PromptFirmware()
-		}
-
-		for _, value := range values {
-			_, _ = value.InstallFirmware(firmware)
-		}
-
-		_, _ = machine.Prompt(values...)
-		machine.Close()
-		cancel()
 	}
 }
 

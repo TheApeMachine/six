@@ -166,21 +166,9 @@ func (machine *Machine) Cycle() (
 }
 
 /*
-Range visits the backend resident store through Machine so integration tests
-can inspect in-band state without reaching into backend ownership.
-*/
-func (machine *Machine) Range(visitor func(*primitive.Value) bool) {
-	if machine == nil || machine.backend == nil {
-		return
-	}
-
-	machine.backend.Range(visitor)
-}
-
-/*
-Load ingests the dataset and seeds the bootstrap query/recruiter pair. The
-query carries a key/value selector in context and wakes the recruiter after
-tagging matching residents in-band.
+Load ingests the dataset and installs recruitment firmware on each sample
+head. The head recruits only Values whose reference points back to its ID, so
+community formation follows the linked Value chain in-band.
 */
 func (machine *Machine) Load(dataset data.Provider) (err error) {
 	if err := validate.Require(map[string]any{
@@ -204,6 +192,17 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 			return errors.Join(machine.err, errnie.Error(err))
 		}
 
+		if len(segments) > 0 {
+			ok, err := segments[0].InstallFirmware(core.RECRUIT_COMMUNITY)
+			if err != nil {
+				return errnie.Error(err)
+			}
+
+			if !ok {
+				return errors.New("sample head did not install recruitment firmware")
+			}
+		}
+
 		for _, segment := range segments {
 			machine.backend.Submit(segment)
 
@@ -217,59 +216,19 @@ func (machine *Machine) Load(dataset data.Provider) (err error) {
 		}
 	}
 
-	deployed, err := machine.firmware.Deploy(
-		core.RECRUIT_COMMUNITY, []uint64{
-			uint64(primitive.PropertyWord(primitive.COMMUNITY)), 0,
-		},
-		nil,
-	)
-	if err != nil {
-		return err
-	}
+	done := false
 
-	for _, value := range deployed {
-		machine.backend.Submit(value)
-
-		if machine.telemetry != nil {
-			_, err := io.Copy(machine.telemetry, value)
-
+	for !done {
+		select {
+		case <-machine.ctx.Done():
+			return machine.ctx.Err()
+		default:
+			_, ready, err := machine.Cycle()
 			if err != nil {
 				return errnie.Error(err)
 			}
-		}
-	}
 
-	for {
-		_, ready, err := machine.Cycle()
-		if err != nil {
-			return err
-		}
-
-		if machine.telemetry != nil {
-			var telemetryErr error
-
-			machine.backend.Range(func(value *primitive.Value) bool {
-				if telemetryErr != nil {
-					return false
-				}
-
-				frame := value.Bytes()
-				if len(frame) == 0 {
-					return true
-				}
-
-				_, telemetryErr = machine.telemetry.Write(frame)
-
-				return telemetryErr == nil
-			})
-
-			if telemetryErr != nil {
-				return errnie.Error(telemetryErr)
-			}
-		}
-
-		if len(ready) == 0 {
-			break
+			done = len(ready) == 0
 		}
 	}
 
@@ -295,71 +254,24 @@ func (machine *Machine) Prompt(
 		return nil, errors.New("prompt requires at least one value")
 	}
 
-	resolved = make([]*primitive.Value, 0)
-	promptIDs := make(map[uint64]struct{}, len(values))
-
 	for _, value := range values {
-		if value == nil {
-			return nil, errors.New("prompt value is nil")
-		}
+		machine.backend.Submit(value)
 	}
 
-	promptHeadID := values[0].ID()
-
-	for _, value := range values {
-		value.SetProperty(primitive.ROLE, uint64(primitive.ValueRolePrompt))
-		value.SetProperty(primitive.REFERENCE, promptHeadID)
-		promptIDs[value.ID()] = struct{}{}
-
-		if err := machine.backend.Submit(value); err != nil {
-			return nil, errnie.Error(err)
-		}
-
-		if machine.telemetry != nil {
-			if _, err := io.Copy(machine.telemetry, value); err != nil {
-				return nil, errnie.Error(err)
-			}
-		}
-	}
-
-	const maxPromptSettleCycles = 1_000_000
-	settleIterations := 0
-
-	for len(resolved) == 0 {
+	for {
 		select {
 		case <-machine.ctx.Done():
 			return nil, machine.ctx.Err()
 		default:
-		}
+			resolved, _, err := machine.Cycle()
 
-		settleIterations++
-		if settleIterations > maxPromptSettleCycles {
-			return nil, errors.New("prompt settle exceeded maximum cycles")
-		}
-
-		var ready []*primitive.Value
-		var candidates []*primitive.Value
-
-		if candidates, ready, err = machine.Cycle(); err != nil {
-			return nil, err
-		}
-
-		for _, value := range candidates {
-			if machine.telemetry != nil {
-				if _, err := io.Copy(machine.telemetry, value); err != nil {
-					return nil, errnie.Error(err)
-				}
+			if err != nil {
+				return nil, errnie.Error(err)
 			}
 
-			if _, ok := promptIDs[value.ID()]; ok && value.Role() == primitive.ValueRolePrompt {
-				resolved = append(resolved, value)
+			if len(resolved) > 0 {
+				return resolved, nil
 			}
-		}
-
-		if len(resolved) == 0 && len(ready) == 0 {
-			return nil, errors.New("prompt settled without resolved values")
 		}
 	}
-
-	return resolved, nil
 }

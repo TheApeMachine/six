@@ -19,7 +19,7 @@ func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
 		return false
 	}
 
-	for pc := uint64(0); pc < ProgramWords; pc++ {
+	for pc := range uint64(ProgramWords) {
 		instr := ownerFrame[ProgramStartWord+pc]
 		if instr == 0 {
 			continue
@@ -29,7 +29,24 @@ func (backend *Backend) programAsmCompatible(ownerFrame *[128]uint64) bool {
 			return false
 		}
 
-		if (instr>>TargetShift)&TargetMask == TargetC {
+		if (instr>>PredicateBitShift)&1 == 1 && (instr>>PredicateCondShift)&7 == PredScalar {
+			return false
+		}
+
+		target := (instr >> TargetShift) & TargetMask
+		topology := (instr >> TopologyShift) & 3
+		stage := (instr >> StageBitShift) & 1
+		popEnd := (instr >> PopEndBitShift) & 1
+
+		if topology == TopoPopQueue || popEnd == 1 || (stage == 1 && target != TargetC) {
+			return false
+		}
+
+		if target == TargetC {
+			return false
+		}
+
+		if (topology == TopoHypercube || topology == TopoHypercubePerPeer) && target == TargetA {
 			return false
 		}
 	}

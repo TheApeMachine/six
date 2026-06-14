@@ -26,6 +26,11 @@ test("every generated program matches a signature with the same instruction stre
 		// aliases). The classifier picks the first match in
 		// PROGRAM_SIGNATURES order, so we accept any name whose
 		// signature matches this one.
+		// Aliases match the classifier's structural fingerprint — any
+		// program whose opcodes / topology / predicate / emit / stage
+		// flags match this one is a valid classification, since
+		// per-Value firmware install patches operand offsets but never
+		// changes those structural fields.
 		const aliases = PROGRAM_SIGNATURES.filter(
 			(other) =>
 				other.instructions.length === sig.instructions.length &&
@@ -35,7 +40,6 @@ test("every generated program matches a signature with the same instruction stre
 						instr.opcode === o.opcode &&
 						instr.mode === o.mode &&
 						instr.topology === o.topology &&
-						instr.predStart === o.predStart &&
 						instr.predCond === o.predCond &&
 						instr.aInd === o.aInd &&
 						instr.bType === o.bType &&
@@ -43,13 +47,7 @@ test("every generated program matches a signature with the same instruction stre
 						instr.emit === o.emit &&
 						instr.srcAFromB === o.srcAFromB &&
 						instr.stage === o.stage &&
-						instr.popEnd === o.popEnd &&
-						instr.aStart === o.aStart &&
-						instr.aSpan === o.aSpan &&
-						instr.bStart === o.bStart &&
-						instr.bSpan === o.bSpan &&
-						instr.dstStart === o.dstStart &&
-						instr.dstSpan === o.dstSpan
+						instr.popEnd === o.popEnd
 					);
 				}),
 		).map((s) => s.name);

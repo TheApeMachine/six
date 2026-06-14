@@ -6,12 +6,8 @@
 TEXT ·executeKernel(SB), NOSPLIT, $192-80
 	MOVQ ownerFrame+8(FP), DI
 	XORQ R11, R11 // pc = 0
-	XORQ R12, R12 // bQueueIdx = 0
-	// Persistent state across pc-loop iterations:
-	// 128(SP) currentB    — peer the most recent pop seed bound
-	// 136(SP) popBodyStart — pc to rewind to when popEnd fires
-	// 144(SP) popActive   — 1 between pop seed and lane drain
-	// 152(SP) popEnd      — bit 63 of the current instruction
+	XORQ R12, R12
+	// Reserved high-bit scratch kept for ABI-sized stack frames.
 	XORQ AX, AX
 	MOVQ AX, 128(SP)
 	MOVQ AX, 136(SP)
@@ -82,8 +78,7 @@ pc_loop:
 	// and does not need this stash.
 	MOVQ R14, AX; SHRQ $58, AX; ANDQ $7, AX; MOVQ AX, 120(SP)
 
-	// popEnd (bit 63). Saved to stack so the pop-rewind block at the
-	// bottom of the pc loop can branch on it without re-decoding.
+	// popEnd is reserved in strict firmware; decoded only for dump parity.
 	MOVQ R14, AX; SHRQ $63, AX; ANDQ $1, AX; MOVQ AX, 152(SP)
 
 	// predicate (bit 57) and predCond (bits 58-60) for the predicate
@@ -91,7 +86,7 @@ pc_loop:
 	MOVQ R14, AX; SHRQ $57, AX; ANDQ $1, AX; MOVQ AX, 160(SP)
 	MOVQ R14, AX; SHRQ $58, AX; ANDQ $7, AX; MOVQ AX, 168(SP)
 
-	// stageBit (bit 62) for stage(B) handling.
+	// stageBit is reserved in strict firmware.
 	MOVQ R14, AX; SHRQ $62, AX; ANDQ $1, AX; MOVQ AX, 176(SP)
 
 	// targetB flag
@@ -101,30 +96,13 @@ pc_loop:
 	MOVQ R14, AX; SHRQ $55, AX; ANDQ $3, AX
 
 	// --- 2. TOPOLOGY ROUTING ---
-	// Default ptrB to the persistent currentB (set by the most recent
-	// pop seed). Gossip / pop-seed branches override; if no seed has
-	// fired yet the slot is nil and the failsafe in topo_done routes
-	// the read back at the owner frame.
+	// Default ptrB to nil. Gossip routing may override; otherwise the
+	// failsafe in topo_done routes the read back at the owner frame.
 	MOVQ 128(SP), R13
 	MOVQ communitySize+48(FP), R9
 	MOVQ community_ptr+24(FP), SI
 
-	CMPQ AX, $1; JEQ topo_pop
 	CMPQ AX, $2; JEQ topo_hyper
-	JMP topo_done
-
-topo_pop:
-	CMPQ R12, R9; JAE topo_done
-	MOVQ (SI)(R12*8), R13
-	MOVQ R13, 128(SP) // persist currentB so subsequent pop body
-	                  // instructions read this peer.
-	INCQ R12
-	// popBodyStart = pc + 1; popActive = 1.
-	MOVQ R11, AX
-	INCQ AX
-	MOVQ AX, 136(SP)
-	MOVQ $1, AX
-	MOVQ AX, 144(SP)
 	JMP topo_done
 
 topo_hyper:
@@ -174,11 +152,6 @@ ptra_done:
 ptrdst_ok:
 	MOVQ CX, 104(SP) // ptrDst
 
-	// stage(B) dispatch (mirrors arm64 stage_path).
-	CMPQ 176(SP), $1; JNE no_stage_amd64
-	JMP stage_path_amd64
-no_stage_amd64:
-
 	// Predicate dispatch (mirrors arm64 no_predicate gate). When the
 	// predicate bit is set the kernel computes a popcount-based mask
 	// and skips the truth-table broadcast.
@@ -224,17 +197,8 @@ bcast_peer_loop:
 bc_owner_mask_amd64:
 	MOVQ 48(SP), AX
 bc_mask_set_amd64:
-	// Stash active mask at top of frame slot for the inner loop.
-	// 144(SP) is popActive — but only consulted in popend_check, which
-	// runs after the bcast loop completes, so we can borrow it briefly.
-	// Actually use a higher slot to be safe: bump nothing, reuse 192(SP)
-	// would require frame > 192. Use slot at 48(SP) directly: we're
-	// going to overwrite mask each peer iteration; restoring the owner
-	// mask before emit_check is fine since topology=2/3 emit-check
-	// reads from 48(SP) anyway and the owner mask was the original.
-	// To preserve the original mask for emit, save before.
-	// Simpler: keep AX in BX through the inner loop (BX is only used as
-	// path scratch which clobbers it AFTER the wordA/wordB loads).
+	// Keep the active mask in BX through the inner loop; the truth-table
+	// path only needs it after wordA/wordB are loaded.
 	// Actually that's fragile. Save active mask to 48(SP) and re-load
 	// owner mask before emit_check via a stash slot...
 	// Cleanest: save owner mask once before bcast, restore after.
@@ -474,24 +438,7 @@ inner_done:
 
 emit_skip_amd64:
 popend_check_amd64:
-	// pop-end rewinding (mirrors arm64 emit_skip block). When popEnd
-	// is set on the current instruction AND a pop seed previously
-	// activated, advance the lane and rewind pc to body start.
-	MOVQ ownerFrame+8(FP), DI
-	CMPQ 152(SP), $1; JNE next_pc
-	CMPQ 144(SP), $1; JNE next_pc
-	MOVQ communitySize+48(FP), AX
-	CMPQ R12, AX; JAE pop_lane_drained_amd64
-	MOVQ community_ptr+24(FP), SI
-	MOVQ (SI)(R12*8), R13
-	MOVQ R13, 128(SP)
-	INCQ R12
-	MOVQ 136(SP), R11
-	JMP pc_loop
-
-pop_lane_drained_amd64:
-	XORQ AX, AX
-	MOVQ AX, 144(SP)
+	JMP next_pc
 
 next_pc:
 	MOVQ ownerFrame+8(FP), DI // restore ownerFrame
@@ -502,14 +449,6 @@ next_pc:
 // Mirrors the arm64 predicate_path block. POPCNTQ is the amd64
 // popcount; otherwise the dispatch on predCond is identical.
 predicate_path_amd64:
-	// argmin_nonzero is a reduce op encoded as a predicate-flagged
-	// instruction with opcode 1. mode_eq stays Go-fallback because it
-	// needs a hash overflow that doesn't fit cleanly in scalar asm.
-	MOVQ R14, AX; ANDQ $0xF, AX
-	CMPQ AX, $1; JE reduce_argmin_path_amd64
-	CMPQ AX, $2; JE reduce_mode_eq_path_amd64
-	CMPQ AX, $3; JE reduce_zipf_path_amd64
-
 	// TopoHypercubePerPeer routes to per-peer evaluation that loops
 	// over the community and writes a per-peer mask into peer[dstStart].
 	MOVQ R14, AX; SHRQ $55, AX; ANDQ $3, AX
@@ -533,42 +472,9 @@ pred_pop_done_amd64:
 
 	MOVQ 168(SP), AX
 	CMPQ AX, $6; JE pred_store_popcnt_amd64
-	CMPQ AX, $7; JE pred_any_zero_amd64
 	JMP pred_compare_amd64
 
 pred_store_popcnt_amd64:
-	MOVQ 32(SP), AX
-	ANDQ $127, AX
-	MOVQ 104(SP), SI
-	MOVQ (SI)(AX*8), DX
-	MOVQ 48(SP), CX
-	MOVQ CX, BX
-	NOTQ BX
-	ANDQ CX, R14
-	ANDQ BX, DX
-	ORQ DX, R14
-	MOVQ R14, (SI)(AX*8)
-	JMP popend_check_amd64
-
-pred_any_zero_amd64:
-	XORQ R14, R14
-	XORQ R15, R15
-pa_loop_amd64:
-	CMPQ R15, 8(SP)
-	JAE pa_done_amd64
-	MOVQ 0(SP), AX
-	ADDQ R15, AX
-	ANDQ $127, AX
-	MOVQ 88(SP), SI
-	MOVQ (SI)(AX*8), CX
-	TESTQ CX, CX
-	JNZ pa_continue_amd64
-	MOVQ $-1, R14
-	JMP pa_done_amd64
-pa_continue_amd64:
-	INCQ R15
-	JMP pa_loop_amd64
-pa_done_amd64:
 	MOVQ 32(SP), AX
 	ANDQ $127, AX
 	MOVQ 104(SP), SI
@@ -630,322 +536,6 @@ pc_writeback_amd64:
 	MOVQ 104(SP), SI
 	MOVQ R14, (SI)(AX*8)
 	JMP popend_check_amd64
-
-// --- REDUCE: argmin_nonzero (amd64) ---
-// Mirror of arm64 reduce_argmin_path.
-reduce_argmin_path_amd64:
-	MOVQ ownerFrame+8(FP), DI
-	MOVQ 184(SP), AX
-	ANDQ $127, AX
-	MOVQ (DI)(AX*8), DX
-	TESTQ DX, DX; JZ popend_check_amd64
-
-	XORQ R14, R14   // bestValue
-	MOVQ $-1, R13   // bestKey
-	XORQ R15, R15   // k
-ram_loop_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ R15, AX; JAE ram_done_amd64
-	MOVQ community_ptr+24(FP), AX
-	MOVQ (AX)(R15*8), CX // peer
-	TESTQ CX, CX; JZ ram_skip_amd64
-
-	MOVQ 0(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), DX
-	TESTQ DX, DX; JZ ram_skip_amd64
-
-	MOVQ 16(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), BX
-	CMPQ BX, R13; JAE ram_skip_amd64
-	MOVQ BX, R13
-	MOVQ DX, R14
-ram_skip_amd64:
-	INCQ R15
-	JMP ram_loop_amd64
-ram_done_amd64:
-	TESTQ R14, R14; JZ popend_check_amd64
-	MOVQ ownerFrame+8(FP), DI
-	MOVQ 32(SP), AX
-	ANDQ $127, AX
-	MOVQ R14, (DI)(AX*8)
-	JMP popend_check_amd64
-
-// --- REDUCE: mode_eq (amd64) ---
-// Selects modal non-zero B[valueStart] where B[keyStart] equals owner match.
-reduce_mode_eq_path_amd64:
-	MOVQ ownerFrame+8(FP), DI
-	MOVQ 184(SP), AX
-	ANDQ $127, AX
-	MOVQ (DI)(AX*8), R8 // match
-	TESTQ R8, R8; JZ popend_check_amd64
-	XORQ R9, R9   // bestValue
-	XORQ R10, R10 // bestCount
-	XORQ R15, R15 // idx
-rme_outer_loop_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ R15, AX; JAE rme_done_amd64
-	MOVQ community_ptr+24(FP), SI
-	MOVQ (SI)(R15*8), CX
-	TESTQ CX, CX; JZ rme_outer_next_amd64
-	MOVQ 16(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), DX
-	CMPQ DX, R8; JNE rme_outer_next_amd64
-	MOVQ 0(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), R13 // candidate value
-	TESTQ R13, R13; JZ rme_outer_next_amd64
-	XORQ R14, R14 // count
-	XORQ BX, BX   // otherIdx
-rme_inner_loop_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ BX, AX; JAE rme_count_done_amd64
-	MOVQ community_ptr+24(FP), SI
-	MOVQ (SI)(BX*8), CX
-	TESTQ CX, CX; JZ rme_inner_next_amd64
-	MOVQ 16(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), DX
-	CMPQ DX, R8; JNE rme_inner_next_amd64
-	MOVQ 0(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), DX
-	CMPQ DX, R13; JNE rme_inner_next_amd64
-	INCQ R14
-rme_inner_next_amd64:
-	INCQ BX
-	JMP rme_inner_loop_amd64
-rme_count_done_amd64:
-	CMPQ R14, R10; JBE rme_outer_next_amd64
-	MOVQ R14, R10
-	MOVQ R13, R9
-rme_outer_next_amd64:
-	INCQ R15
-	JMP rme_outer_loop_amd64
-rme_done_amd64:
-	TESTQ R9, R9; JZ popend_check_amd64
-	MOVQ ownerFrame+8(FP), DI
-	MOVQ 32(SP), AX
-	ANDQ $127, AX
-	MOVQ R9, (DI)(AX*8)
-	JMP popend_check_amd64
-
-// --- REDUCE: zipf_select (amd64) ---
-// Fixed-point Zipfian candidate selection. Mirrors Go / arm64 / Metal / CUDA.
-reduce_zipf_path_amd64:
-	MOVQ ownerFrame+8(FP), DI
-	XORQ R9, R9   // count
-	XORQ R8, R8   // bestValue
-	XORQ R10, R10 // bestUtility
-	XORQ R13, R13 // bestIndex
-	XORQ BX, BX   // found
-	XORQ R15, R15 // idx
-rz_scan_loop_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ R15, AX; JAE rz_scan_done_amd64
-	MOVQ community_ptr+24(FP), SI
-	MOVQ (SI)(R15*8), CX
-	TESTQ CX, CX; JZ rz_scan_skip_amd64
-	MOVQ 0(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), DX // value
-	TESTQ DX, DX; JZ rz_scan_skip_amd64
-	INCQ R9
-	MOVQ 16(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), AX // utility
-	TESTQ BX, BX; JZ rz_scan_update_amd64
-	CMPQ AX, R10; JB rz_scan_skip_amd64
-	CMPQ AX, R10; JA rz_scan_update_amd64
-	CMPQ R15, R13; JBE rz_scan_update_amd64
-	JMP rz_scan_skip_amd64
-rz_scan_update_amd64:
-	MOVQ DX, R8
-	MOVQ AX, R10
-	MOVQ R15, R13
-	MOVQ $1, BX
-rz_scan_skip_amd64:
-	INCQ R15
-	JMP rz_scan_loop_amd64
-rz_scan_done_amd64:
-	TESTQ R9, R9; JZ popend_check_amd64
-	MOVQ 184(SP), AX
-	ANDQ $127, AX
-	MOVQ (DI)(AX*8), CX // temperature
-	TESTQ CX, CX; JZ rz_write_best_amd64
-	CMPQ R9, $1; JE rz_write_best_amd64
-
-	MOVQ $4, AX // power
-	CMPQ CX, $128; JB rz_power_done_amd64
-	MOVQ $3, AX
-	CMPQ CX, $256; JB rz_power_done_amd64
-	MOVQ $2, AX
-	CMPQ CX, $512; JB rz_power_done_amd64
-	MOVQ $1, AX
-	CMPQ CX, $1024; JB rz_power_done_amd64
-	XORQ AX, AX
-rz_power_done_amd64:
-	MOVQ AX, 120(SP) // power; predicate path does not need bRotate
-
-	XORQ R14, R14 // total
-	MOVQ R9, CX   // remaining ranks
-	MOVQ $1, R15  // rank
-rz_total_loop_amd64:
-	TESTQ CX, CX; JZ rz_total_done_amd64
-	MOVQ 120(SP), DX
-	TESTQ DX, DX; JZ rz_total_weight_uniform_amd64
-	MOVQ $0x1000000000000, AX
-	XORQ BX, BX
-rz_total_weight_loop_amd64:
-	CMPQ BX, DX; JAE rz_total_weight_done_amd64
-	XORQ DX, DX
-	DIVQ R15
-	TESTQ AX, AX; JNZ rz_total_weight_next_amd64
-	MOVQ $1, AX
-	JMP rz_total_weight_done_amd64
-rz_total_weight_next_amd64:
-	INCQ BX
-	MOVQ 120(SP), DX
-	JMP rz_total_weight_loop_amd64
-rz_total_weight_uniform_amd64:
-	MOVQ $1, AX
-rz_total_weight_done_amd64:
-	ADDQ AX, R14
-	INCQ R15
-	DECQ CX
-	JMP rz_total_loop_amd64
-rz_total_done_amd64:
-	TESTQ R14, R14; JZ rz_write_best_amd64
-
-	// seed mix.
-	MOVQ 976(DI), AX
-	MOVQ 464(DI), CX
-	ROLQ $17, CX
-	XORQ CX, AX
-	MOVQ 512(DI), CX
-	ROLQ $31, CX
-	XORQ CX, AX
-	MOVQ 544(DI), CX
-	ROLQ $7, CX
-	XORQ CX, AX
-	MOVQ R10, CX
-	ROLQ $43, CX
-	XORQ CX, AX
-	XORQ R9, AX
-	MOVQ $0x9e3779b97f4a7c15, CX
-	ADDQ CX, AX
-	MOVQ AX, CX
-	SHRQ $30, CX
-	XORQ CX, AX
-	MOVQ $0xbf58476d1ce4e5b9, CX
-	IMULQ CX, AX
-	MOVQ AX, CX
-	SHRQ $27, CX
-	XORQ CX, AX
-	MOVQ $0x94d049bb133111eb, CX
-	IMULQ CX, AX
-	MOVQ AX, CX
-	SHRQ $31, CX
-	XORQ CX, AX
-
-	XORQ DX, DX
-	DIVQ R14
-	MOVQ DX, 176(SP) // ticket; stageBit no longer needed
-
-	XORQ R13, R13 // running
-	MOVQ R9, CX   // remaining ranks
-	MOVQ $1, R15  // rank
-rz_pick_loop_amd64:
-	TESTQ CX, CX; JZ rz_pick_last_amd64
-	MOVQ 120(SP), DX
-	TESTQ DX, DX; JZ rz_pick_weight_uniform_amd64
-	MOVQ $0x1000000000000, AX
-	XORQ BX, BX
-rz_pick_weight_loop_amd64:
-	CMPQ BX, DX; JAE rz_pick_weight_done_amd64
-	XORQ DX, DX
-	DIVQ R15
-	TESTQ AX, AX; JNZ rz_pick_weight_next_amd64
-	MOVQ $1, AX
-	JMP rz_pick_weight_done_amd64
-rz_pick_weight_next_amd64:
-	INCQ BX
-	MOVQ 120(SP), DX
-	JMP rz_pick_weight_loop_amd64
-rz_pick_weight_uniform_amd64:
-	MOVQ $1, AX
-rz_pick_weight_done_amd64:
-	ADDQ AX, R13
-	CMPQ 176(SP), R13; JA rz_pick_next_amd64
-	JMP rz_have_target_amd64
-rz_pick_next_amd64:
-	INCQ R15
-	DECQ CX
-	JMP rz_pick_loop_amd64
-rz_pick_last_amd64:
-	MOVQ R9, R15
-rz_have_target_amd64:
-	MOVQ R15, 168(SP) // targetRank; predCond no longer needed
-	JMP rz_candidate_select_amd64
-
-rz_write_best_amd64:
-	MOVQ 32(SP), AX
-	ANDQ $127, AX
-	MOVQ R8, (DI)(AX*8)
-	JMP popend_check_amd64
-
-rz_candidate_select_amd64:
-	XORQ R15, R15 // idx
-rz_candidate_outer_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ R15, AX; JAE rz_write_best_amd64
-	MOVQ community_ptr+24(FP), SI
-	MOVQ (SI)(R15*8), CX
-	TESTQ CX, CX; JZ rz_candidate_next_amd64
-	MOVQ 0(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), DX // value
-	TESTQ DX, DX; JZ rz_candidate_next_amd64
-	MOVQ 16(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), R10 // utility
-	MOVQ $1, R13 // rank
-	XORQ BX, BX  // otherIdx
-rz_candidate_inner_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ BX, AX; JAE rz_candidate_rank_done_amd64
-	CMPQ BX, R15; JE rz_candidate_inner_next_amd64
-	MOVQ community_ptr+24(FP), SI
-	MOVQ (SI)(BX*8), CX
-	TESTQ CX, CX; JZ rz_candidate_inner_next_amd64
-	MOVQ 0(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), AX
-	TESTQ AX, AX; JZ rz_candidate_inner_next_amd64
-	MOVQ 16(SP), AX
-	ANDQ $127, AX
-	MOVQ (CX)(AX*8), AX // otherUtility
-	CMPQ AX, R10; JA rz_candidate_rank_inc_amd64
-	CMPQ AX, R10; JB rz_candidate_inner_next_amd64
-	CMPQ BX, R15; JB rz_candidate_rank_inc_amd64
-	JMP rz_candidate_inner_next_amd64
-rz_candidate_rank_inc_amd64:
-	INCQ R13
-rz_candidate_inner_next_amd64:
-	INCQ BX
-	JMP rz_candidate_inner_amd64
-rz_candidate_rank_done_amd64:
-	CMPQ R13, 168(SP); JNE rz_candidate_next_amd64
-	MOVQ ownerFrame+8(FP), DI
-	MOVQ 32(SP), AX
-	ANDQ $127, AX
-	MOVQ DX, (DI)(AX*8)
-	JMP popend_check_amd64
-rz_candidate_next_amd64:
-	INCQ R15
-	JMP rz_candidate_outer_amd64
 
 // --- PER-PEER PREDICATE PATH (amd64, TopoHypercubePerPeer) ---
 // Mirror of arm64 per_peer_predicate_path. Loops over the community,
@@ -1033,53 +623,6 @@ ppp_writeback_amd64:
 ppp_skip_amd64:
 	INCQ R15
 	JMP ppp_loop_amd64
-
-// --- STAGE(B) PATH (amd64) ---
-// Records peer indices into the host-supplied stageBuf so the
-// orchestrator can translate them into kernel.StageRequest entries.
-stage_path_amd64:
-	MOVQ R14, AX; SHRQ $55, AX; ANDQ $3, AX
-	CMPQ AX, $3; JE stage_per_peer_amd64
-
-	// Single-peer stage: currentB at 128(SP); peer index = R12 - 1.
-	MOVQ 128(SP), AX
-	TESTQ AX, AX; JZ popend_check_amd64
-	MOVQ R12, AX
-	DECQ AX
-	MOVQ stageCount+72(FP), CX
-	MOVQ (CX), DX
-	CMPQ DX, $128; JAE popend_check_amd64
-	MOVQ stageBuf+64(FP), SI
-	MOVQ AX, (SI)(DX*8)
-	INCQ DX
-	MOVQ DX, (CX)
-	JMP popend_check_amd64
-
-stage_per_peer_amd64:
-	XORQ R15, R15 // k = 0
-sp_stage_loop_amd64:
-	MOVQ communitySize+48(FP), AX
-	CMPQ R15, AX; JAE popend_check_amd64
-	MOVQ ownerIdx+16(FP), AX
-	CMPQ R15, AX; JE sp_stage_skip_amd64
-	MOVQ community_ptr+24(FP), AX
-	MOVQ (AX)(R15*8), R13
-	TESTQ R13, R13; JZ sp_stage_skip_amd64
-	MOVQ 184(SP), BX
-	ANDQ $127, BX
-	MOVQ (R13)(BX*8), CX
-	TESTQ CX, CX; JZ sp_stage_skip_amd64
-
-	MOVQ stageCount+72(FP), CX
-	MOVQ (CX), DX
-	CMPQ DX, $128; JAE popend_check_amd64
-	MOVQ stageBuf+64(FP), SI
-	MOVQ R15, (SI)(DX*8)
-	INCQ DX
-	MOVQ DX, (CX)
-sp_stage_skip_amd64:
-	INCQ R15
-	JMP sp_stage_loop_amd64
 
 end_pc_loop:
 	RET

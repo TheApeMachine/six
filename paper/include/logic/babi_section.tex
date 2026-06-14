@@ -19,17 +19,20 @@ its last movement relationship, and the residue value is decoded as
 the location answer.
 
 \paragraph{Results.}
-Figure~\ref{fig:babi_trial_map} shows the per-sample Trial Outcome
-Map. Each row of the left heatmap corresponds to one question;
-columns show the Exact, Partial, Fuzzy, and Weighted scores on a
-0--1 colour scale (viridis, dark = 0, bright = 1). The right
-panel displays the weighted score per sample alongside the
-overall mean (orange dashed line).
+Figure~\ref{fig:babi_trial_map} summarises the bAbI Task~1 results
+across four orthogonal slices. The top row reports the headline
+behaviour: the outcome breakdown splits every sample into Exact,
+Partial (weighted score above zero but not exact), and Zero
+(no signal), and the mean score components show how Exact,
+Partial, Fuzzy, and Weighted scores compare in aggregate. The
+bottom row exposes the structural axes: exact accuracy bucketed by
+the expected location (sorted descending), and the histogram of
+weighted scores across ten equal-width bins on $[0,1]$.
 
 The system achieved an exact-match accuracy of 0.0\%
 across all 500 samples, with a mean partial score of
-0.000 and an overall weighted score of
-0.000.
+0.245 and an overall weighted score of
+0.245.
 
 \paragraph{Assessment.}
 Exact-match accuracy was low.  The Transitive Resonance mechanism
@@ -47,26 +50,26 @@ may not separate location attractors reliably.
     \toprule
     \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
     \midrule
-    0 & unknown & \texttt{bathroom} & \texttt{} \\
-    1 & unknown & \texttt{hallway} & \texttt{} \\
-    2 & unknown & \texttt{hallway} & \texttt{} \\
-    3 & unknown & \texttt{office} & \texttt{} \\
-    4 & unknown & \texttt{bathroom} & \texttt{} \\
-    5 & unknown & \texttt{bathroom} & \texttt{} \\
-    6 & unknown & \texttt{bathroom} & \texttt{} \\
-    7 & unknown & \texttt{bathroom} & \texttt{} \\
-    8 & unknown & \texttt{office} & \texttt{} \\
-    9 & unknown & \texttt{hallway} & \texttt{} \\
-    10 & unknown & \texttt{bathroom} & \texttt{} \\
-    11 & unknown & \texttt{bedroom} & \texttt{} \\
-    12 & unknown & \texttt{bathroom} & \texttt{} \\
-    13 & unknown & \texttt{bathroom} & \texttt{} \\
-    14 & unknown & \texttt{bedroom} & \texttt{} \\
-    15 & unknown & \texttt{bedroom} & \texttt{} \\
-    16 & unknown & \texttt{kitchen} & \texttt{} \\
-    17 & unknown & \texttt{hallway} & \texttt{} \\
-    18 & unknown & \texttt{hallway} & \texttt{} \\
-    19 & unknown & \texttt{hallway} & \texttt{} \\
+    0 & Mary & \texttt{bathroom} & \texttt{Mary moved to the bathroom. John went to the hallway. Where is M} \\
+    1 & Daniel & \texttt{hallway} & \texttt{Mary moved to the bathroom. John went to the hallway. Daniel wen} \\
+    2 & Daniel & \texttt{hallway} & \texttt{Mary moved to the bathroom. John went to the hallway. Daniel wen} \\
+    3 & Daniel & \texttt{office} & \texttt{Mary moved to the bathroom. John went to the hallway. Daniel wen} \\
+    4 & Sandra & \texttt{bathroom} & \texttt{Mary moved to the bathroom. John went to the hallway. Daniel wen} \\
+    5 & Sandra & \texttt{bathroom} & \texttt{Sandra travelled to the office. Sandra went to the bathroom. Whe} \\
+    6 & Sandra & \texttt{bathroom} & \texttt{Sandra travelled to the office. Sandra went to the bathroom. Mar} \\
+    7 & Sandra & \texttt{bathroom} & \texttt{Sandra travelled to the office. Sandra went to the bathroom. Mar} \\
+    8 & John & \texttt{office} & \texttt{Sandra travelled to the office. Sandra went to the bathroom. Mar} \\
+    9 & Daniel & \texttt{hallway} & \texttt{Sandra travelled to the office. Sandra went to the bathroom. Mar} \\
+    10 & John & \texttt{bathroom} & \texttt{Mary went to the bedroom. John journeyed to the bathroom. Where} \\
+    11 & Mary & \texttt{bedroom} & \texttt{Mary went to the bedroom. John journeyed to the bathroom. Sandra} \\
+    12 & John & \texttt{bathroom} & \texttt{Mary went to the bedroom. John journeyed to the bathroom. Sandra} \\
+    13 & John & \texttt{bathroom} & \texttt{Mary went to the bedroom. John journeyed to the bathroom. Sandra} \\
+    14 & Sandra & \texttt{bedroom} & \texttt{Mary went to the bedroom. John journeyed to the bathroom. Sandra} \\
+    15 & Daniel & \texttt{bedroom} & \texttt{Daniel journeyed to the kitchen. Daniel journeyed to the bedroom} \\
+    16 & Sandra & \texttt{kitchen} & \texttt{Daniel journeyed to the kitchen. Daniel journeyed to the bedroom} \\
+    17 & Sandra & \texttt{hallway} & \texttt{Daniel journeyed to the kitchen. Daniel journeyed to the bedroom} \\
+    18 & Sandra & \texttt{hallway} & \texttt{Daniel journeyed to the kitchen. Daniel journeyed to the bedroom} \\
+    19 & Daniel & \texttt{hallway} & \texttt{Daniel journeyed to the kitchen. Daniel journeyed to the bedroom} \\
     \bottomrule
   \end{tabular}
 \end{table}

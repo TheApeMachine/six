@@ -6,20 +6,33 @@ import {
 	buildSnapshot,
 	type ColorMode,
 	type GeometryKind,
+	type LabelState,
 	type ScenePreset,
 } from "@/lib/scene-mapping";
 import type { StoredValue } from "@/lib/value-frame";
 
 const MAX_INSTANCES_PER_KIND = 4096;
-const DIM_FACTOR = 0.18;
+const MAX_HALO_INSTANCES = 256;
+// DIM_FACTOR is applied to the base color of every Value that doesn't
+// match the active preset. 0.35 pushes dimmed Values further into the
+// background than before (was 0.45) so the foreground program-running
+// Values pop with their bright category colors; the scale halving in
+// applySnapshot does the rest of the work to recede them.
+const DIM_FACTOR = 0.35;
 const PICK_RADIUS = 0.06;
 
 const GEOMETRY_KINDS: GeometryKind[] = [
 	"sphere",
-	"torus",
-	"octahedron",
 	"cube",
 	"cone",
+	"cone_down",
+	"octahedron",
+	"tetrahedron",
+	"dodecahedron",
+	"icosahedron",
+	"torus",
+	"torus_knot",
+	"cylinder",
 ];
 
 interface Field3DSceneProps {
@@ -35,6 +48,13 @@ interface KindMesh {
 	idByInstance: string[];
 }
 
+const MAX_PROMPT_RINGS = 64;
+
+interface LabelEntry {
+	el: HTMLDivElement;
+	position: THREE.Vector3;
+}
+
 interface SceneRefs {
 	scene: THREE.Scene;
 	camera: THREE.PerspectiveCamera;
@@ -44,9 +64,16 @@ interface SceneRefs {
 	chainLines: THREE.LineSegments;
 	accentLines: THREE.LineSegments;
 	highlightRing: THREE.Mesh;
+	promptRings: THREE.InstancedMesh;
+	promptRingPositions: THREE.Vector3[];
+	communityHalos: THREE.InstancedMesh;
 	fieldShell: THREE.Mesh;
 	scratchDummy: THREE.Object3D;
 	scratchDimColor: THREE.Color;
+	scratchProjection: THREE.Vector3;
+	labelLayer: HTMLDivElement;
+	labelEntries: Map<string, LabelEntry>;
+	labelOrder: string[];
 	clock: THREE.Clock;
 	lastPreset: ScenePreset | null;
 	lastSelectedId: string | null;
@@ -69,6 +96,7 @@ export function Field3DScene({
 	preset,
 }: Field3DSceneProps) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
+	const labelLayerRef = useRef<HTMLDivElement | null>(null);
 	const refs = useRef<SceneRefs | null>(null);
 
 	const snapshot = useMemo(
@@ -78,7 +106,8 @@ export function Field3DScene({
 
 	useEffect(() => {
 		const container = containerRef.current;
-		if (!container) {
+		const labelLayer = labelLayerRef.current;
+		if (!container || !labelLayer) {
 			return;
 		}
 
@@ -106,13 +135,20 @@ export function Field3DScene({
 		controls.minDistance = 20;
 		controls.maxDistance = 600;
 
-		scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+		// Ambient is pushed to 0.95 so the per-instance Lambert albedo
+		// stays at near-full saturation regardless of camera angle. The
+		// previous 0.55 ambient + standard material baked half the color
+		// out of every dot, which is what made the field look muted and
+		// sickly. The directional key light still gives the geometry a
+		// readable highlight; the fill light is a cool tint that biases
+		// shadows toward indigo instead of black.
+		scene.add(new THREE.AmbientLight(0xffffff, 0.95));
 
-		const keyLight = new THREE.PointLight(0xffffff, 0.7, 1000, 1.4);
+		const keyLight = new THREE.DirectionalLight(0xffffff, 0.55);
 		keyLight.position.set(120, 200, 120);
 		scene.add(keyLight);
 
-		const fillLight = new THREE.PointLight(0x4f46e5, 0.35, 600, 1.6);
+		const fillLight = new THREE.DirectionalLight(0x6366f1, 0.25);
 		fillLight.position.set(-180, -120, -100);
 		scene.add(fillLight);
 
@@ -131,10 +167,12 @@ export function Field3DScene({
 
 		for (const kind of GEOMETRY_KINDS) {
 			const geometry = makeGeometryForKind(kind);
-			const material = new THREE.MeshStandardMaterial({
-				metalness: 0.18,
-				roughness: 0.42,
-			});
+			// MeshLambertMaterial is the cheapest shading model that still
+			// reads the per-instance color directly as albedo. The previous
+			// MeshStandardMaterial multiplied every color by metalness +
+			// roughness which crushed the saturation across the whole
+			// field; Lambert keeps the neon palette intact.
+			const material = new THREE.MeshLambertMaterial({});
 			const mesh = new THREE.InstancedMesh(
 				geometry,
 				material,
@@ -148,6 +186,30 @@ export function Field3DScene({
 
 			kindMeshes.set(kind, { mesh, idByInstance: [] });
 		}
+
+		// Community halos: a single InstancedMesh of low-res spheres,
+		// drawn back-side so the camera sees a soft bubble around each
+		// cluster instead of a hard front face. Depth-write is disabled
+		// so the bubbles never occlude the bright instances inside; the
+		// renderOrder pin keeps them painted before everything else so
+		// they end up visually behind the foreground regardless of
+		// transparent-sort ordering.
+		const haloGeometry = new THREE.IcosahedronGeometry(1, 2);
+		const haloMaterial = new THREE.MeshBasicMaterial({
+			transparent: true,
+			opacity: 0.16,
+			side: THREE.BackSide,
+			depthWrite: false,
+		});
+		const communityHalos = new THREE.InstancedMesh(
+			haloGeometry,
+			haloMaterial,
+			MAX_HALO_INSTANCES,
+		);
+		communityHalos.count = 0;
+		communityHalos.frustumCulled = false;
+		communityHalos.renderOrder = -1;
+		scene.add(communityHalos);
 
 		const chainGeometry = new THREE.BufferGeometry();
 		chainGeometry.setAttribute(
@@ -192,6 +254,26 @@ export function Field3DScene({
 		highlightRing.visible = false;
 		scene.add(highlightRing);
 
+		// Prompt halo: a bright-yellow torus stamped on every Prompt
+		// Value so the operator can pick the substrate's ingress points
+		// out of the field at any distance, regardless of which color
+		// mode is active. We keep it as a separate InstancedMesh (rather
+		// than a per-Value mesh) so adding more prompts is free.
+		const promptRingGeom = new THREE.TorusGeometry(3.4, 0.18, 10, 36);
+		const promptRingMat = new THREE.MeshBasicMaterial({
+			color: 0xfff03a,
+			transparent: true,
+			opacity: 0.95,
+		});
+		const promptRings = new THREE.InstancedMesh(
+			promptRingGeom,
+			promptRingMat,
+			MAX_PROMPT_RINGS,
+		);
+		promptRings.count = 0;
+		promptRings.frustumCulled = false;
+		scene.add(promptRings);
+
 		refs.current = {
 			scene,
 			camera,
@@ -201,9 +283,16 @@ export function Field3DScene({
 			chainLines,
 			accentLines,
 			highlightRing,
+			promptRings,
+			promptRingPositions: [],
+			communityHalos,
 			fieldShell,
 			scratchDummy: new THREE.Object3D(),
 			scratchDimColor: new THREE.Color(),
+			scratchProjection: new THREE.Vector3(),
+			labelLayer,
+			labelEntries: new Map(),
+			labelOrder: [],
 			clock: new THREE.Clock(),
 			lastPreset: null,
 			lastSelectedId: null,
@@ -296,6 +385,7 @@ export function Field3DScene({
 		renderer.domElement.addEventListener("click", handleClick);
 
 		let animationFrameHandle = 0;
+		let promptSpin = 0;
 		const animate = () => {
 			animationFrameHandle = window.requestAnimationFrame(animate);
 			const next = refs.current;
@@ -311,7 +401,22 @@ export function Field3DScene({
 				next.highlightRing.rotation.y += delta * 1.7;
 			}
 
+			if (next.promptRings.count > 0) {
+				promptSpin += delta * 0.9;
+				const pulse = 1 + Math.sin(promptSpin * 2.4) * 0.12;
+				const dummy = next.scratchDummy;
+				for (let idx = 0; idx < next.promptRings.count; idx++) {
+					dummy.position.copy(next.promptRingPositions[idx]);
+					dummy.rotation.set(Math.PI / 2, promptSpin, 0);
+					dummy.scale.setScalar(pulse);
+					dummy.updateMatrix();
+					next.promptRings.setMatrixAt(idx, dummy.matrix);
+				}
+				next.promptRings.instanceMatrix.needsUpdate = true;
+			}
+
 			next.renderer.render(next.scene, next.camera);
+			projectLabels(next);
 		};
 
 		animate();
@@ -322,6 +427,13 @@ export function Field3DScene({
 			renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
 			renderer.domElement.removeEventListener("click", handleClick);
 			controls.dispose();
+			const dyingRefs = refs.current;
+			if (dyingRefs) {
+				for (const entry of dyingRefs.labelEntries.values()) {
+					entry.el.remove();
+				}
+				dyingRefs.labelEntries.clear();
+			}
 			scene.traverse((obj) => {
 				if ((obj as THREE.Mesh).geometry) {
 					(obj as THREE.Mesh).geometry.dispose();
@@ -348,30 +460,64 @@ export function Field3DScene({
 		}
 
 		applySnapshot(next, snapshot, preset, selectedId);
+		reconcileLabels(next, snapshot.labels);
 	}, [snapshot, preset, selectedId]);
 
 	return (
-		<div
-			ref={containerRef}
-			className="absolute inset-0 cursor-crosshair select-none"
-		/>
+		<>
+			<div
+				ref={containerRef}
+				className="absolute inset-0 cursor-crosshair select-none"
+			/>
+			<div
+				ref={labelLayerRef}
+				className="pointer-events-none absolute inset-0 overflow-hidden"
+				aria-hidden="true"
+			/>
+		</>
 	);
 }
 
 function makeGeometryForKind(kind: GeometryKind): THREE.BufferGeometry {
 	switch (kind) {
 		case "torus":
-			return new THREE.TorusGeometry(1.6, 0.5, 12, 32);
+			return new THREE.TorusGeometry(1.6, 0.5, 14, 36);
 		case "octahedron":
 			return new THREE.OctahedronGeometry(1.55, 0);
 		case "cube":
 			return new THREE.BoxGeometry(2.0, 2.0, 2.0);
 		case "cone":
 			return new THREE.ConeGeometry(1.3, 2.6, 20);
+		case "cone_down":
+			return new THREE.ConeGeometry(1.3, 2.6, 20);
+		case "tetrahedron":
+			return new THREE.TetrahedronGeometry(1.7, 0);
+		case "dodecahedron":
+			return new THREE.DodecahedronGeometry(1.45, 0);
+		case "icosahedron":
+			return new THREE.IcosahedronGeometry(1.45, 0);
+		case "torus_knot":
+			return new THREE.TorusKnotGeometry(1.1, 0.36, 64, 10);
+		case "cylinder":
+			return new THREE.CylinderGeometry(1.0, 1.0, 2.4, 18);
 		default:
 			return new THREE.SphereGeometry(1.35, 20, 20);
 	}
 }
+
+/*
+ROTATION_FOR_KIND keeps the canonical orientation each shape needs to
+read as itself. Torus is laid flat (X = π/2) so it presents as a ring
+rather than a doughnut on its side; cone_down is flipped on Z so the
+point faces down — that is the visual contract for "downward sweep"
+in the program legend.
+*/
+const ROTATION_FOR_KIND: Partial<
+	Record<GeometryKind, [number, number, number]>
+> = {
+	torus: [Math.PI / 2, 0, 0],
+	cone_down: [Math.PI, 0, 0],
+};
 
 function applySnapshot(
 	refs: SceneRefs,
@@ -381,6 +527,7 @@ function applySnapshot(
 ) {
 	const dummy = refs.scratchDummy;
 	const dimColor = refs.scratchDimColor;
+	const promptPositions: THREE.Vector3[] = [];
 
 	const buckets = new Map<GeometryKind, typeof snapshot.instances>();
 	for (const kind of GEOMETRY_KINDS) {
@@ -400,6 +547,8 @@ function applySnapshot(
 		const count = Math.min(kindInstances.length, MAX_INSTANCES_PER_KIND);
 		const idByInstance: string[] = [];
 
+		const baseRotation = ROTATION_FOR_KIND[kind];
+
 		for (let idx = 0; idx < count; idx++) {
 			const instance = kindInstances[idx];
 			dummy.position.copy(instance.position);
@@ -407,9 +556,14 @@ function applySnapshot(
 				? Math.max(0.35, instance.scale * 0.5)
 				: instance.scale;
 			dummy.scale.setScalar(scale);
-			dummy.rotation.set(0, 0, 0);
-			if (kind === "torus") {
-				dummy.rotation.x = Math.PI / 2;
+			if (baseRotation) {
+				dummy.rotation.set(
+					baseRotation[0],
+					baseRotation[1],
+					baseRotation[2],
+				);
+			} else {
+				dummy.rotation.set(0, 0, 0);
 			}
 			dummy.updateMatrix();
 			entry.mesh.setMatrixAt(idx, dummy.matrix);
@@ -422,6 +576,13 @@ function applySnapshot(
 			}
 
 			idByInstance.push(instance.id);
+
+			// Octahedron is the Prompt-only geometry per scene-mapping.
+			// Stash the world position so the prompt-ring InstancedMesh
+			// can place a halo around each one in the same frame.
+			if (kind === "octahedron") {
+				promptPositions.push(instance.position);
+			}
 		}
 
 		entry.mesh.count = count;
@@ -435,6 +596,34 @@ function applySnapshot(
 	updateChainGeometry(refs.chainLines.geometry, snapshot.chainEdges);
 	updateAccentGeometry(refs.accentLines.geometry, snapshot.accentEdges);
 
+	const haloLimit = Math.min(snapshot.halos.length, MAX_HALO_INSTANCES);
+	for (let idx = 0; idx < haloLimit; idx++) {
+		const halo = snapshot.halos[idx];
+		dummy.position.copy(halo.position);
+		dummy.rotation.set(0, 0, 0);
+		dummy.scale.setScalar(halo.radius);
+		dummy.updateMatrix();
+		refs.communityHalos.setMatrixAt(idx, dummy.matrix);
+		refs.communityHalos.setColorAt(idx, halo.color);
+	}
+	refs.communityHalos.count = haloLimit;
+	refs.communityHalos.instanceMatrix.needsUpdate = true;
+	if (refs.communityHalos.instanceColor) {
+		refs.communityHalos.instanceColor.needsUpdate = true;
+	}
+
+	const promptCount = Math.min(promptPositions.length, MAX_PROMPT_RINGS);
+	for (let idx = 0; idx < promptCount; idx++) {
+		dummy.position.copy(promptPositions[idx]);
+		dummy.rotation.set(Math.PI / 2, 0, 0);
+		dummy.scale.setScalar(1);
+		dummy.updateMatrix();
+		refs.promptRings.setMatrixAt(idx, dummy.matrix);
+	}
+	refs.promptRings.count = promptCount;
+	refs.promptRings.instanceMatrix.needsUpdate = true;
+	refs.promptRingPositions = promptPositions.slice(0, promptCount);
+
 	if (snapshot.selectedPosition) {
 		refs.highlightRing.position.copy(snapshot.selectedPosition);
 		refs.highlightRing.visible = true;
@@ -443,6 +632,14 @@ function applySnapshot(
 	}
 
 	refs.fieldShell.visible = preset === "all";
+	// The prev/next chain scaffold is the substrate's causal graph and is
+	// useful when the user is browsing the field generically, but in
+	// story-driven presets it crosses the foreground edges and adds
+	// nothing — the preset edges already encode the relationships that
+	// matter. Hide it everywhere except "all" plus when a Value is
+	// selected (so the user can still trace the chain of the focused
+	// Value regardless of preset).
+	refs.chainLines.visible = preset === "all" || selectedId !== null;
 
 	const presetChanged = refs.lastPreset !== preset;
 	const selectionChanged = refs.lastSelectedId !== selectedId;
@@ -573,4 +770,137 @@ function updateAccentGeometry(
 	geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
 	geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 	geometry.computeBoundingSphere();
+}
+
+/*
+reconcileLabels syncs the DOM children of the label overlay with the
+salient subset chosen by buildSnapshot. Existing chips are reused and
+have their content overwritten in place; chips for Values that are no
+longer salient are detached. Content is set via direct property writes
+so we never trigger a React reconcile on the hot path — projectLabels
+runs every animation frame and any allocation here would show up as
+jank.
+*/
+function reconcileLabels(refs: SceneRefs, labels: LabelState[]) {
+	const seen = new Set<string>();
+	const order: string[] = [];
+
+	for (const label of labels) {
+		seen.add(label.id);
+		order.push(label.id);
+		let entry = refs.labelEntries.get(label.id);
+
+		if (!entry) {
+			const el = document.createElement("div");
+			el.className = "scene-label";
+			el.appendChild(document.createElement("div")); // header row
+			el.appendChild(document.createElement("div")); // secondary
+			el.appendChild(document.createElement("div")); // detail
+			refs.labelLayer.appendChild(el);
+			entry = { el, position: label.position };
+			refs.labelEntries.set(label.id, entry);
+		} else {
+			entry.position = label.position;
+		}
+
+		entry.el.dataset.highlight = label.highlight ? "1" : "0";
+		entry.el.dataset.prompt = label.isPrompt ? "1" : "0";
+
+		const [headerEl, secondaryEl, detailEl] = entry.el
+			.children as unknown as HTMLDivElement[];
+
+		headerEl.className = "scene-label-row";
+		headerEl.innerHTML = "";
+		const badge = document.createElement("span");
+		badge.className = "scene-label-badge";
+		badge.style.backgroundColor = label.badgeColor;
+		badge.textContent = label.badge;
+		const primary = document.createElement("span");
+		primary.className = "scene-label-primary";
+		primary.textContent = label.primary;
+		headerEl.appendChild(badge);
+		headerEl.appendChild(primary);
+
+		if (label.secondary) {
+			secondaryEl.className = "scene-label-secondary";
+			secondaryEl.textContent = label.secondary;
+			secondaryEl.style.display = "";
+		} else {
+			secondaryEl.style.display = "none";
+		}
+
+		if (label.detail) {
+			detailEl.className = "scene-label-detail";
+			detailEl.textContent = label.detail;
+			detailEl.style.display = "";
+		} else {
+			detailEl.style.display = "none";
+		}
+	}
+
+	for (const [id, entry] of refs.labelEntries) {
+		if (!seen.has(id)) {
+			entry.el.remove();
+			refs.labelEntries.delete(id);
+		}
+	}
+
+	refs.labelOrder = order;
+}
+
+/*
+VISIBLE_LABEL_LIMIT bounds how many label chips paint at once. The
+salience-ordered labelOrder array means the most informative labels
+(selected, program-running, active status, prompts) always win the
+visible budget; the rest fall through to display:none even when in
+frustum so the overlay never crowds the field. The user can rotate
+the camera to surface different parts of the order.
+*/
+const VISIBLE_LABEL_LIMIT = 240;
+
+function projectLabels(refs: SceneRefs) {
+	if (refs.labelEntries.size === 0) {
+		return;
+	}
+
+	const rect = refs.renderer.domElement.getBoundingClientRect();
+	const width = rect.width;
+	const height = rect.height;
+	const projection = refs.scratchProjection;
+	let shown = 0;
+
+	for (const id of refs.labelOrder) {
+		const entry = refs.labelEntries.get(id);
+		if (!entry) {
+			continue;
+		}
+
+		if (shown >= VISIBLE_LABEL_LIMIT) {
+			entry.el.style.display = "none";
+			continue;
+		}
+
+		projection.copy(entry.position).project(refs.camera);
+
+		if (
+			projection.z > 1 ||
+			projection.z < -1 ||
+			projection.x < -1.05 ||
+			projection.x > 1.05 ||
+			projection.y < -1.05 ||
+			projection.y > 1.05
+		) {
+			entry.el.style.display = "none";
+			continue;
+		}
+
+		const x = (projection.x * 0.5 + 0.5) * width;
+		const y = (-projection.y * 0.5 + 0.5) * height;
+		// Must use an explicit non-empty value here — clearing the
+		// inline style falls back to the .scene-label stylesheet rule,
+		// which is `display: none`, so the label would never appear.
+		entry.el.style.display = "block";
+		entry.el.style.transform = `translate3d(${x + 10}px, ${y - 10}px, 0)`;
+		shown++;
+	}
 }

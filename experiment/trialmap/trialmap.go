@@ -76,28 +76,6 @@ func StandardDenseTop() TwoPanelGrids {
 }
 
 /*
-BabiTwoPanel widens the heatmap, tightens vertical margins, labels
-questions Q1…, and names score dimensions on the heatmap X axis.
-*/
-func BabiTwoPanel() TwoPanelGrids {
-	return TwoPanelGrids{
-		HeatLeft:      "5%",
-		HeatRight:     "56%",
-		HeatTop:       "12%",
-		HeatBottom:    "12%",
-		VMRight:       "44%",
-		ChartLeft:     "58%",
-		ChartRight:    "4%",
-		ChartTop:      "12%",
-		ChartBottom:   "12%",
-		HeatTitle:     "Score Fingerprint",
-		ChartTitle:    "Weighted Score per Sample",
-		BarName:       "Weighted",
-		HeatXAxisName: "Score Dimension",
-	}
-}
-
-/*
 ProteinFingerprintBarOnly is panels A+B in the protein artifact; the
 alignment strip is appended separately.
 */

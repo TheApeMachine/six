@@ -161,8 +161,8 @@ func (parser *parser) expect(kind string) (token, error) {
 
 /*
 sideRegion pairs a physical region with the operand pointer side that
-reads it ('A' = owner, 'B' = popped). For RHS expressions that lower
-into a predicate-store (popcnt / any_zero), Predicate is set so the
+reads it ('A' = owner, 'B' = peer). For RHS expressions that lower into
+predicate-store popcount or scalar operations, the relevant flag is set so the
 caller can emit it in place of a regular AssignNode.
 */
 type sideRegion struct {
@@ -176,11 +176,10 @@ type sideRegion struct {
 	predicateOp   uint64
 	predicateSrc  Region
 	predicateSide byte
-	reduce        bool
-	reduceOp      uint64
-	reduceValue   Region
-	reduceKey     Region
-	reduceMatch   Region
+	scalar        bool
+	scalarOp      uint64
+	scalarValue   sideRegionOperand
+	scalarAmount  sideRegionOperand
 	// literalZero distinguishes `set X <- 0` (which lowers to OpFalse
 	// across the full destination span) from a generic single-word
 	// constant allocation that happens to hold zero.
@@ -191,6 +190,11 @@ type sideRegion struct {
 	// builder records a substitution slot so InstallFirmware can patch
 	// the packed instruction word per Value before the kernel sees it.
 	indirect bool
+}
+
+type sideRegionOperand struct {
+	side byte
+	reg  Region
 }
 
 /*
@@ -593,17 +597,15 @@ func (parser *parser) parseAssign() (ASTNode, error) {
 		}, nil
 	}
 
-	if rhs.reduce {
-		if dst.side != 'A' {
-			return nil, fmt.Errorf("compiler: lane reducers must write to A-side destinations")
-		}
-
-		return ReduceAssignNode{
-			Dst:   dst.reg,
-			Op:    rhs.reduceOp,
-			Value: rhs.reduceValue,
-			Key:   rhs.reduceKey,
-			Match: rhs.reduceMatch,
+	if rhs.scalar {
+		return ScalarAssignNode{
+			Dst:        dst.reg,
+			Op:         rhs.scalarOp,
+			Value:      rhs.scalarValue.reg,
+			ValueSide:  rhs.scalarValue.side,
+			Amount:     rhs.scalarAmount.reg,
+			AmountSide: rhs.scalarAmount.side,
+			Target:     targetOf(dst.side),
 		}, nil
 	}
 
@@ -630,8 +632,8 @@ func (parser *parser) parseRHSCall() (sideRegion, error) {
 		return sideRegion{}, err
 	}
 
-	// Single-argument reductions emit predicate-store or any-zero.
-	if opName == "popcnt" || opName == "any_zero" {
+	// Single-argument reductions emit predicate-store.
+	if opName == "popcnt" {
 		arg, err := parser.parseRegion()
 		if err != nil {
 			return sideRegion{}, err
@@ -641,62 +643,47 @@ func (parser *parser) parseRHSCall() (sideRegion, error) {
 			return sideRegion{}, err
 		}
 
-		cond := uint64(PredStorePopcnt)
-		if opName == "any_zero" {
-			cond = PredAnyZero
-		}
-
 		return sideRegion{
 			predicate:     true,
-			predicateOp:   cond,
+			predicateOp:   PredStorePopcnt,
 			predicateSrc:  arg.reg,
 			predicateSide: arg.side,
 		}, nil
 	}
 
-	if opName == "argmin_nonzero" {
-		value, key, err := parser.parseTwoBRegions()
+	if scalarOp, ok := scalarOpcodeOf(opName); ok {
+		value, err := parser.parseRegion()
 		if err != nil {
 			return sideRegion{}, err
 		}
 
+		if _, err := parser.expect(","); err != nil {
+			return sideRegion{}, err
+		}
+
+		amount, err := parser.parseRegion()
+		if err != nil {
+			return sideRegion{}, err
+		}
+
+		if amount.reg.Span != 1 {
+			return sideRegion{}, fmt.Errorf("compiler: %s amount source must be one word", opName)
+		}
+
+		if _, err := parser.expect(")"); err != nil {
+			return sideRegion{}, err
+		}
+
 		return sideRegion{
-			reduce:      true,
-			reduceOp:    OpReduceArgMinNonZero,
-			reduceValue: value.reg,
-			reduceKey:   key.reg,
-			reduceMatch: MaskTrue,
+			scalar:       true,
+			scalarOp:     scalarOp,
+			scalarValue:  sideRegionOperand{side: value.side, reg: value.reg},
+			scalarAmount: sideRegionOperand{side: amount.side, reg: amount.reg},
 		}, nil
 	}
 
-	if opName == "mode_eq" {
-		value, key, match, err := parser.parseModeEqRegions()
-		if err != nil {
-			return sideRegion{}, err
-		}
-
-		return sideRegion{
-			reduce:      true,
-			reduceOp:    OpReduceModeEq,
-			reduceValue: value.reg,
-			reduceKey:   key.reg,
-			reduceMatch: match.reg,
-		}, nil
-	}
-
-	if opName == "zipf_select" {
-		value, key, temperature, err := parser.parseZipfSelectRegions()
-		if err != nil {
-			return sideRegion{}, err
-		}
-
-		return sideRegion{
-			reduce:      true,
-			reduceOp:    OpReduceZipfSelect,
-			reduceValue: value.reg,
-			reduceKey:   key.reg,
-			reduceMatch: temperature.reg,
-		}, nil
+	if isStrictReducerName(opName) || opName == "any_zero" {
+		return sideRegion{}, fmt.Errorf("compiler: %s is not available in the strict linear ALU", opName)
 	}
 
 	// Two-argument truth-table ops.
@@ -736,114 +723,6 @@ func (parser *parser) parseRHSCall() (sideRegion, error) {
 		// by stashing rhs into reg + a marker side; the caller checks for
 		// predicateOp != 0 to know it's a binary op.
 	}, parser.stashBinop(opcode, lhs, rhs)
-}
-
-func (parser *parser) parseTwoBRegions() (sideRegion, sideRegion, error) {
-	lhs, err := parser.parseRegion()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	if lhs.side != 'B' {
-		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer value source must be B-side")
-	}
-
-	if _, err := parser.expect(","); err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	rhs, err := parser.parseRegion()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	if rhs.side != 'B' {
-		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer key source must be B-side")
-	}
-
-	if _, err := parser.expect(")"); err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	return lhs, rhs, nil
-}
-
-func (parser *parser) parseModeEqRegions() (sideRegion, sideRegion, sideRegion, error) {
-	value, key, err := parser.parseTwoBRegionsPrefix()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	if _, err := parser.expect(","); err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	match, err := parser.parseRegion()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	if match.side != 'A' {
-		return sideRegion{}, sideRegion{}, sideRegion{}, fmt.Errorf("compiler: mode_eq match source must be A-side")
-	}
-
-	if _, err := parser.expect(")"); err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	return value, key, match, nil
-}
-
-func (parser *parser) parseZipfSelectRegions() (sideRegion, sideRegion, sideRegion, error) {
-	value, key, err := parser.parseTwoBRegionsPrefix()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	if _, err := parser.expect(","); err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	temperature, err := parser.parseRegion()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	if temperature.side != 'A' {
-		return sideRegion{}, sideRegion{}, sideRegion{}, fmt.Errorf("compiler: zipf_select temperature source must be A-side")
-	}
-
-	if _, err := parser.expect(")"); err != nil {
-		return sideRegion{}, sideRegion{}, sideRegion{}, err
-	}
-
-	return value, key, temperature, nil
-}
-
-func (parser *parser) parseTwoBRegionsPrefix() (sideRegion, sideRegion, error) {
-	value, err := parser.parseRegion()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	if value.side != 'B' {
-		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer value source must be B-side")
-	}
-
-	if _, err := parser.expect(","); err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	key, err := parser.parseRegion()
-	if err != nil {
-		return sideRegion{}, sideRegion{}, err
-	}
-
-	if key.side != 'B' {
-		return sideRegion{}, sideRegion{}, fmt.Errorf("compiler: reducer key source must be B-side")
-	}
-
-	return value, key, nil
 }
 
 // stashBinop is a small helper trick: the parser hands a single
@@ -886,6 +765,21 @@ func opcodeOf(name string) (uint64, bool) {
 	return 0, false
 }
 
+func scalarOpcodeOf(name string) (uint64, bool) {
+	switch name {
+	case "shiftl":
+		return ScalarShiftLeft, true
+	case "shiftr":
+		return ScalarShiftRight, true
+	case "rotl":
+		return ScalarRotateLeft, true
+	case "rotr":
+		return ScalarRotateRight, true
+	}
+
+	return 0, false
+}
+
 func geometricOpcodeOf(name string) (uint64, bool) {
 	switch name {
 	case "compose":
@@ -899,8 +793,25 @@ func geometricOpcodeOf(name string) (uint64, bool) {
 	return 0, false
 }
 
+func isStrictReducerName(name string) bool {
+	return name == "argmin_nonzero" ||
+		name == "mode_eq" ||
+		name == "zipf_select" ||
+		name == "geo_centroid" ||
+		name == "geo_nearest" ||
+		name == "run_zero" ||
+		name == "run_one" ||
+		name == "align_zero"
+}
+
 func isCallName(name string) bool {
-	if name == "popcnt" || name == "any_zero" || name == "argmin_nonzero" || name == "mode_eq" || name == "zipf_select" {
+	if name == "popcnt" ||
+		name == "any_zero" ||
+		isStrictReducerName(name) {
+		return true
+	}
+
+	if _, ok := scalarOpcodeOf(name); ok {
 		return true
 	}
 
@@ -1004,52 +915,11 @@ func targetOf(side byte) uint64 {
 }
 
 func (parser *parser) parsePop() (ASTNode, error) {
-	parser.advance() // consume "pop"
-
-	if _, err := parser.expect("("); err != nil {
-		return nil, err
-	}
-
-	if _, err := parser.expect("ident"); err != nil {
-		return nil, err
-	}
-
-	if _, err := parser.expect(")"); err != nil {
-		return nil, err
-	}
-
-	if _, err := parser.expect("{"); err != nil {
-		return nil, err
-	}
-
-	body, err := parser.parseStatements("}")
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := parser.expect("}"); err != nil {
-		return nil, err
-	}
-
-	return PopBNode{Body: body}, nil
+	return nil, fmt.Errorf("compiler: pop(B) is not available in the strict linear ALU; use gossip(B) plus continuation state")
 }
 
 func (parser *parser) parseStage() (ASTNode, error) {
-	parser.advance() // consume "stage"
-
-	if _, err := parser.expect("("); err != nil {
-		return nil, err
-	}
-
-	if _, err := parser.expect("ident"); err != nil {
-		return nil, err
-	}
-
-	if _, err := parser.expect(")"); err != nil {
-		return nil, err
-	}
-
-	return StageNode{}, nil
+	return nil, fmt.Errorf("compiler: stage(B) is not available in the strict linear ALU")
 }
 
 func (parser *parser) parseGossip() (ASTNode, error) {
@@ -1157,6 +1027,10 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Program})
 	}
 
+	if tok.text == "tokens" {
+		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Tokens})
+	}
+
 	if tok.text == "asset" {
 		return parser.maybeIndex(sideRegion{side: parser.defaultRegionSide(), reg: Asset})
 	}
@@ -1178,7 +1052,12 @@ func (parser *parser) parseRegion() (sideRegion, error) {
 	}
 
 	if tok.text == "properties" && parser.emitDepth > 0 {
-		return parser.parsePropertyPath(parser.defaultRegionSide())
+		side := parser.defaultRegionSide()
+		if parser.peek().kind == "." {
+			return parser.parsePropertyPath(side)
+		}
+
+		return parser.maybeIndex(sideRegion{side: side, reg: Properties})
 	}
 
 	if tok.text == "A" || tok.text == "B" {
@@ -1348,7 +1227,11 @@ func (parser *parser) parseRegionPath(side byte) (sideRegion, error) {
 	case "next":
 		return sideRegion{side: side, reg: Next}, nil
 	case "properties":
-		return parser.parsePropertyPath(side)
+		if parser.peek().kind == "." {
+			return parser.parsePropertyPath(side)
+		}
+
+		return parser.maybeIndex(sideRegion{side: side, reg: Properties})
 	}
 
 	return sideRegion{}, fmt.Errorf("compiler: unknown region path %q", tok.text)

@@ -33,7 +33,7 @@ export type ProgramCategory =
 	| "structural" // fold_substrate — README "Signals" cancel/merge sweep
 	| "beam" // beam_swarm_step — directional explore
 	| "inference" // active_inference — multi-future simulation
-	| "classify" // classify_readout — label broadcast
+	| "classify" // class_prototype / classify_readout — geometric label readout
 	| "peer_gap" // unsupervised_learn / episodic_replay — peer comparison
 	| "consensus" // vote_swarm — XOR-accumulate peer.signals into context
 	| "intervene" // Pearl L2 do-operation
@@ -82,11 +82,11 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			description: "query — stage unassigned Values into a resident lane",
 		},
 		/*
-		structural is the README "Signals" algorithm: an XOR-cancel sweep
-		into signals[0,4] and an AND-merge sweep into signals[4,4] over
-		the two halves of the token region. The post-ALU hook scans
-		those for long zero/one runs and emits Association Values, so
-		this category marks the Values that drive that emission.
+		structural is the README "Signals" algorithm: XOR-cancel and
+		AND-merge witnesses are scanned in-band by run_zero/run_one
+		reducers. structural_associate emits linked Association evidence
+		Values, and structural_readout resolves prompt heads from aligned
+		structural witnesses.
 		Triangle-down is reserved for it because the algorithm is
 		downward in the lifecycle (token data → structural fingerprint).
 		*/
@@ -116,7 +116,7 @@ export const PROGRAM_CATEGORIES: Record<ProgramCategory, ProgramCategoryStyle> =
 			label: "classify",
 			color: [100, 180, 255],
 			shape: "square",
-			description: "classify_readout — label broadcast",
+			description: "class_prototype / classify_readout — geometric label readout",
 		},
 		peer_gap: {
 			category: "peer_gap",
@@ -208,8 +208,11 @@ const PROGRAM_CATEGORY_BY_NAME: Record<string, ProgramCategory> = {
 	link: "plumbing",
 	affinity: "plumbing",
 	structural_component: "structural",
+	structural_associate: "structural",
+	structural_readout: "structural",
 	beam_swarm_step: "beam",
 	active_inference: "inference",
+	class_prototype: "classify",
 	classify_readout: "classify",
 	unsupervised_learn: "peer_gap",
 	episodic_replay: "peer_gap",
@@ -262,6 +265,17 @@ export function classifyKnownProgram(program: string): ClassifiedProgram {
 	};
 }
 
+/*
+instructionsEqual matches two instruction words by their structural
+fingerprint — the fields a firmware-install never touches. Operand
+locations (aStart/aSpan/bStart/bSpan/dstStart/dstSpan and predStart)
+are 7-bit fields that primitive.InstallFirmware patches per-Value via
+its substitution table, so two Values running the same firmware will
+have identical opcodes, topology, predicate logic, emit/stage/popEnd
+flags but different operand offsets. Comparing those operand fields
+made the classifier reject every real Value and the inspector showed
+"op=0x00" instead of the program name.
+*/
 function instructionsEqual(
 	a: DecodedInstruction,
 	b: DecodedInstruction,
@@ -270,7 +284,6 @@ function instructionsEqual(
 		a.opcode === b.opcode &&
 		a.mode === b.mode &&
 		a.topology === b.topology &&
-		a.predStart === b.predStart &&
 		a.predCond === b.predCond &&
 		a.aInd === b.aInd &&
 		a.bType === b.bType &&
@@ -278,13 +291,7 @@ function instructionsEqual(
 		a.emit === b.emit &&
 		a.srcAFromB === b.srcAFromB &&
 		a.stage === b.stage &&
-		a.popEnd === b.popEnd &&
-		a.aStart === b.aStart &&
-		a.aSpan === b.aSpan &&
-		a.bStart === b.bStart &&
-		a.bSpan === b.bSpan &&
-		a.dstStart === b.dstStart &&
-		a.dstSpan === b.dstSpan
+		a.popEnd === b.popEnd
 	);
 }
 

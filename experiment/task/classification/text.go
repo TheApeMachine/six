@@ -33,19 +33,22 @@ seen before.
 type TextClassificationExperiment struct {
 	tableData           []tools.ExperimentalData
 	dataset             data.Provider
+	promptDataset       *huggingface.Dataset
 	prompt              []string
 	holdouts            [][]byte
 	evaluator           *tools.Evaluator
 	predictionsComputed bool
 }
 
+const textSamples = 256
+
 func NewTextClassificationExperiment() *TextClassificationExperiment {
 	experiment := &TextClassificationExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("sh0416/ag_news"),
-			huggingface.DatasetWithSamples(samples),
-			huggingface.DatasetWithSplit("test"),
+			huggingface.DatasetWithSamples(textSamples),
+			huggingface.DatasetWithSplit("train"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
 			// ag_news ships labels in [1, 4] (1=World, 2=Sports, 3=Business,
@@ -53,6 +56,14 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			// normalizes to [0, 3] internally; the substrate then re-shifts
 			// to 1-indexed when writing the LABELS property word so slot
 			// value 0 stays reserved as the unlabeled sentinel.
+			huggingface.DatasetWithLabelOrigin(1),
+		),
+		promptDataset: huggingface.New(
+			huggingface.DatasetWithRepo("sh0416/ag_news"),
+			huggingface.DatasetWithSamples(textSamples),
+			huggingface.DatasetWithSplit("test"),
+			huggingface.DatasetWithTextColumns("title", "description"),
+			huggingface.DatasetWithLabelColumn("label"),
 			huggingface.DatasetWithLabelOrigin(1),
 		),
 		evaluator: tools.NewEvaluator(
@@ -90,7 +101,7 @@ func (experiment *TextClassificationExperiment) Dataset() data.Provider {
 func (experiment *TextClassificationExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
-	for sample := range experiment.dataset.Generate() {
+	for sample := range experiment.promptDataset.Generate() {
 		task := string(sample.TaskPrompt())
 		if task == "" {
 			continue
@@ -141,11 +152,9 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		}
 	}
 
-	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
-		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
-			if label >= 0 && label < len(experiment.ClassLabels()) {
-				results.TrueLabel = new(label)
-			}
+	if label, ok := experiment.promptDataset.LabelForSample(uint32(results.Idx)); ok {
+		if label >= 0 && label < len(experiment.ClassLabels()) {
+			results.TrueLabel = new(label)
 		}
 	}
 
@@ -161,11 +170,9 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 }
 
 func (experiment *TextClassificationExperiment) LabelForPrompt(idx int) []byte {
-	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
-		if label, ok := dataset.LabelForSample(uint32(idx)); ok {
-			if label >= 0 && label < len(experiment.ClassLabels()) {
-				return []byte(experiment.ClassLabels()[label])
-			}
+	if label, ok := experiment.promptDataset.LabelForSample(uint32(idx)); ok {
+		if label >= 0 && label < len(experiment.ClassLabels()) {
+			return []byte(experiment.ClassLabels()[label])
 		}
 	}
 
@@ -255,12 +262,12 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 	section := tools.ExperimentSection{
 		Title: "Text Classification",
 		Label: "text_classification",
-		TaskDescription: `The text classification experiment evaluates zero-shot topical categorisation
-on the AG News dataset (\texttt{sh0416/ag\_news}).  Articles from four
-categories---World, Sports, Business, and Science/Technology---are ingested
-with their label appended.  At test time the label suffix is stripped via
-substring holdout; the system must recover the correct category word from the
-closest resident labelled article in the substrate.`,
+		TaskDescription: `The text classification experiment evaluates topical categorisation on
+the AG News dataset (\texttt{sh0416/ag\_news}).  A train-split window is
+ingested as labelled, sample-rooted affinity communities.  Test-split articles
+are prompted without label text; the readout program must fold linked prompt
+affinities, route to the closest resident train community by Hamming witness,
+and recover the community label from in-band Values.`,
 		Results: fmt.Sprintf(`Table~\ref{tab:text_classification_metrics} summarises the classification
 metrics across $N = %d$ test samples.
 The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.`,

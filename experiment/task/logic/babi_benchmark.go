@@ -9,7 +9,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/experiment/trialmap"
+	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -94,6 +94,8 @@ func (*BabiExperiment) ObserveWorkspaceAsTokens() bool { return true }
 
 func (*BabiExperiment) SeedViralLearn() bool { return true }
 
+func (*BabiExperiment) PromptFirmware() core.FirmwareType { return core.STRUCTURAL_READOUT }
+
 func (experiment *BabiExperiment) Section() string {
 	return "logic"
 }
@@ -163,7 +165,7 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 		}
 	}
 
-	panels := trialmap.TwoScorePanels(experiment.tableData, score, trialmap.BabiTwoPanel(), nil)
+	panels := newBabiSummary(experiment.tableData).Panels()
 
 	// ── Failure table rows (up to 20) ─────────────────────────────
 	maxFail := 20
@@ -226,12 +228,15 @@ Reasoning is performed via Transitive Resonance: the entity value is
 extracted from the question, the story is scanned geometrically for
 its last movement relationship, and the residue value is decoded as
 the location answer.`, n),
-		Results: fmt.Sprintf(`Figure~\ref{fig:babi_trial_map} shows the per-sample Trial Outcome
-Map. Each row of the left heatmap corresponds to one question;
-columns show the Exact, Partial, Fuzzy, and Weighted scores on a
-0--1 colour scale (viridis, dark = 0, bright = 1). The right
-panel displays the weighted score per sample alongside the
-overall mean (orange dashed line).
+		Results: fmt.Sprintf(`Figure~\ref{fig:babi_trial_map} summarises the bAbI Task~1 results
+across four orthogonal slices. The top row reports the headline
+behaviour: the outcome breakdown splits every sample into Exact,
+Partial (weighted score above zero but not exact), and Zero
+(no signal), and the mean score components show how Exact,
+Partial, Fuzzy, and Weighted scores compare in aggregate. The
+bottom row exposes the structural axes: exact accuracy bucketed by
+the expected location (sorted descending), and the histogram of
+weighted scores across ten equal-width bins on $[0,1]$.
 
 The system achieved an exact-match accuracy of %s
 across all %d samples, with a mean partial score of
@@ -251,8 +256,8 @@ across all %d samples, with a mean partial score of
 				Width:  1400,
 				Height: 700,
 			},
-			Title:   "bAbI Task 1 — Trial Outcome Map",
-			Caption: fmt.Sprintf("Per-sample score fingerprint (left) and weighted score (right). N=%d, exact accuracy=%.1f%%.", n, exactRate*100),
+			Title:   "bAbI Task 1 — Result Summary",
+			Caption: fmt.Sprintf("bAbI Task 1 result summary across four panels: outcome breakdown (Exact / Partial / Zero), mean score components, exact accuracy by expected location, and weighted-score histogram. N=%d, exact accuracy=%.1f%%, mean weighted score=%.2f.", n, exactRate*100, score),
 			Label:   "fig:babi_trial_map",
 		},
 		{

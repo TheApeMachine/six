@@ -49,8 +49,8 @@ func (assign AssignNode) Walk(b *Builder) {
 }
 
 /*
-PredicateAssignNode lowers `set X <- popcnt(Y)` and `set X <- any_zero(Y)`
-into a single predicate instruction whose result lands directly in X.
+PredicateAssignNode lowers `set X <- popcnt(Y)` into a single predicate
+instruction whose result lands directly in X.
 */
 type PredicateAssignNode struct {
 	Dst        Region
@@ -73,21 +73,33 @@ func (node PredicateAssignNode) Walk(b *Builder) {
 }
 
 /*
-ReduceAssignNode lowers lane-level categorical reducers such as
-argmin_nonzero(value, key), mode_eq(value, key, match), and
-zipf_select(value, utility, temperature). These reducers are generic ALU
-operations over region references; they do not know what the regions mean.
+ScalarAssignNode lowers `shiftl`, `shiftr`, `rotl`, and `rotr` into the
+scalar sublane. It stays first-order: value and amount are ordinary regions,
+and the kernel runs the operation inline with the same mask and target routing
+as a truth-table write.
 */
-type ReduceAssignNode struct {
-	Dst   Region
-	Op    uint64
-	Value Region
-	Key   Region
-	Match Region
+type ScalarAssignNode struct {
+	Dst        Region
+	Op         uint64
+	Value      Region
+	ValueSide  byte
+	Amount     Region
+	AmountSide byte
+	Target     uint64
 }
 
-func (node ReduceAssignNode) Walk(b *Builder) {
-	b.Reduce(node.Op, node.Value, node.Key, node.Match, node.Dst)
+func (node ScalarAssignNode) Walk(b *Builder) {
+	prevTarget := b.currentTarget
+	b.currentTarget = node.Target
+
+	srcAFromB := uint64(0)
+	if node.ValueSide == 'B' {
+		srcAFromB = 1
+	}
+
+	b.Scalar(node.Op, node.Value, node.Amount, node.Dst, srcAFromB)
+
+	b.currentTarget = prevTarget
 }
 
 /*
@@ -159,35 +171,6 @@ func srcAFromSide(side byte) uint64 {
 }
 
 /*
-PopBNode emits a single dedicated pop-seed instruction (topology=Pop on
-an identity write) so the kernel binds currentB once. Body instructions
-then run topology=Local and inherit that pointer, which is what the
-recruit-style `pop(B) { ... }` semantics need.
-*/
-type PopBNode struct {
-	Body BlockNode
-}
-
-func (pop PopBNode) Walk(b *Builder) {
-	prevTopo := b.currentTopo
-
-	b.currentTopo = TopoPopQueue
-	b.Pack(OpCopyA, ID, ID, ID)
-
-	b.currentTopo = TopoLocal
-	bodyStart := b.pc
-	pop.Body.Walk(b)
-
-	// Mark the last body instruction so the kernel knows where the pop
-	// loop ends and can rewind to bodyStart for the next B in the lane.
-	if b.pc > bodyStart {
-		b.instructions[b.pc-1] |= uint64(1) << 63
-	}
-
-	b.currentTopo = prevTopo
-}
-
-/*
 GossipNode lowers `gossip(B) { ... }`. The topology depends on whether
 the body wraps an IfNode: a plain gossip block stays on TopoHypercube
 (owner-side mask, broadcast write per peer); a predicated gossip block
@@ -245,26 +228,6 @@ func retargetPredicateMasks(block BlockNode, mask Region) {
 }
 
 /*
-StageNode lowers `stage(B)`: a legacy side-effect instruction that queues
-the currently bound B index in the kernel stage output. The active community
-recruitment path uses in-frame SELECTED/reference tags, but stage remains in
-the wire contract for older firmware and parity tests.
-*/
-type StageNode struct{}
-
-func (stage StageNode) Walk(b *Builder) {
-	prevStage := b.stageFlag
-	b.stageFlag = 1
-
-	// Identity write under the current pop topology so the kernel binds
-	// currentB before observing the stage bit. Region operands are placeholders
-	// — the kernel ignores them when stage=1.
-	b.Pack(OpFalse, ID, ID, ID)
-
-	b.stageFlag = prevStage
-}
-
-/*
 EmitNode runs its body against the child target selected by the parser for
 bare destinations. The ALU emits one child when at least one child-target
 write survives the active predicate mask.
@@ -274,5 +237,10 @@ type EmitNode struct {
 }
 
 func (emit EmitNode) Walk(b *Builder) {
+	bodyStart := b.pc
 	emit.Body.Walk(b)
+
+	if b.pc > bodyStart {
+		b.instructions[b.pc-1] |= uint64(1) << 62
+	}
 }

@@ -805,12 +805,11 @@ static int ensure_gossip_pool(uint32_t value_count) {
 /*
 hypercube_gossip_v2_kernel mirrors pkg/compute/kernel/cpu/hypercube_gossip_go_kernel.go
 and pkg/compute/kernel/metal/backend.metal:hypercube_gossip_kernel. The
-new ALU's instruction format is decoded inline, supports the four
-topologies (Local, Pop, Hypercube, HypercubePerPeer), per-peer
-predicate evaluation under HypercubePerPeer, per-peer mask gating in
-the broadcast write, and per-peer stage selection. spawned children
-are surfaced via the spawn-register word; the host post-processes that
-into spawn_frames / spawn_ids the same way the CPU and Metal paths do.
+strict ALU instruction format is decoded inline, supports Local,
+Hypercube, and HypercubePerPeer topologies, per-peer predicate evaluation,
+and per-peer mask gating in the broadcast write. Spawned children are
+surfaced via the spawn-register word; the host post-processes that into
+spawn_frames / spawn_ids the same way the CPU and Metal paths do.
 
 Keep this kernel byte-compatible with the Go reference: the kernel-host
 contract for stage_indices / stage_count / spawn_register is identical
@@ -818,7 +817,6 @@ across substrates so the backend selector can fall over freely.
 */
 
 #define HG_V2_TOPO_LOCAL              0u
-#define HG_V2_TOPO_POP                1u
 #define HG_V2_TOPO_HYPERCUBE          2u
 #define HG_V2_TOPO_HYPERCUBE_PER_PEER 3u
 
@@ -829,18 +827,7 @@ across substrates so the backend selector can fall over freely.
 #define HG_V2_PRED_EQ             4u
 #define HG_V2_PRED_NE             5u
 #define HG_V2_PRED_STORE_POPCNT   6u
-#define HG_V2_PRED_ANY_ZERO       7u
-#define HG_V2_REDUCE_ARGMIN       1ull
-#define HG_V2_REDUCE_MODE_EQ      2ull
-#define HG_V2_REDUCE_ZIPF_SELECT  3ull
-#define HG_V2_MODE_TABLE_SIZE     1024u
-#define HG_V2_ZIPF_WEIGHT_SCALE   281474976710656ull
-#define HG_V2_ZIPF_ID_WORD        122u
-#define HG_V2_ZIPF_EPOCH_WORD     58u
-#define HG_V2_ZIPF_COMMUNITY_WORD 64u
-#define HG_V2_ZIPF_SURPRISAL_WORD 68u
 #define HG_V2_SPAWN_REGISTER_WORD   70u
-#define HG_V2_ZIPF_MAX_CANDS        1024u
 
 static __device__ __forceinline__ uint64_t hg_v2_rotated_word(
     uint64_t* frame, uint32_t start, uint32_t span, uint32_t lane, uint32_t rotate
@@ -861,346 +848,6 @@ static __device__ __forceinline__ uint64_t hg_v2_popcount_span(
         total += (uint64_t)__popcll(frame[(start + lane) & 127u]);
     }
     return total;
-}
-
-static __device__ __forceinline__ void hg_v2_reduce_argmin(
-    uint64_t* owner,
-    uint64_t* arena,
-    const uint8_t* active,
-    uint32_t value_count,
-    uint32_t value_start,
-    uint32_t key_start,
-    uint32_t dst_start,
-    uint32_t guard_start
-) {
-    if (owner == nullptr || value_count == 0u || owner[guard_start & 127u] == 0ull) return;
-
-    uint64_t best_value = 0ull;
-    uint64_t best_key = ~0ull;
-
-    for (uint32_t idx = 0; idx < value_count; idx++) {
-        if (active[idx] == 0) continue;
-
-        uint64_t* peer = arena + (size_t)idx * WORDS;
-        uint64_t value = peer[value_start & 127u];
-        if (value == 0ull) continue;
-
-        uint64_t key = peer[key_start & 127u];
-        if (key >= best_key) continue;
-
-        best_key = key;
-        best_value = value;
-    }
-
-    if (best_value != 0ull) owner[dst_start & 127u] = best_value;
-}
-
-static __device__ __forceinline__ void hg_v2_reduce_mode_eq(
-    uint64_t* owner,
-    uint64_t* arena,
-    const uint8_t* active,
-    uint32_t value_count,
-    uint32_t value_start,
-    uint32_t key_start,
-    uint32_t dst_start,
-    uint32_t match_start,
-    uint8_t* used,
-    uint64_t* keys,
-    uint32_t* counts,
-    uint32_t* first_seen
-) {
-    if (owner == nullptr || value_count == 0u) return;
-
-    uint64_t match = owner[match_start & 127u];
-    if (match == 0ull) return;
-
-    for (uint32_t slot = 0; slot < HG_V2_MODE_TABLE_SIZE; slot++) {
-        used[slot] = 0u;
-        keys[slot] = 0ull;
-        counts[slot] = 0u;
-        first_seen[slot] = 0xFFFFFFFFu;
-    }
-
-    uint32_t seen = 0u;
-    for (uint32_t idx = 0; idx < value_count; idx++) {
-        if (active[idx] == 0) continue;
-
-        uint64_t* peer = arena + (size_t)idx * WORDS;
-        if (peer[key_start & 127u] != match) continue;
-
-        uint64_t value = peer[value_start & 127u];
-        if (value == 0ull) continue;
-
-        uint32_t slot = (uint32_t)((value ^ (value >> 32ull)) & (uint64_t)(HG_V2_MODE_TABLE_SIZE - 1u));
-        for (uint32_t probe = 0u; probe < HG_V2_MODE_TABLE_SIZE; probe++) {
-            if (used[slot] == 0u) {
-                used[slot] = 1u;
-                keys[slot] = value;
-                counts[slot] = 1u;
-                first_seen[slot] = seen;
-                break;
-            }
-
-            if (keys[slot] == value) {
-                counts[slot]++;
-                break;
-            }
-
-            slot = (slot + 1u) & (HG_V2_MODE_TABLE_SIZE - 1u);
-        }
-
-        seen++;
-    }
-
-    uint64_t best_value = 0ull;
-    uint32_t best_count = 0u;
-    uint32_t best_order = 0xFFFFFFFFu;
-
-    for (uint32_t slot = 0; slot < HG_V2_MODE_TABLE_SIZE; slot++) {
-        if (used[slot] == 0u) continue;
-        if (counts[slot] < best_count) continue;
-        if (counts[slot] == best_count && first_seen[slot] >= best_order) continue;
-
-        best_count = counts[slot];
-        best_order = first_seen[slot];
-        best_value = keys[slot];
-    }
-
-    if (best_value != 0ull) owner[dst_start & 127u] = best_value;
-}
-
-static __device__ __forceinline__ uint32_t hg_v2_zipf_power(uint64_t temperature) {
-    if (temperature >= 1024ull) return 0u;
-    if (temperature >= 512ull) return 1u;
-    if (temperature >= 256ull) return 2u;
-    if (temperature >= 128ull) return 3u;
-    return 4u;
-}
-
-static __device__ __forceinline__ uint64_t hg_v2_zipf_weight(uint32_t rank, uint32_t power) {
-    if (rank == 0u) return 0ull;
-    if (power == 0u) return 1ull;
-
-    uint64_t weight = HG_V2_ZIPF_WEIGHT_SCALE;
-    uint64_t divisor = (uint64_t)rank;
-
-    for (uint32_t idx = 0u; idx < power; idx++) {
-        weight /= divisor;
-        if (weight == 0ull) return 1ull;
-    }
-
-    return weight == 0ull ? 1ull : weight;
-}
-
-static __device__ __forceinline__ uint64_t hg_v2_zipf_rotl(uint64_t value, uint32_t shift) {
-    shift &= 63u;
-
-    uint32_t rshift = (64u - shift) & 63u;
-
-    return (value << shift) | (value >> rshift);
-}
-
-static __device__ __forceinline__ uint64_t hg_v2_zipf_mix(uint64_t seed) {
-    seed += 0x9e3779b97f4a7c15ull;
-    seed = (seed ^ (seed >> 30u)) * 0xbf58476d1ce4e5b9ull;
-    seed = (seed ^ (seed >> 27u)) * 0x94d049bb133111ebull;
-    return seed ^ (seed >> 31u);
-}
-
-static __device__ __forceinline__ uint64_t hg_v2_zipf_seed(
-    uint64_t* owner, uint32_t count, uint64_t best_utility
-) {
-    uint64_t seed = owner[HG_V2_ZIPF_ID_WORD] ^
-        hg_v2_zipf_rotl(owner[HG_V2_ZIPF_EPOCH_WORD], 17u) ^
-        hg_v2_zipf_rotl(owner[HG_V2_ZIPF_COMMUNITY_WORD], 31u) ^
-        hg_v2_zipf_rotl(owner[HG_V2_ZIPF_SURPRISAL_WORD], 7u) ^
-        hg_v2_zipf_rotl(best_utility, 43u) ^
-        (uint64_t)count;
-
-    return hg_v2_zipf_mix(seed);
-}
-
-static __device__ __forceinline__ uint32_t hg_v2_zipf_candidate_count(
-    uint64_t* arena, const uint8_t* active, uint32_t value_count, uint32_t value_start
-) {
-    uint32_t count = 0u;
-
-    for (uint32_t idx = 0u; idx < value_count; idx++) {
-        if (active[idx] == 0) continue;
-
-        uint64_t* peer = arena + (size_t)idx * WORDS;
-        if (peer[value_start & 127u] == 0ull) continue;
-
-        count++;
-    }
-
-    return count;
-}
-
-static __device__ __forceinline__ bool hg_v2_zipf_best(
-    uint64_t* arena,
-    const uint8_t* active,
-    uint32_t value_count,
-    uint32_t value_start,
-    uint32_t utility_start,
-    uint64_t* best_value,
-    uint64_t* best_utility
-) {
-    uint32_t best_index = 0u;
-    bool found = false;
-    *best_value = 0ull;
-    *best_utility = 0ull;
-
-    for (uint32_t idx = 0u; idx < value_count; idx++) {
-        if (active[idx] == 0) continue;
-
-        uint64_t* peer = arena + (size_t)idx * WORDS;
-        uint64_t value = peer[value_start & 127u];
-        if (value == 0ull) continue;
-
-        uint64_t utility = peer[utility_start & 127u];
-        if (found && (utility < *best_utility || (utility == *best_utility && idx >= best_index))) continue;
-
-        *best_value = value;
-        *best_utility = utility;
-        best_index = idx;
-        found = true;
-    }
-
-    return found;
-}
-
-static __device__ __forceinline__ uint64_t hg_v2_zipf_candidate_at_rank(
-    uint64_t* arena,
-    const uint8_t* active,
-    uint32_t value_count,
-    uint32_t value_start,
-    uint32_t utility_start,
-    uint32_t target_rank,
-    uint32_t* cand_idx,
-    uint64_t* cand_util,
-    uint64_t* cand_val
-) {
-    uint32_t cand_count = 0u;
-
-    for (uint32_t idx = 0u; idx < value_count; idx++) {
-        if (active[idx] == 0) continue;
-
-        uint64_t* peer = arena + (size_t)idx * WORDS;
-        uint64_t value = peer[value_start & 127u];
-        if (value == 0ull) continue;
-
-        uint64_t utility = peer[utility_start & 127u];
-
-        if (cand_count >= HG_V2_ZIPF_MAX_CANDS) continue;
-
-        cand_idx[cand_count] = idx;
-        cand_util[cand_count] = utility;
-        cand_val[cand_count] = value;
-        cand_count++;
-    }
-
-    if (target_rank == 0u || target_rank > cand_count) return 0ull;
-
-    for (uint32_t sorted_i = 1u; sorted_i < cand_count; sorted_i++) {
-        uint32_t ci = cand_idx[sorted_i];
-        uint64_t cu = cand_util[sorted_i];
-        uint64_t cv = cand_val[sorted_i];
-        uint32_t j = sorted_i;
-
-        while (j > 0u) {
-            uint32_t pj = cand_idx[j - 1u];
-            uint64_t pu = cand_util[j - 1u];
-
-            if (pu > cu || (pu == cu && pj < ci)) break;
-
-            cand_idx[j] = cand_idx[j - 1u];
-            cand_util[j] = cand_util[j - 1u];
-            cand_val[j] = cand_val[j - 1u];
-            j--;
-        }
-
-        cand_idx[j] = ci;
-        cand_util[j] = cu;
-        cand_val[j] = cv;
-    }
-
-    return cand_val[target_rank - 1u];
-}
-
-static __device__ __forceinline__ void hg_v2_reduce_zipf_select(
-    uint64_t* owner,
-    uint64_t* arena,
-    const uint8_t* active,
-    uint32_t value_count,
-    uint32_t value_start,
-    uint32_t utility_start,
-    uint32_t dst_start,
-    uint32_t temperature_start,
-    uint32_t* zipf_idx,
-    uint64_t* zipf_util,
-    uint64_t* zipf_val
-) {
-    if (owner == nullptr || value_count == 0u) return;
-
-    uint32_t count = hg_v2_zipf_candidate_count(arena, active, value_count, value_start);
-    if (count == 0u) return;
-
-    uint64_t best_value = 0ull;
-    uint64_t best_utility = 0ull;
-    if (!hg_v2_zipf_best(arena, active, value_count, value_start, utility_start, &best_value, &best_utility)) return;
-
-    uint64_t temperature = owner[temperature_start & 127u];
-    if (temperature == 0ull || count == 1u) {
-        owner[dst_start & 127u] = best_value;
-        return;
-    }
-
-    uint32_t power = hg_v2_zipf_power(temperature);
-    uint64_t total = 0ull;
-    for (uint32_t rank = 1u; rank <= count; rank++) {
-        total += hg_v2_zipf_weight(rank, power);
-    }
-
-    if (total == 0ull) {
-        owner[dst_start & 127u] = best_value;
-        return;
-    }
-
-    uint64_t ticket = hg_v2_zipf_seed(owner, count, best_utility) % total;
-    uint64_t running = 0ull;
-
-    for (uint32_t rank = 1u; rank <= count; rank++) {
-        running += hg_v2_zipf_weight(rank, power);
-        if (ticket >= running) continue;
-
-        uint64_t selected = hg_v2_zipf_candidate_at_rank(
-            arena,
-            active,
-            value_count,
-            value_start,
-            utility_start,
-            rank,
-            zipf_idx,
-            zipf_util,
-            zipf_val
-        );
-        owner[dst_start & 127u] = selected == 0ull ? best_value : selected;
-        return;
-    }
-
-    uint64_t selected = hg_v2_zipf_candidate_at_rank(
-        arena,
-        active,
-        value_count,
-        value_start,
-        utility_start,
-        count,
-        zipf_idx,
-        zipf_util,
-        zipf_val
-    );
-    owner[dst_start & 127u] = selected == 0ull ? best_value : selected;
 }
 
 __global__ void hypercube_gossip_v2_kernel(
@@ -1225,20 +872,6 @@ __global__ void hypercube_gossip_v2_kernel(
 
     if (stage_count != nullptr) stage_count[0] = 0u;
 
-    __shared__ uint8_t s_mode_used[HG_V2_MODE_TABLE_SIZE];
-    __shared__ uint64_t s_mode_keys[HG_V2_MODE_TABLE_SIZE];
-    __shared__ uint32_t s_mode_counts[HG_V2_MODE_TABLE_SIZE];
-    __shared__ uint32_t s_mode_first_seen[HG_V2_MODE_TABLE_SIZE];
-    __shared__ uint32_t s_zipf_idx[HG_V2_ZIPF_MAX_CANDS];
-    __shared__ uint64_t s_zipf_util[HG_V2_ZIPF_MAX_CANDS];
-    __shared__ uint64_t s_zipf_val[HG_V2_ZIPF_MAX_CANDS];
-
-    uint32_t b_queue_idx = 0u;
-    uint32_t current_b_idx = 0u;
-    uint64_t* current_b = nullptr;
-    uint32_t pop_body_start = 0u;
-    bool pop_active = false;
-
     for (uint32_t pc = 0; pc < PROGRAM_WORDS; pc++) {
         uint64_t raw = owner[PROGRAM_START_WORD + pc];
         if (raw == 0ull) continue;
@@ -1259,97 +892,6 @@ __global__ void hypercube_gossip_v2_kernel(
         uint64_t pred_cond  = (raw >> 58ull) & 7ull;
         uint64_t b_rotate   = pred_cond;
         uint64_t src_a_from_b = (raw >> 61ull) & 1ull;
-        uint64_t stage_bit  = (raw >> 62ull) & 1ull;
-        uint64_t pop_end    = (raw >> 63ull) & 1ull;
-
-        if (predicate == 1ull) {
-            if (opcode == HG_V2_REDUCE_ARGMIN) {
-                hg_v2_reduce_argmin(owner, arena, active, value_count, a_start, b_start, dst_start, mask_start);
-                continue;
-            }
-
-            if (opcode == HG_V2_REDUCE_MODE_EQ) {
-                hg_v2_reduce_mode_eq(
-                    owner,
-                    arena,
-                    active,
-                    value_count,
-                    a_start,
-                    b_start,
-                    dst_start,
-                    mask_start,
-                    s_mode_used,
-                    s_mode_keys,
-                    s_mode_counts,
-                    s_mode_first_seen
-                );
-                continue;
-            }
-
-            if (opcode == HG_V2_REDUCE_ZIPF_SELECT) {
-                hg_v2_reduce_zipf_select(
-                    owner,
-                    arena,
-                    active,
-                    value_count,
-                    a_start,
-                    b_start,
-                    dst_start,
-                    mask_start,
-                    s_zipf_idx,
-                    s_zipf_util,
-                    s_zipf_val
-                );
-                continue;
-            }
-        }
-
-        if (topology == HG_V2_TOPO_POP && b_queue_idx < value_count) {
-            // Find next active community frame.
-            while (b_queue_idx < value_count && active[b_queue_idx] == 0) b_queue_idx++;
-            if (b_queue_idx < value_count) {
-                current_b = arena + (size_t)b_queue_idx * WORDS;
-                current_b_idx = b_queue_idx;
-                b_queue_idx++;
-                pop_body_start = pc + 1u;
-                pop_active = true;
-            }
-        }
-
-        if (stage_bit == 1ull) {
-            if (topology == HG_V2_TOPO_HYPERCUBE_PER_PEER && value_count > 0u && stage_indices != nullptr && stage_count != nullptr) {
-                for (uint32_t k = 0; k < value_count; k++) {
-                    if (k == owner_index || active[k] == 0) continue;
-                    uint64_t* peer = arena + (size_t)k * WORDS;
-                    if (peer[mask_start & 127u] == 0ull) continue;
-                    uint32_t out_idx = stage_count[0];
-                    if (out_idx >= value_count) break;
-                    stage_indices[out_idx] = k;
-                    stage_count[0] = out_idx + 1u;
-                }
-            } else if (current_b != nullptr && stage_indices != nullptr && stage_count != nullptr) {
-                uint32_t out_idx = stage_count[0];
-                if (out_idx < value_count) {
-                    stage_indices[out_idx] = current_b_idx;
-                    stage_count[0] = out_idx + 1u;
-                }
-            }
-
-            if (pop_end == 1ull && pop_active) {
-                while (b_queue_idx < value_count && active[b_queue_idx] == 0) b_queue_idx++;
-                if (b_queue_idx < value_count) {
-                    current_b = arena + (size_t)b_queue_idx * WORDS;
-                    current_b_idx = b_queue_idx;
-                    b_queue_idx++;
-                    pc = pop_body_start - 1u;
-                    continue;
-                }
-                pop_active = false;
-            }
-
-            continue;
-        }
-
         // Per-peer predicate (TopoHypercubePerPeer): evaluate per peer,
         // write per-peer mask into peer[dst_start].
         if (predicate == 1ull && topology == HG_V2_TOPO_HYPERCUBE_PER_PEER && value_count > 0u) {
@@ -1378,7 +920,7 @@ __global__ void hypercube_gossip_v2_kernel(
         }
 
         // Pointer setup for single-peer / owner-side paths.
-        uint64_t* ptr_b = current_b;
+        uint64_t* ptr_b = nullptr;
         if (topology == HG_V2_TOPO_HYPERCUBE && value_count > 0u && owner_index != 0xFFFFFFFFu) {
             uint32_t peer_idx = owner_index ^ 1u;
             if (peer_idx < value_count && active[peer_idx] != 0) {
@@ -1398,15 +940,6 @@ __global__ void hypercube_gossip_v2_kernel(
                 uint32_t dst_idx = dst_start & 127u;
                 uint64_t prev_dst = ptr_dst[dst_idx];
                 ptr_dst[dst_idx] = (pop & guard) | (prev_dst & ~guard);
-            } else if (pred_cond == HG_V2_PRED_ANY_ZERO) {
-                bool zero_seen = false;
-                for (uint32_t lane = 0; lane < a_span; lane++) {
-                    if (ptr_a[(a_start + lane) & 127u] == 0ull) { zero_seen = true; break; }
-                }
-                uint64_t result = zero_seen ? ~0ull : 0ull;
-                uint32_t dst_idx = dst_start & 127u;
-                uint64_t prev_dst = ptr_dst[dst_idx];
-                ptr_dst[dst_idx] = (result & guard) | (prev_dst & ~guard);
             } else {
                 uint64_t threshold = owner[b_start & 127u];
                 uint64_t witness = (a_span == 1u) ? ptr_a[a_start & 127u] : pop;
@@ -1421,18 +954,6 @@ __global__ void hypercube_gossip_v2_kernel(
                     default: hit = false; break;
                 }
                 ptr_dst[dst_start & 127u] = (hit ? ~0ull : 0ull) & guard;
-            }
-
-            if (pop_end == 1ull && pop_active) {
-                while (b_queue_idx < value_count && active[b_queue_idx] == 0) b_queue_idx++;
-                if (b_queue_idx < value_count) {
-                    current_b = arena + (size_t)b_queue_idx * WORDS;
-                    current_b_idx = b_queue_idx;
-                    b_queue_idx++;
-                    pc = pop_body_start - 1u;
-                    continue;
-                }
-                pop_active = false;
             }
 
             continue;
@@ -1480,13 +1001,18 @@ __global__ void hypercube_gossip_v2_kernel(
                     if (hypercube) {
                         if (k == owner_index || active[k] == 0) continue;
                         peer = arena + (size_t)k * WORDS;
+                        if (per_peer_mask && peer[mask_start & 127u] == 0ull) continue;
                     }
 
+                    uint64_t word_a = acc;
+                    if (src_a_from_b == 1ull) {
+                        word_a = peer[(a_start + (lane % a_span)) & 127u];
+                    }
                     uint64_t word_b = hg_v2_rotated_word(peer, b_start, b_span, lane, (uint32_t)b_rotate);
-                    acc = (acc & word_b & m0)
-                        | (acc & ~word_b & m1)
-                        | (~acc & word_b & m2)
-                        | (~acc & ~word_b & m3);
+                    acc = (word_a & word_b & m0)
+                        | (word_a & ~word_b & m1)
+                        | (~word_a & word_b & m2)
+                        | (~word_a & ~word_b & m3);
                     any = true;
                 }
 

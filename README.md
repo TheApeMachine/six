@@ -81,11 +81,11 @@ This is the actual end-to-end path the code implements today:
    - `properties.status == READY`.
    - The `program` region is non-empty.
    - `properties.continuation != 0`.
-   - A non-empty `SELECTED` / `properties.reference` lane narrows recruiter execution; no separate staging lane is required in the current path.
-   - `vm.Machine.Load` seeds the bootstrap query with tokenized Values.
-   - The drain loop carries the query → recruiter handoff through READY continuations.
-   - Recruiter filtering performs community stamping before prompts run.
-   - Accepted recruiters self-stamp as community headers; `context[0,5]` remains the seed and `affinity` holds the aggregate.
+   - A non-empty `SELECTED` / `properties.reference` lane can narrow execution; no separate staging lane is required in the current path.
+   - `vm.Machine.Load` installs `recruit_community` on each sample head.
+   - The drain loop lets those heads recruit their linked segments through `properties.reference == head.id`.
+   - Recruiter firmware performs community stamping before prompts run.
+   - Accepted sample heads self-stamp as community headers; `affinity` holds the linked sample aggregate.
 6. **Backend executes** — `compute.Backend` marks the selected resident `BUSY`, dispatches its program to the lowest-pressure available ALU substrate with CPU fallback, and narrows execution to peers tagged `SELECTED` with `properties.reference = owner.id` when such a lane exists. The universal-bitwise ALU reads the operand regions named by the program words and writes into the selected target frame; the geometric lane handles high-nibble PGA ops separately.
 7. **In-Band Scheduling** — Program handoff is explicit. If a resident installs a different program into its own `program` region, leaves `properties.status = READY`, and leaves `properties.continuation` non-zero, it can take another backend pass. One-shot firmware clears `properties.continuation` and stamps `DONE` itself, so lifecycle retirement is a Value-side effect rather than a host finalizer.
 8. **Prompt Readout** — Prompt execution is a short in-band chain:
@@ -112,7 +112,7 @@ The architecture is being built strictly according to a verifiable ladder of aut
 | Rung | Status | Description |
 |------|--------|-------------|
 | 1. Deterministic ALU correctness | **Implemented** | Universal Bitwise truth tables |
-| 2. Correct scalar witnesses | **Implemented** | Reductions (`popcnt`, `any_zero`) that accurately witness state |
+| 2. Correct scalar witnesses | **Implemented** | `popcnt` compare/store plus generic shifts and rotates that accurately witness state |
 | 3. Continuation scheduling | **Implemented** | `properties.continuation` acts as the native active queue |
 | 4. Real per-Value resident programs | **Implemented** | Kernel groups community into cohorts based on 16-word firmware hash |
 | 5. Real next/fold/spawn | **Implemented** | Topologies handle shifts, hypercube reductions, and frame allocation |
@@ -201,13 +201,19 @@ Pipeline in order:
 
 So: **one compiled firmware stream → one program region on one Value**. Chaining is natively expressed by setting the `continuation` property word in the AST.
 
-Predicate conditions may reduce direct regions or materialized truth-table expressions. For example, `popcnt(xor(A.context[0,5], B.affinity)) < 64` lowers to a scratch `xor` over the recruiter's seed window and the candidate affinity window followed by a scalar popcount witness and predicate compare. Recruitment also uses `popcnt(or(A.affinity, B.affinity)) <= 121` so the candidate is accepted only if the post-write union remains inside the 257-bit Shannon budget.
+Predicate conditions may reduce direct regions or materialized truth-table expressions. For example, `B.properties.reference == A.id` lowers to a per-peer predicate mask, and `set B.properties.delta_surprisal <- popcnt(B.gradient[0,5])` stores a scalar Hamming witness directly into the mapped peer frame. Recruitment uses `write A.affinity <- or(A.affinity, B.affinity)` under that reference mask so the sample head carries the linked article aggregate.
 
 Truth-table operands may align the mapped peer span with `rot8(B.region[start,span], n)`, where `n` is a byte step from 0 to 7. The packed instruction stores that byte rotation in the predicate-condition field only when the predicate bit is clear, so the kernel still performs the same universal operation: read A, read byte-rotated SrcB, apply the 4-bit truth table, and write the destination. The rotation is B-side operand addressing, not a signal or task-specific opcode.
 
 ### The ALU
 
-The Boolean **universal bitwise** path has been completely rewritten to execute the new 64-bit AST Instructions using **Tick Semantics (Double Buffering)** across a community vector. It reads the source spans, executes the 4-bit truth table, applies optional scalar reductions (`popcnt`, `any_zero`, `all_ones`), evaluates the predicate mask, and stages the result into a `post` buffer, guaranteeing deterministic, data-race-free state updates per instruction. Multi-word `popcnt(...)` predicate expressions materialize a one-word scalar witness before comparison; single-word predicate comparisons use the word as a scalar.
+The Boolean **universal bitwise** path executes the packed 64-bit ALU words over
+a resident Value and its mapped community. It reads the source spans, executes
+the 4-bit truth table, applies masked writes, evaluates `popcnt` compare/store
+predicates, and runs the generic scalar sublane for shifts and rotates.
+Multi-word `popcnt(...)` predicate expressions materialize a one-word scalar
+witness before comparison; single-word predicate comparisons use the word as a
+scalar.
 
 The high-level **source lines** under `programs:` are **not** the same as raw machine words — the compiler lowers them into the program region. The packed field contract remains substrate-neutral: opcode, mode, topology, predicate, operand alignment, and spans are encoded into single 64-bit words. The active CPU and Metal gossip paths decode the current inline ALU contract; CUDA gossip is the remaining disabled accelerator path until its source is ported and validated against the same word contract.
 
@@ -270,7 +276,19 @@ AND produces ones only where both spans agree. The longest contiguous one-run re
 
 In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both spans agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
 
-**The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `geometry.ScanZeroRun` and `geometry.ScanOneRun` detect the longest zero-run and one-run respectively over the 8 signal words; `geometry.RunLabel` maps the winning run's start position to a deterministic 16-bit label hash. Shorter runs are available for inter-cluster exchange.
+**Signal witnesses stay in the Value.** The structural firmware writes explicit
+token XOR/AND witnesses into `signals` and uses `popcnt` as the confidence
+readout. Longest-run scanners remain useful geometry/reference tools, but they
+are not ALU opcodes and they do not sit behind named reducer calls. The current
+resident path keeps the witness words visible so follow-on Values can choose
+their own continuation, branch, or readout program.
+
+The implemented structural pass uses `gossip(B)` plus bitwise token witnesses:
+`structural_associate` writes association links and confidence directly in the
+frames it touches, while `structural_readout` resolves from those in-band
+witnesses. Full token slicing into shared component and residues remains
+firmware/ALU work, not a Go-side reconstruction. The structural payload is not
+stored in `properties.labels`.
 
 ---
 
@@ -314,9 +332,15 @@ Crystallization.Score = Coverage x Consensus x LabelDensity
 
 When a community's `Coverage` is below the crystallization floor, resident
 selector/carrier firmware can activate `survey_community`, `vote_swarm`, or
-`classify_readout`. Those programs leave their result in `labels`,
-`confidence`, `signals`, and `continuation`; there is no Go-side field object
-that mutates source Values on their behalf.
+`classify_readout`. Classification now reads train-split, sample-rooted
+affinity communities: `recruit_community` ORs the linked train sample Value
+affinities into the sample head, marks that head as the readout root, and
+stamps the linked Values with the head community ID. `classify_readout` runs on
+held-out test prompts, ORs linked prompt affinities, matches that article
+fingerprint against readout roots by affinity Hamming witness, then reads labels
+from Values in the selected community. Those programs leave their result in
+`labels`, `confidence`, `signals`, and `continuation`; there is no Go-side
+field object that mutates source Values on their behalf.
 
 Field observability is therefore a readout concern over raw Value frames
 (telemetry, tests, or explicit resident readout Values), while routing and
@@ -343,54 +367,75 @@ Current firmware families:
 | Program | Role |
 |---------|------|
 | `link`, `affinity` | Bootstrap mechanics; Values are already stamped with links and affinity at mint time, but firmware forms remain available. |
-| `structural_component` | Signal-driven merge/cancel primitive described in **Signals**; emits structural Values and links residues. |
+| `structural_component`, `structural_associate`, `structural_readout` | Signal-driven merge/cancel primitives described in **Signals**. `structural_associate` emits linked `Association` evidence Values from aligned zero-run witnesses; `structural_readout` resolves prompt heads by selecting the strongest aligned witness. |
 | `beam_swarm_step` | Candidate generation: witnesses local token/context gap, updates gradient, and spawns candidate frames. |
 | `surprisal`, `active_inference` | Gap measurement and closure over `tokens`, `context`, `gradient`, and scalar witnesses. |
 | `hypothesis`, `falsification`, `causal_explore`, `causal_hub`, `intervene` | Causal/intervention probes expressed as target arming, predicted-absent XOR tests, noise/refutation witnesses, causal drift, and ephemeral spawned lineages. |
-| `zipf_select`, `program_select`, `program_carrier` | Candidate-program pressure: eligibility firmware can expose candidate `program_id` Values, `zipf_select` ranks/samples them by utility and temperature, and carriers install matching payloads from `asset[0,16]` into `program[0,16]`. |
-| `query`, `recruit_community` | Ingress and affinity recruitment: query Values select peers by an in-frame key/value predicate, tag matches with `SELECTED` and `reference = recruiter.id`, wake the recruiter, and let recruiter Values seed from the first unassigned candidate, accept candidates under the Hamming guard, stamp `community = recruiter.id`, self-stamp the accepted recruiter as the community header, and emit fresh recruiters on the same reference lane until no unassigned candidates remain. |
+| `program_select`, `program_carrier` | Candidate-program pressure remains an in-band carrier problem: eligibility firmware exposes candidate `program_id`/utility witnesses, and carriers install matching payloads from `asset[0,16]` into `program[0,16]` through ordinary ALU words. There is no named selector reducer in the strict ALU. |
+| `query`, `recruit_community` | Ingress and affinity recruitment: query Values can still select peers by an in-frame key/value predicate, while sample heads now recruit their own linked Values through `reference = head.id`, OR the linked affinity witnesses, and stamp the community root in-band. |
 | `episodic_replay`, `memory_prune` | Memory pressure: compare mapped peer context, update confidence/gradient, and keep or halt based on TTL/noise. |
-| `survey_community`, `vote_swarm`, `classify_readout` | Label readout and unsupervised label pressure over in-band label/property witnesses. |
+| `survey_community`, `vote_swarm`, `class_prototype`, `classify_readout` | Label readout and unsupervised label pressure over in-band label/property witnesses. `class_prototype` is a halt-only compatibility stub; `classify_readout` uses linked prompt affinity, community-root affinity matching, and resident community label readout without context centroids or reducer helpers. |
 | `open_ended_generation` | Experimental generation path: mutate token coordinates by gradient and spawn only frames that survive the structural witness. |
 
-Reducer operations use the direct RPN contract: `{ A(surprisal) A(signals) popcnt }` means "store `popcnt(A(signals))` in `A(surprisal)`." If a backend/lowerer drifts from that meaning, the compiler is wrong, not the source language.
+### Strict Linear ALU Contract
+
+Firmware is a fixed sixteen-word sweep. Each active program slot is decoded and
+executed once as `pc = 0..15`; there is no hidden program-counter rewind,
+`pop(B)` loop body, or `stage(B)` helper path. Recursion, iteration, and
+branching are recovered by Values writing `properties.status` and
+`properties.continuation`, then letting the scheduler resubmit the Value.
+
+Allowed public ALU surface:
+
+- Truth-table bitwise ops with masked writes.
+- `gossip(B)` Hypercube broadcast/fold, including `target=A` owner-side fold for bitwise truth-table ops.
+- `popcnt` compare/store predicates.
+- Generic scalar sublane ops: `shiftl`, `shiftr`, `rotl`, and `rotr`.
+- SrcB byte rotation metadata through `rot8(...)`.
+- Raw geometric slots (`compose`, `sandwich`, `reverse`) over the frame's multivector lanes.
+
+Rejected helper calls: `pop(B)`, `stage(B)`, `argmin_nonzero`, `mode_eq`,
+`zipf_select`, `geo_centroid`, `geo_nearest`, `run_zero`, `run_one`, and
+`align_zero`; `any_zero` is likewise outside the strict scalar surface.
+CSA/popcount code may still exist as an implementation strategy
+inside a kernel, but it is not a semantic reducer exposed to firmware.
 
 ### Candidate Program Pressure
 
-Program selection stays an **in-band** reducer contract, not a Go-side router; the reusable primitive is **`zipf_select`**.
-
-**Key concepts**
-
-- **`zipf_select`** — lane reducer expressed as **`zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)`**.
-- **`temperature`** — scalar on **A.properties.temperature**: zero is greedy sampling; larger values flatten tail pressure toward a more uniform ladder.
-- **Eligibility firmware** — exposes which candidate frames exist and fills their candidate / utility lanes; **`zipf_select` never inspects opaque program bytes**.
-- **`program_carrier`** / carrier firmware — may hold one payload slice in **`asset[0,16]`** alongside **`program_id`**, installing into **`program[0,16]`** and stamping **`continuation = id`**; it does **not** decide eligibility or ranking beyond carrying bytes.
+Program selection stays **in-band** by making candidate identity, utility,
+temperature, and carrier payload ordinary Value words. Selection policy is
+firmware state plus continuation, not a Go-side router and not a named ALU
+reducer.
 
 Only Values with both a non-empty **`program`** region and non-zero **`continuation`** compete as resident program carriers; settled residents retain firmware bytes without pinning the gossip pass.
 
-```text
-zipf_select(B.properties.program_id, B.properties.confidence, A.properties.temperature)
-```
-
-**⚙️ Reducer behavior (`zipf_select`)**
-
-- Skips zero **`program_id`** entries — they do not consume rank mass.
-- Ranks surviving B-side peers by the supplied **confidence** (**utility**) word and writes one chosen **`program_id`** onto the **A-side** destination property.
-- When **`temperature = 0`**, selects the strongest utility survivor deterministically.
-
 **🎲 Sampling & policy separation**
 
-Ranking and Zipf-band selection are deterministic from resident owner witnesses (**`id`**, **`epoch`**, **`community`**, **`surprisal`**) plus active candidate counts, so runs stay reproducible as frame state evolves. **`Eligibility firmware`** chooses which **`program_id`** surfaces exist and what utility each publishes; **`zipf_select`** only applies that ranked economy. Carrier firmware transports payload words after the reducer has chosen **`program_id`**, preserving the invariant that selectors pick *which* carrier runs—not *what bytes* live behind the handshake.
+Ranking and sampling must be deterministic from resident owner witnesses
+(**`id`**, **`epoch`**, **`community`**, **`surprisal`**) plus active candidate
+counts, so runs stay reproducible as frame state evolves. Eligibility firmware
+chooses which **`program_id`** surfaces exist and what utility each publishes.
+Carrier firmware transports payload words after selection, preserving the
+invariant that selectors pick *which* carrier runs, not *what bytes* live behind
+the handshake.
 
 ### Community Recruitment
 
-Communities are formed by query Values handing matching peers to recruiter Values. The `query` program uses a two-word selector in `A.context`: `context[0]` is the B-side frame word to inspect, and `context[1]` is the scalar value to compare. Source like `B.{{A.context[0,1]}} == {{A.context[1,1]}}` lowers to an install-time operand substitution for the selected B word and an install-time constant substitution for the threshold. The current bootstrap writes `properties.community` as the key and `0` as the value, so ingress selects unassigned peers without hardcoding that predicate in the compiler or backend.
+Communities are formed by resident sample heads. `primitive.NewValue` links
+multi-segment samples with `prev` / `next` and writes the head ID into
+`properties.reference` on every segment. For classification, `vm.Machine.Load`
+ingests only the train split; prompts come from the test split. Load installs
+`recruit_community` on each train head and drains the backend. The firmware then
+runs `gossip(B)` over the live store, admits only peers whose `reference`
+matches `A.id`, folds their affinity into the head, stamps
+`community = A.id` onto the linked Values, and marks the head as the readout
+root.
 
-Matching peers are tagged entirely in-band: the query writes `B.properties.reference <- A.properties.reference`, marks the peer `SELECTED`, and marks the referenced recruiter `READY` when `B.id == A.properties.reference`. `compute.Backend` then gives a READY resident only the peers whose `reference` matches the resident's reference lane and whose status is `SELECTED`; if no such lane exists, the resident runs over the full live community.
-
-The `recruit_community` program pops the selected lane and ignores candidates whose `properties.community` is already non-zero. The first residual candidate seeds `context[0,5]`; candidates are accepted when `popcnt(xor(A.context[0,5], B.affinity)) < 64`. Accepted candidates receive `community = A.id`, and their affinity is folded back into the recruiter's own `affinity[0,5]`, which is the community aggregate. When a pass accepted at least one candidate, the recruiter writes `community = A.id` and `target = A.id` onto itself so prompt readout can route against that seed and keep the selected community key. The `emit { ... }` body writes the resident `program`, `asset` constants, and reference lane onto a fresh child frame. Bare destinations inside `emit` target the child; explicit `A.*` and `B.*` still target the resident and mapped peer.
-
-The VM does not assign communities itself. Its bootstrap responsibility is to allocate the initial query/recruiter pair and seed the query lane with freshly tokenized Values. The clustering rule remains resident firmware over `reference`, `affinity`, and `community`, not a Go-side assignment pass.
+The legacy `query` firmware still exists for selector/carrier experiments:
+its two-word `A.context` selector lowers through install-time operand and
+constant substitution. The default sample-load path no longer allocates a
+query/recruiter helper pair for classification; the clustering rule remains
+resident firmware over `reference`, `affinity`, and `community`.
 
 ### How Programs See Peer Data — Hypercube Mapping
 

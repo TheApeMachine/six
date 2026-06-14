@@ -186,10 +186,9 @@ func BenchmarkValueRegionConfigMaxTokenIngestBytes(b *testing.B) {
 }
 
 /*
-TestRecruitCommunityPredicate verifies that recruitment remains guarded in
-firmware: the Hamming-distance budget must compile to a scratch xor followed by
-an in-band popcount predicate, and accepted recruiter headers must self-stamp
-the community key used by prompt readout.
+TestRecruitCommunityPredicate verifies that recruitment remains an in-band
+gossip sweep: linked peers are stamped by ALU writes, while the sample head
+self-stamps the header key used by prompt readout.
 */
 func TestRecruitCommunityPredicate(t *testing.T) {
 	Convey("Given the compiled recruit_community firmware", t, func() {
@@ -197,27 +196,26 @@ func TestRecruitCommunityPredicate(t *testing.T) {
 		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
 		const (
-			wordOpcodeXOR       = 0x6
 			wordOpcodeWrite     = 0x3 // copies register A into dest (COPYA / write paths)
 			wordOpcodeOR        = 0x7
-			tokensScratchStart  = 40
-			tokensXorSpan       = 5
 			affinityLaneStart   = 123
 			affinityLaneSpan    = 5
-			constPoolMinWord    = 73        // asset/const pool begins after mask word
 			headerSourceStart   = 122       // header scratch uses id word lane
+			chainReferenceSlot  = 67        // properties.reference points at the sample head
 			headerCommunitySlot = 64        // route header community field
 			headerTargetSlot    = 65        // route header target field
+			headerRoleSlot      = 66        // route header role field
 			predicateBit        = uint64(1) // InstrPredBitShift
-			popcountStoreCond   = uint64(0) // predicate uses cond=0 in this pattern
+			peerTarget          = uint64(1)
 		)
 
-		Convey("It encodes the Hamming-distance predicate and community header key", func() {
-			foundXor := false
+		Convey("It encodes the peer stamp and community header key", func() {
 			foundPredicate := false
 			foundAffinityWrite := false
 			foundHeaderCommunityWrite := false
 			foundHeaderTargetWrite := false
+			foundHeaderRoleWrite := false
+			foundPeerCommunityWrite := false
 
 			for _, word := range entry.Words {
 				if word == 0 {
@@ -226,17 +224,15 @@ func TestRecruitCommunityPredicate(t *testing.T) {
 
 				opcode := word & 0xF
 				predicate := (word >> 57) & 1
-				cond := (word >> 58) & 7
 				aStart := (word >> 4) & 0x7F
 				aSpan := ((word >> 11) & 0x7F) + 1
+				bStart := (word >> 18) & 0x7F
 				dstStart := (word >> 32) & 0x7F
 				dstSpan := ((word >> 39) & 0x7F) + 1
+				target := (word >> 53) & 0x3
+				srcAFromB := (word >> 61) & 1
 
-				if opcode == wordOpcodeXOR && aStart == tokensScratchStart && aSpan == tokensXorSpan && dstStart >= constPoolMinWord && dstSpan == tokensXorSpan {
-					foundXor = true
-				}
-
-				if predicate == predicateBit && cond == popcountStoreCond && aStart >= constPoolMinWord && aSpan == 1 {
+				if predicate == predicateBit && srcAFromB == 1 && aStart == chainReferenceSlot && bStart == headerSourceStart && aSpan == 1 {
 					foundPredicate = true
 				}
 
@@ -244,32 +240,29 @@ func TestRecruitCommunityPredicate(t *testing.T) {
 					foundAffinityWrite = true
 				}
 
-				if opcode == wordOpcodeWrite && aStart == headerSourceStart && aSpan == 1 && dstStart == headerCommunitySlot && dstSpan == 1 {
+				if opcode == wordOpcodeWrite && target == peerTarget && aStart == headerSourceStart && dstStart == headerCommunitySlot && dstSpan == 1 {
+					foundPeerCommunityWrite = true
+				}
+
+				if opcode == wordOpcodeWrite && target == 0 && aStart == headerSourceStart && aSpan == 1 && dstStart == headerCommunitySlot && dstSpan == 1 {
 					foundHeaderCommunityWrite = true
 				}
 
-				if opcode == wordOpcodeWrite && aStart == headerSourceStart && aSpan == 1 && dstStart == headerTargetSlot && dstSpan == 1 {
+				if opcode == wordOpcodeWrite && target == 0 && aStart == headerSourceStart && aSpan == 1 && dstStart == headerTargetSlot && dstSpan == 1 {
 					foundHeaderTargetWrite = true
 				}
-			}
 
-			So(foundXor, ShouldBeTrue)
-			So(foundPredicate, ShouldBeTrue)
-			So(foundAffinityWrite, ShouldBeTrue)
-			So(foundHeaderCommunityWrite, ShouldBeTrue)
-			So(foundHeaderTargetWrite, ShouldBeTrue)
-		})
-
-		Convey("And the constants table stages the Hamming budget", func() {
-			hasHammingBudget := false
-
-			for _, init := range entry.Constants {
-				if init.Value == 64 {
-					hasHammingBudget = true
+				if opcode == wordOpcodeWrite && target == 0 && dstStart == headerRoleSlot && dstSpan == 1 {
+					foundHeaderRoleWrite = true
 				}
 			}
 
-			So(hasHammingBudget, ShouldBeTrue)
+			So(foundPredicate, ShouldBeTrue)
+			So(foundAffinityWrite, ShouldBeTrue)
+			So(foundPeerCommunityWrite, ShouldBeTrue)
+			So(foundHeaderCommunityWrite, ShouldBeTrue)
+			So(foundHeaderTargetWrite, ShouldBeTrue)
+			So(foundHeaderRoleWrite, ShouldBeTrue)
 		})
 	})
 }
@@ -279,12 +272,241 @@ func TestClassifyReadoutReducers(t *testing.T) {
 		entry := Cfg.Programs[CLASSIFY_READOUT]
 		So(len(entry.Words), ShouldBeGreaterThan, 0)
 
-		Convey("It uses affinity Hamming distance and generic categorical lane reducers", func() {
+		Convey("It selects labels through prompt affinity and community readout state", func() {
+			foundPromptAffinityFold := false
+			foundRootPredicate := false
 			foundAffinityXor := false
-			foundSignalPopcnt := false
-			foundArgMin := false
-			foundMode := false
-			foundSurprisalArgMin := false
+			foundDeltaPopcnt := false
+			foundNearestCompare := false
+			foundSurprisalCopy := false
+			foundCommunityCopy := false
+			foundCommunityPredicate := false
+			foundLabelCopy := false
+			foundResolved := false
+			foundReducerOpcode := false
+			constants := make(map[uint64]uint64)
+
+			for _, init := range entry.Constants {
+				constants[init.Offset] = init.Value
+			}
+
+			for _, word := range entry.Words {
+				if word == 0 {
+					continue
+				}
+
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				bStart := (word >> 18) & 0x7F
+				bSpan := ((word >> 25) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				dstSpan := ((word >> 39) & 0x7F) + 1
+				predCond := (word >> 58) & 0x7
+				target := (word >> 53) & 0x3
+				srcAFromB := (word >> 61) & 1
+
+				if opcode == 0x7 && target == 0 &&
+					aStart == 123 && aSpan == 5 &&
+					bStart == 123 && bSpan == 5 &&
+					dstStart == 123 && dstSpan == 5 {
+					foundPromptAffinityFold = true
+				}
+
+				if predicate == 1 && predCond == 4 && srcAFromB == 1 && aStart == 66 && constants[bStart] == 3 {
+					foundRootPredicate = true
+				}
+
+				if opcode == 0x6 && target == 1 &&
+					aStart == 123 && aSpan == 5 &&
+					bStart == 123 && bSpan == 5 &&
+					dstStart == 48 && dstSpan == 5 {
+					foundAffinityXor = true
+				}
+
+				if predicate == 1 && predCond == 6 && target == 1 && srcAFromB == 1 && aStart == 48 && aSpan == 5 && dstStart == 70 {
+					foundDeltaPopcnt = true
+				}
+
+				if predicate == 1 && predCond == 0 && srcAFromB == 1 && aStart == 70 && bStart == 68 {
+					foundNearestCompare = true
+				}
+
+				if opcode == 0x5 && target == 0 && bStart == 70 && dstStart == 68 {
+					foundSurprisalCopy = true
+				}
+
+				if opcode == 0x5 && target == 0 && bStart == 64 && dstStart == 64 {
+					foundCommunityCopy = true
+				}
+
+				if predicate == 1 && predCond == 4 && srcAFromB == 1 && aStart == 64 && bStart == 64 {
+					foundCommunityPredicate = true
+				}
+
+				if opcode == 0x5 && target == 0 && bStart == 56 && dstStart == 56 {
+					foundLabelCopy = true
+				}
+
+				if opcode == 0x3 && predicate == 0 && dstStart == 61 && constants[aStart] == 6 {
+					foundResolved = true
+				}
+
+				if predicate == 1 && (opcode == 0x1 || opcode == 0x2 || opcode == 0x4 || opcode == 0x5 || opcode == 0x8) {
+					foundReducerOpcode = true
+				}
+			}
+
+			So(foundPromptAffinityFold, ShouldBeTrue)
+			So(foundRootPredicate, ShouldBeTrue)
+			So(foundAffinityXor, ShouldBeTrue)
+			So(foundDeltaPopcnt, ShouldBeTrue)
+			So(foundNearestCompare, ShouldBeTrue)
+			So(foundSurprisalCopy, ShouldBeTrue)
+			So(foundCommunityCopy, ShouldBeTrue)
+			So(foundCommunityPredicate, ShouldBeTrue)
+			So(foundLabelCopy, ShouldBeTrue)
+			So(foundResolved, ShouldBeTrue)
+			So(foundReducerOpcode, ShouldBeFalse)
+		})
+	})
+}
+
+func TestClassPrototypeFirmware(t *testing.T) {
+	Convey("Given the compiled class_prototype firmware", t, func() {
+		entry := Cfg.Programs[CLASS_PROTOTYPE]
+		So(len(entry.Words), ShouldBeGreaterThan, 0)
+
+		Convey("It settles without constructing class-prototype helpers", func() {
+			foundDone := false
+			foundContinuationClear := false
+			foundContextOr := false
+			foundReadoutRole := false
+			constants := make(map[uint64]uint64)
+
+			for _, init := range entry.Constants {
+				constants[init.Offset] = init.Value
+			}
+
+			for _, word := range entry.Words {
+				if word == 0 {
+					continue
+				}
+
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				bStart := (word >> 18) & 0x7F
+				bSpan := ((word >> 25) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				dstSpan := ((word >> 39) & 0x7F) + 1
+				target := (word >> 53) & 0x3
+
+				if opcode == 0x3 && predicate == 0 && target == 0 && dstStart == 61 && constants[aStart] == 5 {
+					foundDone = true
+				}
+
+				if opcode == 0x7 && target == 0 &&
+					aStart == 40 && aSpan == 8 &&
+					bStart == 40 && bSpan == 8 &&
+					dstStart == 40 && dstSpan == 8 {
+					foundContextOr = true
+				}
+
+				if opcode == 0x0 && target == 0 && dstStart == 71 && dstSpan == 1 {
+					foundContinuationClear = true
+				}
+
+				if opcode == 0x3 && target == 0 && dstStart == 66 {
+					foundReadoutRole = true
+				}
+			}
+
+			So(foundDone, ShouldBeTrue)
+			So(foundContinuationClear, ShouldBeTrue)
+			So(foundContextOr, ShouldBeFalse)
+			So(foundReadoutRole, ShouldBeFalse)
+		})
+	})
+}
+
+func TestStructuralSignalFirmware(t *testing.T) {
+	Convey("Given the compiled structural_associate firmware", t, func() {
+		entry := Cfg.Programs[STRUCTURAL_ASSOCIATE]
+		So(len(entry.Words), ShouldBeGreaterThan, 0)
+
+		Convey("It produces explicit signal witnesses and linked peer state", func() {
+			foundTokenXor := false
+			foundConfidencePopcnt := false
+			foundOwnerNext := false
+			foundPeerPrev := false
+			foundPeerNext := false
+
+			for _, word := range entry.Words {
+				if word == 0 {
+					continue
+				}
+
+				opcode := word & 0xF
+				predicate := (word >> 57) & 1
+				aStart := (word >> 4) & 0x7F
+				aSpan := ((word >> 11) & 0x7F) + 1
+				bStart := (word >> 18) & 0x7F
+				bSpan := ((word >> 25) & 0x7F) + 1
+				dstStart := (word >> 32) & 0x7F
+				dstSpan := ((word >> 39) & 0x7F) + 1
+				target := (word >> 53) & 0x3
+				predCond := (word >> 58) & 0x7
+
+				if opcode == 0x6 && predicate == 0 &&
+					aStart == 0 && aSpan == 8 &&
+					bStart == 0 && bSpan == 8 &&
+					dstStart == 32 && dstSpan == 8 {
+					foundTokenXor = true
+				}
+
+				if predicate == 1 && predCond == 6 && aStart == 32 && aSpan == 8 && dstStart == 57 {
+					foundConfidencePopcnt = true
+				}
+
+				if opcode == 0x5 && target == 0 && bStart == 122 && dstStart == 121 {
+					foundOwnerNext = true
+				}
+
+				if opcode == 0x3 && target == 1 && aStart == 122 && dstStart == 120 {
+					foundPeerPrev = true
+				}
+
+				if opcode == 0x3 && target == 1 && aStart == 122 && dstStart == 121 {
+					foundPeerNext = true
+				}
+			}
+
+			So(foundTokenXor, ShouldBeTrue)
+			So(foundConfidencePopcnt, ShouldBeTrue)
+			So(foundOwnerNext, ShouldBeTrue)
+			So(foundPeerPrev, ShouldBeTrue)
+			So(foundPeerNext, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given the compiled structural_readout firmware", t, func() {
+		entry := Cfg.Programs[STRUCTURAL_READOUT]
+		So(len(entry.Words), ShouldBeGreaterThan, 0)
+
+		Convey("It folds association tokens and resolves the prompt head", func() {
+			foundTokenOr := false
+			foundSignalXor := false
+			foundConfidencePopcnt := false
+			foundResolved := false
+			foundDone := false
+			constants := make(map[uint64]uint64)
+
+			for _, init := range entry.Constants {
+				constants[init.Offset] = init.Value
+			}
 
 			for _, word := range entry.Words {
 				if word == 0 {
@@ -300,35 +522,35 @@ func TestClassifyReadoutReducers(t *testing.T) {
 				dstStart := (word >> 32) & 0x7F
 				predCond := (word >> 58) & 0x7
 
-				if opcode == 0x6 && aStart == 123 && aSpan == 5 && bStart == 123 && bSpan == 5 {
-					foundAffinityXor = true
+				if opcode == 0x7 && predicate == 0 &&
+					aStart == 0 && aSpan == 16 &&
+					bStart == 0 && bSpan == 16 &&
+					dstStart == 0 {
+					foundTokenOr = true
 				}
 
-				if predicate == 1 && predCond == 6 && aStart == 32 && aSpan == 5 && dstStart == 37 {
-					foundSignalPopcnt = true
+				if opcode == 0x6 && predicate == 0 && aStart == 0 && aSpan == 8 && bStart == 0 && bSpan == 8 && dstStart == 32 {
+					foundSignalXor = true
 				}
 
-				if predicate == 1 && opcode == 0x1 && bStart == 37 {
-					foundArgMin = true
+				if predicate == 1 && predCond == 6 && aStart == 32 && aSpan == 8 && dstStart == 57 {
+					foundConfidencePopcnt = true
 				}
 
-				if predicate == 1 && opcode == 0x1 && bStart == 68 {
-					foundSurprisalArgMin = true
+				if opcode == 0x3 && predicate == 0 && dstStart == 61 && constants[aStart] == 6 {
+					foundResolved = true
 				}
 
-				if predicate == 1 && opcode == 0x2 {
-					foundMode = true
+				if opcode == 0x3 && predicate == 0 && dstStart == 61 && constants[aStart] == 5 {
+					foundDone = true
 				}
 			}
 
-			So(foundAffinityXor, ShouldBeTrue)
-			So(foundSignalPopcnt, ShouldBeTrue)
-			So(foundArgMin, ShouldBeTrue)
-			// Surprisal-side argmin (predicate bit, AND opcode, bStart==68) was
-			// removed from this firmware path; keep the fingerprint negative so a
-			// refactor cannot silently reattach a duplicate reducer on lane 68.
-			So(foundSurprisalArgMin, ShouldBeFalse)
-			So(foundMode, ShouldBeTrue)
+			So(foundTokenOr, ShouldBeTrue)
+			So(foundSignalXor, ShouldBeTrue)
+			So(foundConfidencePopcnt, ShouldBeTrue)
+			So(foundResolved, ShouldBeTrue)
+			So(foundDone, ShouldBeTrue)
 		})
 	})
 }

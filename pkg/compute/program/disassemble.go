@@ -43,13 +43,12 @@ func (dis Disassembler) Disassemble(words []uint64) string {
 FormatProgramSweep16 prints Sweep16: sixteen rows ("slot NN") where NN is zero padded.
 Occupied slots print DecodeInstruction fields decoded from each packed uint64 limb:
 four-bit opcode in hex (`op=0xN`), unpacked seven-bit SrcA/B/dst spans, predStart masking
-lane (same bitfield kernels call mask start), topological routing two-bit code,
-predicate enable plus three-bit PredicateCond, emit/srcAFromB/stage/popEnd booleans spaced
-delimited ASCII with decimal span integers. Empty words render `slot NN: empty`; slices
-short of sixteen implicitly continue with empties until the sweep completes row fifteen.
-Historical DecodeInstruction stubs (aIndirect, bType) stay zero-reserved internally and
-omit from textual output altogether. Returned text is deterministic for a given slice and
-newline-separated without trailing separators.
+lane (same bitfield kernels call mask start), topological routing two-bit code, predicate
+enable plus three-bit PredicateCond, srcAFromB, and the reserved high bits. Empty words
+render `slot NN: empty`; slices short of sixteen implicitly continue with empties until
+the sweep completes row fifteen. Historical DecodeInstruction stubs (aIndirect, bType)
+stay zero-reserved internally and omit from textual output altogether. Returned text is
+deterministic for a given slice and newline-separated without trailing separators.
 */
 func FormatProgramSweep16(words []uint64) string {
 	var builder strings.Builder

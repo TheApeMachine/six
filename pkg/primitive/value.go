@@ -162,8 +162,10 @@ caller until CloseAll or Close returns them to the arena (or heap fallback).
 Segments are linked at mint time: word Prev on segment i+1 holds segment
 i's ID; word Next on segment i holds segment i+1's ID (config
 value.region.prev / next). The first segment's Prev and the last segment's
-Next remain zero so consumers can detect chain endpoints. There is no
-truncation: when the Morton slab fills, packing continues in a fresh segment.
+Next remain zero so consumers can detect chain endpoints. Each segment also
+stores the head ID in properties.reference so resident firmware can recognize
+the whole sample chain without host-side lookup. There is no truncation: when
+the Morton slab fills, packing continues in a fresh segment.
 
 A bootstrap affinity fingerprint is also folded in at mint: the populated
 token words are XOR-rolled into the configured affinity region (one word per
@@ -285,6 +287,15 @@ func NewValue(p []byte, labels ...uint64) ([]*Value, error) {
 
 		out = append(out, stamp)
 	}
+
+	if len(out) > 0 {
+		headID := out[0].ID()
+
+		for _, value := range out {
+			value.SetProperty(REFERENCE, headID)
+		}
+	}
+
 	return out, nil
 }
 

@@ -22,6 +22,8 @@ type ExperimentalData struct {
 	Prompt            string
 	Segments          []*primitive.Value
 	Resolved          []*primitive.Value
+	StartTime         int64
+	EndTime           int64
 	ClassLabels       []string
 	Prefix            []byte
 	Holdout           []byte

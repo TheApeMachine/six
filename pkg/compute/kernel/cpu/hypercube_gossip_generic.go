@@ -7,10 +7,9 @@ package cpu
 // symbol form. The receiver is passed explicitly as the first argument
 // to keep the call ergonomic from the orchestrator.
 //
-// stageBuf / stageCount give the kernel a place to record the indices
-// of peers it stages. Asm writes peer indices into stageBuf[0..*stageCount)
-// when legacy stage(B) instructions fire. Active recruitment uses in-frame
-// SELECTED/reference tags; child-target emit uses the Go kernel.
+// stageBuf / stageCount remain in the ABI so old object layouts still link.
+// Strict firmware does not stage peers; active recruitment uses in-frame
+// SELECTED/reference tags, and child-target emit uses the Go kernel.
 //
 //go:noescape
 func executeKernel(
